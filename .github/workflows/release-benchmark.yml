@@ -40,7 +40,7 @@ jobs:
 
       - name: Update Regression Reference for Future Commits
         run: |
-          .venv/bin/mini-infra-bench-check --update-reference
+          .venv/bin/mini-infra-bench-regression --update-reference
 
       - name: Upload Benchmark Reports & Data
         if: always()
@@ -49,5 +49,5 @@ jobs:
           name: benchmark-reports-${{ github.ref_name }}
           path: |
             benchmarks/reports/
-            benchmarks/results/
+            benchmarks/result-history/
             benchmarks/data/

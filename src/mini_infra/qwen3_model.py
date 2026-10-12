@@ -5,7 +5,6 @@ FlashAttention 等优化，目的是清楚展示一次完整的模型前向计�
 """
 
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -140,6 +139,7 @@ class Qwen3Attention(nn.Module):
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = config.head_dim
+        self.scaling = self.head_dim ** -0.5
         self.num_key_value_groups = (
             config.num_attention_heads // config.num_key_value_heads
         )
@@ -183,8 +183,7 @@ class Qwen3Attention(nn.Module):
         value = repeat_key_value(value, self.num_key_value_groups)
 
         # causal_mask 保证当前位置只能看到自己和之前的 Token。
-        attention_scores = torch.matmul(query, key.transpose(2, 3))
-        attention_scores = attention_scores / math.sqrt(self.head_dim)
+        attention_scores = torch.matmul(query, key.transpose(2, 3)) * self.scaling
         attention_scores = attention_scores + causal_mask
 
         # Softmax 使用 float32 计算，再转回模型 dtype，与参考实现保持一致。

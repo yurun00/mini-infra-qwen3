@@ -1,16 +1,22 @@
 """统一 benchmark：多 workload、多次重复、统计量、正确性门禁，结果以 JSON 落盘。
 
+数据源与绘图约定：
+    本命令是项目中【唯一】产生全量基准数据并归档到 benchmarks/result-history/ 的工具。
+    只有本命令写入 result-history/ 的 JSON 结果才会被 mini-infra-bench-plot 读取并绘制图表与报表。
+    （mini-infra-bench-regression 仅用于 0/1 门禁判定，其临时结果不写入该目录，亦不参与画图）。
+    数据目录默认为当前目录下的 benchmarks/，可通过环境变量 MINI_INFRA_BENCH_DIR 修改。
+    
+
 用法示例（需 pip install -e .，在项目根目录执行）：
     # 首次在 baseline 上生成 golden 输出（之后所有优化都与它比对）
     mini-infra-bench --tag baseline --update-golden
 
-    # 每次优化后运行，结果写入 benchmarks/results/<commit>_<tag>.json
+    # 每次优化后运行，结果写入 benchmarks/result-history/<commit>_<tag>.json
     mini-infra-bench --tag kv-cache
 
     # 快速试跑
     mini-infra-bench --tag dev --prompt-lens 32 --output-lens 16 --repeats 3
 
-数据目录默认为当前目录下的 benchmarks/，可通过环境变量 MINI_INFRA_BENCH_DIR 修改。
 新增优化（如 KV Cache）时，只需在 ENGINES 中注册一个新的 generate 适配函数。
 """
 
@@ -35,7 +41,7 @@ from mini_infra.qwen3_model import (
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 BENCH_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", "benchmarks")).resolve()
-RESULTS_DIR = BENCH_DIR / "results"
+RESULTS_DIR = BENCH_DIR / "result-history"
 GOLDEN_OUTPUT_PATH = BENCH_DIR / "data" / "golden_output_tokens.json"
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
 GOLDEN_MAX_OUTPUT_TOKENS = 32

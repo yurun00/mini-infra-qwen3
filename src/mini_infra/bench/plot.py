@@ -1,4 +1,9 @@
-"""读取 benchmarks/results/*.json，生成 Markdown 汇总表、序列长度扩展曲线与特性演进时间线图。
+"""读取 benchmarks/result-history/*.json，生成 Markdown 汇总表、序列长度扩展曲线与特性演进时间线图。
+
+数据源说明：
+    本模块【专门且仅读取】由 mini-infra-bench（run.py）写入 benchmarks/result-history/ 的全量基准 JSON 记录。
+    其他工具（如 mini-infra-bench-regression 的临时轻量比对文件 candidate.local.json 或 mini-infra-run 的控制台输出）
+    不进入 result-history/，因此不会被本模块绘制。
 
 用法：
     mini-infra-bench-plot                  # 以最早的结果作为 baseline
@@ -11,7 +16,7 @@ import os
 from pathlib import Path
 
 BENCH_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", "benchmarks")).resolve()
-RESULTS_DIR = BENCH_DIR / "results"
+RESULTS_DIR = BENCH_DIR / "result-history"
 REPORTS_DIR = BENCH_DIR / "reports"
 
 

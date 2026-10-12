@@ -1,14 +1,20 @@
 """性能回归检查：运行轻量版 benchmark，与参考结果比较，中位数劣化超阈值则失败。
 
+定位与数据流说明：
+    本模块是纯粹的【质量门禁与防回退守门人（Quality Gate）】，只输出退出码（0/1/2）与控制台文本。
+    其默认生成的 candidate.local.json 为临时比对文件（已被 .gitignore 忽略），不会写入
+    benchmarks/result-history/，因此【不参与】mini-infra-bench-plot 的绘图与时间线分析。
+    绘图所需的全量数据源唯一定义来自 mini-infra-bench（run.py）。
+
 用法：
     # 首次/有意接受新性能后，刷新参考结果（需提交 benchmarks/data/reference.json）
-    mini-infra-bench-check --update-reference
+    mini-infra-bench-regression --update-reference
 
     # CI / pre-push：运行轻量 benchmark 并对比参考结果，劣化 >5% 返回非零退出码
-    mini-infra-bench-check
+    mini-infra-bench-regression
 
     # 只比较两份已有结果，不重新运行
-    mini-infra-bench-check --candidate a.json --reference b.json
+    mini-infra-bench-regression --candidate a.json --reference b.json
 
 退出码：0 通过 / 跳过，1 性能回归，2 正确性失败或运行错误。
 参考结果与硬件绑定：GPU 型号不一致时默认跳过（--strict-hardware 则视为失败）。

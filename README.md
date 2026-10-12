@@ -38,15 +38,15 @@ mini-infra-qwen3/
 │       │   ├── run_inference.py       # mini-infra-run：单请求推理与计时
 │       │   └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
-│           ├── run.py                 # mini-infra-bench：统计型 benchmark（含正确性门禁）
-│           ├── plot.py                # mini-infra-bench-plot：加速比汇总表与趋势图
-│           └── regression.py          # mini-infra-bench-check：性能回归检查
+│           ├── run.py                 # mini-infra-bench：全量基准测量（落盘至 result-history/，plot 唯一数据源）
+│           ├── plot.py                # mini-infra-bench-plot：读取 result-history/ 生成汇总表与演进趋势图
+│           └── regression.py          # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码，不参与画图）
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
 │   └── gpu/                           # 需要 GPU/权重的测试（pytest -m gpu）
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
-│   ├── results/                       # 每个版本一份 <commit>_<tag>.json
+│   ├── result-history/                # 每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # SUMMARY.md、trend.png（生成物）
 ├── .github/workflows/
 │   ├── cpu-ci.yml                     # CPU 上 ruff + pytest
@@ -160,7 +160,7 @@ mini-infra-compare \
 - **单元测试**：`pytest -m "not gpu"`（覆盖算子结构、输入输出形状与基准回归比对逻辑）。
 - **零性能倒退守护（Zero-Regression Guard）**：
   ```bash
-  mini-infra-bench-check    # 轻量级（约 1 分钟），TTFT / TPOT 中位数劣化 >5% 自动拦截报警
+  mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中位数劣化 >5% 自动拦截报警
   ```
   - 本地：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 运行 ruff，push 前运行回归守护。
   - CI：PR 会在 GPU runner 上自动触发 [pr-perf-regression.yml](.github/workflows/pr-perf-regression.yml)。
@@ -173,15 +173,19 @@ mini-infra-compare \
 ```bash
 pip install -e ".[bench]"
 
-# 1. 运行全量矩阵测试并记录新版本特性（以 KV Cache 为例）
+# 1. 运行全量矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
 mini-infra-bench --tag "v0.2.0-kv-cache"
 
-# 2. 自动生成多版本演化表与对比图
+# 2. 自动生成多版本演化表与对比图（唯一定向读取 benchmarks/result-history/*.json）
 mini-infra-bench-plot
 
 # 3. 将新性能固化为后续日常开发的零退化底线
-mini-infra-bench-check --update-reference
+mini-infra-bench-regression --update-reference
 ```
+
+> **注意（数据流与绘图约定）**：
+> * **`mini-infra-bench-plot` 只消费 `mini-infra-bench`（`run.py`）的输出**：只有通过 `mini-infra-bench` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
+> * **`mini-infra-bench-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 #### 生成产物：
 - **`benchmarks/reports/SUMMARY.md`**：记录所有历史版本的详细数据与相对 Baseline 加速比。

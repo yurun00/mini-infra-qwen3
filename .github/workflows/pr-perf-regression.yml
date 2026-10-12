@@ -15,7 +15,7 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -e .
       - name: Performance regression check (threshold 5%)
-        run: .venv/bin/mini-infra-bench-check --strict-hardware
+        run: .venv/bin/mini-infra-bench-regression --strict-hardware
       - name: Upload candidate result
         if: always()
         uses: actions/upload-artifact@v4
