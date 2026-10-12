@@ -38,9 +38,9 @@ dev = [
 ]
 
 [project.scripts]
-mini-infra-smoke = "mini_infra.smoke:main"
-mini-infra-run = "mini_infra.cli.infer:main"
-mini-infra-compare = "mini_infra.cli.compare:main"
+mini-infra-smoke = "mini_infra.cli.smoke_test:main"
+mini-infra-run = "mini_infra.cli.run_inference:main"
+mini-infra-compare = "mini_infra.cli.compare_with_transformers:main"
 mini-infra-bench = "mini_infra.bench.run:main"
 mini-infra-bench-plot = "mini_infra.bench.plot:main"
 mini-infra-bench-check = "mini_infra.bench.regression:main"

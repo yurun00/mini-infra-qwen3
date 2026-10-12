@@ -33,10 +33,10 @@ mini-infra-qwen3/
 │       ├── __init__.py                # mini_infra 包导出入口
 │       ├── qwen3_model.py             # Qwen3-0.6B 结构与前向算子手写实现
 │       ├── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
-│       ├── smoke.py                   # mini-infra-smoke：随机小模型快速自检（CPU）
 │       ├── cli/
-│       │   ├── infer.py               # mini-infra-run：单请求推理与计时
-│       │   └── compare.py             # mini-infra-compare：与 Transformers 对齐
+│       │   ├── smoke_test.py          # mini-infra-smoke：随机小模型快速自检（CPU）
+│       │   ├── run_inference.py       # mini-infra-run：单请求推理与计时
+│       │   └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
 │           ├── run.py                 # mini-infra-bench：统计型 benchmark（含正确性门禁）
 │           ├── plot.py                # mini-infra-bench-plot：加速比汇总表与趋势图
@@ -49,8 +49,9 @@ mini-infra-qwen3/
 │   ├── results/                       # 每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # SUMMARY.md、trend.png（生成物）
 ├── .github/workflows/
-│   ├── ci.yml                         # CPU 上 ruff + pytest
-│   └── perf-regression.yml            # GPU runner 上的性能回归检查
+│   ├── cpu-ci.yml                     # CPU 上 ruff + pytest
+│   ├── pr-perf-regression.yml         # PR 提测：GPU runner 上的性能回归守门
+│   └── release-benchmark.yml          # Tag 发布：GPU runner 上的全量基准与趋势图
 ├── .pre-commit-config.yaml            # ruff（commit）+ 性能回归（pre-push）
 ├── pyproject.toml                     # 依赖、入口点、ruff/pytest 配置的唯一来源
 ├── requirements.txt                   # 基础推理最小依赖
@@ -162,7 +163,7 @@ mini-infra-compare \
   mini-infra-bench-check    # 轻量级（约 1 分钟），TTFT / TPOT 中位数劣化 >5% 自动拦截报警
   ```
   - 本地：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 运行 ruff，push 前运行回归守护。
-  - CI：PR 会在 GPU runner 上自动触发 [perf-regression.yml](.github/workflows/perf-regression.yml)。
+  - CI：PR 会在 GPU runner 上自动触发 [pr-perf-regression.yml](.github/workflows/pr-perf-regression.yml)。
 
 ---
 

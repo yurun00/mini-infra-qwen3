@@ -1,4 +1,4 @@
-name: perf-regression
+name: pr-perf-regression
 
 on:
   pull_request:

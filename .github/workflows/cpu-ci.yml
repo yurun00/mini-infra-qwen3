@@ -1,4 +1,4 @@
-name: ci
+name: cpu-ci
 
 on:
   push:
