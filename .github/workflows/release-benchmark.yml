@@ -1,0 +1,53 @@
+name: release-benchmark
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release / Feature Tag (例如 v0.2.0-kv-cache)'
+        required: false
+        default: 'manual-release'
+
+jobs:
+  benchmark:
+    # 仅在发布 Minor Release / Feature Tag 时触发全量矩阵 Benchmark
+    runs-on: [self-hosted, gpu]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -e ".[bench,compare]"
+
+      - name: Run Full Workload Benchmark
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ -z "$TAG" || "$TAG" == "main" || "$TAG" == "master" ]]; then
+            TAG="${{ inputs.tag || 'manual-release' }}"
+          fi
+          echo "Running benchmark for tag: $TAG"
+          .venv/bin/mini-infra-bench --tag "$TAG"
+
+      - name: Generate Reports and Evolution Plots
+        run: |
+          .venv/bin/mini-infra-bench-plot
+
+      - name: Update Regression Reference for Future Commits
+        run: |
+          .venv/bin/mini-infra-bench-check --update-reference
+
+      - name: Upload Benchmark Reports & Data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-reports-${{ github.ref_name }}
+          path: |
+            benchmarks/reports/
+            benchmarks/results/
+            benchmarks/data/

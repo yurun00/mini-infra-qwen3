@@ -1,6 +1,6 @@
 # mini-infra-qwen3
 
-本项目实现是基于 https://github.com/SVDX-lab/miniinfra/《超轻量AI Infra教程—推理篇》的代码仓库，以最精简、清晰的 Python 和 PyTorch 原生实现深入解析大模型推理引擎的核心机制与优化演进。
+本项目实现是基于 https://github.com/SVDX-lab/miniinfra/ 《超轻量AI Infra教程—推理篇》的代码仓库，以最精简、清晰的 Python 和 PyTorch 原生实现深入解析大模型推理引擎的核心机制与优化演进。
 
 本项目采用**特性驱动（Feature-Driven）**的工程演进路线，从最基础的原生模型计算与分词出发，逐步演进增加现代推理引擎的关键特性。
 
@@ -150,40 +150,45 @@ mini-infra-compare \
 
 ---
 
-## 性能 Benchmark 与优化趋势
+## 质量保证与性能发布工作流
+
+本项目采用分层测试与性能工程管理策略：**日常提交保证高周转与零倒退（Zero-Regression），大版本/新特性发布时沉淀全矩阵性能对比与时间线演进图**。
+
+### 1. 日常开发与提交（Normal Commits & PRs）
+- **快速自检**：`mini-infra-smoke`（仅需 2 秒，CPU 快速验证网络前向与因果掩码）。
+- **单元测试**：`pytest -m "not gpu"`（覆盖算子结构、输入输出形状与基准回归比对逻辑）。
+- **零性能倒退守护（Zero-Regression Guard）**：
+  ```bash
+  mini-infra-bench-check    # 轻量级（约 1 分钟），TTFT / TPOT 中位数劣化 >5% 自动拦截报警
+  ```
+  - 本地：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 运行 ruff，push 前运行回归守护。
+  - CI：PR 会在 GPU runner 上自动触发 [perf-regression.yml](.github/workflows/perf-regression.yml)。
+
+---
+
+### 2. 特性发布与 Minor Release（Feature Deliveries & Tags）
+每当完成一个重大优化特性（如 KV Cache、FlashAttention 等，对应 `v0.2.0`、`v0.3.0` 等 Minor Release）时，执行完整的基准测量与跨版本时间线演进生成：
 
 ```bash
-pip install -e ".[bench]"                        # 仅绘图需要 matplotlib
+pip install -e ".[bench]"
 
-# 1. 在 baseline 上生成 golden 输出并记录基线
-mini-infra-bench --tag baseline --update-golden
+# 1. 运行全量矩阵测试并记录新版本特性（以 KV Cache 为例）
+mini-infra-bench --tag "v0.2.0-kv-cache"
 
-# 2. 每完成一个优化（如 KV Cache）后运行，输出与 golden 不一致会拒绝记录
-mini-infra-bench --tag kv-cache
-
-# 3. 生成汇总表（benchmarks/reports/SUMMARY.md）与趋势图（benchmarks/reports/trend.png）
+# 2. 自动生成多版本演化表与对比图
 mini-infra-bench-plot
+
+# 3. 将新性能固化为后续日常开发的零退化底线
+mini-infra-bench-check --update-reference
 ```
 
-数据目录默认是当前目录下的 `benchmarks/`，可用环境变量 `MINI_INFRA_BENCH_DIR` 修改。
+#### 生成产物：
+- **`benchmarks/reports/SUMMARY.md`**：记录所有历史版本的详细数据与相对 Baseline 加速比。
+- **`benchmarks/reports/timeline.png`（特性演进时间线图）**：横轴展示随着各个 Feature（Baseline $\to$ KV Cache $\to$ FlashAttention...）的引入，Decode 延迟逐步下降、吞吐逐步提升、加速比递增的演变趋势。
+- **`benchmarks/reports/trend.png`（序列长度扩展曲线）**：各版本在不同 Prompt 长度（32 $\sim$ 1024+）下的延迟变化曲线。
 
-- Workload 矩阵：prompt 长度 × 输出长度 × batch size，输入由固定 seed 合成，保证可复现。
-- 指标：TTFT、TPOT、吞吐 tokens/s、峰值显存，均使用 CUDA Event 计时，多次重复后报告 median / std / p90。
-- 每份结果记录 git commit、dirty 状态、GPU/驱动/时钟/温度，便于解释波动。
-- 新增优化路径时，在 `src/mini_infra/bench/run.py` 的 `ENGINES` 中注册一个 generate 适配函数，用 `--engine` 选择。
-
-### 性能回归检查（CI / pre-push）
-
-```bash
-mini-infra-bench-check --update-reference   # 刷新参考结果 benchmarks/data/reference.json（需提交）
-mini-infra-bench-check                      # 轻量 benchmark（约 1 分钟），TTFT/TPOT 中位数劣化 >5% 则退出码 1
-```
-
-- 判定条件：中位数劣化超过阈值（`--threshold`，默认 5%），且劣化量大于 3 倍标准差，避免噪声误报。
-- 参考结果与硬件绑定：GPU 型号不一致时默认跳过，`--strict-hardware` 则视为失败。
-- 本地：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 时跑 ruff，push 前跑性能检查。
-- CI：[perf-regression.yml](.github/workflows/perf-regression.yml) 需要带 GPU 的 self-hosted runner。
-- 有意接受的性能变化（如引入新优化后）需重新执行 `--update-reference` 并提交。
+#### CI 自动化：
+推送版本 Tag（如 `git tag v0.2.0 && git push --tags`）或在 GitHub 上手动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml)，即可全自动执行全量 Benchmark 并归档报告产物。
 
 ---
 

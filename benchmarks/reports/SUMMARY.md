@@ -8,3 +8,12 @@
 | baseline* | 5d5bd0a | 1 | 128 | 64 | 37.60 (1.00x) | 36.45 (1.00x) | 27.4 (1.00x) | 1257 | ✅ |
 | baseline* | 5d5bd0a | 1 | 512 | 64 | 39.52 (1.00x) | 37.54 (1.00x) | 26.6 (1.00x) | 1480 | ✅ |
 | baseline* | 5d5bd0a | 1 | 1024 | 64 | 102.22 (1.00x) | 110.72 (1.00x) | 9.0 (1.00x) | 1778 | ✅ |
+
+## 可视化趋势分析
+
+### 1. 特性演进时间线 (Feature Evolution Timeline)
+![Feature Timeline](timeline.png)
+
+### 2. 序列长度扩展曲线 (Prompt Length Scaling)
+![Prompt Scaling](trend.png)
+
