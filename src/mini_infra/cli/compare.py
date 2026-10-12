@@ -1,27 +1,21 @@
-"""逐步比较手写实现与 Transformers 参考实现。"""
+"""逐步比较手写实现与 Transformers 参考实现。入口： mini-infra-compare（需安装 .[compare]）。"""
 
 import argparse
-import sys
-from pathlib import Path
-
-# 支持在未安装包时直接从项目根目录执行
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
+    Qwen3Config,
     load_handwritten_model,
     model_dtype_from_config,
-    Qwen3Config,
     resolve_model_directory,
 )
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="与 Transformers 对比逐 Token 输出")
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument(
@@ -35,7 +29,7 @@ def parse_args():
         default=0.25,
         help="Logits 最大绝对误差阈值",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 @torch.inference_mode()
@@ -102,8 +96,10 @@ def compare_step_by_step(
     }
 
 
-def main():
-    args = parse_args()
+def main(argv=None):
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    args = parse_args(argv)
     if args.max_new_tokens < 1:
         raise ValueError("--max-new-tokens 必须大于 0")
     if not torch.cuda.is_available():

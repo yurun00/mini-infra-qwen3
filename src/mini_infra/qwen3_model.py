@@ -15,7 +15,6 @@ from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 from torch import nn
 
-
 # 固定模型版本可以避免上游权重更新后，实验结果悄悄发生变化。
 DEFAULT_MODEL_ID = "Qwen/Qwen3-0.6B"
 DEFAULT_MODEL_REVISION = "c1899de289a04d12100db370d81485cdf75e47ca"

@@ -8,6 +8,13 @@ version = "0.1.0"
 description = "超轻量 AI Infra 教程 — 手写 Qwen3 推理与性能工程"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Intended Audience :: Education",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "torch>=2.0.0",
     "huggingface-hub>=0.20.0",
@@ -16,9 +23,47 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 与 Transformers 的逐 Token 对照
 compare = [
     "transformers>=4.45.0",
 ]
+# 性能趋势图
+bench = [
+    "matplotlib",
+]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.5",
+    "pre-commit",
+]
+
+[project.scripts]
+mini-infra-smoke = "mini_infra.smoke:main"
+mini-infra-run = "mini_infra.cli.infer:main"
+mini-infra-compare = "mini_infra.cli.compare:main"
+mini-infra-bench = "mini_infra.bench.run:main"
+mini-infra-bench-plot = "mini_infra.bench.plot:main"
+mini-infra-bench-check = "mini_infra.bench.regression:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+mini_infra = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: 需要 NVIDIA GPU（以及可下载的模型权重）的测试",
+]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# 教学代码统一使用 % 格式化；zip 不需要 strict
+ignore = ["UP031", "B905"]

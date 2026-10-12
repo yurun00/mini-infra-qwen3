@@ -1,0 +1,17 @@
+# 安装：pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push
+# 性能检查需要 GPU 且耗时约 1 分钟，因此只挂在 pre-push，不放在每次 commit。
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+  - repo: local
+    hooks:
+      - id: perf-regression
+        name: performance regression check (>5%)
+        entry: mini-infra-bench-check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

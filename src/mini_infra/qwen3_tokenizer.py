@@ -10,7 +10,6 @@ from pathlib import Path
 
 import regex
 
-
 # 这个正则表达式来自固定模型版本的 tokenizer.json。它先把文本切成
 # 较小片段，之后再对每个片段分别执行 Byte-level BPE。
 PRE_TOKEN_PATTERN = regex.compile(

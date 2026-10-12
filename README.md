@@ -32,13 +32,27 @@ mini-infra-qwen3/
 │   └── mini_infra/
 │       ├── __init__.py                # mini_infra 包导出入口
 │       ├── qwen3_model.py             # Qwen3-0.6B 结构与前向算子手写实现
-│       └── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
-├── scripts/
-│   └── run_inference.py               # 单请求推理运行与性能计时脚本
+│       ├── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
+│       ├── smoke.py                   # mini-infra-smoke：随机小模型快速自检（CPU）
+│       ├── cli/
+│       │   ├── infer.py               # mini-infra-run：单请求推理与计时
+│       │   └── compare.py             # mini-infra-compare：与 Transformers 对齐
+│       └── bench/
+│           ├── run.py                 # mini-infra-bench：统计型 benchmark（含正确性门禁）
+│           ├── plot.py                # mini-infra-bench-plot：加速比汇总表与趋势图
+│           └── regression.py          # mini-infra-bench-check：性能回归检查
 ├── tests/
-│   ├── smoke_test.py                  # 随机小模型快速自检（支持 CPU）
-│   └── compare_with_transformers.py   # 与 HuggingFace Transformers 对齐验证
-├── pyproject.toml                     # 项目标准打包与安装配置（支持 pip install -e .）
+│   ├── unit/                          # CPU 单元测试（pytest）
+│   └── gpu/                           # 需要 GPU/权重的测试（pytest -m gpu）
+├── benchmarks/
+│   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
+│   ├── results/                       # 每个版本一份 <commit>_<tag>.json
+│   └── reports/                       # SUMMARY.md、trend.png（生成物）
+├── .github/workflows/
+│   ├── ci.yml                         # CPU 上 ruff + pytest
+│   └── perf-regression.yml            # GPU runner 上的性能回归检查
+├── .pre-commit-config.yaml            # ruff（commit）+ 性能回归（pre-push）
+├── pyproject.toml                     # 依赖、入口点、ruff/pytest 配置的唯一来源
 ├── requirements.txt                   # 基础推理最小依赖
 ├── requirements-compare.txt           # 对齐评测扩展依赖
 ├── requirements-lock.txt              # 完整依赖锁文件
@@ -81,9 +95,11 @@ python -m pip install -r requirements-lock.txt
 python -m pip install -r requirements.txt
 ```
 
-可选：将项目以可编辑模式（Editable Mode）安装至当前虚拟环境：
+安装项目（命令行入口依赖它）：
 ```bash
-pip install -e .
+pip install -e .                    # 仅推理
+pip install -e ".[compare,bench]"   # 加上 Transformers 对照与绘图
+pip install -e ".[dev]"            # 开发：pytest、ruff、pre-commit
 ```
 
 > **提示**：首次运行会从 Hugging Face 下载固定版本的 `Qwen/Qwen3-0.6B`。如果服务器访问 Hugging Face 受限，可设置镜像端点：
@@ -98,17 +114,17 @@ pip install -e .
 使用随机生成的小模型在 CPU 上快速验证模型结构与 Causal Mask 计算正确性（无需下载真实权重）：
 
 ```bash
-python tests/smoke_test.py
+mini-infra-smoke
 ```
 
-输出 `smoke test passed` 即表示自检通过。
+输出 `smoke test passed` 即表示自检通过。完整的 CPU 测试集（含 smoke test）可用 `pytest -m "not gpu"` 运行。
 
 ---
 
 ### 3. 运行推理与计时
 
 ```bash
-python scripts/run_inference.py \
+mini-infra-run \
   --prompt "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
 ```
@@ -120,9 +136,10 @@ python scripts/run_inference.py \
 ### 4. 与 Transformers 对照测试
 
 ```bash
-python tests/compare_with_transformers.py \
+mini-infra-compare \
   --prompt "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
+# 或作为 pytest GPU 用例：pytest -m gpu
 ```
 
 对照程序会验证分词一致性，并在相同 greedy decoding 条件下逐步比较手写模型与 Transformers 的：
@@ -130,6 +147,43 @@ python tests/compare_with_transformers.py \
 - Logits 最大绝对误差；
 - Logits 平均绝对误差；
 - 最终生成文本。
+
+---
+
+## 性能 Benchmark 与优化趋势
+
+```bash
+pip install -e ".[bench]"                        # 仅绘图需要 matplotlib
+
+# 1. 在 baseline 上生成 golden 输出并记录基线
+mini-infra-bench --tag baseline --update-golden
+
+# 2. 每完成一个优化（如 KV Cache）后运行，输出与 golden 不一致会拒绝记录
+mini-infra-bench --tag kv-cache
+
+# 3. 生成汇总表（benchmarks/reports/SUMMARY.md）与趋势图（benchmarks/reports/trend.png）
+mini-infra-bench-plot
+```
+
+数据目录默认是当前目录下的 `benchmarks/`，可用环境变量 `MINI_INFRA_BENCH_DIR` 修改。
+
+- Workload 矩阵：prompt 长度 × 输出长度 × batch size，输入由固定 seed 合成，保证可复现。
+- 指标：TTFT、TPOT、吞吐 tokens/s、峰值显存，均使用 CUDA Event 计时，多次重复后报告 median / std / p90。
+- 每份结果记录 git commit、dirty 状态、GPU/驱动/时钟/温度，便于解释波动。
+- 新增优化路径时，在 `src/mini_infra/bench/run.py` 的 `ENGINES` 中注册一个 generate 适配函数，用 `--engine` 选择。
+
+### 性能回归检查（CI / pre-push）
+
+```bash
+mini-infra-bench-check --update-reference   # 刷新参考结果 benchmarks/data/reference.json（需提交）
+mini-infra-bench-check                      # 轻量 benchmark（约 1 分钟），TTFT/TPOT 中位数劣化 >5% 则退出码 1
+```
+
+- 判定条件：中位数劣化超过阈值（`--threshold`，默认 5%），且劣化量大于 3 倍标准差，避免噪声误报。
+- 参考结果与硬件绑定：GPU 型号不一致时默认跳过，`--strict-hardware` 则视为失败。
+- 本地：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 时跑 ruff，push 前跑性能检查。
+- CI：[perf-regression.yml](.github/workflows/perf-regression.yml) 需要带 GPU 的 self-hosted runner。
+- 有意接受的性能变化（如引入新优化后）需重新执行 `--update-reference` 并提交。
 
 ---
 

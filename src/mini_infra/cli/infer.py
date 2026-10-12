@@ -1,12 +1,7 @@
-"""运行手写 Qwen3-0.6B 单请求推理，并记录原始 baseline。"""
+"""运行手写 Qwen3-0.6B 单请求推理，并记录原始 baseline。入口： mini-infra-run。"""
 
 import argparse
-import sys
 import time
-from pathlib import Path
-
-# 支持在未安装包时直接从项目根目录执行
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import torch
 
@@ -54,7 +49,7 @@ def generate_with_metrics(model, input_ids, max_new_tokens, eos_token_id, device
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    for step in range(max_new_tokens):
+    for _step in range(max_new_tokens):
         synchronize(device)
         start_time = time.perf_counter()
         logits = model(generated_ids)
