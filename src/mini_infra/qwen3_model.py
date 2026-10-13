@@ -95,11 +95,28 @@ class RotaryEmbedding(nn.Module):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
     def forward(self, position_ids, output_dtype):
-        # freqs: [batch, sequence_length, head_dim / 2]
+        """计算指定位置索引的正弦与余弦编码。
+
+        Args:
+            position_ids: Token 位置索引张量，形状为 [batch_size, sequence_length]。
+            output_dtype: 输出张量的数据类型（如 torch.bfloat16）。
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]:
+                - cosine: 余弦位置编码，形状为 [batch_size, sequence_length, head_dim]
+                - sine:   正弦位置编码，形状为 [batch_size, sequence_length, head_dim]
+        """
+        # freqs 形状: [batch_size, sequence_length, head_dim // 2]
         freqs = position_ids.float().unsqueeze(-1) * self.inv_freq
-        # Qwen3 将同一组频率分别应用到向量的前半部分和后半部分。
+
+        # Qwen3 将同一组频率分别应用到向量的前半部分和后半部分（与 rotate_half 对应）。
+        # embedding 形状: [batch_size, sequence_length, head_dim]
         embedding = torch.cat((freqs, freqs), dim=-1)
-        return embedding.cos().to(output_dtype), embedding.sin().to(output_dtype)
+
+        # 返回的 cosine 与 sine 形状均为 [batch_size, sequence_length, head_dim]
+        cosine = embedding.cos().to(output_dtype)
+        sine = embedding.sin().to(output_dtype)
+        return cosine, sine
 
 
 def rotate_half(hidden_states):
@@ -112,13 +129,34 @@ def rotate_half(hidden_states):
 
 
 def apply_rotary_embedding(query, key, cosine, sine):
-    """把 RoPE 同时应用到 Query 和 Key。"""
+    """把 RoPE 同时应用到 Query 和 Key。
 
-    # Query/Key 多一个 attention head 维度，需要在这里补一个维度用于广播。
+    Args:
+        query: Query 张量，形状为 [batch_size, num_attention_heads, sequence_length, head_dim]。
+        key: Key 张量，形状为 [batch_size, num_key_value_heads, sequence_length, head_dim]。
+        cosine: 余弦位置编码，形状为 [batch_size, sequence_length, head_dim]。
+        sine: 正弦位置编码，形状为 [batch_size, sequence_length, head_dim]。
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]:
+            - rotated_query: 旋转后的 Query，形状为 [batch_size, num_attention_heads, sequence_length, head_dim]。
+            - rotated_key: 旋转后的 Key，形状为 [batch_size, num_key_value_heads, sequence_length, head_dim]。
+    """
+    # cosine / sine 原形状: [batch_size, sequence_length, head_dim]
+    # 在第 1 维 (head 维度) 插入一个维度，变为 [batch_size, 1, sequence_length, head_dim]
     cosine = cosine.unsqueeze(1)
     sine = sine.unsqueeze(1)
+
+    # query 与 rotate_half(query) 形状均为 [batch_size, num_attention_heads, sequence_length, head_dim]
+    # cosine / sine 在第 1 维 (head 维) 广播，运算后形状保持:
+    # [batch_size, num_attention_heads, sequence_length, head_dim]
     rotated_query = query * cosine + rotate_half(query) * sine
+
+    # key 与 rotate_half(key) 形状均为 [batch_size, num_key_value_heads, sequence_length, head_dim]
+    # 同样在 head 维广播，运算后形状保持:
+    # [batch_size, num_key_value_heads, sequence_length, head_dim]
     rotated_key = key * cosine + rotate_half(key) * sine
+
     return rotated_query, rotated_key
 
 
