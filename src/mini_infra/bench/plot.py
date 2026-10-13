@@ -48,8 +48,7 @@ def markdown_table(records, base, key="prompt_len"):
         flag = {True: "✅", False: "❌", None: "—"}[ok]
         for k, w in sorted(index(rec).items()):
             b = base_idx.get(k)
-            ttft, tpot, thr = (w["ttft_ms"]["median"], w["tpot_ms"]["median"],
-                               w["throughput_tok_s"]["median"])
+            ttft, tpot, thr = (w["ttft_ms"]["median"], w["tpot_ms"]["median"], w["throughput_tok_s"]["median"])
             if b:
                 s_ttft = f" ({b['ttft_ms']['median'] / ttft:.2f}x)"
                 s_tpot = f" ({b['tpot_ms']['median'] / tpot:.2f}x)" if tpot else ""
@@ -59,7 +58,8 @@ def markdown_table(records, base, key="prompt_len"):
             lines.append(
                 f"| {label(rec)} | {rec['git']['commit']} | {k[0]} | {k[1]} | {k[2]} | "
                 f"{ttft:.2f}{s_ttft} | {tpot:.2f}{s_tpot} | {thr:.1f}{s_thr} | "
-                f"{w['peak_memory_mb']:.0f} | {flag} |")
+                f"{w['peak_memory_mb']:.0f} | {flag} |"
+            )
     return "\n".join(lines)
 
 
@@ -71,13 +71,15 @@ def plot_scaling(records, out_path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    metrics = [("ttft_ms", "TTFT / Prefill (ms)"), ("tpot_ms", "TPOT / Decode (ms/token)"),
-               ("throughput_tok_s", "Throughput (tokens/s)")]
+    metrics = [
+        ("ttft_ms", "TTFT / Prefill (ms)"),
+        ("tpot_ms", "TPOT / Decode (ms/token)"),
+        ("throughput_tok_s", "Throughput (tokens/s)"),
+    ]
     fig, axes = plt.subplots(1, 3, figsize=(17, 4.8))
     for ax, (metric, title) in zip(axes, metrics):
         for rec in records:
-            ws = sorted((w for w in rec["workloads"] if w["batch_size"] == 1),
-                        key=lambda w: w["prompt_len"])
+            ws = sorted((w for w in rec["workloads"] if w["batch_size"] == 1), key=lambda w: w["prompt_len"])
             if not ws:
                 continue
             x = [w["prompt_len"] for w in ws]
@@ -166,11 +168,15 @@ def plot_timeline(records, base, out_path):
         bars = ax3.bar(offsets, speedups, width=bar_width, label=f"prompt={pl}", alpha=0.85)
         for bar in bars:
             height = bar.get_height()
-            ax3.annotate(f"{height:.2f}x",
-                         xy=(bar.get_x() + bar.get_width() / 2, height),
-                         xytext=(0, 3),
-                         textcoords="offset points",
-                         ha="center", va="bottom", fontsize=8)
+            ax3.annotate(
+                f"{height:.2f}x",
+                xy=(bar.get_x() + bar.get_width() / 2, height),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
 
     ax3.set_xticks(x_indices)
     ax3.set_xticklabels(version_labels, rotation=15, ha="right")
@@ -197,8 +203,7 @@ def main():
     records = load_results()
     if not records:
         raise SystemExit(f"{RESULTS_DIR} 中没有结果，请先运行 run_benchmark.py")
-    base = next((r for r in records if r["tag"] == args.baseline), records[0]) \
-        if args.baseline else records[0]
+    base = next((r for r in records if r["tag"] == args.baseline), records[0]) if args.baseline else records[0]
 
     table = markdown_table(records, base)
     content = [

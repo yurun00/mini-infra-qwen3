@@ -17,9 +17,7 @@ from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 def parse_args():
     parser = argparse.ArgumentParser(description="运行手写 Qwen3-0.6B 推理")
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本"
-    )
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--warmup", type=int, default=1, help="正式计时前的预热次数")

@@ -5,7 +5,7 @@
     只有本命令写入 result-history/ 的 JSON 结果才会被 mini-infra-bench-plot 读取并绘制图表与报表。
     （mini-infra-bench-regression 仅用于 0/1 门禁判定，其临时结果不写入该目录，亦不参与画图）。
     数据目录默认为当前目录下的 benchmarks/，可通过环境变量 MINI_INFRA_BENCH_DIR 修改。
-    
+
 
 用法示例（需 pip install -e .，在项目根目录执行）：
     # 首次在 baseline 上生成 golden 输出（之后所有优化都与它比对）
@@ -66,7 +66,7 @@ def generate_full_recompute(model, input_ids, new_tokens):
         end.record()
         events.append((start, end))
         generated = torch.cat((generated, next_token), dim=1)
-    return generated[:, input_ids.shape[1]:], events
+    return generated[:, input_ids.shape[1] :], events
 
 
 ENGINES = {"full-recompute": generate_full_recompute}
@@ -92,9 +92,7 @@ def summarize(values):
 
 def git_info():
     def run(*args):
-        return subprocess.run(
-            ["git", *args], cwd=BENCH_DIR.parent, capture_output=True, text=True
-        ).stdout.strip()
+        return subprocess.run(["git", *args], cwd=BENCH_DIR.parent, capture_output=True, text=True).stdout.strip()
 
     return {
         "commit": run("rev-parse", "--short", "HEAD") or "unknown",
@@ -114,13 +112,26 @@ def gpu_info():
         "python": platform.python_version(),
     }
     try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=driver_version,clocks.sm,clocks.max.sm,temperature.gpu",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip().split(",")
-        info.update(driver=out[0].strip(), sm_clock_mhz=out[1].strip(),
-                    max_sm_clock_mhz=out[2].strip(), temperature_c=out[3].strip())
+        out = (
+            subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=driver_version,clocks.sm,clocks.max.sm,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            .stdout.strip()
+            .split(",")
+        )
+        info.update(
+            driver=out[0].strip(),
+            sm_clock_mhz=out[1].strip(),
+            max_sm_clock_mhz=out[2].strip(),
+            temperature_c=out[3].strip(),
+        )
     except (OSError, subprocess.CalledProcessError, IndexError):
         pass
     return info
@@ -142,9 +153,9 @@ def check_correctness(model, tokenizer, engine, device, update_golden):
     tokens = out[0].tolist()
 
     if update_golden:
-        GOLDEN_OUTPUT_PATH.write_text(json.dumps(
-            {"prompt": GOLDEN_PROMPT, "tokens": tokens, "commit": git_info()["commit"]},
-            indent=2))
+        GOLDEN_OUTPUT_PATH.write_text(
+            json.dumps({"prompt": GOLDEN_PROMPT, "tokens": tokens, "commit": git_info()["commit"]}, indent=2)
+        )
         print(f"[golden] 已写入 {GOLDEN_OUTPUT_PATH.name}（{len(tokens)} tokens）")
         return {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": True}
 
@@ -185,9 +196,13 @@ def run_workload(model, engine, prompt_len, output_len, batch_size, warmup, repe
         peak.append(torch.cuda.max_memory_allocated() / 1024**2)
 
     return {
-        "prompt_len": prompt_len, "output_len": output_len, "batch_size": batch_size,
-        "ttft_ms": summarize(ttft), "tpot_ms": summarize(tpot),
-        "e2e_ms": summarize(total), "throughput_tok_s": summarize(throughput),
+        "prompt_len": prompt_len,
+        "output_len": output_len,
+        "batch_size": batch_size,
+        "ttft_ms": summarize(ttft),
+        "tpot_ms": summarize(tpot),
+        "e2e_ms": summarize(total),
+        "throughput_tok_s": summarize(throughput),
         "peak_memory_mb": max(peak),
         "raw": {"ttft_ms": ttft, "tpot_ms": tpot, "e2e_ms": total},
     }
@@ -232,17 +247,22 @@ def main():
             for ol in args.output_lens:
                 print(f"[bench] batch={bs} prompt={pl} output={ol} ...", flush=True)
                 try:
-                    result = run_workload(model, engine, pl, ol, bs, args.warmup,
-                                          args.repeats, vocab, device)
+                    result = run_workload(model, engine, pl, ol, bs, args.warmup, args.repeats, vocab, device)
                 except torch.cuda.OutOfMemoryError:
                     print("  OOM，跳过")
                     torch.cuda.empty_cache()
                     continue
                 workloads.append(result)
-                print("  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.0f MiB" % (
-                    result["ttft_ms"]["median"], result["tpot_ms"]["median"],
-                    result["tpot_ms"]["std"], result["throughput_tok_s"]["median"],
-                    result["peak_memory_mb"]))
+                print(
+                    "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.0f MiB"
+                    % (
+                        result["ttft_ms"]["median"],
+                        result["tpot_ms"]["median"],
+                        result["tpot_ms"]["std"],
+                        result["throughput_tok_s"]["median"],
+                        result["peak_memory_mb"],
+                    )
+                )
 
     git = git_info()
     record = {
@@ -252,8 +272,13 @@ def main():
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git": git,
         "env": gpu_info(),
-        "config": {"warmup": args.warmup, "repeats": args.repeats, "model": args.model,
-                   "revision": args.revision, "dtype": str(next(model.parameters()).dtype)},
+        "config": {
+            "warmup": args.warmup,
+            "repeats": args.repeats,
+            "model": args.model,
+            "revision": args.revision,
+            "dtype": str(next(model.parameters()).dtype),
+        },
         "correctness": correctness,
         "workloads": workloads,
     }

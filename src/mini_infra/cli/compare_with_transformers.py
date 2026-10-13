@@ -18,9 +18,7 @@ from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="与 Transformers 对比逐 Token 输出")
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本"
-    )
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument(
@@ -53,9 +51,7 @@ def compare_step_by_step(
         reference_logits = reference_output.logits[:, -1, :]
 
         # 先转为 float32 再计算误差，避免低精度减法损失信息。
-        difference = (
-            handwritten_logits.float() - reference_logits.float()
-        ).abs()
+        difference = (handwritten_logits.float() - reference_logits.float()).abs()
         max_error = difference.max().item()
         mean_error = difference.mean().item()
         largest_error = max(largest_error, max_error)
@@ -154,9 +150,7 @@ def main(argv=None):
         handwritten_tokenizer.eos_token_id,
     )
 
-    generated_text = handwritten_tokenizer.decode(
-        result["token_ids"], skip_special_tokens=True
-    )
+    generated_text = handwritten_tokenizer.decode(result["token_ids"], skip_special_tokens=True)
     print("\n逐 Token 一致:", result["tokens_match"])
     print("所有步骤最大 Logits 绝对误差: %.6f" % result["largest_error"])
     print("各步骤平均 Logits 误差的均值: %.6f" % result["average_mean_error"])

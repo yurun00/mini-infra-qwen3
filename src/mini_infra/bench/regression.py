@@ -33,21 +33,18 @@ DEFAULT_REFERENCE = BENCH_DIR / "data" / "reference.json"
 DEFAULT_CANDIDATE = BENCH_DIR / "candidate.local.json"
 
 # 轻量 workload：一个短、一个中等长度，约半分钟内完成
-LIGHT_ARGS = ["--prompt-lens", "32", "512", "--output-lens", "32",
-              "--warmup", "2", "--repeats", "7"]
+LIGHT_ARGS = ["--prompt-lens", "32", "512", "--output-lens", "32", "--warmup", "2", "--repeats", "7"]
 METRICS = [("ttft_ms", "TTFT"), ("tpot_ms", "TPOT")]
 
 
 def run_light_benchmark(output, tag):
-    cmd = [sys.executable, "-m", "mini_infra.bench.run", "--tag", tag,
-           "--output", str(output), *LIGHT_ARGS]
+    cmd = [sys.executable, "-m", "mini_infra.bench.run", "--tag", tag, "--output", str(output), *LIGHT_ARGS]
     print("运行轻量 benchmark:", " ".join(cmd[1:]), flush=True)
     return subprocess.run(cmd, cwd=BENCH_DIR.parent).returncode
 
 
 def index(record):
-    return {(w["batch_size"], w["prompt_len"], w["output_len"]): w
-            for w in record["workloads"]}
+    return {(w["batch_size"], w["prompt_len"], w["output_len"]): w for w in record["workloads"]}
 
 
 def compare(candidate, reference, threshold):
@@ -59,8 +56,7 @@ def compare(candidate, reference, threshold):
         return None, ["没有可比较的共同 workload"]
 
     regressed, lines = False, []
-    lines.append(f"{'workload (bs/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}"
-                 f"{'当前(ms)':>10}{'变化':>9}  结果")
+    lines.append(f"{'workload (bs/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果")
     for key in common:
         for metric, name in METRICS:
             r, c = ref[key][metric]["median"], cand[key][metric]["median"]
@@ -70,8 +66,7 @@ def compare(candidate, reference, threshold):
             bad = change > threshold and (c - r) > noise
             regressed |= bad
             status = "❌ 回归" if bad else ("✅ 提升" if change < -threshold else "ok")
-            lines.append(f"{'/'.join(map(str, key)):<26}{name:<6}{r:>10.2f}{c:>10.2f}"
-                         f"{change:>+9.1%}  {status}")
+            lines.append(f"{'/'.join(map(str, key)):<26}{name:<6}{r:>10.2f}{c:>10.2f}{change:>+9.1%}  {status}")
     return regressed, lines
 
 
@@ -106,8 +101,7 @@ def main():
     reference = json.loads(args.reference.read_text())
 
     if candidate["env"]["gpu"] != reference["env"]["gpu"]:
-        msg = (f"GPU 不一致（参考 {reference['env']['gpu']} / 当前 {candidate['env']['gpu']}），"
-               "性能不可比")
+        msg = f"GPU 不一致（参考 {reference['env']['gpu']} / 当前 {candidate['env']['gpu']}），性能不可比"
         if args.strict_hardware:
             print("失败：" + msg)
             sys.exit(1)
@@ -115,8 +109,7 @@ def main():
         return
 
     regressed, lines = compare(candidate, reference, args.threshold)
-    print(f"\n参考版本 {reference['git']['commit']} → 当前 {candidate['git']['commit']}，"
-          f"阈值 {args.threshold:.0%}")
+    print(f"\n参考版本 {reference['git']['commit']} → 当前 {candidate['git']['commit']}，阈值 {args.threshold:.0%}")
     print("\n".join(lines))
     if regressed:
         print(f"\n性能回归：存在中位数劣化超过 {args.threshold:.0%} 的指标")

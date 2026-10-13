@@ -63,10 +63,7 @@ class Qwen3Tokenizer:
         self.id_to_token = {token_id: token for token, token_id in self.vocab.items()}
 
         # 数字越小的 merge 优先级越高。
-        self.merge_ranks = {
-            tuple(token_pair): rank
-            for rank, token_pair in enumerate(model_data["merges"])
-        }
+        self.merge_ranks = {tuple(token_pair): rank for rank, token_pair in enumerate(model_data["merges"])}
         self.bpe_cache = {}
 
         self.added_token_to_id = {}
@@ -86,10 +83,7 @@ class Qwen3Tokenizer:
         self.added_token_pattern = regex.compile("(" + "|".join(escaped_tokens) + ")")
 
         self.byte_to_unicode = build_byte_to_unicode()
-        self.unicode_to_byte = {
-            character: byte_value
-            for byte_value, character in self.byte_to_unicode.items()
-        }
+        self.unicode_to_byte = {character: byte_value for byte_value, character in self.byte_to_unicode.items()}
         self.eos_token_id = self.added_token_to_id["<|im_end|>"]
 
     def bpe(self, byte_text):
@@ -118,11 +112,7 @@ class Qwen3Tokenizer:
             merged_pieces = []
             index = 0
             while index < len(pieces):
-                if (
-                    index + 1 < len(pieces)
-                    and pieces[index] == first
-                    and pieces[index + 1] == second
-                ):
+                if index + 1 < len(pieces) and pieces[index] == first and pieces[index + 1] == second:
                     merged_pieces.append(first + second)
                     index += 2
                 else:
@@ -211,9 +201,7 @@ class Qwen3Tokenizer:
             if role not in ("system", "user") or not isinstance(content, str):
                 raise ValueError("本期聊天模板只支持 system/user 纯文本消息")
 
-            prompt_parts.append(
-                "<|im_start|>" + role + "\n" + content + "<|im_end|>\n"
-            )
+            prompt_parts.append("<|im_start|>" + role + "\n" + content + "<|im_end|>\n")
 
         if add_generation_prompt:
             # enable_thinking=False 时，Qwen3 模板会插入一个空 think 块。
@@ -227,4 +215,3 @@ class Qwen3Tokenizer:
         messages = [{"role": "user", "content": prompt}]
         prompt_text = self.apply_chat_template(messages, add_generation_prompt=True)
         return self.encode(prompt_text)
-

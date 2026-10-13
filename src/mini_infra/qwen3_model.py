@@ -177,10 +177,8 @@ class Qwen3Attention(nn.Module):
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = config.head_dim
-        self.scaling = self.head_dim ** -0.5
-        self.num_key_value_groups = (
-            config.num_attention_heads // config.num_key_value_heads
-        )
+        self.scaling = self.head_dim**-0.5
+        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
 
         query_size = config.num_attention_heads * config.head_dim
         key_value_size = config.num_key_value_heads * config.head_dim
@@ -199,21 +197,15 @@ class Qwen3Attention(nn.Module):
 
         # 投影后拆分 head，形状变为 [batch, heads, sequence, head_dim]。
         query = self.q_proj(hidden_states)
-        query = query.view(
-            batch_size, sequence_length, self.num_attention_heads, self.head_dim
-        )
+        query = query.view(batch_size, sequence_length, self.num_attention_heads, self.head_dim)
         query = self.q_norm(query).transpose(1, 2)
 
         key = self.k_proj(hidden_states)
-        key = key.view(
-            batch_size, sequence_length, self.num_key_value_heads, self.head_dim
-        )
+        key = key.view(batch_size, sequence_length, self.num_key_value_heads, self.head_dim)
         key = self.k_norm(key).transpose(1, 2)
 
         value = self.v_proj(hidden_states)
-        value = value.view(
-            batch_size, sequence_length, self.num_key_value_heads, self.head_dim
-        )
+        value = value.view(batch_size, sequence_length, self.num_key_value_heads, self.head_dim)
         value = value.transpose(1, 2)
 
         query, key = apply_rotary_embedding(query, key, cosine, sine)
@@ -225,10 +217,15 @@ class Qwen3Attention(nn.Module):
         attention_scores = attention_scores + causal_mask
 
         # Softmax 使用 float32 计算，再转回模型 dtype，与参考实现保持一致。
+        # 1. Softmax 权重 @ Value 矩阵相乘
+        # attention_probs: [batch_size, num_heads, sequence_length, sequence_length]
+        # value:           [batch_size, num_heads, sequence_length, head_dim]
+        # attention_output: [batch_size, num_heads, sequence_length, head_dim]
         attention_probs = F.softmax(attention_scores, dim=-1, dtype=torch.float32)
         attention_probs = attention_probs.to(query.dtype)
         attention_output = torch.matmul(attention_probs, value)
 
+        # contiguous() 在显存中重新分配一块内存，对不连续的内存进行拷贝和重排，确保内存是连续的，view() 才能正常工作
         attention_output = attention_output.transpose(1, 2).contiguous()
         attention_output = attention_output.view(batch_size, sequence_length, -1)
         return self.o_proj(attention_output)
@@ -239,15 +236,9 @@ class Qwen3MLP(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.gate_proj = nn.Linear(
-            config.hidden_size, config.intermediate_size, bias=False
-        )
-        self.up_proj = nn.Linear(
-            config.hidden_size, config.intermediate_size, bias=False
-        )
-        self.down_proj = nn.Linear(
-            config.intermediate_size, config.hidden_size, bias=False
-        )
+        self.gate_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
 
     def forward(self, hidden_states):
         gate = F.silu(self.gate_proj(hidden_states))
@@ -263,17 +254,13 @@ class Qwen3DecoderLayer(nn.Module):
         self.self_attn = Qwen3Attention(config)
         self.mlp = Qwen3MLP(config)
         self.input_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(
-            config.hidden_size, config.rms_norm_eps
-        )
+        self.post_attention_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
 
     def forward(self, hidden_states, cosine, sine, causal_mask):
         # Attention 子层：Pre-Norm -> Attention -> Residual。
         residual = hidden_states
         normalized = self.input_layernorm(hidden_states)
-        hidden_states = residual + self.self_attn(
-            normalized, cosine, sine, causal_mask
-        )
+        hidden_states = residual + self.self_attn(normalized, cosine, sine, causal_mask)
 
         # MLP 子层：Pre-Norm -> MLP -> Residual。
         residual = hidden_states
@@ -288,9 +275,7 @@ class Qwen3Model(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
-        self.layers = nn.ModuleList(
-            [Qwen3DecoderLayer(config) for _ in range(config.num_hidden_layers)]
-        )
+        self.layers = nn.ModuleList([Qwen3DecoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
@@ -314,14 +299,10 @@ class Qwen3Model(nn.Module):
         position_ids = torch.arange(sequence_length, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
-        causal_mask = self.make_causal_mask(
-            sequence_length, hidden_states.dtype, hidden_states.device
-        )
+        causal_mask = self.make_causal_mask(sequence_length, hidden_states.dtype, hidden_states.device)
 
         for decoder_layer in self.layers:
-            hidden_states = decoder_layer(
-                hidden_states, cosine, sine, causal_mask
-            )
+            hidden_states = decoder_layer(hidden_states, cosine, sine, causal_mask)
 
         return self.norm(hidden_states)
 
@@ -417,4 +398,3 @@ def load_handwritten_model(model_directory, device):
     model.model.rotary_emb.inv_freq = rotary_inv_freq.to(device)
     model.eval()
     return model
-
