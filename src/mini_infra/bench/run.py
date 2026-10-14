@@ -229,9 +229,7 @@ def profile_ops(model, engine, ids, output_len, top=10):
 
     averages = list(prof.key_averages())
     kernels = [
-        e
-        for e in averages
-        if getattr(e, "self_device_time_total", 0) > 0 and not e.key.startswith("mi_scope::")
+        e for e in averages if getattr(e, "self_device_time_total", 0) > 0 and not e.key.startswith("mi_scope::")
     ]
     total = sum(e.self_device_time_total for e in kernels) or 1
     kernels.sort(key=lambda e: e.self_device_time_total, reverse=True)
@@ -243,10 +241,7 @@ def profile_ops(model, engine, ids, output_len, top=10):
 
     scopes = [e for e in averages if e.key.startswith("mi_scope::")]
     scope_total = sum(e.device_time_total for e in scopes) or 1
-    by_module = {
-        e.key.split("::", 1)[1]: e.device_time_total / scope_total
-        for e in scopes
-    }
+    by_module = {e.key.split("::", 1)[1]: e.device_time_total / scope_total for e in scopes}
 
     return {
         "top_kernels": [
@@ -347,7 +342,17 @@ def check_correctness(model, tokenizer, engine, device, update_golden):
 
 
 def run_workload(
-    model, engine, prompt_len, output_len, batch_size, warmup, repeats, vocab, device, cost=None, peaks=None,
+    model,
+    engine,
+    prompt_len,
+    output_len,
+    batch_size,
+    warmup,
+    repeats,
+    vocab,
+    device,
+    cost=None,
+    peaks=None,
     with_profile=False,
 ):
     ids = make_prompt(vocab, prompt_len, batch_size, device)
@@ -412,8 +417,13 @@ def run_workload(
     }
     if cost and peaks:
         result["efficiency"] = efficiency(
-            cost, peaks, batch_size, prompt_len, output_len,
-            result["ttft_ms"]["median"], result["tpot_ms"]["median"],
+            cost,
+            peaks,
+            batch_size,
+            prompt_len,
+            output_len,
+            result["ttft_ms"]["median"],
+            result["tpot_ms"]["median"],
         )
     if with_profile:
         result["op_breakdown"] = profile_ops(model, engine, ids, output_len)
@@ -470,8 +480,18 @@ def main():
                 print(f"[bench] batch={bs} prompt={pl} output={ol} ...", flush=True)
                 try:
                     result = run_workload(
-                        model, engine, pl, ol, bs, args.warmup, args.repeats, vocab, device,
-                        cost=cost, peaks=peaks, with_profile=args.profile_ops,
+                        model,
+                        engine,
+                        pl,
+                        ol,
+                        bs,
+                        args.warmup,
+                        args.repeats,
+                        vocab,
+                        device,
+                        cost=cost,
+                        peaks=peaks,
+                        with_profile=args.profile_ops,
                     )
                 except torch.cuda.OutOfMemoryError:
                     print("  OOM，跳过")

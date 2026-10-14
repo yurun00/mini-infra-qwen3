@@ -8,6 +8,10 @@
 | baseline* | a497386 | 1 | 128 | 64 | 47.04 (1.00x) | 45.86 (1.00x) | 21.8 (1.00x) | 1257 | ✅ |
 | baseline* | a497386 | 1 | 512 | 64 | 49.38 (1.00x) | 46.84 (1.00x) | 21.3 (1.00x) | 1480 | ✅ |
 | baseline* | a497386 | 1 | 1024 | 64 | 99.68 (1.00x) | 107.52 (1.00x) | 9.3 (1.00x) | 1778 | ✅ |
+| v0.1.0* | 915b0d9 | 1 | 32 | 64 | 37.24 (1.01x) | 36.90 (0.98x) | 27.1 (0.98x) | 1201 | ✅ |
+| v0.1.0* | 915b0d9 | 1 | 128 | 64 | 47.69 (0.99x) | 46.54 (0.99x) | 21.5 (0.99x) | 1257 | ✅ |
+| v0.1.0* | 915b0d9 | 1 | 512 | 64 | 49.86 (0.99x) | 47.63 (0.98x) | 21.0 (0.98x) | 1480 | ✅ |
+| v0.1.0* | 915b0d9 | 1 | 1024 | 64 | 101.14 (0.99x) | 107.61 (1.00x) | 9.3 (1.00x) | 1778 | ✅ |
 
 ## 一、跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)
 
@@ -17,7 +21,7 @@
 
 ![Profiling](2_profiling_and_optimization.png)
 
-基于当前版本 `baseline*` 在长上下文（`prompt=1024`）下的基准测量与 profiling 结果，诊断如下：
+基于当前版本 `v0.1.0*` 在长上下文（`prompt=1024`）下的基准测量与 profiling 结果，诊断如下：
 
 ### 1. 架构模块瓶颈诊断（改哪里？）
 - 🔴 **Attention 模块耗时占比最高（40.3%）**：
@@ -41,13 +45,13 @@
 ### 5. 当前 Top 8 热点 Kernel 明细
 | 序号 | Kernel 名称 | 类别 | CUDA 耗时 (ms) | 耗时占比 | 调用次数 |
 | :-: | :--- | :-: | :-: | :-: | :-: |
-| 1 | `aten::copy_` | memory | 1816.65 | 13.0% | 23616 |
-| 2 | `aten::mm` | gemm | 1463.55 | 10.5% | 12608 |
-| 3 | `ampere_bf16_s1688gemm_bf16_128x128_ldg8_f2f_s` | gemm | 1162.08 | 8.3% | 12767 |
-| 4 | `aten::_softmax` | softmax | 1100.24 | 7.9% | 1792 |
-| 5 | `void (anonymous namespace)::softmax_warp_forw` | softmax | 1083.76 | 7.7% | 1764 |
-| 6 | `void at::native::vectorized_elementwise_kerne` | memory | 874.44 | 6.2% | 9149 |
-| 7 | `aten::bmm` | gemm | 857.04 | 6.1% | 3584 |
-| 8 | `void at::native::unrolled_elementwise_kernel<` | memory | 845.74 | 6.0% | 9085 |
+| 1 | `aten::copy_` | memory | 1814.78 | 13.0% | 23616 |
+| 2 | `aten::mm` | gemm | 1461.31 | 10.5% | 12608 |
+| 3 | `ampere_bf16_s1688gemm_bf16_128x128_ldg8_` | gemm | 1160.70 | 8.3% | 12767 |
+| 4 | `aten::_softmax` | softmax | 1098.68 | 7.9% | 1792 |
+| 5 | `void (anonymous namespace)::softmax_warp` | softmax | 1082.19 | 7.7% | 1764 |
+| 6 | `void at::native::vectorized_elementwise_` | memory | 873.61 | 6.2% | 9149 |
+| 7 | `aten::bmm` | gemm | 856.08 | 6.1% | 3584 |
+| 8 | `void at::native::unrolled_elementwise_ke` | memory | 844.73 | 6.0% | 9085 |
 
 

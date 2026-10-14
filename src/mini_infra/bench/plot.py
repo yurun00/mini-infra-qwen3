@@ -349,9 +349,7 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
 
         # 2.3 算子类型归因
         cat_items = list(w_rep["op_breakdown"].get("by_category", {}).items())[::-1]
-        bars_c = ax_cat.barh(
-            [k for k, _ in cat_items], [100 * v for _, v in cat_items], color="tab:olive", alpha=0.85
-        )
+        bars_c = ax_cat.barh([k for k, _ in cat_items], [100 * v for _, v in cat_items], color="tab:olive", alpha=0.85)
         for bar in bars_c:
             w_val = bar.get_width()
             ax_cat.annotate(
@@ -462,25 +460,25 @@ def generate_optimization_guidance(target_rec):
     lines.append("### 1. 架构模块瓶颈诊断（改哪里？）")
     if attn_share >= 0.25:
         lines.append(
-            f"- 🔴 **Attention 模块耗时占比最高（{attn_share*100:.1f}%）**：\n"
+            f"- 🔴 **Attention 模块耗时占比最高（{attn_share * 100:.1f}%）**：\n"
             "  - **现状**：自回归 Decode 阶段重复计算全量上下文历史，计算与访存开销随序列长度急剧膨胀。\n"
             "  - 👉 **优先优化行动**：**引入 KV Cache** 将每步全量重算解耦，预期可带来 5x~10x 以上吞吐跃升；"
             "后续进一步接入 **FlashAttention / SDPA 算子融合**。"
         )
     if norm_share > 0.08:
         lines.append(
-            f"- 🟡 **RMSNorm 频繁调用开销显著（耗时占比 {norm_share*100:.1f}%）**：\n"
+            f"- 🟡 **RMSNorm 频繁调用开销显著（耗时占比 {norm_share * 100:.1f}%）**：\n"
             "  - **现状**：每个 Transformer 层多次独立的 Norm 小算子带来了大量的 Kernel 启动与显存往返开销。\n"
             "  - 👉 **后续优化行动**：实施 **Fused RMSNorm**（将残差加 Add 与 RMSNorm 融合成单个 Kernel）。"
         )
     if mlp_share > 0.15:
         lines.append(
-            f"- 🟡 **MLP Block 占比偏高（耗时占比 {mlp_share*100:.1f}%）**：\n"
+            f"- 🟡 **MLP Block 占比偏高（耗时占比 {mlp_share * 100:.1f}%）**：\n"
             "  - 👉 **后续优化行动**：针对 Gate / Up 投影实施 **SwiGLU GEMM 融合**。"
         )
     if not (attn_share >= 0.25 or norm_share > 0.08 or mlp_share > 0.15):
         top_mod = max(by_mod.items(), key=lambda kv: kv[1])[0] if by_mod else "unknown"
-        lines.append(f"- 🔹 当前耗时最高的架构模块为 `{top_mod}`（占比 {by_mod.get(top_mod, 0)*100:.1f}%）。")
+        lines.append(f"- 🔹 当前耗时最高的架构模块为 `{top_mod}`（占比 {by_mod.get(top_mod, 0) * 100:.1f}%）。")
     lines.append("")
 
     # 2. 算子类型建议
@@ -488,7 +486,8 @@ def generate_optimization_guidance(target_rec):
     elem_mem_share = by_cat.get("elementwise", 0.0) + by_cat.get("memory", 0.0)
     lines.append("### 2. 算子类型与访存诊断（怎么改？）")
     lines.append(
-        f"- 🔹 **GEMM 矩阵乘占 {gemm_share*100:.1f}%**，**Elementwise + Memory 搬运占 {elem_mem_share*100:.1f}%**。\n"
+        f"- 🔹 **GEMM 矩阵乘占 {gemm_share * 100:.1f}%**，"
+        f"**Elementwise + Memory 搬运占 {elem_mem_share * 100:.1f}%**。\n"
         f"  - 访存搬运和小算子占用了近三分之一的 GPU 时间，说明存在较多碎片化临时张量读写。\n"
         "  - 👉 **技术路线**：结合 Triton 或 PyTorch Inductor 进行横向与纵向算子融合，减少 SRAM 与 HBM 之间的中间写回。"
     )
@@ -499,17 +498,17 @@ def generate_optimization_guidance(target_rec):
     lines.append("### 3. 硬件物理天花板差距")
     if mbu is not None:
         lines.append(
-            f"- 🔹 **Decode MBU（显存带宽利用率）仅为 {mbu*100:.1f}%**：\n"
+            f"- 🔹 **Decode MBU（显存带宽利用率）仅为 {mbu * 100:.1f}%**：\n"
             "  - 当前 Decode 受限于重复计算而非饱和访存，距离理想的 Memory-bound 饱和线（60%~80%）仍有巨大空间。"
         )
     if busy < 0.90:
         lines.append(
-            f"- 🔹 **GPU 忙碌比例仅为 {busy*100:.1f}%**：\n"
-            f"  - 存在约 **{100 - busy*100:.1f}%** 的 CPU Python Launch / Host-Device 同步空泡。\n"
+            f"- 🔹 **GPU 忙碌比例仅为 {busy * 100:.1f}%**：\n"
+            f"  - 存在约 **{100 - busy * 100:.1f}%** 的 CPU Python Launch / Host-Device 同步空泡。\n"
             "  - 👉 **优化行动**：后续引入 **CUDA Graph 捕获** 或静态执行图，消除 CPU 发射开销。"
         )
     else:
-        lines.append(f"- 🔹 **GPU 忙碌比例达到 {busy*100:.1f}%**：当前几乎无 CPU 空泡，瓶颈纯在 GPU 端计算与访存。")
+        lines.append(f"- 🔹 **GPU 忙碌比例达到 {busy * 100:.1f}%**：当前几乎无 CPU 空泡，瓶颈纯在 GPU 端计算与访存。")
     lines.append("")
 
     # 4. 显存结构诊断
@@ -531,9 +530,10 @@ def generate_optimization_guidance(target_rec):
         lines.append("| 序号 | Kernel 名称 | 类别 | CUDA 耗时 (ms) | 耗时占比 | 调用次数 |")
         lines.append("| :-: | :--- | :-: | :-: | :-: | :-: |")
         for idx, k in enumerate(top_kernels[:8], 1):
-            k_name = k["name"][:45]
+            k_name = k["name"][:40]
             lines.append(
-                f"| {idx} | `{k_name}` | {k['category']} | {k['cuda_ms']:.2f} | {k['share']*100:.1f}% | {k['calls']} |"
+                f"| {idx} | `{k_name}` | {k['category']} | {k['cuda_ms']:.2f} | "
+                f"{k['share'] * 100:.1f}% | {k['calls']} |"
             )
         lines.append("")
 
