@@ -86,7 +86,181 @@ def summarize(values):
         "std": statistics.pstdev(values) if len(values) > 1 else 0.0,
         "min": min(values),
         "p90": percentile(values, 90),
+        "p99": percentile(values, 99),
         "max": max(values),
+    }
+
+
+# 峰值规格表（dense、无稀疏）：(显存带宽 GB/s, FP16/BF16 Tensor 算力 TFLOPS)。
+# 未命中时请用 --peak-bandwidth-gbs / --peak-tflops 手动指定，否则 MBU/MFU 记为 None。
+GPU_PEAK_SPECS = {
+    "L4": (300.0, 121.0),
+    "T4": (320.0, 65.0),
+    "A10": (600.0, 125.0),
+    "A100": (1555.0, 312.0),
+    "H100": (3350.0, 989.0),
+    "4090": (1008.0, 165.0),
+    "3090": (936.0, 71.0),
+}
+
+
+def resolve_peak_specs(gpu_name, bandwidth_gbs=None, tflops=None):
+    spec = next((v for k, v in GPU_PEAK_SPECS.items() if k in gpu_name), (None, None))
+    return {"bandwidth_gbs": bandwidth_gbs or spec[0], "tflops": tflops or spec[1]}
+
+
+def model_cost(model):
+    """理想工作量模型（与引擎实现无关）：用于计算 MBU/MFU。
+
+    weight_bytes：每个 decode step 至少读取一遍全部权重（tied embedding 只算一份，lm_head 会读它）。
+    flops_per_token：2 * 参数量（线性层）；注意力部分另按上下文长度计算。
+    """
+
+    cfg = model.config
+    params = list(model.parameters())
+    elem = params[0].element_size()
+    n_params = sum(p.numel() for p in params)
+    return {
+        "n_params": n_params,
+        "weight_bytes": n_params * elem,
+        "kv_bytes_per_token": 2 * cfg.num_hidden_layers * cfg.num_key_value_heads * cfg.head_dim * elem,
+        "attn_flop_coeff": cfg.num_hidden_layers * cfg.num_attention_heads * cfg.head_dim,
+    }
+
+
+def efficiency(cost, peaks, batch, prompt_len, output_len, ttft_ms, tpot_ms):
+    """基于理想工作量与实测延迟，计算 prefill/decode 的 MFU 与 decode 的 MBU（带宽利用率）。"""
+
+    out = {"prefill_mfu": None, "decode_mfu": None, "decode_mbu": None}
+    ctx = prompt_len + output_len / 2  # decode 阶段平均上下文长度
+    if peaks["tflops"]:
+        peak_flops = peaks["tflops"] * 1e12
+        # prefill：线性层 2*N*P；因果注意力 QK^T 与 PV 各 2*P^2*d，取一半 -> 2*coeff*P^2
+        pre = batch * (2 * cost["n_params"] * prompt_len + 2 * cost["attn_flop_coeff"] * prompt_len**2)
+        out["prefill_mfu"] = pre / (ttft_ms / 1000) / peak_flops if ttft_ms else None
+        dec = batch * (2 * cost["n_params"] + 4 * cost["attn_flop_coeff"] * ctx)
+        out["decode_mfu"] = dec / (tpot_ms / 1000) / peak_flops if tpot_ms else None
+    if peaks["bandwidth_gbs"] and tpot_ms:
+        # 理想 decode step 至少读取：全部权重 + batch 个序列的 KV Cache
+        moved = cost["weight_bytes"] + batch * ctx * cost["kv_bytes_per_token"]
+        out["decode_mbu"] = moved / (tpot_ms / 1000) / (peaks["bandwidth_gbs"] * 1e9)
+    return out
+
+
+# 算子类别关键字（按顺序匹配，小写）。kernel 名无法区分 attention 的 matmul 与线性层 GEMM，
+# 这部分归因交给下面的 module 级 scope 统计。
+KERNEL_CATEGORIES = [
+    ("attention", ("flash", "fmha", "mem_efficient", "sdpa", "attention")),
+    ("softmax", ("softmax",)),
+    ("gemm", ("gemm", "gemv", "cutlass", "cublas", "nvjet", "sgemm", "matmul", "bmm", "addmm", "mm")),
+    ("norm", ("rms", "layer_norm", "layernorm")),
+    ("reduce", ("reduce_kernel", "reduce")),
+    ("memory", ("memcpy", "memset", "copy", "catarray", "cat_", "index", "gather", "embedding")),
+    ("elementwise", ("elementwise", "vectorized", "mul", "add", "silu", "sigmoid", "rsqrt", "pow", "neg")),
+]
+
+# module 级 scope：类名 -> 类别。最外层的 scope 吸收子模块（如 attention 内的 q/k norm 与投影）。
+MODULE_SCOPES = {
+    "Qwen3Attention": "attention_block",
+    "Qwen3MLP": "mlp_block",
+    "RMSNorm": "norm",
+    "RotaryEmbedding": "rope",
+    "Embedding": "embedding",
+}
+
+
+def kernel_category(name):
+    lowered = name.lower()
+    for category, keywords in KERNEL_CATEGORIES:
+        if any(k in lowered for k in keywords):
+            return category
+    return "other"
+
+
+def _install_scope_hooks(model):
+    """给关键模块挂 record_function 范围，使 profiler 能把 GPU 时间归到 attention/mlp/norm/lm_head 等模块。"""
+
+    from torch.profiler import record_function
+
+    handles, stack = [], []
+
+    def pre(label):
+        def hook(_module, _inputs):
+            if stack:  # 已在某个 scope 内，不重复计数
+                stack.append(None)
+                return
+            ctx = record_function(f"mi_scope::{label}")
+            ctx.__enter__()
+            stack.append(ctx)
+
+        return hook
+
+    def post(_module, _inputs, _output):
+        ctx = stack.pop()
+        if ctx is not None:
+            ctx.__exit__(None, None, None)
+
+    for name, module in model.named_modules():
+        label = MODULE_SCOPES.get(type(module).__name__) or ("lm_head" if name == "lm_head" else None)
+        if label:
+            handles.append(module.register_forward_pre_hook(pre(label)))
+            handles.append(module.register_forward_hook(post))
+    return handles
+
+
+def profile_ops(model, engine, ids, output_len, top=10):
+    """用 torch.profiler 跑一次，返回三组归因信息（定位下一步优化目标）：
+
+    - top_kernels：按 CUDA 自身耗时排序的 top-N kernel，每个带 category 标签；
+    - by_category：按 kernel 类别（gemm/softmax/elementwise/...）汇总的 GPU 耗时占比；
+    - by_module：按模块（attention_block/mlp_block/norm/lm_head/...）汇总的 GPU 耗时占比。
+    """
+
+    from torch.profiler import ProfilerActivity, profile
+
+    handles = _install_scope_hooks(model)
+    try:
+        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+            engine(model, ids, output_len)
+            torch.cuda.synchronize()
+    finally:
+        for h in handles:
+            h.remove()
+
+    averages = list(prof.key_averages())
+    kernels = [
+        e
+        for e in averages
+        if getattr(e, "self_device_time_total", 0) > 0 and not e.key.startswith("mi_scope::")
+    ]
+    total = sum(e.self_device_time_total for e in kernels) or 1
+    kernels.sort(key=lambda e: e.self_device_time_total, reverse=True)
+
+    by_category = {}
+    for e in kernels:
+        c = kernel_category(e.key)
+        by_category[c] = by_category.get(c, 0.0) + e.self_device_time_total / total
+
+    scopes = [e for e in averages if e.key.startswith("mi_scope::")]
+    scope_total = sum(e.device_time_total for e in scopes) or 1
+    by_module = {
+        e.key.split("::", 1)[1]: e.device_time_total / scope_total
+        for e in scopes
+    }
+
+    return {
+        "top_kernels": [
+            {
+                "name": e.key[:80],
+                "category": kernel_category(e.key),
+                "cuda_ms": e.self_device_time_total / 1000,
+                "share": e.self_device_time_total / total,
+                "calls": e.count,
+            }
+            for e in kernels[:top]
+        ],
+        "by_category": dict(sorted(by_category.items(), key=lambda kv: -kv[1])),
+        "by_module": dict(sorted(by_module.items(), key=lambda kv: -kv[1])),
     }
 
 
@@ -172,15 +346,22 @@ def check_correctness(model, tokenizer, engine, device, update_golden):
     return {"checked": True, "passed": passed, "match_ratio": ratio}
 
 
-def run_workload(model, engine, prompt_len, output_len, batch_size, warmup, repeats, vocab, device):
+def run_workload(
+    model, engine, prompt_len, output_len, batch_size, warmup, repeats, vocab, device, cost=None, peaks=None,
+    with_profile=False,
+):
     ids = make_prompt(vocab, prompt_len, batch_size, device)
 
     for _ in range(warmup):
         engine(model, ids, output_len)
     torch.cuda.synchronize()
 
-    ttft, tpot, total, throughput, peak = [], [], [], [], []
+    ttft, tpot, total, throughput, peak, gpu_ratio = [], [], [], [], [], []
+    baseline_alloc, peak_reserved = [], []
+    mib = 1024**2
     for _ in range(repeats):
+        torch.cuda.synchronize()
+        baseline_alloc.append(torch.cuda.memory_allocated() / mib)  # 运行前常驻显存：权重 + 输入
         torch.cuda.reset_peak_memory_stats()
         wall_start = time.perf_counter()
         _, events = engine(model, ids, output_len)
@@ -193,9 +374,22 @@ def run_workload(model, engine, prompt_len, output_len, batch_size, warmup, repe
         tpot.append(sum(decode) / len(decode) if decode else 0.0)
         total.append(wall_ms)
         throughput.append(batch_size * output_len / (wall_ms / 1000))
-        peak.append(torch.cuda.max_memory_allocated() / 1024**2)
+        peak.append(torch.cuda.max_memory_allocated() / mib)
+        peak_reserved.append(torch.cuda.max_memory_reserved() / mib)
+        # GPU 忙碌时间 / 墙钟时间：越低说明 CPU launch / 同步 / 空泡开销占比越高
+        gpu_ratio.append(min(1.0, sum(steps) / wall_ms) if wall_ms else 0.0)
 
-    return {
+    # 显存拆分：常驻(weights+输入) / 动态峰值(激活+KV Cache+临时张量) / allocator 保留（含碎片）
+    memory = {
+        "weights_mb": cost["weight_bytes"] / mib if cost else None,
+        "baseline_allocated_mb": max(baseline_alloc),
+        "peak_allocated_mb": max(peak),
+        "dynamic_peak_mb": max(p - b for p, b in zip(peak, baseline_alloc)),
+        "peak_reserved_mb": max(peak_reserved),
+        "fragmentation_mb": max(r - p for r, p in zip(peak_reserved, peak)),
+    }
+
+    result = {
         "prompt_len": prompt_len,
         "output_len": output_len,
         "batch_size": batch_size,
@@ -204,8 +398,26 @@ def run_workload(model, engine, prompt_len, output_len, batch_size, warmup, repe
         "e2e_ms": summarize(total),
         "throughput_tok_s": summarize(throughput),
         "peak_memory_mb": max(peak),
-        "raw": {"ttft_ms": ttft, "tpot_ms": tpot, "e2e_ms": total},
+        "memory": memory,
+        "gpu_time_ratio": summarize(gpu_ratio),
+        "raw": {
+            "ttft_ms": ttft,
+            "tpot_ms": tpot,
+            "e2e_ms": total,
+            "throughput_tok_s": throughput,
+            "peak_memory_mb": peak,
+            "peak_reserved_mb": peak_reserved,
+            "gpu_time_ratio": gpu_ratio,
+        },
     }
+    if cost and peaks:
+        result["efficiency"] = efficiency(
+            cost, peaks, batch_size, prompt_len, output_len,
+            result["ttft_ms"]["median"], result["tpot_ms"]["median"],
+        )
+    if with_profile:
+        result["op_breakdown"] = profile_ops(model, engine, ids, output_len)
+    return result
 
 
 def parse_args():
@@ -221,6 +433,11 @@ def parse_args():
     p.add_argument("--repeats", type=int, default=10)
     p.add_argument("--update-golden", action="store_true", help="用当前输出覆盖 golden（仅在 baseline 上使用）")
     p.add_argument("--allow-mismatch", action="store_true", help="正确性不通过时仍记录结果（会标记）")
+    p.add_argument("--peak-bandwidth-gbs", type=float, help="覆盖 GPU 峰值显存带宽（GB/s），用于 MBU")
+    p.add_argument("--peak-tflops", type=float, help="覆盖 GPU 峰值 FP16/BF16 算力（TFLOPS），用于 MFU")
+    p.add_argument(
+        "--profile-ops", action="store_true", help="每个 workload 额外跑一次 profiler，记录 top kernel 耗时占比"
+    )
     p.add_argument("--output", type=Path, help="自定义输出路径")
     return p.parse_args()
 
@@ -241,13 +458,21 @@ def main():
     if correctness["passed"] is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
+    env = gpu_info()
+    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    cost = model_cost(model)
+    if None in peaks.values():
+        print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     workloads = []
     for bs in args.batch_sizes:
         for pl in args.prompt_lens:
             for ol in args.output_lens:
                 print(f"[bench] batch={bs} prompt={pl} output={ol} ...", flush=True)
                 try:
-                    result = run_workload(model, engine, pl, ol, bs, args.warmup, args.repeats, vocab, device)
+                    result = run_workload(
+                        model, engine, pl, ol, bs, args.warmup, args.repeats, vocab, device,
+                        cost=cost, peaks=peaks, with_profile=args.profile_ops,
+                    )
                 except torch.cuda.OutOfMemoryError:
                     print("  OOM，跳过")
                     torch.cuda.empty_cache()
@@ -263,6 +488,17 @@ def main():
                         result["peak_memory_mb"],
                     )
                 )
+                eff = result.get("efficiency") or {}
+                if eff.get("decode_mbu") is not None:
+                    print(
+                        "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %.0f%%"
+                        % (
+                            100 * eff["decode_mbu"],
+                            100 * (eff["decode_mfu"] or 0),
+                            100 * (eff["prefill_mfu"] or 0),
+                            100 * result["gpu_time_ratio"]["median"],
+                        )
+                    )
 
     git = git_info()
     record = {
@@ -271,7 +507,9 @@ def main():
         "engine": args.engine,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git": git,
-        "env": gpu_info(),
+        "env": env,
+        "peak_specs": peaks,
+        "model_cost": cost,
         "config": {
             "warmup": args.warmup,
             "repeats": args.repeats,

@@ -167,19 +167,44 @@ mini-infra-compare \
 
 ---
 
-### 2. 特性发布与 Minor Release（Feature Deliveries & Tags）
-每当完成一个重大优化特性（如 KV Cache、FlashAttention 等，对应 `v0.2.0`、`v0.3.0` 等 Minor Release）时，执行完整的基准测量与跨版本时间线演进生成：
+### 2. 特性发布与 Minor Release 标准流程（Feature Deliveries & Tags）
 
+每当完成一个核心特性演进（如 KV Cache、FlashAttention 等，对应 `v0.2.0`、`v0.3.0` 等 Minor Release）时，需按以下标准发布流程（SOP）执行基准测试、跨版本演进图生成与版本固化：
+
+#### 步骤 1：质量与精度对齐自检
+在准备发版前，确认代码规范与模型精度无误：
 ```bash
+# 1. 语法规范与排版检查
+ruff check . && ruff format --check .
+
+# 2. CPU 快速自检与判定规则单测
+pytest -m "not gpu"
+
+# 3. GPU 端到端精度对齐（验证手写实现与 Hugging Face 绝对一致，bfloat16 达到 0 误差）
+pytest -m gpu
+```
+
+#### 步骤 2：更新版本号与文档
+1. 修改 `pyproject.toml` 中的版本号：
+   ```toml
+   [project]
+   version = "0.2.0"  # 升级至目标版本号
+   ```
+2. 更新 `README.md` 中的 **特性全景 (Features)** 状态（勾选已完成特性）。
+
+#### 步骤 3：全量基准测量与演进图表生成
+在固定的 GPU 测试机上运行全量基准，沉淀该版本的性能数据并绘制时间线图：
+```bash
+# 安装绘图与基准依赖
 pip install -e ".[bench]"
 
-# 1. 运行全量矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
+# 1. 运行全矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
 mini-infra-bench --tag "v0.2.0-kv-cache"
 
-# 2. 自动生成多版本演化表与对比图（唯一定向读取 benchmarks/result-history/*.json）
+# 2. 读取所有历史版本数据，重新生成多版本演化表与对比图
 mini-infra-bench-plot
 
-# 3. 将新性能固化为后续日常开发的零退化底线
+# 3. 将新性能固化为后续日常开发的零退化底线（更新 benchmarks/data/reference.json）
 mini-infra-bench-regression --update-reference
 ```
 
@@ -187,13 +212,29 @@ mini-infra-bench-regression --update-reference
 > * **`mini-infra-bench-plot` 只消费 `mini-infra-bench`（`run.py`）的输出**：只有通过 `mini-infra-bench` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
 > * **`mini-infra-bench-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
-#### 生成产物：
+#### 步骤 4：提交评测产物与版本代码
+将代码修改与自动生成的基准产物一同纳入 Git 提交：
+```bash
+git add pyproject.toml README.md benchmarks/
+git commit -m "release: v0.2.0 - add KV Cache support and update benchmark history"
+```
+
+#### 步骤 5：创建 Release Tag 并推送到远程
+打上带注解的版本 Tag 并推送到远程仓库：
+```bash
+git tag -a v0.2.0 -m "Release v0.2.0: KV Cache support"
+git push origin main --tags
+```
+
+> **CI 自动化机制**：
+> 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml) 工作流，如果在云端配置了 GPU Runner，也会在云端全自动归档一份带有当前 Commit 签名的评测产物 Artifact。
+
+#### 发布产物清单：
+- **`benchmarks/result-history/<commit>_<tag>.json`**：该版本全矩阵测试的原始性能数据（作为历史基准持久化存储）。
+- **`benchmarks/data/reference.json`**：当前最新特性的轻量基准参考数据（作为日常 pre-push 防退化的基线）。
 - **`benchmarks/reports/SUMMARY.md`**：记录所有历史版本的详细数据与相对 Baseline 加速比。
 - **`benchmarks/reports/timeline.png`（特性演进时间线图）**：横轴展示随着各个 Feature（Baseline $\to$ KV Cache $\to$ FlashAttention...）的引入，Decode 延迟逐步下降、吞吐逐步提升、加速比递增的演变趋势。
 - **`benchmarks/reports/trend.png`（序列长度扩展曲线）**：各版本在不同 Prompt 长度（32 $\sim$ 1024+）下的延迟变化曲线。
-
-#### CI 自动化：
-推送版本 Tag（如 `git tag v0.2.0 && git push --tags`）或在 GitHub 上手动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml)，即可全自动执行全量 Benchmark 并归档报告产物。
 
 ---
 
