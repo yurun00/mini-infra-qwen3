@@ -60,7 +60,7 @@ def markdown_table(records, base):
             lines.append(
                 f"| {label(rec)} | {rec['git']['commit']} | {k[0]} | {k[1]} | {k[2]} | "
                 f"{ttft:.2f}{s_ttft} | {tpot:.2f}{s_tpot} | {thr:.1f}{s_thr} | "
-                f"{w['peak_memory_mb']:.0f} | {flag} |"
+                f"{w['memory']['peak_allocated_mb']:.0f} | {flag} |"
             )
     return "\n".join(lines)
 
@@ -176,7 +176,7 @@ def plot_evolution_and_scaling(records, base, out_path):
     # 3.1 显存演变（各版本在最大共有 prompt 下）
     common = set.intersection(*[{w["prompt_len"] for w in r["workloads"] if w["batch_size"] == 1} for r in records])
     p_ref = max(common) if common else key_prompts[-1]
-    mems = [(pick_w(r, p_ref) or {}).get("peak_memory_mb", 0) for r in records]
+    mems = [(pick_w(r, p_ref) or {}).get("memory", {}).get("peak_allocated_mb", 0) for r in records]
     ax_mem.bar(x_indices, mems, alpha=0.85, color="tab:purple")
     for i, m in enumerate(mems):
         ax_mem.annotate(

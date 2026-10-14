@@ -32,10 +32,15 @@ from pathlib import Path
 
 import torch
 
+from mini_infra.bench.generation import (
+    generate_kv_cache,
+    generate_no_cache,
+    percentile,
+    synchronize,
+)
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    KVCache,
     load_handwritten_model,
     resolve_model_directory,
 )
@@ -50,59 +55,17 @@ SCHEMA_VERSION = 1
 
 
 # --------------------------------------------------------------------------
-# 引擎适配层：返回 (生成的 token 张量, 每步的 CUDA Event 起止对)。
-# 第 0 步 = Prefill，其余 = Decode。后续优化只需新增一个适配函数。
+# 引擎适配层：从 generation.py 导入核心生成实现。
 # --------------------------------------------------------------------------
-@torch.inference_mode()
-def generate_full_recompute(model, input_ids, new_tokens):
-    """baseline：每步重算完整上下文（无 KV Cache）。固定长度，不因 EOS 提前停止。"""
-
-    generated = input_ids
-    events = []
-    for _ in range(new_tokens):
-        start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-        start.record()
-        logits = model(generated)
-        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-        end.record()
-        events.append((start, end))
-        generated = torch.cat((generated, next_token), dim=1)
-    return generated[:, input_ids.shape[1] :], events
-
-
-@torch.inference_mode()
-def generate_kv_cache(model, input_ids, new_tokens):
-    """优化组：Prefill 建立 Cache，Decode 每步只输入最新 Token。"""
-
-    cache = KVCache()
-    model_input = input_ids
-    generated = input_ids
-    events = []
-    for _ in range(new_tokens):
-        start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-        start.record()
-        logits = model(model_input, kv_cache=cache)
-        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-        end.record()
-        events.append((start, end))
-        model_input = next_token
-        generated = torch.cat((generated, next_token), dim=1)
-    return generated[:, input_ids.shape[1] :], events
 
 
 ENGINES = {
-    "full-recompute": generate_full_recompute,
+    "no-cache": generate_no_cache,
     "kv-cache": generate_kv_cache,
 }
 
 
 # --------------------------------------------------------------------------
-def percentile(values, q):
-    ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, round(q / 100 * (len(ordered) - 1))))
-    return ordered[index]
-
-
 def summarize(values):
     return {
         "median": statistics.median(values),
@@ -246,7 +209,7 @@ def profile_ops(model, engine, ids, output_len, top=10):
     try:
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
             engine(model, ids, output_len)
-            torch.cuda.synchronize()
+            synchronize(ids.device)
     finally:
         for h in handles:
             h.remove()
@@ -342,8 +305,8 @@ def check_correctness(model, tokenizer, engine, device, update_golden):
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
 
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    out, _ = engine(model, ids, GOLDEN_MAX_OUTPUT_TOKENS)
-    tokens = out[0].tolist()
+    res = engine(model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
+    tokens = res.new_tokens[0].tolist()
 
     if update_golden:
         GOLDEN_OUTPUT_PATH.write_text(
@@ -382,62 +345,49 @@ def run_workload(
     ids = make_prompt(vocab, prompt_len, batch_size, device)
 
     for _ in range(warmup):
-        engine(model, ids, output_len)
-    torch.cuda.synchronize()
+        engine(model, ids, output_len, device=device)
 
-    ttft, tpot, total, throughput, peak, gpu_ratio = [], [], [], [], [], []
-    baseline_alloc, peak_reserved = [], []
-    mib = 1024**2
-    for _ in range(repeats):
-        torch.cuda.synchronize()
-        baseline_alloc.append(torch.cuda.memory_allocated() / mib)  # 运行前常驻显存：权重 + 输入
-        torch.cuda.reset_peak_memory_stats()
-        wall_start = time.perf_counter()
-        _, events = engine(model, ids, output_len)
-        torch.cuda.synchronize()
-        wall_ms = (time.perf_counter() - wall_start) * 1000
-
-        steps = [s.elapsed_time(e) for s, e in events]
-        decode = steps[1:]
-        ttft.append(steps[0])
-        tpot.append(sum(decode) / len(decode) if decode else 0.0)
-        total.append(wall_ms)
-        throughput.append(batch_size * output_len / (wall_ms / 1000))
-        peak.append(torch.cuda.max_memory_allocated() / mib)
-        peak_reserved.append(torch.cuda.max_memory_reserved() / mib)
-        # GPU 忙碌时间 / 墙钟时间：越低说明 CPU launch / 同步 / 空泡开销占比越高
-        gpu_ratio.append(min(1.0, sum(steps) / wall_ms) if wall_ms else 0.0)
-
-    # 显存拆分：常驻(weights+输入) / 动态峰值(激活+KV Cache+临时张量) / allocator 保留（含碎片）
-    memory = {
-        "weights_mb": cost["weight_bytes"] / mib if cost else None,
-        "baseline_allocated_mb": max(baseline_alloc),
-        "peak_allocated_mb": max(peak),
-        "dynamic_peak_mb": max(p - b for p, b in zip(peak, baseline_alloc)),
-        "peak_reserved_mb": max(peak_reserved),
-        "fragmentation_mb": max(r - p for r, p in zip(peak_reserved, peak)),
+    # 1. 执行多次迭代压测并采集单次运行结果
+    samples = [engine(model, ids, output_len, device=device) for _ in range(repeats)]
+    raw = {
+        "ttft_ms": [s.ttft_ms for s in samples],
+        "tpot_ms": [s.tpot_ms for s in samples],
+        "e2e_ms": [s.e2e_ms for s in samples],
+        "throughput_tok_s": [s.throughput_tok_s for s in samples],
+        "gpu_time_ratio": [s.gpu_time_ratio for s in samples],
     }
 
+    # 2. 显存结构化拆解：常驻(weights+输入) / 动态峰值(激活+KV Cache+临时张量) / allocator 保留（含碎片）
+    mib = 1024**2
+    memory = {
+        "weights_mb": cost["weight_bytes"] / mib if cost else None,
+        "baseline_allocated_mb": max(s.memory["baseline_allocated_mb"] for s in samples),
+        "prefill_allocated_mb": max(s.memory["prefill_allocated_mb"] for s in samples),
+        "peak_allocated_mb": max(s.memory["peak_allocated_mb"] for s in samples),
+        "dynamic_peak_mb": max(s.memory["dynamic_peak_mb"] for s in samples),
+        "peak_reserved_mb": max(s.memory["peak_reserved_mb"] for s in samples),
+        "fragmentation_mb": max(s.memory["fragmentation_mb"] for s in samples),
+    }
+
+    # 3. 结构化汇总报告（按 Metadata / Latency / Throughput / Memory / Raw 组织）
     result = {
+        # 负载元数据
         "prompt_len": prompt_len,
         "output_len": output_len,
         "batch_size": batch_size,
-        "ttft_ms": summarize(ttft),
-        "tpot_ms": summarize(tpot),
-        "e2e_ms": summarize(total),
-        "throughput_tok_s": summarize(throughput),
-        "peak_memory_mb": max(peak),
+        # 核心时延指标（分布聚合）
+        "ttft_ms": summarize(raw["ttft_ms"]),
+        "tpot_ms": summarize(raw["tpot_ms"]),
+        "e2e_ms": summarize(raw["e2e_ms"]),
+        # 吞吐与利用率指标
+        "throughput_tok_s": summarize(raw["throughput_tok_s"]),
+        "gpu_time_ratio": (
+            summarize(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
+        ),
+        # 显存指标（统一收敛于 memory 中，细粒度拆解）
         "memory": memory,
-        "gpu_time_ratio": summarize(gpu_ratio),
-        "raw": {
-            "ttft_ms": ttft,
-            "tpot_ms": tpot,
-            "e2e_ms": total,
-            "throughput_tok_s": throughput,
-            "peak_memory_mb": peak,
-            "peak_reserved_mb": peak_reserved,
-            "gpu_time_ratio": gpu_ratio,
-        },
+        # 原始采样列表
+        "raw": raw,
     }
     if cost and peaks:
         result["efficiency"] = efficiency(
@@ -457,7 +407,7 @@ def run_workload(
 def parse_args():
     p = argparse.ArgumentParser(description="mini-infra-qwen3 benchmark")
     p.add_argument("--tag", required=True, help="版本/特性标签，如 baseline、kv-cache")
-    p.add_argument("--engine", default="full-recompute", choices=ENGINES)
+    p.add_argument("--engine", default="no-cache", choices=ENGINES)
     p.add_argument("--model", default=DEFAULT_MODEL_ID)
     p.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
     p.add_argument("--prompt-lens", type=int, nargs="+", default=[32, 128, 512, 1024])
@@ -529,18 +479,21 @@ def main():
                         result["tpot_ms"]["median"],
                         result["tpot_ms"]["std"],
                         result["throughput_tok_s"]["median"],
-                        result["peak_memory_mb"],
+                        result["memory"]["peak_allocated_mb"],
                     )
                 )
                 eff = result.get("efficiency") or {}
                 if eff.get("decode_mbu") is not None:
+                    gpu_busy_str = (
+                        "%.0f%%" % (100 * result["gpu_time_ratio"]["median"]) if result.get("gpu_time_ratio") else "N/A"
+                    )
                     print(
-                        "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %.0f%%"
+                        "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
                         % (
                             100 * eff["decode_mbu"],
                             100 * (eff["decode_mfu"] or 0),
                             100 * (eff["prefill_mfu"] or 0),
-                            100 * result["gpu_time_ratio"]["median"],
+                            gpu_busy_str,
                         )
                     )
 
