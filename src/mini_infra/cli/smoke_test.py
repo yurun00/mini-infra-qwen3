@@ -5,7 +5,7 @@
 
 import torch
 
-from mini_infra.qwen3_model import Qwen3Config, Qwen3ForCausalLM
+from mini_infra.qwen3_model import KVCache, Qwen3Config, Qwen3ForCausalLM, cache_size_bytes
 
 
 def build_tiny_model():
@@ -46,10 +46,51 @@ def check_causal_mask(model):
     assert torch.allclose(first[:, :2, :], second[:, :2, :], atol=1e-6)
 
 
+def check_kv_cache_correctness(model):
+    """验证显式 KVCache 容器与全量重算路径输出完全一致。"""
+    prompt = torch.tensor([[1, 2, 3]])
+    config = model.config
+
+    with torch.inference_mode():
+        baseline_logits = model(prompt)
+        cache = KVCache()
+        prefill_logits = model(prompt, kv_cache=cache)
+
+    assert torch.allclose(baseline_logits, prefill_logits, atol=1e-6)
+    assert len(cache) == config.num_hidden_layers
+    assert cache.get_seq_length() == 3
+    expected_shape = (1, config.num_key_value_heads, 3, config.head_dim)
+    for key, value in cache:
+        assert tuple(key.shape) == expected_shape
+        assert tuple(value.shape) == expected_shape
+
+    expected_bytes = (
+        2
+        * config.num_hidden_layers
+        * config.num_key_value_heads
+        * config.head_dim
+        * 3
+        * torch.tensor([], dtype=torch.float32).element_size()
+    )
+    assert cache_size_bytes(cache) == expected_bytes
+    assert cache.total_bytes() == expected_bytes
+
+    # 单步 Decode 验证：传入 cache 自动追加
+    next_input = torch.tensor([[4]])
+    full_context = torch.cat((prompt, next_input), dim=1)
+    with torch.inference_mode():
+        full_logits = model(full_context)
+        cached_logits = model(next_input, kv_cache=cache)
+
+    assert torch.allclose(full_logits[:, -1, :], cached_logits[:, -1, :], atol=1e-5)
+    assert cache.get_seq_length() == 4
+
+
 def run_smoke_test():
     model = build_tiny_model()
     check_output_shape_and_tied_weights(model)
     check_causal_mask(model)
+    check_kv_cache_correctness(model)
 
 
 def main():

@@ -35,6 +35,7 @@ import torch
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
+    KVCache,
     load_handwritten_model,
     resolve_model_directory,
 )
@@ -69,7 +70,30 @@ def generate_full_recompute(model, input_ids, new_tokens):
     return generated[:, input_ids.shape[1] :], events
 
 
-ENGINES = {"full-recompute": generate_full_recompute}
+@torch.inference_mode()
+def generate_kv_cache(model, input_ids, new_tokens):
+    """优化组：Prefill 建立 Cache，Decode 每步只输入最新 Token。"""
+
+    cache = KVCache()
+    model_input = input_ids
+    generated = input_ids
+    events = []
+    for _ in range(new_tokens):
+        start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        start.record()
+        logits = model(model_input, kv_cache=cache)
+        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+        end.record()
+        events.append((start, end))
+        model_input = next_token
+        generated = torch.cat((generated, next_token), dim=1)
+    return generated[:, input_ids.shape[1] :], events
+
+
+ENGINES = {
+    "full-recompute": generate_full_recompute,
+    "kv-cache": generate_kv_cache,
+}
 
 
 # --------------------------------------------------------------------------

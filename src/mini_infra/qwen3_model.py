@@ -1,7 +1,9 @@
-"""使用基础 PyTorch 组件实现 Qwen3-0.6B。
+"""使用基础 PyTorch 实现带显式 KVCache 容器的 Qwen3-0.6B。
 
-本文件故意不使用 Transformers 中的模型实现，也不加入 KV Cache、
-FlashAttention 等优化，目的是清楚展示一次完整的模型前向计算。
+本文件使用显式的 KVCache 容器对象管理历史键值缓存：
+- 当 kv_cache 为 None 时，执行全量上下文计算（No-Cache baseline）；
+- 当传入 kv_cache 对象时，Prefill 阶段自动建立 Cache，Decode 阶段自动增量更新。
+模型直接返回 Logits 张量，彻底消除对 use_cache 布尔标记和繁琐 Tuple 解包的依赖。
 """
 
 import json
@@ -14,14 +16,13 @@ from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 from torch import nn
 
-# 固定模型版本可以避免上游权重更新后，实验结果悄悄发生变化。
 DEFAULT_MODEL_ID = "Qwen/Qwen3-0.6B"
 DEFAULT_MODEL_REVISION = "c1899de289a04d12100db370d81485cdf75e47ca"
 
 
 @dataclass
 class Qwen3Config:
-    """手写实现真正需要使用的模型配置。"""
+    """本期手写实现需要的模型配置。"""
 
     vocab_size: int
     hidden_size: int
@@ -67,7 +68,11 @@ class Qwen3Config:
 
 
 class RMSNorm(nn.Module):
-    """Qwen3 使用的均方根归一化。"""
+    """Root Mean Square Layer Normalization (RMSNorm)。
+
+    与标准 LayerNorm 相比，RMSNorm 去除了均值中心化（re-centering）操作，
+    只除以均方根并乘以可学习的缩放参数 weight，从而节省约 7% 的归一化计算开销。
+    """
 
     def __init__(self, hidden_size, eps):
         super().__init__()
@@ -84,7 +89,11 @@ class RMSNorm(nn.Module):
 
 
 class RotaryEmbedding(nn.Module):
-    """生成 RoPE 所需的正弦和余弦位置编码。"""
+    """旋转位置编码 (Rotary Position Embedding, RoPE)。
+
+    通过将词向量拆分为二维子空间并施加复数旋转，将绝对位置信息以相对位置
+    距离的形式编码进 Attention 的 Query 与 Key 中。
+    """
 
     def __init__(self, head_dim, rope_theta):
         super().__init__()
@@ -110,13 +119,9 @@ class RotaryEmbedding(nn.Module):
         freqs = position_ids.float().unsqueeze(-1) * self.inv_freq
 
         # Qwen3 将同一组频率分别应用到向量的前半部分和后半部分（与 rotate_half 对应）。
-        # embedding 形状: [batch_size, sequence_length, head_dim]
+        # embedding, cosine 与 sine 形状均为: [batch_size, sequence_length, head_dim]
         embedding = torch.cat((freqs, freqs), dim=-1)
-
-        # 返回的 cosine 与 sine 形状均为 [batch_size, sequence_length, head_dim]
-        cosine = embedding.cos().to(output_dtype)
-        sine = embedding.sin().to(output_dtype)
-        return cosine, sine
+        return embedding.cos().to(output_dtype), embedding.sin().to(output_dtype)
 
 
 def rotate_half(hidden_states):
@@ -169,15 +174,83 @@ def repeat_key_value(hidden_states, repeat_count):
     return hidden_states.repeat_interleave(repeat_count, dim=1)
 
 
+class KVCache:
+    """动态 KV Cache 显式容器。
+
+    在模型前向传播中用于累积并维护历史 Token 的 Key 和 Value 张量：
+    - Prefill 阶段：模型将各层的初始 Key/Value 张量写入容器中；
+    - Decode 阶段：每一步单 Token 推理时，将新计算的 Key/Value 原地追加到历史缓存中。
+    """
+
+    def __init__(self):
+        self.key_cache: list[torch.Tensor] = []
+        self.value_cache: list[torch.Tensor] = []
+
+    def update(self, key_states: torch.Tensor, value_states: torch.Tensor, layer_index: int):
+        """将当前层新生成的 key_states 与 value_states 拼入缓存，并返回拼接后的全量张量。
+
+        Args:
+            key_states: [batch_size, num_kv_heads, seq_len, head_dim]
+            value_states: [batch_size, num_kv_heads, seq_len, head_dim]
+            layer_index: 解码层索引 (0 <= layer_index < num_layers)
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: 当前层拼接历史后的全量 (key, value)
+        """
+        if len(self.key_cache) <= layer_index:
+            # Prefill 阶段：首次填充当前层
+            self.key_cache.append(key_states)
+            self.value_cache.append(value_states)
+        else:
+            # Decode 阶段：在序列维度（dim=2）追加新计算的 Key/Value
+            self.key_cache[layer_index] = torch.cat([self.key_cache[layer_index], key_states], dim=2)
+            self.value_cache[layer_index] = torch.cat([self.value_cache[layer_index], value_states], dim=2)
+        return self.key_cache[layer_index], self.value_cache[layer_index]
+
+    def get_seq_length(self, layer_index: int = 0) -> int:
+        """获取已缓存的历史序列长度。"""
+        if not self.key_cache or len(self.key_cache) <= layer_index:
+            return 0
+        return self.key_cache[layer_index].shape[2]
+
+    def total_bytes(self) -> int:
+        """计算当前所有层 Key/Value 张量实际占用的内存/显存字节数。"""
+        return sum(
+            k.numel() * k.element_size() + v.numel() * v.element_size()
+            for k, v in zip(self.key_cache, self.value_cache)
+        )
+
+    def __len__(self) -> int:
+        """已初始化的层数。"""
+        return len(self.key_cache)
+
+    def __iter__(self):
+        """允许直接对每层的 (key, value) 进行遍历迭代。"""
+        return iter(zip(self.key_cache, self.value_cache))
+
+    def __getitem__(self, layer_index: int):
+        """获取指定层的 (key, value)。"""
+        return self.key_cache[layer_index], self.value_cache[layer_index]
+
+
+def cache_size_bytes(kv_cache):
+    """返回 KV Cache 容器实际承载的数据字节数。"""
+    if kv_cache is None:
+        return 0
+    if isinstance(kv_cache, KVCache):
+        return kv_cache.total_bytes()
+    return sum(key.numel() * key.element_size() + value.numel() * value.element_size() for key, value in kv_cache)
+
+
 class Qwen3Attention(nn.Module):
-    """不带 KV Cache 的 Grouped Query Attention。"""
+    """支持复用历史 K/V 的 Grouped Query Attention。"""
 
     def __init__(self, config):
         super().__init__()
         self.num_attention_heads = config.num_attention_heads
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = config.head_dim
-        self.scaling = self.head_dim**-0.5
+        self.scaling = config.head_dim**-0.5
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
 
         query_size = config.num_attention_heads * config.head_dim
@@ -192,42 +265,55 @@ class Qwen3Attention(nn.Module):
         self.q_norm = RMSNorm(config.head_dim, config.rms_norm_eps)
         self.k_norm = RMSNorm(config.head_dim, config.rms_norm_eps)
 
-    def forward(self, hidden_states, cosine, sine, causal_mask):
-        batch_size, sequence_length, _ = hidden_states.shape
+    def forward(
+        self,
+        hidden_states,
+        cosine,
+        sine,
+        causal_mask,
+        kv_cache=None,
+        layer_index=0,
+    ):
+        batch_size, query_length, _ = hidden_states.shape
 
-        # 投影后拆分 head，形状变为 [batch, heads, sequence, head_dim]。
+        # 投影后拆分 head，形状变为 [batch, heads, query_length, head_dim]。
         query = self.q_proj(hidden_states)
-        query = query.view(batch_size, sequence_length, self.num_attention_heads, self.head_dim)
+        query = query.view(batch_size, query_length, self.num_attention_heads, self.head_dim)
         query = self.q_norm(query).transpose(1, 2)
 
         key = self.k_proj(hidden_states)
-        key = key.view(batch_size, sequence_length, self.num_key_value_heads, self.head_dim)
+        key = key.view(batch_size, query_length, self.num_key_value_heads, self.head_dim)
         key = self.k_norm(key).transpose(1, 2)
 
         value = self.v_proj(hidden_states)
-        value = value.view(batch_size, sequence_length, self.num_key_value_heads, self.head_dim)
+        value = value.view(batch_size, query_length, self.num_key_value_heads, self.head_dim)
         value = value.transpose(1, 2)
 
+        # Cache 中保存已经完成位置旋转、但尚未按 GQA 组展开的 K。
         query, key = apply_rotary_embedding(query, key, cosine, sine)
-        key = repeat_key_value(key, self.num_key_value_groups)
-        value = repeat_key_value(value, self.num_key_value_groups)
+        if kv_cache is not None:
+            key, value = kv_cache.update(key, value, layer_index)
+
+        # 只在真正计算 Attention 前展开，避免 Cache 占用不必要的显存。
+        attention_key = repeat_key_value(key, self.num_key_value_groups)
+        attention_value = repeat_key_value(value, self.num_key_value_groups)
 
         # causal_mask 保证当前位置只能看到自己和之前的 Token。
-        attention_scores = torch.matmul(query, key.transpose(2, 3)) * self.scaling
+        attention_scores = torch.matmul(query, attention_key.transpose(2, 3)) * self.scaling
         attention_scores = attention_scores + causal_mask
 
         # Softmax 使用 float32 计算，再转回模型 dtype，与参考实现保持一致。
         # 1. Softmax 权重 @ Value 矩阵相乘
-        # attention_probs: [batch_size, num_heads, sequence_length, sequence_length]
-        # value:           [batch_size, num_heads, sequence_length, head_dim]
-        # attention_output: [batch_size, num_heads, sequence_length, head_dim]
+        # attention_probs:  [batch_size, num_heads, query_length, key_value_length]
+        # attention_value:  [batch_size, num_heads, key_value_length, head_dim]
+        # attention_output: [batch_size, num_heads, query_length, head_dim]
         attention_probs = F.softmax(attention_scores, dim=-1, dtype=torch.float32)
         attention_probs = attention_probs.to(query.dtype)
-        attention_output = torch.matmul(attention_probs, value)
+        attention_output = torch.matmul(attention_probs, attention_value)
 
         # contiguous() 在显存中重新分配一块内存，对不连续的内存进行拷贝和重排，确保内存是连续的，view() 才能正常工作
         attention_output = attention_output.transpose(1, 2).contiguous()
-        attention_output = attention_output.view(batch_size, sequence_length, -1)
+        attention_output = attention_output.view(batch_size, query_length, -1)
         return self.o_proj(attention_output)
 
 
@@ -256,11 +342,27 @@ class Qwen3DecoderLayer(nn.Module):
         self.input_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(config.hidden_size, config.rms_norm_eps)
 
-    def forward(self, hidden_states, cosine, sine, causal_mask):
+    def forward(
+        self,
+        hidden_states,
+        cosine,
+        sine,
+        causal_mask,
+        kv_cache=None,
+        layer_index=0,
+    ):
         # Attention 子层：Pre-Norm -> Attention -> Residual。
         residual = hidden_states
         normalized = self.input_layernorm(hidden_states)
-        hidden_states = residual + self.self_attn(normalized, cosine, sine, causal_mask)
+        attention_output = self.self_attn(
+            normalized,
+            cosine,
+            sine,
+            causal_mask,
+            kv_cache=kv_cache,
+            layer_index=layer_index,
+        )
+        hidden_states = residual + attention_output
 
         # MLP 子层：Pre-Norm -> MLP -> Residual。
         residual = hidden_states
@@ -274,35 +376,54 @@ class Qwen3Model(nn.Module):
 
     def __init__(self, config):
         super().__init__()
+        self.config = config
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
         self.layers = nn.ModuleList([Qwen3DecoderLayer(config) for _ in range(config.num_hidden_layers)])
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
-    def make_causal_mask(self, sequence_length, dtype, device):
-        """创建上三角为极小值、其余位置为 0 的 Attention Mask。"""
+    def make_causal_mask(self, query_length, key_value_length, past_length, dtype, device):
+        """创建适用于 Prefill 和带历史 Cache Decode 的因果 Mask。
 
-        smallest_value = torch.finfo(dtype).min
-        mask = torch.full(
-            (sequence_length, sequence_length),
-            smallest_value,
-            dtype=dtype,
-            device=device,
-        )
-        mask = torch.triu(mask, diagonal=1)
+        在 Prefill 阶段，query_length == key_value_length，生成下三角为 0、上三角为 -inf 的因果掩码；
+        在 Decode 阶段，query_length 为 1，Key 包含历史 Token，最新 Token 能看到历史全部位置。
+        """
+        query_positions = torch.arange(past_length, past_length + query_length, device=device)
+        key_positions = torch.arange(key_value_length, device=device)
+        future_positions = key_positions.unsqueeze(0) > query_positions.unsqueeze(1)
+        mask = torch.zeros((query_length, key_value_length), dtype=dtype, device=device)
+        mask.masked_fill_(future_positions, torch.finfo(dtype).min)
         return mask.unsqueeze(0).unsqueeze(0)
 
-    def forward(self, input_ids):
-        hidden_states = self.embed_tokens(input_ids)
-        batch_size, sequence_length = input_ids.shape
+    def forward(self, input_ids, kv_cache=None):
+        if input_ids.ndim != 2 or input_ids.shape[1] < 1:
+            raise ValueError("input_ids 必须是形状为 [batch, sequence] 的非空 Tensor")
 
-        position_ids = torch.arange(sequence_length, device=input_ids.device)
+        hidden_states = self.embed_tokens(input_ids)
+        batch_size, query_length = input_ids.shape
+        past_length = kv_cache.get_seq_length() if kv_cache is not None else 0
+        key_value_length = past_length + query_length
+
+        position_ids = torch.arange(past_length, key_value_length, device=input_ids.device)
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
-        causal_mask = self.make_causal_mask(sequence_length, hidden_states.dtype, hidden_states.device)
+        causal_mask = self.make_causal_mask(
+            query_length,
+            key_value_length,
+            past_length,
+            hidden_states.dtype,
+            hidden_states.device,
+        )
 
-        for decoder_layer in self.layers:
-            hidden_states = decoder_layer(hidden_states, cosine, sine, causal_mask)
+        for layer_index, decoder_layer in enumerate(self.layers):
+            hidden_states = decoder_layer(
+                hidden_states,
+                cosine,
+                sine,
+                causal_mask,
+                kv_cache=kv_cache,
+                layer_index=layer_index,
+            )
 
         return self.norm(hidden_states)
 
@@ -321,8 +442,8 @@ class Qwen3ForCausalLM(nn.Module):
         # Qwen3-0.6B 的输入 Embedding 与输出 LM Head 使用同一份权重。
         self.lm_head.weight = self.model.embed_tokens.weight
 
-    def forward(self, input_ids):
-        hidden_states = self.model(input_ids)
+    def forward(self, input_ids, kv_cache=None):
+        hidden_states = self.model(input_ids, kv_cache=kv_cache)
         return self.lm_head(hidden_states)
 
 
@@ -364,7 +485,7 @@ def model_dtype_from_config(config):
     return supported_dtypes[config.torch_dtype]
 
 
-def load_handwritten_model(model_directory, device):
+def load_handwritten_model(model_directory, device, dtype=None):
     """从 safetensors 权重构造手写 Qwen3 模型。"""
 
     config = Qwen3Config.from_model_directory(model_directory)
@@ -389,7 +510,9 @@ def load_handwritten_model(model_directory, device):
         )
 
     model.tie_weights()
-    model_dtype = model_dtype_from_config(config)
+    model_dtype = model_dtype_from_config(config) if dtype is None else dtype
+    if model_dtype not in (torch.bfloat16, torch.float16, torch.float32):
+        raise ValueError("不支持的模型 dtype: " + str(model_dtype))
 
     # model.to(dtype=...) 会连 float buffer 一起转换。RoPE 的频率必须保留
     # float32 精度，因此先保存一份，再在模型移动完成后放回目标设备。

@@ -8,6 +8,7 @@ import torch
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
+    KVCache,
     load_handwritten_model,
     resolve_model_directory,
 )
@@ -21,6 +22,7 @@ def parse_args():
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--warmup", type=int, default=1, help="正式计时前的预热次数")
+    parser.add_argument("--kv-cache", action="store_true", help="启用 KV Cache 加速推理")
     return parser.parse_args()
 
 
@@ -37,12 +39,14 @@ def build_input_ids(tokenizer, prompt, device):
 
 
 @torch.inference_mode()
-def generate_with_metrics(model, input_ids, max_new_tokens, eos_token_id, device):
+def generate_with_metrics(model, input_ids, max_new_tokens, eos_token_id, device, kv_cache=False):
     """生成文本，同时分别记录 Prefill 和每轮 Decode 延迟。"""
 
     generated_ids = input_ids
     new_token_ids = []
     step_times_ms = []
+    cache = KVCache() if kv_cache else None
+    model_input = input_ids
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -50,7 +54,7 @@ def generate_with_metrics(model, input_ids, max_new_tokens, eos_token_id, device
     for _step in range(max_new_tokens):
         synchronize(device)
         start_time = time.perf_counter()
-        logits = model(generated_ids)
+        logits = model(model_input, kv_cache=cache)
         next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
         synchronize(device)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
@@ -58,6 +62,7 @@ def generate_with_metrics(model, input_ids, max_new_tokens, eos_token_id, device
         step_times_ms.append(elapsed_ms)
         new_token_ids.append(next_token.item())
         generated_ids = torch.cat((generated_ids, next_token), dim=1)
+        model_input = next_token if kv_cache else generated_ids
 
         if next_token.item() == eos_token_id:
             break
@@ -107,6 +112,7 @@ def main():
         args.max_new_tokens,
         tokenizer.eos_token_id,
         device,
+        kv_cache=args.kv_cache,
     )
 
     output_token_ids = output_ids[0, input_ids.shape[1] :].tolist()
