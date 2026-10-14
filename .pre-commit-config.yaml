@@ -10,7 +10,7 @@ repos:
     hooks:
       - id: perf-regression
         name: performance regression check (>5%)
-        entry: mini-infra-bench-regression
+        entry: bash -c 'PATH="${PWD}/.venv/bin:${PATH}" mini-infra-bench-regression "$@"' --
         language: system
         pass_filenames: false
         always_run: true
