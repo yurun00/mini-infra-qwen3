@@ -1,14 +1,13 @@
-"""运行手写 Qwen3-0.6B 单请求推理，并记录原始 baseline。入口： mini-infra-run。"""
+"""运行手写 Qwen3-0.6B 单请求推理，支持 no-cache / KV Cache 对照。入口：mini-infra-run。"""
 
 import argparse
-import time
 
 import torch
 
+from mini_infra.bench.generation import generate, percentile, synchronize
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    KVCache,
     load_handwritten_model,
     resolve_model_directory,
 )
@@ -16,73 +15,36 @@ from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="运行手写 Qwen3-0.6B 推理")
+    parser = argparse.ArgumentParser(description="运行并比较 KV Cache 推理")
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
-    parser.add_argument("--warmup", type=int, default=1, help="正式计时前的预热次数")
-    parser.add_argument("--kv-cache", action="store_true", help="启用 KV Cache 加速推理")
+    parser.add_argument("--warmup", type=int, default=1)
+    parser.add_argument(
+        "--mode",
+        choices=("no-cache", "kv-cache", "both"),
+        default="both",
+    )
     return parser.parse_args()
 
 
-def synchronize(device):
-    """CUDA 默认异步执行，计时前后必须等待 GPU 完成工作。"""
-
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-
-
-def build_input_ids(tokenizer, prompt, device):
-    token_ids = tokenizer.encode_chat_prompt(prompt)
-    return torch.tensor([token_ids], dtype=torch.long, device=device)
-
-
-@torch.inference_mode()
-def generate_with_metrics(model, input_ids, max_new_tokens, eos_token_id, device, kv_cache=False):
-    """生成文本，同时分别记录 Prefill 和每轮 Decode 延迟。"""
-
-    generated_ids = input_ids
-    new_token_ids = []
-    step_times_ms = []
-    cache = KVCache() if kv_cache else None
-    model_input = input_ids
-
-    if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(device)
-
-    for _step in range(max_new_tokens):
-        synchronize(device)
-        start_time = time.perf_counter()
-        logits = model(model_input, kv_cache=cache)
-        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-        synchronize(device)
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-
-        step_times_ms.append(elapsed_ms)
-        new_token_ids.append(next_token.item())
-        generated_ids = torch.cat((generated_ids, next_token), dim=1)
-        model_input = next_token if kv_cache else generated_ids
-
-        if next_token.item() == eos_token_id:
-            break
-
-    peak_memory_mb = 0.0
-    if device.type == "cuda":
-        peak_memory_mb = torch.cuda.max_memory_allocated(device) / 1024**2
-
-    # 第一次前向处理完整 Prompt，因此计为 Prefill；后续步骤计为 Decode。
-    prefill_ms = step_times_ms[0]
-    decode_times = step_times_ms[1:]
-    average_decode_ms = sum(decode_times) / len(decode_times) if decode_times else 0.0
-
-    metrics = {
-        "prefill_ms": prefill_ms,
-        "average_decode_ms": average_decode_ms,
-        "end_to_end_ms": sum(step_times_ms),
-        "peak_memory_mb": peak_memory_mb,
-    }
-    return generated_ids, new_token_ids, metrics
+def print_result(mode, result, tokenizer):
+    new_token_ids = result.new_tokens[0].tolist()
+    generated_text = tokenizer.decode(new_token_ids, skip_special_tokens=True)
+    decode_times = result.step_latencies_ms[1:]
+    print("\n[%s]" % mode)
+    print("生成 Token IDs:", new_token_ids)
+    print("生成文本:", generated_text)
+    print("Prefill 延迟: %.2f ms" % result.ttft_ms)
+    print("平均 Decode 延迟: %.2f ms/token" % result.tpot_ms)
+    print("P50 Decode 延迟: %.2f ms/token" % percentile(decode_times, 50))
+    print("P95 Decode 延迟: %.2f ms/token" % percentile(decode_times, 95))
+    print("端到端模型计算延迟: %.2f ms" % result.e2e_ms)
+    print("Prefill 后已分配显存: %.2f MiB" % result.memory["prefill_allocated_mb"])
+    print("峰值已分配显存: %.2f MiB" % result.memory["peak_allocated_mb"])
+    print("最终 KV Cache 数据量: %.2f MiB" % (result.cache_bytes / 1024**2))
+    print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])
 
 
 def main():
@@ -97,34 +59,46 @@ def main():
     device = torch.device("cuda")
     model_directory = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_directory)
-    input_ids = build_input_ids(tokenizer, args.prompt, device)
+    token_ids = tokenizer.encode_chat_prompt(args.prompt)
+    input_ids = torch.tensor([token_ids], dtype=torch.long, device=device)
     model = load_handwritten_model(model_directory, device)
+    modes = ("no-cache", "kv-cache") if args.mode == "both" else (args.mode,)
 
-    # 预热不计入正式结果，避免首次 CUDA 初始化干扰测量。
-    with torch.inference_mode():
+    for mode in modes:
         for _ in range(args.warmup):
-            model(input_ids)
-    synchronize(device)
+            generate(
+                mode,
+                model,
+                input_ids,
+                min(args.max_new_tokens, 2),
+                tokenizer.eos_token_id,
+                device,
+            )
+        synchronize(device)
 
-    output_ids, new_token_ids, metrics = generate_with_metrics(
-        model,
-        input_ids,
-        args.max_new_tokens,
-        tokenizer.eos_token_id,
-        device,
-        kv_cache=args.kv_cache,
-    )
-
-    output_token_ids = output_ids[0, input_ids.shape[1] :].tolist()
-    generated_text = tokenizer.decode(output_token_ids, skip_special_tokens=True)
     print("Prompt Token 数:", input_ids.shape[1])
-    print("生成 Token IDs:", new_token_ids)
-    print("生成文本:", generated_text)
-    print("Prefill 延迟: %.2f ms" % metrics["prefill_ms"])
-    print("平均 Decode 延迟: %.2f ms/token" % metrics["average_decode_ms"])
-    print("端到端模型计算延迟: %.2f ms" % metrics["end_to_end_ms"])
-    print("峰值已分配显存: %.2f MiB" % metrics["peak_memory_mb"])
-    print("说明: 计时不包含 tokenizer、模型下载和模型加载。")
+    results = {}
+    for mode in modes:
+        results[mode] = generate(
+            mode,
+            model,
+            input_ids,
+            args.max_new_tokens,
+            tokenizer.eos_token_id,
+            device,
+        )
+        print_result(mode, results[mode], tokenizer)
+
+    if len(results) == 2:
+        baseline = results["no-cache"]
+        optimized = results["kv-cache"]
+        print("\n[对照结论]")
+        print("逐 Token 输出一致:", torch.equal(baseline.new_tokens, optimized.new_tokens))
+        baseline_decode = baseline.tpot_ms
+        optimized_decode = optimized.tpot_ms
+        if optimized_decode > 0:
+            print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
+    print("说明: 计时不包含 tokenizer、模型下载和模型加载；默认 greedy decoding。")
 
 
 if __name__ == "__main__":

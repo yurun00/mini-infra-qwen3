@@ -94,6 +94,7 @@ class GenerationResult:
         self.e2e_ms: float = metrics.get("e2e_ms", 0.0)
         self.throughput_tok_s: float = metrics.get("throughput_tok_s", 0.0)
         self.gpu_time_ratio: float | None = metrics.get("gpu_time_ratio")
+        self.step_latencies_ms: list[float] = metrics.get("step_latencies_ms", [])
         self.memory: dict[str, Any] = metrics.get("memory", {})
         self.cache_bytes: int = self.memory.get("cache_bytes", 0)
 
@@ -171,6 +172,7 @@ def _build_generation_result(
         "ttft_ms": ttft_ms,
         "tpot_ms": tpot_ms,
         "e2e_ms": wall_ms,
+        "step_latencies_ms": step_latencies_ms,
         # 吞吐与利用率指标
         "throughput_tok_s": throughput,
         "gpu_time_ratio": gpu_ratio,

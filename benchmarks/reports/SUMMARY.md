@@ -15,11 +15,11 @@
 
 ## 一、跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)
 
-![Evolution & Scaling](1_evolution_and_scaling.png)
+![Evolution & Scaling](evolution_and_scaling.png)
 
 ## 二、当前版本深度剖析与优化指引 (Profiling & Next Steps)
 
-![Profiling](2_profiling_and_optimization.png)
+![Profiling](profiling_and_optimization.png)
 
 基于当前版本 `v0.1.0*` 在长上下文（`prompt=1024`）下的基准测量与 profiling 结果，诊断如下：
 

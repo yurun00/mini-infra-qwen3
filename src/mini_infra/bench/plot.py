@@ -423,7 +423,7 @@ def generate_optimization_guidance(target_rec):
     lines = [
         "## 二、当前版本深度剖析与优化指引 (Profiling & Next Steps)",
         "",
-        "![Profiling](2_profiling_and_optimization.png)",
+        "![Profiling](profiling_and_optimization.png)",
         "",
     ]
 
@@ -548,8 +548,8 @@ def main():
     parser.add_argument("--baseline", help="作为基准的 tag，默认最早的结果")
     parser.add_argument("--target", help="作为当前深度剖析对象的 tag，默认最新的结果")
     # 新规范参数
-    parser.add_argument("--evolution-figure", type=Path, default=REPORTS_DIR / "1_evolution_and_scaling.png")
-    parser.add_argument("--profiling-figure", type=Path, default=REPORTS_DIR / "2_profiling_and_optimization.png")
+    parser.add_argument("--evolution-figure", type=Path, default=REPORTS_DIR / "evolution_and_scaling.png")
+    parser.add_argument("--profiling-figure", type=Path, default=REPORTS_DIR / "profiling_and_optimization.png")
     parser.add_argument("--summary-path", type=Path, default=REPORTS_DIR / "SUMMARY.md")
     # 向下兼容旧参数
     parser.add_argument("--figure", type=Path, default=None)
@@ -575,7 +575,7 @@ def main():
         "",
         "## 一、跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)",
         "",
-        "![Evolution & Scaling](1_evolution_and_scaling.png)",
+        "![Evolution & Scaling](evolution_and_scaling.png)",
         "",
         guidance,
         "",
