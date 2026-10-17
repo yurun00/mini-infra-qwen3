@@ -265,8 +265,8 @@ git push origin main --tags
 - **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
 - **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
 - **`benchmarks/reports/SUMMARY.md`**：记录所有历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
-- **`benchmarks/reports/1_evolution_and_scaling.png`（跨版本演化与扩展趋势大图）**：包含版本演进时间线（Decode 延迟下降、吞吐提升、加速比递增曲线）以及不同 Prompt 序列长度（32 $\sim$ 1024+）下的扩展曲线。
-- **`benchmarks/reports/2_profiling_and_optimization.png`（当前版本深度剖析与优化指引大图）**：包含 MBU/MFU 硬件天花板差距、Attention vs MLP 模块耗时归因、算子类型分布透视及显存碎片足迹剖析。
+- **`benchmarks/reports/evolution_and_scaling.png`（跨版本演化与扩展趋势大图）**：包含版本演进时间线（Decode 延迟下降、吞吐提升、加速比递增曲线）以及不同 Prompt 序列长度（32 $\sim$ 1024+）下的扩展曲线。
+- **`benchmarks/reports/profiling_and_optimization.png`（当前版本深度剖析与优化指引大图）**：包含 MBU/MFU 硬件天花板差距、Attention vs MLP 模块耗时归因、算子类型分布透视及显存碎片足迹剖析。
 
 ---
 
