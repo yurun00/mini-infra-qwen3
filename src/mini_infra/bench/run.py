@@ -33,8 +33,7 @@ from pathlib import Path
 import torch
 
 from mini_infra.bench.generation import (
-    generate_kv_cache,
-    generate_no_cache,
+    generate,
     percentile,
     synchronize,
 )
@@ -59,10 +58,7 @@ SCHEMA_VERSION = 1
 # --------------------------------------------------------------------------
 
 
-ENGINES = {
-    "no-cache": generate_no_cache,
-    "kv-cache": generate_kv_cache,
-}
+ENGINES = ("no-cache", "kv-cache")
 
 
 # --------------------------------------------------------------------------
@@ -73,6 +69,7 @@ def summarize(values):
         "std": statistics.pstdev(values) if len(values) > 1 else 0.0,
         "min": min(values),
         "p90": percentile(values, 90),
+        "p95": percentile(values, 95),
         "p99": percentile(values, 99),
         "max": max(values),
     }
@@ -208,7 +205,15 @@ def profile_ops(model, engine, ids, output_len, top=10):
     handles = _install_scope_hooks(model)
     try:
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-            engine(model, ids, output_len)
+            generate(
+                engine,
+                model,
+                ids,
+                output_len,
+                eos_token_id=-1,
+                device=ids.device,
+                stop_on_eos=False,
+            )
             synchronize(ids.device)
     finally:
         for h in handles:
@@ -305,7 +310,7 @@ def check_correctness(model, tokenizer, engine, device, update_golden):
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
 
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    res = engine(model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
+    res = generate(engine, model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
     tokens = res.new_tokens[0].tolist()
 
     if update_golden:
@@ -332,7 +337,7 @@ def run_workload(
     model,
     engine,
     prompt_len,
-    output_len,
+    max_new_tokens,
     batch_size,
     warmup,
     repeats,
@@ -342,38 +347,61 @@ def run_workload(
     peaks=None,
     with_profile=False,
 ):
-    ids = make_prompt(vocab, prompt_len, batch_size, device)
+    if max_new_tokens < 2:
+        raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
+    input_ids = make_prompt(vocab, prompt_len, batch_size, device)
 
     for _ in range(warmup):
-        engine(model, ids, output_len, device=device)
+        generate(
+            engine,
+            model,
+            input_ids,
+            max_new_tokens,
+            eos_token_id=-1,
+            device=device,
+            stop_on_eos=False,
+        )
 
     # 1. 执行多次迭代压测并采集单次运行结果
-    samples = [engine(model, ids, output_len, device=device) for _ in range(repeats)]
+    runs = [
+        generate(
+            engine,
+            model,
+            input_ids,
+            max_new_tokens,
+            eos_token_id=-1,
+            device=device,
+            stop_on_eos=False,
+        )
+        for _ in range(repeats)
+    ]
     raw = {
-        "ttft_ms": [s.ttft_ms for s in samples],
-        "tpot_ms": [s.tpot_ms for s in samples],
-        "e2e_ms": [s.e2e_ms for s in samples],
-        "throughput_tok_s": [s.throughput_tok_s for s in samples],
-        "gpu_time_ratio": [s.gpu_time_ratio for s in samples],
+        "ttft_ms": [r.ttft_ms for r in runs],
+        "tpot_ms": [r.tpot_ms for r in runs],
+        "e2e_ms": [r.e2e_ms for r in runs],
+        "throughput_tok_s": [r.throughput_tok_s for r in runs],
+        "gpu_time_ratio": [r.gpu_time_ratio for r in runs],
     }
 
     # 2. 显存结构化拆解：常驻(weights+输入) / 动态峰值(激活+KV Cache+临时张量) / allocator 保留（含碎片）
     mib = 1024**2
     memory = {
         "weights_mb": cost["weight_bytes"] / mib if cost else None,
-        "baseline_allocated_mb": max(s.memory["baseline_allocated_mb"] for s in samples),
-        "prefill_allocated_mb": max(s.memory["prefill_allocated_mb"] for s in samples),
-        "peak_allocated_mb": max(s.memory["peak_allocated_mb"] for s in samples),
-        "dynamic_peak_mb": max(s.memory["dynamic_peak_mb"] for s in samples),
-        "peak_reserved_mb": max(s.memory["peak_reserved_mb"] for s in samples),
-        "fragmentation_mb": max(s.memory["fragmentation_mb"] for s in samples),
+        "baseline_allocated_mb": max(r.memory["baseline_allocated_mb"] for r in runs),
+        "prefill_allocated_mb": max(r.memory["prefill_allocated_mb"] for r in runs),
+        "peak_allocated_mb": max(r.memory["peak_allocated_mb"] for r in runs),
+        "dynamic_peak_mb": max(r.memory["dynamic_peak_mb"] for r in runs),
+        "peak_reserved_mb": max(r.memory["peak_reserved_mb"] for r in runs),
+        "fragmentation_mb": max(r.memory["fragmentation_mb"] for r in runs),
+        "cache_mb": max(r.memory.get("cache_bytes", 0) for r in runs) / mib,
     }
 
     # 3. 结构化汇总报告（按 Metadata / Latency / Throughput / Memory / Raw 组织）
     result = {
         # 负载元数据
+        "mode": engine,
         "prompt_len": prompt_len,
-        "output_len": output_len,
+        "output_len": max_new_tokens,
         "batch_size": batch_size,
         # 核心时延指标（分布聚合）
         "ttft_ms": summarize(raw["ttft_ms"]),
@@ -395,13 +423,69 @@ def run_workload(
             peaks,
             batch_size,
             prompt_len,
-            output_len,
+            max_new_tokens,
             result["ttft_ms"]["median"],
             result["tpot_ms"]["median"],
         )
     if with_profile:
-        result["op_breakdown"] = profile_ops(model, engine, ids, output_len)
+        result["op_breakdown"] = profile_ops(model, engine, input_ids, max_new_tokens)
     return result
+
+
+def print_table(workloads, engine=None):
+    """控制台标准 CSV 格式输出，方便直接复制进 Excel/文档或重定向保存为 .csv。"""
+
+    header = [
+        "mode",
+        "prompt_tokens",
+        "generated_tokens",
+        "prefill_ms_mean",
+        "decode_ms_mean",
+        "decode_ms_p50",
+        "decode_ms_p95",
+        "end_to_end_ms_mean",
+        "memory_after_prefill_mib_max",
+        "peak_memory_mib_max",
+        "cache_mib",
+    ]
+    print(",".join(header))
+    for w in workloads:
+        if isinstance(w, list | tuple):
+            print(",".join(str(x) for x in w))
+            continue
+        if "prompt_tokens" in w:
+            print(",".join(str(w.get(k, "")) for k in header))
+            continue
+
+        mode = w.get("mode") or engine or w.get("engine", "")
+        prompt_tokens = w.get("prompt_len", 0)
+        generated_tokens = w.get("output_len", 0)
+        prefill_ms_mean = w["ttft_ms"]["mean"]
+        decode_ms_mean = w["tpot_ms"]["mean"]
+        decode_ms_p50 = w["tpot_ms"].get("p50", w["tpot_ms"]["median"])
+        decode_ms_p95 = w["tpot_ms"].get(
+            "p95", percentile(w["raw"]["tpot_ms"], 95) if "raw" in w else 0.0
+        )
+        end_to_end_ms_mean = w["e2e_ms"]["mean"]
+        mem = w.get("memory", {})
+        prefill_mem = mem.get("prefill_allocated_mb", 0.0)
+        peak_mem = mem.get("peak_allocated_mb", 0.0)
+        cache_mib = mem.get("cache_mb", 0.0)
+
+        row = [
+            str(mode),
+            str(prompt_tokens),
+            str(generated_tokens),
+            f"{prefill_ms_mean:.2f}",
+            f"{decode_ms_mean:.2f}",
+            f"{decode_ms_p50:.2f}",
+            f"{decode_ms_p95:.2f}",
+            f"{end_to_end_ms_mean:.2f}",
+            f"{prefill_mem:.2f}",
+            f"{peak_mem:.2f}",
+            f"{cache_mib:.2f}",
+        ]
+        print(",".join(row))
 
 
 def parse_args():
@@ -423,7 +507,10 @@ def parse_args():
         "--profile-ops", action="store_true", help="每个 workload 额外跑一次 profiler，记录 top kernel 耗时占比"
     )
     p.add_argument("--output", type=Path, help="自定义输出路径")
-    return p.parse_args()
+    args = p.parse_args()
+    if any(ol < 2 for ol in args.output_lens):
+        raise ValueError("--output-lens 至少为 2，才能测量 Decode")
+    return args
 
 
 def main():
@@ -431,7 +518,7 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要可用的 NVIDIA GPU")
     device = torch.device("cuda")
-    engine = ENGINES[args.engine]
+    engine = args.engine
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
@@ -513,6 +600,7 @@ def main():
             "model": args.model,
             "revision": args.revision,
             "dtype": str(next(model.parameters()).dtype),
+            "tokenizer_included": False,
         },
         "correctness": correctness,
         "workloads": workloads,
@@ -522,6 +610,9 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(record, indent=2, ensure_ascii=False))
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if git["dirty"] else ""))
+    if workloads:
+        print()
+        print_table(workloads, engine=args.engine)
 
 
 if __name__ == "__main__":
