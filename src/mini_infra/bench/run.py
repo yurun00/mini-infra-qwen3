@@ -2,7 +2,7 @@
 
 数据源与绘图约定：
     本命令是项目中【唯一】产生全量基准数据并归档到 benchmarks/result-history/ 的工具。
-    只有本命令写入 result-history/ 的 JSON 结果才会被 mini-infra-bench-plot 读取并绘制图表与报表。
+    只有本命令写入 result-history/ 的 JSON 结果才会被 mini-infra-bench-plot-history 读取并绘制图表与报表。
     （mini-infra-bench-regression 仅用于 0/1 门禁判定，其临时结果不写入该目录，亦不参与画图）。
     数据目录默认为当前目录下的 benchmarks/，可通过环境变量 MINI_INFRA_BENCH_DIR 修改。
 
@@ -17,7 +17,7 @@
     # 快速试跑
     mini-infra-bench --tag dev --prompt-lens 32 --output-lens 16 --repeats 3
 
-新增优化（如 KV Cache）时，只需在 ENGINES 中注册一个新的 generate 适配函数。
+新增优化（如 KV Cache）时，只需在 MODES 中注册一个新的 generate 适配函数。
 """
 
 import argparse
@@ -54,11 +54,11 @@ SCHEMA_VERSION = 1
 
 
 # --------------------------------------------------------------------------
-# 引擎适配层：从 generation.py 导入核心生成实现。
+# 模式适配层：从 generation.py 导入核心生成实现。
 # --------------------------------------------------------------------------
 
 
-ENGINES = ("no-cache", "kv-cache")
+MODES = ("no-cache", "kv-cache")
 
 
 # --------------------------------------------------------------------------
@@ -192,7 +192,7 @@ def _install_scope_hooks(model):
     return handles
 
 
-def profile_ops(model, engine, ids, output_len, top=10):
+def profile_ops(model, mode, ids, output_len, top=10):
     """用 torch.profiler 跑一次，返回三组归因信息（定位下一步优化目标）：
 
     - top_kernels：按 CUDA 自身耗时排序的 top-N kernel，每个带 category 标签；
@@ -206,7 +206,7 @@ def profile_ops(model, engine, ids, output_len, top=10):
     try:
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
             generate(
-                engine,
+                mode,
                 model,
                 ids,
                 output_len,
@@ -306,11 +306,11 @@ def make_prompt(vocab_size, length, batch_size, device):
     return ids.to(device)
 
 
-def check_correctness(model, tokenizer, engine, device, update_golden):
+def check_correctness(model, tokenizer, mode, device, update_golden):
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
 
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    res = generate(engine, model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
+    res = generate(mode, model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
     tokens = res.new_tokens[0].tolist()
 
     if update_golden:
@@ -335,7 +335,7 @@ def check_correctness(model, tokenizer, engine, device, update_golden):
 
 def run_workload(
     model,
-    engine,
+    mode,
     prompt_len,
     max_new_tokens,
     batch_size,
@@ -353,7 +353,7 @@ def run_workload(
 
     for _ in range(warmup):
         generate(
-            engine,
+            mode,
             model,
             input_ids,
             max_new_tokens,
@@ -365,7 +365,7 @@ def run_workload(
     # 1. 执行多次迭代压测并采集单次运行结果
     runs = [
         generate(
-            engine,
+            mode,
             model,
             input_ids,
             max_new_tokens,
@@ -381,6 +381,7 @@ def run_workload(
         "e2e_ms": [r.e2e_ms for r in runs],
         "throughput_tok_s": [r.throughput_tok_s for r in runs],
         "gpu_time_ratio": [r.gpu_time_ratio for r in runs],
+        "step_latencies_ms": [r.step_latencies_ms for r in runs],
     }
 
     # 2. 显存结构化拆解：常驻(weights+输入) / 动态峰值(激活+KV Cache+临时张量) / allocator 保留（含碎片）
@@ -399,7 +400,7 @@ def run_workload(
     # 3. 结构化汇总报告（按 Metadata / Latency / Throughput / Memory / Raw 组织）
     result = {
         # 负载元数据
-        "mode": engine,
+        "mode": mode,
         "prompt_len": prompt_len,
         "output_len": max_new_tokens,
         "batch_size": batch_size,
@@ -428,11 +429,11 @@ def run_workload(
             result["tpot_ms"]["median"],
         )
     if with_profile:
-        result["op_breakdown"] = profile_ops(model, engine, input_ids, max_new_tokens)
+        result["op_breakdown"] = profile_ops(model, mode, input_ids, max_new_tokens)
     return result
 
 
-def print_table(workloads, engine=None):
+def print_table(workloads, mode=None):
     """控制台标准 CSV 格式输出，方便直接复制进 Excel/文档或重定向保存为 .csv。"""
 
     header = [
@@ -457,15 +458,13 @@ def print_table(workloads, engine=None):
             print(",".join(str(w.get(k, "")) for k in header))
             continue
 
-        mode = w.get("mode") or engine or w.get("engine", "")
+        mode_str = w.get("mode") or mode or ""
         prompt_tokens = w.get("prompt_len", 0)
         generated_tokens = w.get("output_len", 0)
         prefill_ms_mean = w["ttft_ms"]["mean"]
         decode_ms_mean = w["tpot_ms"]["mean"]
         decode_ms_p50 = w["tpot_ms"].get("p50", w["tpot_ms"]["median"])
-        decode_ms_p95 = w["tpot_ms"].get(
-            "p95", percentile(w["raw"]["tpot_ms"], 95) if "raw" in w else 0.0
-        )
+        decode_ms_p95 = w["tpot_ms"].get("p95", percentile(w["raw"]["tpot_ms"], 95) if "raw" in w else 0.0)
         end_to_end_ms_mean = w["e2e_ms"]["mean"]
         mem = w.get("memory", {})
         prefill_mem = mem.get("prefill_allocated_mb", 0.0)
@@ -473,7 +472,7 @@ def print_table(workloads, engine=None):
         cache_mib = mem.get("cache_mb", 0.0)
 
         row = [
-            str(mode),
+            str(mode_str),
             str(prompt_tokens),
             str(generated_tokens),
             f"{prefill_ms_mean:.2f}",
@@ -491,7 +490,12 @@ def print_table(workloads, engine=None):
 def parse_args():
     p = argparse.ArgumentParser(description="mini-infra-qwen3 benchmark")
     p.add_argument("--tag", required=True, help="版本/特性标签，如 baseline、kv-cache")
-    p.add_argument("--engine", default="no-cache", choices=ENGINES)
+    p.add_argument(
+        "--mode",
+        default="no-cache",
+        choices=MODES,
+        help="生成模式 (如: no-cache, kv-cache)",
+    )
     p.add_argument("--model", default=DEFAULT_MODEL_ID)
     p.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
     p.add_argument("--prompt-lens", type=int, nargs="+", default=[32, 128, 512, 1024])
@@ -518,14 +522,14 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要可用的 NVIDIA GPU")
     device = torch.device("cuda")
-    engine = args.engine
+    mode = args.mode
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_handwritten_model(model_dir, device)
     vocab = model.config.vocab_size if hasattr(model, "config") else 150000
 
-    correctness = check_correctness(model, tokenizer, engine, device, args.update_golden)
+    correctness = check_correctness(model, tokenizer, mode, device, args.update_golden)
     if correctness["passed"] is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
@@ -542,7 +546,7 @@ def main():
                 try:
                     result = run_workload(
                         model,
-                        engine,
+                        mode,
                         pl,
                         ol,
                         bs,
@@ -588,7 +592,7 @@ def main():
     record = {
         "schema_version": SCHEMA_VERSION,
         "tag": args.tag,
-        "engine": args.engine,
+        "mode": args.mode,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git": git,
         "env": env,
@@ -612,7 +616,7 @@ def main():
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if git["dirty"] else ""))
     if workloads:
         print()
-        print_table(workloads, engine=args.engine)
+        print_table(workloads, mode=args.mode)
 
 
 if __name__ == "__main__":

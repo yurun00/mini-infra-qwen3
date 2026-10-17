@@ -82,6 +82,16 @@ def compare_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
         )
 
         if baseline_id != cached_id:
+            top3_base_vals, top3_base_ids = torch.topk(baseline_last[0], k=3)
+            top3_cached_vals, top3_cached_ids = torch.topk(cached_last[0], k=3)
+
+            print("\n[Token 不一致] 步骤 %02d: no-cache=%d, kv-cache=%d" % (step + 1, baseline_id, cached_id))
+            print("no-cache 前 3 大 Logits:")
+            for rank, (tid, val) in enumerate(zip(top3_base_ids.tolist(), top3_base_vals.tolist()), 1):
+                print("  %d. token=%d, logit=%.6f" % (rank, tid, val))
+            print("kv-cache 前 3 大 Logits:")
+            for rank, (tid, val) in enumerate(zip(top3_cached_ids.tolist(), top3_cached_vals.tolist()), 1):
+                print("  %d. token=%d, logit=%.6f" % (rank, tid, val))
             return {
                 "tokens_match": False,
                 "first_mismatch_step": step + 1,

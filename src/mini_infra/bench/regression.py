@@ -3,7 +3,7 @@
 定位与数据流说明：
     本模块是纯粹的【质量门禁与防回退守门人（Quality Gate）】，只输出退出码（0/1/2）与控制台文本。
     其默认生成的 candidate.local.json 为临时比对文件（已被 .gitignore 忽略），不会写入
-    benchmarks/result-history/，因此【不参与】mini-infra-bench-plot 的绘图与时间线分析。
+    benchmarks/result-history/，因此【不参与】mini-infra-bench-plot-history 的绘图与时间线分析。
     绘图所需的全量数据源唯一定义来自 mini-infra-bench（run.py）。
 
 用法：

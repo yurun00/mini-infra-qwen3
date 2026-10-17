@@ -5,7 +5,9 @@ __pycache__/
 build/
 dist/
 .venv/
+.venv
 venv/
+venv
 
 # 本地配置与凭据
 .env

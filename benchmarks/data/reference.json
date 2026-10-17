@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "tag": "reference",
-  "engine": "full-recompute",
+  "mode": "full-recompute",
   "timestamp": "2026-10-14T02:39:49+0000",
   "git": {
     "commit": "915b0d9",

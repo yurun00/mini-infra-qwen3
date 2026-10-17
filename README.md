@@ -39,7 +39,8 @@ mini-infra-qwen3/
 │       │   └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
 │           ├── run.py                 # mini-infra-bench：全量基准测量（落盘至 result-history/，plot 唯一数据源）
-│           ├── plot.py                # mini-infra-bench-plot：读取 result-history/ 生成汇总表与演进趋势图
+│           ├── plot_history.py        # mini-infra-bench-plot-history：读取 result-history/ 生成汇总表与演进趋势图
+│           ├── plot_compare.py        # mini-infra-bench-plot-compare：对比两个独立 JSON 结果（如不同 mode）并绘制多维对比图
 │           └── regression.py          # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码，不参与画图）
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
@@ -178,13 +179,21 @@ mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中�
 - **CI 自动化**：PR 会在 GPU runner 上自动触发 [pr-perf-regression.yml](.github/workflows/pr-perf-regression.yml)。
 
 #### 独立全量基准测量（不污染发版历史）
-在日常开发调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**，可通过 `--output` 指定输出到独立文件：
+在日常开发调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**，可通过 `--output` 指定输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略，不会上传到 GitHub），并使用 `mini-infra-bench-plot-compare` 绘制跨模式对比图：
 ```bash
-# 全矩阵性能测量并输出到独立文件，同时终端打印完整 CSV 汇总表
-mini-infra-bench --tag dev --engine kv-cache --output test_result.json
+# 1. 测量无 cache 模式结果
+mini-infra-bench --tag dev --mode no-cache --output tmp/test_nocache.json
 
-# 快速试跑（缩小测试矩阵）
-mini-infra-bench --tag dev --engine kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output test_result.json
+# 2. 测量有 KV Cache 模式结果
+mini-infra-bench --tag dev --mode kv-cache --output tmp/test_kvcache.json
+
+# 3. 对比两个 JSON 结果：终端打印对比表，并绘制 6 维度对比图（Decode 延迟、吞吐、加速比、TTFT、显存占用、端到端延迟）
+mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
+
+# 快速试跑对比（缩小测试矩阵）
+mini-infra-bench --tag dev --mode no-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_nocache.json
+mini-infra-bench --tag dev --mode kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_kvcache.json
+mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 ```
 
 ---
@@ -224,14 +233,14 @@ pip install -e ".[bench]"
 mini-infra-bench --tag "v0.2.0-kv-cache"
 
 # 2. 读取所有历史版本数据，重新生成多版本演化表与对比图
-mini-infra-bench-plot
+mini-infra-bench-plot-history
 
 # 3. 将新性能固化为后续日常开发的零退化底线（更新 benchmarks/data/reference.json）
 mini-infra-bench-regression --update-reference
 ```
 
 > **注意（数据流与绘图约定）**：
-> * **`mini-infra-bench-plot` 只消费 `mini-infra-bench`（`run.py`）的输出**：只有通过 `mini-infra-bench` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
+> * **`mini-infra-bench-plot-history` 只消费 `mini-infra-bench`（`run.py`）的输出**：只有通过 `mini-infra-bench` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
 > * **`mini-infra-bench-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 #### 步骤 4：提交评测产物与版本代码

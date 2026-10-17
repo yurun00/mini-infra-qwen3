@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "tag": "baseline",
-  "engine": "full-recompute",
+  "mode": "full-recompute",
   "timestamp": "2026-10-14T02:12:02+0000",
   "git": {
     "commit": "a497386",

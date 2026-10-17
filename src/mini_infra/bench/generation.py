@@ -364,7 +364,7 @@ def generate_kv_cache(
 
 
 def generate(
-    engine: str,
+    mode: str,
     model: torch.nn.Module,
     input_ids: torch.Tensor,
     max_new_tokens: int,
@@ -373,12 +373,12 @@ def generate(
     stop_on_eos: bool = True,
 ) -> GenerationResult:
     """统一生成入口，支持 no-cache 与 kv-cache。"""
-    if engine == "no-cache":
+    if mode == "no-cache":
         function = generate_no_cache
-    elif engine == "kv-cache":
+    elif mode == "kv-cache":
         function = generate_kv_cache
     else:
-        raise ValueError(f"未知生成模式: {engine}，可选: ('no-cache', 'kv-cache')")
+        raise ValueError(f"未知生成模式: {mode}，可选: ('no-cache', 'kv-cache')")
     return function(
         model=model,
         input_ids=input_ids,

@@ -36,7 +36,7 @@ jobs:
 
       - name: Generate Reports and Evolution Plots
         run: |
-          .venv/bin/mini-infra-bench-plot
+          .venv/bin/mini-infra-bench-plot-history
 
       - name: Update Regression Reference for Future Commits
         run: |
