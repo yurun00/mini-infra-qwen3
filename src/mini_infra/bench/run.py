@@ -489,10 +489,15 @@ def print_table(workloads, mode=None):
 
 def parse_args():
     p = argparse.ArgumentParser(description="mini-infra-qwen3 benchmark")
-    p.add_argument("--tag", required=True, help="版本/特性标签，如 baseline、kv-cache")
+    p.add_argument("--tag", required=True, help="版本标签，如 baseline、v0.1.0、v0.2.0")
+    p.add_argument(
+        "--release-feature",
+        default=None,
+        help="当前版本对应的核心特性名称（如 'no cache'、'KV cache'、'FlashAttention'，可选）",
+    )
     p.add_argument(
         "--mode",
-        default="no-cache",
+        default="kv-cache",
         choices=MODES,
         help="生成模式 (如: no-cache, kv-cache)",
     )
@@ -589,9 +594,11 @@ def main():
                     )
 
     git = git_info()
+    release_feature = args.release_feature
     record = {
         "schema_version": SCHEMA_VERSION,
         "tag": args.tag,
+        "release_feature": release_feature,
         "mode": args.mode,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git": git,

@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "tag": "baseline",
-  "mode": "full-recompute",
+  "release_feature": "no cache",
+  "mode": "no-cache",
   "timestamp": "2026-10-14T02:12:02+0000",
   "git": {
     "commit": "a497386",

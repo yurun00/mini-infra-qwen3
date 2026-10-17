@@ -33,7 +33,12 @@ def index(record):
 
 
 def label(record):
-    return record["tag"] + ("*" if record["git"]["dirty"] else "")
+    tag = record["tag"]
+    dirty = "*" if record.get("git", {}).get("dirty") else ""
+    feat = record.get("release_feature") or record.get("release-feature") or record.get("feature")
+    if feat:
+        return f"{tag} ({feat}){dirty}"
+    return f"{tag}{dirty}"
 
 
 def markdown_table(records, base):
