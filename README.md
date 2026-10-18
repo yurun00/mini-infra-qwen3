@@ -263,7 +263,9 @@ git push origin main --tags
 ```
 
 > **CI 自动化机制**：
-> 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml) 工作流，如果在云端配置了 GPU Runner，也会在云端全自动归档一份带有当前 Commit 签名的评测产物 Artifact。
+> 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml) 工作流：
+> * **特性透传与解析**：工作流会自动提取并向 `--release-feature` 透传特性描述（按优先级自动获取：① 手动 `workflow_dispatch` 传参 $\rightarrow$ ② 匹配已有同 Tag 的历史 JSON 归档 $\rightarrow$ ③ 从 Git Annotated Tag 注释中解析，如 `Release v0.2.0: KV cache`）；
+> * **云端产物归档**：在云端具备 GPU Runner 时，会自动在 GitHub Actions 归档带有当前 Commit 签名的全矩阵评测数据、Markdown 诊断报告与时间线大图 Artifact。
 
 #### 发布产物清单：
 - **`benchmarks/result-history/<commit>_<tag>.json`**：该版本全矩阵测试的原始性能数据（持久化存储）。

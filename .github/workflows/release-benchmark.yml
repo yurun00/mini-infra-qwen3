@@ -7,9 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release / Feature Tag (例如 v0.2.0-kv-cache)'
+        description: 'Release Tag (例如 v0.2.0)'
         required: false
         default: 'manual-release'
+      release_feature:
+        description: 'Release Feature (例如 "KV cache")'
+        required: false
+        default: ''
 
 jobs:
   benchmark:
@@ -31,8 +35,29 @@ jobs:
           if [[ -z "$TAG" || "$TAG" == "main" || "$TAG" == "master" ]]; then
             TAG="${{ inputs.tag || 'manual-release' }}"
           fi
-          echo "Running benchmark for tag: $TAG"
-          .venv/bin/mini-infra-bench --tag "$TAG"
+
+          # 1. 优先使用手动指定的 release_feature
+          FEATURE="${{ inputs.release_feature }}"
+
+          # 2. 若为空且已有同 TAG 的历史归档，优先提取其 release_feature 保持同构
+          if [[ -z "$FEATURE" ]]; then
+            FEATURE=$(python3 -c "import glob, json; files=glob.glob('benchmarks/result-history/*_${TAG}.json'); print(json.load(open(files[0])).get('release_feature', '') if files else '')" 2>/dev/null || true)
+          fi
+
+          # 3. 若仍为空，尝试从 Git annotated tag 的注释中提取（如 'Release v0.2.0: KV cache' -> 'KV cache'）
+          if [[ -z "$FEATURE" ]]; then
+            RAW_MSG=$(git tag -l --format='%(contents:subject)' "$TAG" 2>/dev/null || true)
+            if [[ -n "$RAW_MSG" ]]; then
+              FEATURE=$(echo "$RAW_MSG" | sed -E 's/^Release [^:]+: //I' | xargs)
+            fi
+          fi
+
+          echo "Running benchmark for tag: $TAG (release_feature: ${FEATURE:-none})"
+          if [[ -n "$FEATURE" ]]; then
+            .venv/bin/mini-infra-bench --tag "$TAG" --release-feature "$FEATURE"
+          else
+            .venv/bin/mini-infra-bench --tag "$TAG"
+          fi
 
       - name: Generate Reports and Evolution Plots
         run: |
