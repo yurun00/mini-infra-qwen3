@@ -1,6 +1,6 @@
 # mini-infra-qwen3
 
-本项目采用**特性驱动（Feature-Driven**的工程演进路线，以最精简、清晰的 Python 和 PyTorch 原生实现，从零解析现代大模型推理引擎的核心机制与优化演进。
+本项目采用**特性驱动（Feature-Driven)**的工程演进路线，以最精简、清晰的 Python 和 PyTorch 原生实现，从零解析现代大模型推理引擎的核心机制与优化演进。
 
 ---
 
