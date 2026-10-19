@@ -1,11 +1,76 @@
 """两条单请求生成路径与计时工具。"""
 
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, NamedTuple
 
 import torch
 
 from mini_infra.qwen3_model import KVCache, cache_size_bytes
+
+
+class Feature(str, Enum):
+    """支持的所有 feature 枚举；每个成员对应一个可独立开关的特性。"""
+
+    KV_CACHE = "kv-cache"
+
+    @classmethod
+    def from_str(cls, value: "str | Feature") -> "Feature":
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(value)
+        except ValueError as err:
+            raise ValueError(f"未知特性: {value}，可选特性: {[m.value for m in cls]}") from err
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
+class Mode:
+    """运行模式结构体：内部存储已启用的 Feature 集合。
+
+    不同 mode 是不同特性的开关组合，但底层执行与输出结构（GenerationResult）保持一致。
+    """
+
+    features: frozenset[Feature] = frozenset()
+
+    def __init__(self, features: "Iterable[Feature] | None" = None):
+        if features is None:
+            object.__setattr__(self, "features", frozenset())
+        elif isinstance(features, frozenset):
+            object.__setattr__(self, "features", features)
+        else:
+            object.__setattr__(self, "features", frozenset(features))
+
+    def is_enabled(self, feature: Feature) -> bool:
+        """检查指定的 feature enum 是否启用。"""
+        return feature in self.features
+
+    def with_feature(self, feature: Feature, enabled: bool = True) -> "Mode":
+        """返回指定 feature enum 状态修改后的新 Mode 实例。"""
+        if enabled:
+            return Mode(self.features | {feature})
+        return Mode(self.features - {feature})
+
+    @property
+    def kv_cache(self) -> bool:
+        return self.is_enabled(Feature.KV_CACHE)
+
+    def to_dict(self) -> dict[str, Any]:
+        """将 mode 中的所有 feature 状态转换为字典。"""
+        return {feat.value: self.is_enabled(feat) for feat in Feature}
+
+    def __contains__(self, feature: Feature) -> bool:
+        return self.is_enabled(feature)
+
+    def __str__(self) -> str:
+        if not self.features:
+            return "no-cache"
+        return "+".join(sorted(feat.value for feat in self.features))
 
 
 def synchronize(device: torch.device) -> None:
@@ -187,7 +252,8 @@ def _build_generation_result(
 
 
 @torch.inference_mode()
-def generate_no_cache(
+def generate(
+    mode: Mode,
     model: torch.nn.Module,
     input_ids: torch.Tensor,
     max_new_tokens: int,
@@ -195,7 +261,11 @@ def generate_no_cache(
     device: torch.device | None = None,
     stop_on_eos: bool = True,
 ) -> GenerationResult:
-    """baseline：每步重算完整上下文（无 KV Cache）。"""
+    """统一单请求生成入口；mode 为 Mode 结构体对象。
+
+    不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
+    """
+    use_cache = mode.is_enabled(Feature.KV_CACHE)
     if device is None:
         device = input_ids.device
 
@@ -210,94 +280,7 @@ def generate_no_cache(
     # 2. 墙钟开始时间
     wall_start = time.perf_counter()
 
-    generated = input_ids
-    step_event_pairs = []
-    step_times_ms = []
-    memory_after_prefill_bytes = 0
-
-    for step in range(max_new_tokens):
-        step_out = _timed_forward(
-            model=model,
-            model_input=generated,
-            device=device,
-            kv_cache=None,
-        )
-        next_token = step_out.next_token
-
-        if step_out.event_pair is not None:
-            step_event_pairs.append(step_out.event_pair)
-        else:
-            step_times_ms.append(step_out.elapsed_ms)
-
-        generated = torch.cat((generated, next_token), dim=1)
-
-        if step == 0 and device.type == "cuda":
-            memory_after_prefill_bytes = torch.cuda.memory_allocated(device)
-
-        if stop_on_eos and eos_token_id is not None and (next_token == eos_token_id).all():
-            break
-
-    # 3. 墙钟结束时间
-    synchronize(device)
-    wall_ms = (time.perf_counter() - wall_start) * 1000
-
-    is_cuda = device.type == "cuda"
-
-    # 4. 统计各 step 推理时延（CUDA 下使用 Event 硬件测时，非 CUDA 下使用 CPU 墙钟）
-    if is_cuda and step_event_pairs:
-        step_latencies_ms = [s.elapsed_time(e) for s, e in step_event_pairs]
-    else:
-        step_latencies_ms = step_times_ms
-
-    # 5. 显存峰值
-    peak_allocated_bytes = torch.cuda.max_memory_allocated(device) if is_cuda else 0
-    peak_reserved_bytes = torch.cuda.max_memory_reserved(device) if is_cuda else 0
-
-    prompt_len = input_ids.shape[1]
-    new_tokens = generated[:, prompt_len:]
-    output_len = new_tokens.shape[1]
-
-    return _build_generation_result(
-        new_tokens=new_tokens,
-        prompt_len=prompt_len,
-        output_len=output_len,
-        batch_size=batch_size,
-        step_latencies_ms=step_latencies_ms,
-        wall_ms=wall_ms,
-        baseline_allocated_bytes=baseline_allocated_bytes,
-        memory_after_prefill_bytes=memory_after_prefill_bytes,
-        peak_allocated_bytes=peak_allocated_bytes,
-        peak_reserved_bytes=peak_reserved_bytes,
-        cache_bytes=0,
-        is_cuda=is_cuda,
-    )
-
-
-@torch.inference_mode()
-def generate_kv_cache(
-    model: torch.nn.Module,
-    input_ids: torch.Tensor,
-    max_new_tokens: int,
-    eos_token_id: int | None = None,
-    device: torch.device | None = None,
-    stop_on_eos: bool = True,
-) -> GenerationResult:
-    """优化组：Prefill 建立 Cache，Decode 每步只输入最新 Token。"""
-    if device is None:
-        device = input_ids.device
-
-    batch_size = input_ids.shape[0]
-
-    # 1. 运行前常驻显存基线与重置峰值
-    synchronize(device)
-    baseline_allocated_bytes = torch.cuda.memory_allocated(device) if device.type == "cuda" else 0
-    if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(device)
-
-    # 2. 墙钟开始时间
-    wall_start = time.perf_counter()
-
-    cache = KVCache()
+    cache = KVCache() if use_cache else None
     model_input = input_ids
     generated = input_ids
     step_event_pairs = []
@@ -318,8 +301,9 @@ def generate_kv_cache(
         else:
             step_times_ms.append(step_out.elapsed_ms)
 
-        model_input = next_token
         generated = torch.cat((generated, next_token), dim=1)
+        # 有 Cache 时下一步只喂最新 Token；无 Cache 时每步重算完整上下文
+        model_input = next_token if use_cache else generated
 
         if step == 0 and device.type == "cuda":
             memory_after_prefill_bytes = torch.cuda.memory_allocated(device)
@@ -358,32 +342,6 @@ def generate_kv_cache(
         memory_after_prefill_bytes=memory_after_prefill_bytes,
         peak_allocated_bytes=peak_allocated_bytes,
         peak_reserved_bytes=peak_reserved_bytes,
-        cache_bytes=cache_size_bytes(cache),
+        cache_bytes=cache_size_bytes(cache) if cache is not None else 0,
         is_cuda=is_cuda,
-    )
-
-
-def generate(
-    mode: str,
-    model: torch.nn.Module,
-    input_ids: torch.Tensor,
-    max_new_tokens: int,
-    eos_token_id: int | None = None,
-    device: torch.device | None = None,
-    stop_on_eos: bool = True,
-) -> GenerationResult:
-    """统一生成入口，支持 no-cache 与 kv-cache。"""
-    if mode == "no-cache":
-        function = generate_no_cache
-    elif mode == "kv-cache":
-        function = generate_kv_cache
-    else:
-        raise ValueError(f"未知生成模式: {mode}，可选: ('no-cache', 'kv-cache')")
-    return function(
-        model=model,
-        input_ids=input_ids,
-        max_new_tokens=max_new_tokens,
-        eos_token_id=eos_token_id,
-        device=device,
-        stop_on_eos=stop_on_eos,
     )

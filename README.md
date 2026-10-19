@@ -10,7 +10,7 @@
 - **手写 Qwen3-0.6B 模型架构**：基于纯原生 PyTorch 实现完整前向计算，不依赖 Transformers 模型代码，不引入黑盒优化，清晰展示每一层计算逻辑。
 - **轻量原生 Tokenizer**：纯 Python + regex 实现的 Byte-level BPE Tokenizer，直接解析权重目录下的 `tokenizer.json`，内建 non-thinking Chat Template，不依赖 tokenizers / Transformers。
 - **KV Cache 显存与计算优化**：实现原生显式 `KVCache` 容器，Prefill 阶段建立缓存，自回归 Decode 每步只计算增量 Token，消除历史重复前向计算；支持精确显存占用统计与逐步延迟分位数（P50/P95）分析。
-- **单请求自回归推理**：支持 greedy decoding 逐 Token 生成，支持 `--mode {both, kv-cache, no-cache}` 对照运行并自动计算加速比。
+- **单请求自回归推理**：支持 greedy decoding 逐 Token 生成，支持 `--compare-feature` 对比任意特性开启与关闭的结果并自动计算加速比。
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
 
@@ -30,6 +30,7 @@ mini-infra-qwen3/
 ├── src/
 │   └── mini_infra/
 │       ├── __init__.py                # mini_infra 包导出入口
+│       ├── generation.py              # 自回归生成引擎（no-cache / kv-cache 循环与细粒度计时）
 │       ├── qwen3_model.py             # Qwen3-0.6B 结构与前向算子手写实现
 │       ├── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
 │       ├── cli/
@@ -127,16 +128,17 @@ mini-infra-smoke
 ### 运行推理与计时
 
 ```bash
-# 默认 --mode both：同时运行 no-cache 与 kv-cache 进行端到端对照并自动输出加速比
+# 比较指定特性的 enable 与 disable 对照（自动输出加速比与逐 Token 一致性）
 mini-infra-run \
+  --compare-feature kv-cache \
   --prompt "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
 
-# 也可指定单模式运行：--mode no-cache 或 --mode kv-cache
-mini-infra-run --mode kv-cache --max-new-tokens 64
+# 单模式运行：指定特定 feature（如启用或关闭 KV Cache）
+mini-infra-run --kv-cache --max-new-tokens 64
 ```
 
-输出包含生成 Token IDs、生成文本、Prefill 延迟、平均 Decode 延迟、P50/P95 延迟、逐步 Decode 耗时序列、Prefill 后已分配显存、峰值显存与最终 KV Cache 数据量；在 `both` 模式下自动给出两组生成的逐 Token 一致性校验及平均 Decode 加速比。
+输出包含生成 Token IDs、生成文本、Prefill 延迟、平均 Decode 延迟、P50/P95 延迟、逐步 Decode 耗时序列、Prefill 后已分配显存、峰值显存与最终 KV Cache 数据量；在 `--compare-feature` 模式下自动给出两组生成的逐 Token 一致性校验及平均 Decode 加速比。
 
 ---
 
@@ -183,17 +185,17 @@ mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中�
 在日常开发调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**，可通过 `--output` 指定输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略，不会上传到 GitHub），并使用 `mini-infra-bench-plot-compare` 绘制跨模式对比图：
 ```bash
 # 1. 测量无 cache 模式结果
-mini-infra-bench --tag dev --mode no-cache --output tmp/test_nocache.json
+mini-infra-bench --tag dev --no-kv-cache --output tmp/test_nocache.json
 
 # 2. 测量有 KV Cache 模式结果
-mini-infra-bench --tag dev --mode kv-cache --output tmp/test_kvcache.json
+mini-infra-bench --tag dev --kv-cache --output tmp/test_kvcache.json
 
 # 3. 对比两个 JSON 结果：终端打印对比表，并绘制 6 维度对比图（Decode 延迟、吞吐、加速比、TTFT、显存占用、端到端延迟）
 mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 
 # 快速试跑对比（缩小测试矩阵）
-mini-infra-bench --tag dev --mode no-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_nocache.json
-mini-infra-bench --tag dev --mode kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_kvcache.json
+mini-infra-bench --tag dev --no-kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_nocache.json
+mini-infra-bench --tag dev --kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_kvcache.json
 mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 ```
 
@@ -280,5 +282,5 @@ git push origin main --tags
 
 ## 致谢与参考 (Acknowledgments)
 
-- 本项目实现参考并基于 [SVDX-lab/miniinfra](https://github.com/SVDX-lab/miniinfra/) 《超轻量AI Infra教程—推理篇》。
+- [SVDX-lab/miniinfra](https://github.com/SVDX-lab/miniinfra/) 《超轻量AI Infra教程—推理篇》。
 

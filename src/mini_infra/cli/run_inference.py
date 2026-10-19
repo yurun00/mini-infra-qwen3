@@ -1,10 +1,8 @@
-"""运行手写 Qwen3-0.6B 单请求推理，支持 no-cache / KV Cache 对照。入口：mini-infra-run。"""
-
 import argparse
 
 import torch
 
-from mini_infra.bench.generation import generate, percentile, synchronize
+from mini_infra.generation import Feature, Mode, generate, percentile, synchronize
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -15,16 +13,22 @@ from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="运行并比较 KV Cache 推理")
+    parser = argparse.ArgumentParser(description="运行手写模型单请求推理")
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument(
-        "--mode",
-        choices=("no-cache", "kv-cache", "both"),
-        default="both",
+        "--kv-cache",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="是否启用 KV Cache 特性（默认: False）",
+    )
+    parser.add_argument(
+        "--compare-feature",
+        default=None,
+        help="指定一个未启用的 feature 进行 enable 与 disable 的结果比较",
     )
     return parser.parse_args()
 
@@ -62,7 +66,21 @@ def main():
     token_ids = tokenizer.encode_chat_prompt(args.prompt)
     input_ids = torch.tensor([token_ids], dtype=torch.long, device=device)
     model = load_handwritten_model(model_directory, device)
-    modes = ("no-cache", "kv-cache") if args.mode == "both" else (args.mode,)
+    features = {Feature.KV_CACHE} if args.kv_cache else set()
+    base_mode = Mode(features)
+
+    if args.compare_feature:
+        compare_feat = Feature.from_str(args.compare_feature)
+        if base_mode.is_enabled(compare_feat):
+            raise ValueError(
+                f"--compare-feature 指定的特性 '{compare_feat.value}' 已经在命令行参数中启用，"
+                "必须选择一个未启用的特性进行对比"
+            )
+        mode_disable = base_mode.with_feature(compare_feat, False)
+        mode_enable = base_mode.with_feature(compare_feat, True)
+        modes = (mode_disable, mode_enable)
+    else:
+        modes = (base_mode,)
 
     for mode in modes:
         for _ in range(args.warmup):
@@ -89,10 +107,10 @@ def main():
         )
         print_result(mode, results[mode], tokenizer)
 
-    if len(results) == 2:
-        baseline = results["no-cache"]
-        optimized = results["kv-cache"]
-        print("\n[对照结论]")
+    if len(modes) == 2:
+        baseline = results[mode_disable]
+        optimized = results[mode_enable]
+        print(f"\n[特性 '{compare_feat.value}' 对照结论]")
         print("逐 Token 输出一致:", torch.equal(baseline.new_tokens, optimized.new_tokens))
         baseline_decode = baseline.tpot_ms
         optimized_decode = optimized.tpot_ms

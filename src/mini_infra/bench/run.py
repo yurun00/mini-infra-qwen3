@@ -17,7 +17,7 @@
     # 快速试跑
     mini-infra-bench --tag dev --prompt-lens 32 --output-lens 16 --repeats 3
 
-新增优化（如 KV Cache）时，只需在 MODES 中注册一个新的 generate 适配函数。
+新增优化时，在 mini_infra.generation 的 Mode 结构体中加 feature 字段即可。
 """
 
 import argparse
@@ -32,7 +32,9 @@ from pathlib import Path
 
 import torch
 
-from mini_infra.bench.generation import (
+from mini_infra.generation import (
+    Feature,
+    Mode,
     generate,
     percentile,
     synchronize,
@@ -54,11 +56,8 @@ SCHEMA_VERSION = 1
 
 
 # --------------------------------------------------------------------------
-# 模式适配层：从 generation.py 导入核心生成实现。
+# 模式适配层：Mode 结构体包含所有 feature 字段，直接从 mini_infra.generation 导入。
 # --------------------------------------------------------------------------
-
-
-MODES = ("no-cache", "kv-cache")
 
 
 # --------------------------------------------------------------------------
@@ -400,7 +399,7 @@ def run_workload(
     # 3. 结构化汇总报告（按 Metadata / Latency / Throughput / Memory / Raw 组织）
     result = {
         # 负载元数据
-        "mode": mode,
+        "mode": str(mode),
         "prompt_len": prompt_len,
         "output_len": max_new_tokens,
         "batch_size": batch_size,
@@ -496,10 +495,10 @@ def parse_args():
         help="当前版本对应的核心特性名称（如 'no cache'、'KV cache'、'FlashAttention'，可选）",
     )
     p.add_argument(
-        "--mode",
-        default="kv-cache",
-        choices=MODES,
-        help="生成模式 (如: no-cache, kv-cache)",
+        "--kv-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否启用 KV Cache 特性（默认: True）",
     )
     p.add_argument("--model", default=DEFAULT_MODEL_ID)
     p.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
@@ -527,7 +526,8 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要可用的 NVIDIA GPU")
     device = torch.device("cuda")
-    mode = args.mode
+    features = {Feature.KV_CACHE} if args.kv_cache else set()
+    mode = Mode(features)
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
@@ -599,7 +599,7 @@ def main():
         "schema_version": SCHEMA_VERSION,
         "tag": args.tag,
         "release_feature": release_feature,
-        "mode": args.mode,
+        "mode": str(mode),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git": git,
         "env": env,
@@ -623,7 +623,7 @@ def main():
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if git["dirty"] else ""))
     if workloads:
         print()
-        print_table(workloads, mode=args.mode)
+        print_table(workloads, mode=mode)
 
 
 if __name__ == "__main__":
