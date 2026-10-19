@@ -68,12 +68,13 @@ mini-infra-qwen3/
 
 ## 验证环境
 
-- **GPU**：NVIDIA GeForce RTX 3080 Ti 12GB
-- **CPU**：Intel Xeon Gold 6226R
-- **内存**：31 GiB
-- **操作系统**：Ubuntu 22.04
+- **实例规格**：GCP `g2-standard-4`
+- **GPU**：NVIDIA L4 24GB
+- **CPU**：4 vCPU (Intel Xeon @ 2.20GHz)
+- **内存**：16 GiB
+- **操作系统**：Ubuntu 22.04 LTS
 - **Python**：3.10
-- **GPU 驱动**：595.80
+- **GPU 驱动**：580.178.04
 - **CUDA Runtime**：12.6
 - **PyTorch**：2.7.1+cu126
 - **Transformers**：4.51.3
