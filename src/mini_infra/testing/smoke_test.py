@@ -108,7 +108,11 @@ def check_fixed_batching(model):
     paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], **kwargs)
     replaced = generate(fixed_batching_mode, model, [request_c, request_a], [4, 4], **kwargs)
 
-    assert single["new_token_ids"][0] == paired["new_token_ids"][1] == replaced["new_token_ids"][1]
+    assert (
+        single["unpadded_output_token_ids"][0]
+        == paired["unpadded_output_token_ids"][1]
+        == replaced["unpadded_output_token_ids"][1]
+    )
     for step in range(4):
         assert torch.allclose(single["logits_trace"][step][0], paired["logits_trace"][step][1], atol=1e-5)
         assert torch.allclose(paired["logits_trace"][step][1], replaced["logits_trace"][step][1], atol=1e-5)
@@ -116,11 +120,10 @@ def check_fixed_batching(model):
     slots = generate(
         fixed_batching_mode, model, [request_a, request_b], [2, 4], eos_token_id=-1, device=device, stop_on_eos=False
     )
-    metrics = slots["metrics"]
-    assert metrics["active_counts_per_step"] == [2, 2, 1, 1]
-    assert metrics["completion_steps_per_req"] == [2, 4]
-    assert abs(metrics["slot_utilization"] - 0.75) < 1e-12
-    assert metrics["cache_length"] == 7
+    assert slots.active_counts_per_step == [2, 2, 1, 1]
+    assert slots.completion_steps_per_req == [2, 4]
+    assert abs(slots.slot_utilization - 0.75) < 1e-12
+    assert slots.cache_length == 7
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
     assert abs(slots.memory["kv_cache_mb"] - expected_bytes / (1024**2)) < 1e-12
     print("Batched KV Cache、完成槽位和利用率检查通过")
@@ -135,7 +138,7 @@ def check_fixed_batching(model):
         device=device,
         stop_on_eos=False,
     )
-    assert serial["new_token_ids"] == slots.new_token_ids
+    assert serial.unpadded_output_token_ids == slots.unpadded_output_token_ids
     print("Batch 与串行输出一致性检查通过")
 
     # 非法 Cache batch 维和错误长度的 Attention Mask 必须被拒绝。

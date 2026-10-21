@@ -259,15 +259,15 @@ def plot_mode_comparison(
     ax_mem.legend(fontsize=9)
 
     # 6. End-to-End Latency (ms)
-    e2e1 = [idx1[k].get("e2e_ms", {}).get("median", 0.0) for k in plot_keys]
-    e2e2 = [idx2[k].get("e2e_ms", {}).get("median", 0.0) for k in plot_keys]
+    e2e1 = [idx1[k].get("e2e_wall_ms", {}).get("median", 0.0) for k in plot_keys]
+    e2e2 = [idx2[k].get("e2e_wall_ms", {}).get("median", 0.0) for k in plot_keys]
     ax_e2e.plot(x_indices, e2e1, marker="o", linewidth=2, color=c1, label=label1)
     ax_e2e.plot(x_indices, e2e2, marker="s", linewidth=2, color=c2, label=label2)
     ax_e2e.set_xticks(x_indices)
     ax_e2e.set_xticklabels(prompt_lens)
     ax_e2e.set_xlabel("Prompt Length (tokens)")
-    ax_e2e.set_ylabel("E2E Latency (ms)")
-    ax_e2e.set_title("6. End-to-End Latency (Lower is Better)")
+    ax_e2e.set_ylabel("E2E Wall Latency (ms)")
+    ax_e2e.set_title("6. End-to-End Wall Latency (Lower is Better)")
     ax_e2e.grid(True, linestyle="--", alpha=0.5)
     ax_e2e.legend(fontsize=9)
 

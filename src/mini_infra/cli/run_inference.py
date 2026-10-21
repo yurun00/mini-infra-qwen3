@@ -76,16 +76,13 @@ def resolve_feature(name: str) -> FeatureFlag | BatchingMethod:
 
 def print_result(mode, result, tokenizer):
     print("\n[%s]" % mode)
-    for index, token_ids in enumerate(result.new_token_ids):
+    for index, token_ids in enumerate(result.unpadded_output_token_ids):
         print("请求 %d Token IDs: %s" % (index, token_ids))
         print("请求 %d 输出: %s" % (index, tokenizer.decode(token_ids, skip_special_tokens=True)))
 
-    print("端到端模型计算延迟: %.2f ms" % result.e2e_ms)
-    req_throughput = result.get(
-        "request_throughput_per_second",
-        (result.batch_size * 1000.0 / result.e2e_ms) if result.e2e_ms else 0.0,
-    )
-    print("请求吞吐: %.3f requests/s" % req_throughput)
+    print("端到端 Wall-clock 延迟: %.2f ms" % result.e2e_wall_ms)
+    print("端到端模型计算延迟: %.2f ms" % result.e2e_model_ms)
+    print("请求吞吐: %.3f requests/s" % result.request_throughput_per_second)
     print("输出吞吐: %.3f tokens/s" % result.throughput_tok_s)
 
     # 细粒度执行与显存指标（包含 batch 及超集分位数分析）
@@ -93,7 +90,7 @@ def print_result(mode, result, tokenizer):
     print("平均 Decode 迭代延迟: %.2f ms" % result.tpot_ms)
     print("P50 Decode 延迟: %.2f ms" % result.p50_decode_step_ms)
     print("P95 Decode 延迟: %.2f ms" % result.p95_decode_step_ms)
-    if mode.batching == BatchingMethod.FIXED:
+    if mode.batching_method == BatchingMethod.FIXED:
         if "padding_efficiency" in result:
             print("Padding 有效率: %.2f%%" % (result["padding_efficiency"] * 100))
         if "slot_utilization" in result:
@@ -128,7 +125,7 @@ def main():
     model = load_handwritten_model(model_directory, device)
 
     flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
-    base_mode = Mode(flags, batching=args.batching_method)
+    base_mode = Mode(flags, batching_method=args.batching_method)
 
     compare_feature_name = None
     if args.compare_feature:
@@ -201,14 +198,14 @@ def main():
         baseline = results[modes[0]]
         optimized = results[modes[1]]
         print(f"\n[特性 '{compare_feature_name}' 对照结论]")
-        print("逐请求 Token 一致:", baseline.new_token_ids == optimized.new_token_ids)
+        print("逐请求 Token 一致:", baseline.unpadded_output_token_ids == optimized.unpadded_output_token_ids)
         baseline_decode = baseline.tpot_ms
         optimized_decode = optimized.tpot_ms
         if optimized_decode > 0:
             print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
-        if baseline.e2e_ms > 0 and optimized.e2e_ms > 0:
-            print("端到端耗时: %.2f ms -> %.2f ms" % (baseline.e2e_ms, optimized.e2e_ms))
-            print("Batch makespan 加速比: %.3fx" % (baseline.e2e_ms / optimized.e2e_ms))
+        if baseline.e2e_wall_ms > 0 and optimized.e2e_wall_ms > 0:
+            print("端到端 Wall-clock 耗时: %.2f ms -> %.2f ms" % (baseline.e2e_wall_ms, optimized.e2e_wall_ms))
+            print("Batch makespan 加速比: %.3fx" % (baseline.e2e_wall_ms / optimized.e2e_wall_ms))
     print("说明: 计时不包含 tokenizer、模型下载和模型加载；默认 greedy decoding。")
 
 

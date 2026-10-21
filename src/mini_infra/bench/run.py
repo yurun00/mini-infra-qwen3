@@ -310,7 +310,7 @@ def check_correctness(model, tokenizer, mode, device, update_golden):
 
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
     res = generate(mode, model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
-    tokens = res.new_tokens[0].tolist()
+    tokens = res.padded_output_tokens[0].tolist()
 
     if update_golden:
         GOLDEN_OUTPUT_PATH.write_text(
@@ -377,7 +377,8 @@ def run_workload(
     raw = {
         "ttft_ms": [r.ttft_ms for r in runs],
         "tpot_ms": [r.tpot_ms for r in runs],
-        "e2e_ms": [r.e2e_ms for r in runs],
+        "e2e_wall_ms": [r.e2e_wall_ms for r in runs],
+        "e2e_model_ms": [r.e2e_model_ms for r in runs],
         "throughput_tok_s": [r.throughput_tok_s for r in runs],
         "gpu_time_ratio": [r.gpu_time_ratio for r in runs],
         "step_latencies_ms": [r.step_latencies_ms for r in runs],
@@ -406,7 +407,8 @@ def run_workload(
         # 核心时延指标（分布聚合）
         "ttft_ms": summarize(raw["ttft_ms"]),
         "tpot_ms": summarize(raw["tpot_ms"]),
-        "e2e_ms": summarize(raw["e2e_ms"]),
+        "e2e_wall_ms": summarize(raw["e2e_wall_ms"]),
+        "e2e_model_ms": summarize(raw["e2e_model_ms"]),
         # 吞吐与利用率指标
         "throughput_tok_s": summarize(raw["throughput_tok_s"]),
         "gpu_time_ratio": (
@@ -443,7 +445,8 @@ def print_table(workloads, mode=None):
         "decode_ms_mean",
         "decode_ms_p50",
         "decode_ms_p95",
-        "end_to_end_ms_mean",
+        "end_to_end_wall_ms_mean",
+        "end_to_end_model_ms_mean",
         "memory_after_prefill_mib_max",
         "peak_memory_mib_max",
         "kv_cache_mb",
@@ -464,7 +467,8 @@ def print_table(workloads, mode=None):
         decode_ms_mean = w["tpot_ms"]["mean"]
         decode_ms_p50 = w["tpot_ms"].get("p50", w["tpot_ms"]["median"])
         decode_ms_p95 = w["tpot_ms"].get("p95", percentile(w["raw"]["tpot_ms"], 95) if "raw" in w else 0.0)
-        end_to_end_ms_mean = w["e2e_ms"]["mean"]
+        end_to_end_wall_ms_mean = w["e2e_wall_ms"]["mean"]
+        end_to_end_model_ms_mean = w["e2e_model_ms"]["mean"]
         mem = w.get("memory", {})
         prefill_mem = mem.get("prefill_allocated_mb", 0.0)
         peak_mem = mem.get("peak_allocated_mb", 0.0)
@@ -478,7 +482,8 @@ def print_table(workloads, mode=None):
             f"{decode_ms_mean:.2f}",
             f"{decode_ms_p50:.2f}",
             f"{decode_ms_p95:.2f}",
-            f"{end_to_end_ms_mean:.2f}",
+            f"{end_to_end_wall_ms_mean:.2f}",
+            f"{end_to_end_model_ms_mean:.2f}",
             f"{prefill_mem:.2f}",
             f"{peak_mem:.2f}",
             f"{kv_cache_mb:.2f}",
