@@ -382,38 +382,73 @@ class Qwen3Model(nn.Module):
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
-    def make_causal_mask(self, query_length, key_value_length, past_length, dtype, device):
-        """创建适用于 Prefill 和带历史 Cache Decode 的因果 Mask。
+    def validate_kv_cache(self, kv_cache, batch_size):
+        """校验 Cache 层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度。"""
+        if kv_cache is None or len(kv_cache) == 0:
+            return 0
+        if len(kv_cache) != len(self.layers):
+            raise ValueError("KV Cache 层数与模型层数不一致")
+        past_length = kv_cache.get_seq_length()
+        expected = (batch_size, self.config.num_key_value_heads, past_length, self.config.head_dim)
+        for layer_index, (key, value) in enumerate(kv_cache):
+            if tuple(key.shape) != expected or tuple(value.shape) != expected:
+                raise ValueError(
+                    "第 %d 层 KV Cache 形状错误: key=%s, value=%s, expected=%s"
+                    % (layer_index, tuple(key.shape), tuple(value.shape), expected)
+                )
+        return past_length
 
-        在 Prefill 阶段，query_length == key_value_length，生成下三角为 0、上三角为 -inf 的因果掩码；
-        在 Decode 阶段，query_length 为 1，Key 包含历史 Token，最新 Token 能看到历史全部位置。
+    def prepare_position_id_and_allowed_mask(self, input_ids, attention_mask, position_ids, kv_cache):
+        """校验输入，并返回 RoPE 逻辑位置 position_ids 与[batch, 1, query, key_value]的allowed_mask。
+
+        - position_ids（逻辑位置）：Token 在文本语义中的真实序号，供 RoPE 旋转计算。
+          左 Padding 时各样本首个有效 Token 均从 0 起算，避免因左侧填充而错用物理偏移。
+        - 物理位置：张量内存中的绝对下标。因果掩码基于物理位置防止看到未来 Key，
+          并与 attention_mask 融合生成最终的可见矩阵。
+        - attention_mask: [batch, past + query] 的布尔矩阵，False 表示 Padding 或无效 Token。
+
+          因果约束基于物理位置，RoPE 则使用逻辑 position_ids，因此左 Padding 时两者可以不同。
         """
-        query_positions = torch.arange(past_length, past_length + query_length, device=device)
-        key_positions = torch.arange(key_value_length, device=device)
-        future_positions = key_positions.unsqueeze(0) > query_positions.unsqueeze(1)
-        mask = torch.zeros((query_length, key_value_length), dtype=dtype, device=device)
-        mask.masked_fill_(future_positions, torch.finfo(dtype).min)
-        return mask.unsqueeze(0).unsqueeze(0)
-
-    def forward(self, input_ids, kv_cache=None):
         if input_ids.ndim != 2 or input_ids.shape[1] < 1:
             raise ValueError("input_ids 必须是形状为 [batch, sequence] 的非空 Tensor")
-
-        hidden_states = self.embed_tokens(input_ids)
+        device = input_ids.device
         batch_size, query_length = input_ids.shape
-        past_length = kv_cache.get_seq_length() if kv_cache is not None else 0
+        past_length = self.validate_kv_cache(kv_cache, batch_size)
         key_value_length = past_length + query_length
 
-        position_ids = torch.arange(past_length, key_value_length, device=input_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
-        cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
-        causal_mask = self.make_causal_mask(
-            query_length,
-            key_value_length,
-            past_length,
-            hidden_states.dtype,
-            hidden_states.device,
+        if attention_mask is None:
+            attention_mask = torch.ones((batch_size, key_value_length), dtype=torch.bool, device=device)
+        if tuple(attention_mask.shape) != (batch_size, key_value_length):
+            raise ValueError(
+                "attention_mask 应为 %s，实际为 %s" % ((batch_size, key_value_length), tuple(attention_mask.shape))
+            )
+        attention_mask = attention_mask.to(device=device, dtype=torch.bool)
+
+        if position_ids is None:
+            position_ids = torch.arange(past_length, key_value_length, device=device)
+            position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+        if tuple(position_ids.shape) != (batch_size, query_length):
+            raise ValueError(
+                "position_ids 应为 %s，实际为 %s" % ((batch_size, query_length), tuple(position_ids.shape))
+            )
+        position_ids = position_ids.to(device=device, dtype=torch.long)
+
+        query_positions = torch.arange(past_length, key_value_length, device=device)
+        key_positions = torch.arange(key_value_length, device=device)
+        future = key_positions.unsqueeze(0) > query_positions.unsqueeze(1)
+        # future: [query_length, key_value_length]， attention_mask: [batch_size, key_value_length]
+        # 广播相与后 allowed: [batch_size, query_length, key_value_length]
+        allowed = (~future).unsqueeze(0) & attention_mask.unsqueeze(1)
+        return position_ids, allowed.unsqueeze(1)
+
+    def forward(self, input_ids, kv_cache=None, attention_mask=None, position_ids=None):
+        hidden_states = self.embed_tokens(input_ids)
+        position_ids, allowed = self.prepare_position_id_and_allowed_mask(
+            input_ids, attention_mask, position_ids, kv_cache
         )
+        cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
+        causal_mask = torch.zeros(allowed.shape, dtype=hidden_states.dtype, device=hidden_states.device)
+        causal_mask.masked_fill_(~allowed, torch.finfo(hidden_states.dtype).min)
 
         for layer_index, decoder_layer in enumerate(self.layers):
             hidden_states = decoder_layer(
@@ -442,8 +477,13 @@ class Qwen3ForCausalLM(nn.Module):
         # Qwen3-0.6B 的输入 Embedding 与输出 LM Head 使用同一份权重。
         self.lm_head.weight = self.model.embed_tokens.weight
 
-    def forward(self, input_ids, kv_cache=None):
-        hidden_states = self.model(input_ids, kv_cache=kv_cache)
+    def forward(self, input_ids, kv_cache=None, attention_mask=None, position_ids=None):
+        hidden_states = self.model(
+            input_ids,
+            kv_cache=kv_cache,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+        )
         return self.lm_head(hidden_states)
 
 

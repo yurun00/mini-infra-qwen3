@@ -107,7 +107,7 @@
         "dynamic_peak_mb": 12.8359375,
         "peak_reserved_mb": 1188.0,
         "fragmentation_mb": 30.1494140625,
-        "cache_mb": 6.890625
+        "kv_cache_mb": 6.890625
       },
       "raw": {
         "ttft_ms": [
@@ -465,7 +465,7 @@
         "dynamic_peak_mb": 205.375,
         "peak_reserved_mb": 1424.0,
         "fragmentation_mb": 73.60693359375,
-        "cache_mb": 59.390625
+        "kv_cache_mb": 59.390625
       },
       "raw": {
         "ttft_ms": [

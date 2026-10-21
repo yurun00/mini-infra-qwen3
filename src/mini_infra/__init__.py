@@ -1,5 +1,6 @@
 from mini_infra.generation import (
-    Feature,
+    BatchingMethod,
+    FeatureFlag,
     Mode,
     generate,
 )
@@ -17,9 +18,10 @@ from mini_infra.qwen3_model import (
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 __all__ = [
+    "BatchingMethod",
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
-    "Feature",
+    "FeatureFlag",
     "KVCache",
     "Mode",
     "Qwen3Config",
@@ -31,4 +33,3 @@ __all__ = [
     "model_dtype_from_config",
     "resolve_model_directory",
 ]
-

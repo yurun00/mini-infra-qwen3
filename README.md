@@ -10,7 +10,7 @@
 - **手写 Qwen3-0.6B 模型架构**：基于纯原生 PyTorch 实现完整前向计算，不依赖 Transformers 模型代码，不引入黑盒优化，清晰展示每一层计算逻辑。
 - **轻量原生 Tokenizer**：纯 Python + regex 实现的 Byte-level BPE Tokenizer，直接解析权重目录下的 `tokenizer.json`，内建 non-thinking Chat Template，不依赖 tokenizers / Transformers。
 - **KV Cache 显存与计算优化**：实现原生显式 `KVCache` 容器，Prefill 阶段建立缓存，自回归 Decode 每步只计算增量 Token，消除历史重复前向计算；支持精确显存占用统计与逐步延迟分位数（P50/P95）分析。
-- **单请求自回归推理**：支持 greedy decoding 逐 Token 生成，支持 `--compare-feature` 对比任意特性开启与关闭的结果并自动计算加速比。
+- **单请求与固定批处理（Fixed Batching）自回归推理**：支持 greedy decoding 逐 Token 生成与左填充（Left Padding）对齐，支持 `--compare-feature` 对比特性标志（如 `kv-cache`）或批处理策略（如 `fixed-batching`）并自动计算加速比。
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
 
@@ -34,7 +34,7 @@ mini-infra-qwen3/
 │       ├── qwen3_model.py             # Qwen3-0.6B 结构与前向算子手写实现
 │       ├── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
 │       ├── cli/
-│       │   └── run_inference.py       # mini-infra-run：单请求推理与计时
+│       │   └── run_inference.py       # mini-infra-run：单请求/批处理推理、计时与特性对比
 │       ├── testing/
 │       │   ├── smoke_test.py          # mini-infra-smoke：随机小模型快速自检（CPU）
 │       │   ├── compare_cache.py       # mini-infra-compare-cache：KV Cache 前后逐步 Logits 对齐
@@ -129,17 +129,26 @@ mini-infra-smoke
 ### 运行推理与计时
 
 ```bash
-# 比较指定特性的 enable 与 disable 对照（自动输出加速比与逐 Token 一致性）
+# 1. 比较指定特性的 enable 与 disable 对照（如 KV Cache 开启/关闭）
 mini-infra-run \
   --compare-feature kv-cache \
-  --prompt "请用一句话介绍 KV Cache。" \
+  --prompts "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
 
-# 单模式运行：指定特定 feature（如启用或关闭 KV Cache）
-mini-infra-run --kv-cache --max-new-tokens 64
+# 2. 单模式或固定批处理（Fixed Batching）运行多条提示词
+mini-infra-run \
+  --batching-method fixed-batching \
+  --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
+  --max-new-tokens 32
+
+# 3. 对比两种策略（如 fixed-batching 与 continuous-batching）
+mini-infra-run \
+  --compare-feature fixed-batching continuous-batching \
+  --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
+  --max-new-tokens 32
 ```
 
-输出包含生成 Token IDs、生成文本、Prefill 延迟、平均 Decode 延迟、P50/P95 延迟、逐步 Decode 耗时序列、Prefill 后已分配显存、峰值显存与最终 KV Cache 数据量；在 `--compare-feature` 模式下自动给出两组生成的逐 Token 一致性校验及平均 Decode 加速比。
+输出包含生成 Token IDs、生成文本、Prefill 延迟、平均 Decode 延迟、P50/P95 步延迟、Prefill 后已分配显存、峰值显存与最终 KV Cache 数据量；在 `--compare-feature` 模式下自动给出两组生成的逐 Token 一致性校验及加速比分析。
 
 ---
 

@@ -33,7 +33,7 @@ from pathlib import Path
 import torch
 
 from mini_infra.generation import (
-    Feature,
+    FeatureFlag,
     Mode,
     generate,
     percentile,
@@ -393,7 +393,7 @@ def run_workload(
         "dynamic_peak_mb": max(r.memory["dynamic_peak_mb"] for r in runs),
         "peak_reserved_mb": max(r.memory["peak_reserved_mb"] for r in runs),
         "fragmentation_mb": max(r.memory["fragmentation_mb"] for r in runs),
-        "cache_mb": max(r.memory.get("cache_bytes", 0) for r in runs) / mib,
+        "kv_cache_mb": max(r.memory["kv_cache_mb"] for r in runs),
     }
 
     # 3. 结构化汇总报告（按 Metadata / Latency / Throughput / Memory / Raw 组织）
@@ -446,7 +446,7 @@ def print_table(workloads, mode=None):
         "end_to_end_ms_mean",
         "memory_after_prefill_mib_max",
         "peak_memory_mib_max",
-        "cache_mib",
+        "kv_cache_mb",
     ]
     print(",".join(header))
     for w in workloads:
@@ -468,7 +468,7 @@ def print_table(workloads, mode=None):
         mem = w.get("memory", {})
         prefill_mem = mem.get("prefill_allocated_mb", 0.0)
         peak_mem = mem.get("peak_allocated_mb", 0.0)
-        cache_mib = mem.get("cache_mb", 0.0)
+        kv_cache_mb = mem.get("kv_cache_mb", 0.0)
 
         row = [
             str(mode_str),
@@ -481,7 +481,7 @@ def print_table(workloads, mode=None):
             f"{end_to_end_ms_mean:.2f}",
             f"{prefill_mem:.2f}",
             f"{peak_mem:.2f}",
-            f"{cache_mib:.2f}",
+            f"{kv_cache_mb:.2f}",
         ]
         print(",".join(row))
 
@@ -526,13 +526,13 @@ def main():
     if not torch.cuda.is_available():
         raise RuntimeError("需要可用的 NVIDIA GPU")
     device = torch.device("cuda")
-    features = {Feature.KV_CACHE} if args.kv_cache else set()
-    mode = Mode(features)
+    flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
+    mode = Mode(flags)
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_handwritten_model(model_dir, device)
-    vocab = model.config.vocab_size if hasattr(model, "config") else 150000
+    vocab = model.config.vocab_size
 
     correctness = check_correctness(model, tokenizer, mode, device, args.update_golden)
     if correctness["passed"] is False and not args.allow_mismatch:

@@ -3,6 +3,7 @@
 from mini_infra.testing.smoke_test import (
     build_tiny_model,
     check_causal_mask,
+    check_fixed_batching,
     check_kv_cache_correctness,
     check_output_shape_and_tied_weights,
 )
@@ -18,3 +19,7 @@ def test_causal_mask_ignores_future_tokens():
 
 def test_kv_cache_correctness():
     check_kv_cache_correctness(build_tiny_model())
+
+
+def test_fixed_batching():
+    check_fixed_batching(build_tiny_model())

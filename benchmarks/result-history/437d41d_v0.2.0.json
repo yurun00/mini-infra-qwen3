@@ -109,7 +109,7 @@
         "dynamic_peak_mb": 12.8359375,
         "peak_reserved_mb": 1192.0,
         "fragmentation_mb": 34.1494140625,
-        "cache_mb": 10.390625
+        "kv_cache_mb": 10.390625
       },
       "raw": {
         "ttft_ms": [
@@ -994,7 +994,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1244.0,
         "fragmentation_mb": 46.73486328125,
-        "cache_mb": 20.890625
+        "kv_cache_mb": 20.890625
       },
       "raw": {
         "ttft_ms": [
@@ -1879,7 +1879,7 @@
         "dynamic_peak_mb": 205.375,
         "peak_reserved_mb": 1430.0,
         "fragmentation_mb": 79.60693359375,
-        "cache_mb": 62.890625
+        "kv_cache_mb": 62.890625
       },
       "raw": {
         "ttft_ms": [
@@ -2764,7 +2764,7 @@
         "dynamic_peak_mb": 410.75,
         "peak_reserved_mb": 1856.0,
         "fragmentation_mb": 300.22802734375,
-        "cache_mb": 118.890625
+        "kv_cache_mb": 118.890625
       },
       "raw": {
         "ttft_ms": [
