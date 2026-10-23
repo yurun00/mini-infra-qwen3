@@ -4,6 +4,8 @@ from typing import Any
 
 import torch
 
+from mini_infra.profiling import merge_op_latency_breakdowns
+
 
 def percentile(values: list[float], percent: int | float) -> float:
     """使用 nearest-rank 定义计算小样本延迟分位数。"""
@@ -67,6 +69,7 @@ class GenerationResult:
         memory: dict[str, Any],
         # 3. 跟踪明细与策略扩展 (Details & Extra Metrics)
         step_latencies_ms: list[float],
+        op_latency_breakdown: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> "GenerationResult":
         """内部专用的分层实例构造方法，参数顺序严格对应类文档的 3 层架构。"""
@@ -94,6 +97,7 @@ class GenerationResult:
 
         # 3. 原始明细与批处理策略扩展 (Details & Extra Metrics)
         self.step_latencies_ms = step_latencies_ms
+        self.op_latency_breakdown = op_latency_breakdown
         self.extra = extra or {}
 
         return self
@@ -105,7 +109,9 @@ class GenerationResult:
             return self.memory[name]
         raise AttributeError(f"'GenerationResult' object has no attribute '{name}'")
 
-    def __getitem__(self, item: str) -> Any:
+    def __getitem__(self, item: Any) -> Any:
+        if not isinstance(item, str):
+            raise KeyError(item)
         if hasattr(self, item) and item not in ("get", "__getitem__", "__getattr__"):
             return getattr(self, item)
         if item in self.extra:
@@ -113,6 +119,13 @@ class GenerationResult:
         if item in self.memory:
             return self.memory[item]
         raise KeyError(item)
+
+    def __contains__(self, item: Any) -> bool:
+        if not isinstance(item, str):
+            return False
+        if hasattr(self, item) and item not in ("get", "__getitem__", "__getattr__"):
+            return True
+        return item in self.extra or item in self.memory
 
     def get(self, key: str, default: Any = None) -> Any:
         try:
@@ -146,6 +159,7 @@ class GenerationResult:
         # 3. 硬件环境与策略扩展 (Flags & Extra Metrics)
         is_cuda: bool = False,
         valid_generated_tokens_count: int | None = None,
+        op_latency_breakdown: dict[str, Any] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> "GenerationResult":
         """工厂方法：严格按照 (1) 核心结果 -> (2) 标量指标源数据 -> (3) 环境与扩展 分层构建 GenerationResult。"""
@@ -203,6 +217,7 @@ class GenerationResult:
             memory=memory,
             # 3. 跟踪明细与策略扩展
             step_latencies_ms=step_latencies_ms,
+            op_latency_breakdown=op_latency_breakdown,
             extra=extra,
         )
 
@@ -236,6 +251,10 @@ class GenerationResult:
             "kv_cache_mb": max((m["kv_cache_mb"] for m in mems), default=0.0),
         }
         request_throughput_per_second = total_requests * 1000 / e2e_model_ms if e2e_model_ms else 0.0
+        op_latency_breakdowns = [
+            r.op_latency_breakdown for r in runs if getattr(r, "op_latency_breakdown", None) is not None
+        ]
+        op_latency_breakdown = merge_op_latency_breakdowns(op_latency_breakdowns)
         extra = {
             "runs": runs,
         }
@@ -261,5 +280,6 @@ class GenerationResult:
             memory=memory,
             # 3. 跟踪明细与策略扩展
             step_latencies_ms=step_latencies,
+            op_latency_breakdown=op_latency_breakdown,
             extra=extra,
         )

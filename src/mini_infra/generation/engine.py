@@ -14,6 +14,7 @@ from mini_infra.generation.preprocessing import (
 )
 from mini_infra.generation.result import GenerationResult
 from mini_infra.generation.state import BatchGenerationState
+from mini_infra.profiling import TensorBoardOptions, profile_scope
 from mini_infra.qwen3_model import KVCache, cache_size_bytes
 
 
@@ -23,7 +24,7 @@ def synchronize(device: torch.device) -> None:
 
 
 def _prepare_prompt_sequences(
-    input_ids: "torch.Tensor | Sequence[Any]",
+    input_ids: torch.Tensor | Sequence[Any],
     device: torch.device | None,
 ) -> tuple[list[torch.Tensor], torch.device, bool]:
     """解析多样化的 Prompt 输入形态，规约为一维序列列表并推断目标设备。
@@ -48,7 +49,7 @@ def _prepare_prompt_sequences(
 
 
 def _init_batch_tensors(
-    input_ids: "torch.Tensor | Sequence[Any]",
+    input_ids: torch.Tensor | Sequence[Any],
     token_sequences: list[torch.Tensor],
     has_uniform_prompt_len: bool,
     pad_token_id: int,
@@ -193,17 +194,22 @@ def _run_decode_loop(
 def generate(
     mode: Mode,
     model: torch.nn.Module,
-    input_ids: "torch.Tensor | Sequence[Any]",
-    max_new_tokens: "int | Sequence[int]",
+    input_ids: torch.Tensor | Sequence[Any],
+    max_new_tokens: int | Sequence[int],
     eos_token_id: int | None = None,
     device: torch.device | None = None,
     stop_on_eos: bool = True,
     pad_token_id: int = 0,
     capture_logits: bool = False,
+    profile: bool = False,
+    top_kernels: int = 10,
+    tensorboard_options: TensorBoardOptions | None = None,
 ) -> GenerationResult:
     """统一生成入口；mode 为 Mode 结构体对象。
 
     不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
+    支持 profile=True 采集底层算子与模块级耗时明细（保存在 result.op_latency_breakdown 中）。
+    支持指定 tensorboard_options（TensorBoardOptions 结构体）将详细 trace 导出为 TensorBoard 格式。
     """
     # 1. 规约输入 Prompt、预算与设备
     token_sequences, device, has_uniform_len = _prepare_prompt_sequences(input_ids, device)
@@ -212,7 +218,18 @@ def generate(
     # 2. 串行 baseline 分发
     if mode.batching_method == BatchingMethod.NONE and len(token_sequences) > 1:
         return _dispatch_serial_baseline(
-            mode, model, token_sequences, budgets, eos_token_id, device, stop_on_eos, pad_token_id
+            mode,
+            model,
+            token_sequences,
+            budgets,
+            eos_token_id,
+            device,
+            stop_on_eos,
+            pad_token_id,
+            capture_logits=capture_logits,
+            profile=profile,
+            top_kernels=top_kernels,
+            tensorboard_options=tensorboard_options,
         )
 
     # 3. 构造批 Tensor 与状态机
@@ -233,9 +250,17 @@ def generate(
     if is_cuda:
         torch.cuda.reset_peak_memory_stats(device)
 
-    step_latencies, logits_trace, mem_prefill, e2e_wall_ms = _run_decode_loop(
-        model, state, use_cache, kv_cache, eos_token_id, stop_on_eos, capture_logits, device, is_cuda
-    )
+    if profile:
+        with profile_scope(model, device=device, tensorboard_options=tensorboard_options) as prof_collector:
+            step_latencies, logits_trace, mem_prefill, e2e_wall_ms = _run_decode_loop(
+                model, state, use_cache, kv_cache, eos_token_id, stop_on_eos, capture_logits, device, is_cuda
+            )
+        op_latency_breakdown = prof_collector.get_latency_breakdown(top=top_kernels)
+    else:
+        step_latencies, logits_trace, mem_prefill, e2e_wall_ms = _run_decode_loop(
+            model, state, use_cache, kv_cache, eos_token_id, stop_on_eos, capture_logits, device, is_cuda
+        )
+        op_latency_breakdown = None
 
     # 5. 组装结果对象
     step_count = len(step_latencies)
@@ -261,6 +286,7 @@ def generate(
         cache_bytes=cache_size_bytes(kv_cache) if kv_cache is not None else 0,
         is_cuda=is_cuda,
         valid_generated_tokens_count=valid_tokens,
+        op_latency_breakdown=op_latency_breakdown,
         extra=batch_metrics,
     )
 
@@ -274,6 +300,10 @@ def _dispatch_serial_baseline(
     device: torch.device,
     stop_on_eos: bool,
     pad_token_id: int,
+    capture_logits: bool = False,
+    profile: bool = False,
+    top_kernels: int = 10,
+    tensorboard_options: TensorBoardOptions | None = None,
 ) -> GenerationResult:
     """按顺序逐个执行请求（串行 baseline 模式）。"""
     runs = [
@@ -285,6 +315,11 @@ def _dispatch_serial_baseline(
             eos_token_id=eos_token_id,
             device=device,
             stop_on_eos=stop_on_eos,
+            pad_token_id=pad_token_id,
+            capture_logits=capture_logits,
+            profile=profile,
+            top_kernels=top_kernels,
+            tensorboard_options=tensorboard_options,
         )
         for seq, budget in zip(token_sequences, budgets.tolist())
     ]

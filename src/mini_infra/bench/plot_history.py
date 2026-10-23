@@ -329,12 +329,15 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
     prof_ws = [
         w
         for w in target_rec["workloads"]
-        if w["batch_size"] == 1 and isinstance(w.get("op_breakdown"), dict) and w["op_breakdown"].get("by_module")
+        if w["batch_size"] == 1
+        and isinstance(w.get("op_latency_breakdown"), dict)
+        and w["op_latency_breakdown"].get("time_share_by_module")
     ]
     if prof_ws:
         w_rep = max(prof_ws, key=lambda w: w["prompt_len"])
         # 2.2 模块归因
-        mod_items = list(w_rep["op_breakdown"].get("by_module", {}).items())[::-1]
+        ob = w_rep["op_latency_breakdown"]
+        mod_items = list(ob.get("time_share_by_module", {}).items())[::-1]
         bars_m = ax_mod.barh([k for k, _ in mod_items], [100 * v for _, v in mod_items], color="tab:cyan", alpha=0.85)
         for bar in bars_m:
             w_val = bar.get_width()
@@ -353,7 +356,7 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
         ax_mod.grid(alpha=0.3)
 
         # 2.3 算子类型归因
-        cat_items = list(w_rep["op_breakdown"].get("by_category", {}).items())[::-1]
+        cat_items = list(ob.get("time_share_by_kernel_category", {}).items())[::-1]
         bars_c = ax_cat.barh([k for k, _ in cat_items], [100 * v for _, v in cat_items], color="tab:olive", alpha=0.85)
         for bar in bars_c:
             w_val = bar.get_width()
@@ -375,7 +378,7 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
             ax.text(
                 0.5,
                 0.5,
-                "No op breakdown profile\n(rerun with --profile-ops)",
+                "No op latency breakdown profile\n(rerun with --profile-mode extra-profile)",
                 ha="center",
                 va="center",
                 transform=ax.transAxes,
@@ -435,19 +438,21 @@ def generate_optimization_guidance(target_rec):
     prof_ws = [
         w
         for w in target_rec["workloads"]
-        if w["batch_size"] == 1 and isinstance(w.get("op_breakdown"), dict) and w["op_breakdown"].get("by_module")
+        if w["batch_size"] == 1
+        and isinstance(w.get("op_latency_breakdown"), dict)
+        and w["op_latency_breakdown"].get("time_share_by_module")
     ]
     if not prof_ws:
         lines.append(
-            "> 提示：当前记录中未包含详细的 `--profile-ops` 采样数据。"
-            "使用 `mini-infra-bench --profile-ops` 重跑可获取完整算子诊断。"
+            "> 提示：当前记录中未包含详细的算子剖析采样数据。"
+            "使用 `mini-infra-bench --profile-mode extra-profile` 重跑可获取完整算子诊断。"
         )
         return "\n".join(lines)
 
     w = max(prof_ws, key=lambda x: x["prompt_len"])
-    ob = w["op_breakdown"]
-    by_mod = ob.get("by_module", {})
-    by_cat = ob.get("by_category", {})
+    ob = w["op_latency_breakdown"]
+    by_mod = ob.get("time_share_by_module", {})
+    by_cat = ob.get("time_share_by_kernel_category", {})
     eff = w.get("efficiency") or {}
     mem = w.get("memory") or {}
     busy = (w.get("gpu_time_ratio") or {}).get("median", 1.0)

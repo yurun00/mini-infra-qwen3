@@ -30,9 +30,15 @@ mini-infra-qwen3/
 ├── src/
 │   └── mini_infra/
 │       ├── __init__.py                # mini_infra 包导出入口
-│       ├── generation.py              # 自回归生成引擎（no-cache / kv-cache 循环与细粒度计时）
 │       ├── qwen3_model.py             # Qwen3-0.6B 结构与前向算子手写实现
 │       ├── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
+│       ├── profiling.py               # 算子性能剖析、Module Scope 打点与多 run 聚合
+│       ├── generation/                # 自回归生成主引擎与状态机包
+│       │   ├── engine.py              # generate / generate_batch 统一生成入口与调度
+│       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义
+│       │   ├── state.py               # 批自回归循环状态机 BatchGenerationState
+│       │   ├── result.py              # 推理结果容器 GenerationResult 与跨 run 聚合
+│       │   └── preprocessing.py       # Prompt 规约与左填充（Left Padding）
 │       ├── cli/
 │       │   └── run_inference.py       # mini-infra-run：单请求/批处理推理、计时与特性对比
 │       ├── testing/
@@ -50,7 +56,7 @@ mini-infra-qwen3/
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
 │   ├── result-history/                # 每个版本一份 <commit>_<tag>.json
-│   └── reports/                       # SUMMARY.md、trend.png（生成物）
+│   └── reports/                       # SUMMARY.md、evolution_and_scaling.png、profiling_and_optimization.png（生成物）
 ├── .github/workflows/
 │   ├── cpu-ci.yml                     # CPU 上 ruff + pytest
 │   ├── pr-perf-regression.yml         # PR 提测：GPU runner 上的性能回归守门
@@ -141,9 +147,9 @@ mini-infra-run \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
 
-# 3. 对比两种策略（如 fixed-batching 与 continuous-batching）
+# 3. 对比两种批处理策略（如串行 none 与固定批处理 fixed-batching）
 mini-infra-run \
-  --compare-feature fixed-batching continuous-batching \
+  --compare-feature none fixed-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
 ```
@@ -190,6 +196,28 @@ mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中�
 ```
 - **本地保护**：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 运行 ruff，push 前运行回归守护。
 - **CI 自动化**：PR 会在 GPU runner 上自动触发 [pr-perf-regression.yml](.github/workflows/pr-perf-regression.yml)。
+- **算子剖析与瓶颈诊断（Profiling）**：
+  当守护机制触发告警（或日常开发需下钻瓶颈）时，可使用 `mini-infra-bench` 附带 `--profile-mode full-profile` 进行采样分析（采集各类别 Kernel 与 Transformer 模块的 GPU/CPU 耗时占比），并可通过 `--tensorboard-dir` 导出 Chrome / TensorBoard Trace 查看底层 CUDA Kernel 执行时序：
+  ```bash
+  # 运行轻量压测进行算子耗时诊断，落盘诊断 JSON 并导出 Trace 日志
+  mini-infra-bench --tag debug --prompt-lens 512 --output-lens 32 --repeats 1 --profile-mode full-profile --tensorboard-dir tmp/tb_trace --output tmp/profile.json
+
+  # 查看方式一：通过 TensorBoard 查看
+  # 1) 远程实例启动服务
+  tensorboard --logdir tmp/tb_trace --port 6006
+  # 2) 端口转发至本地（任选一种）：
+  #    - 若使用 VS Code / Antigravity IDE：直接在底部 "PORTS (端口)" 面板添加 6006 转发，无需执行命令
+  #    - 本地终端手动转发：
+  ssh -N -L 6006:localhost:6006 <user>@<remote_ip>
+  gcloud compute ssh <instance_name> --zone=<zone> -- -N -L 6006:localhost:6006
+  # 3) 本地浏览器访问 http://localhost:6006（在右上角切换至 "PyTorch Profiler" 插件）
+
+  # 查看方式二：更轻量流畅的替代方案（Perfetto / Chrome Tracing）
+  # 导出的 *.pt.trace.json 为标准 Chrome Trace 格式，大文件下比 TensorBoard 更丝滑、秒级加载：
+  # 1) 将 tmp/tb_trace/*.pt.trace.json 下载到本地，或在 IDE 中右键下载
+  # 2) 浏览器打开 https://ui.perfetto.dev/（或 chrome://tracing）
+  # 3) 点击 "Open trace file" 或直接拖入 *.pt.trace.json 即可 60fps 流畅缩放查看 CUDA Stream、Kernel 耗时与 CPU 调度
+  ```
 
 #### 独立全量基准测量（不污染发版历史）
 在日常开发调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**，可通过 `--output` 指定输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略，不会上传到 GitHub），并使用 `mini-infra-bench-plot-compare` 绘制跨模式对比图：
@@ -243,7 +271,7 @@ pytest -m gpu
 pip install -e ".[bench]"
 
 # 1. 运行全矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
-mini-infra-bench --tag "v0.2.0" --release-feature "KV cache" --profile-ops --update-golden
+mini-infra-bench --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile --update-golden
 
 # 2. 读取所有历史版本数据，重新生成多版本演化表与对比图
 mini-infra-bench-plot-history
@@ -277,7 +305,7 @@ git push origin main --tags
 > **CI 自动化机制**：
 > 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml) 工作流：
 > * **特性透传与解析**：工作流会自动提取并向 `--release-feature` 透传特性描述（按优先级自动获取：① 手动 `workflow_dispatch` 传参 $\rightarrow$ ② 匹配已有同 Tag 的历史 JSON 归档 $\rightarrow$ ③ 从 Git Annotated Tag 注释中解析，如 `Release v0.2.0: KV cache`）；
-> * **参数对齐与客观守门**：CI 同样启用 `--profile-ops` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为考卷基准，独立校验云端推理正确性；
+> * **参数对齐与客观守门**：CI 同样启用 `--profile-mode extra-profile` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为考卷基准，独立校验云端推理正确性；
 > * **云端产物归档**：在云端具备 GPU Runner 时，会自动在 GitHub Actions 归档带有当前 Commit 签名的全矩阵评测数据、Markdown 诊断报告与时间线大图 Artifact。
 
 #### 发布产物清单：

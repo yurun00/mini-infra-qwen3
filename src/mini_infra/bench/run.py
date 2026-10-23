@@ -12,7 +12,7 @@
     mini-infra-bench --tag baseline --update-golden
 
     # 每次优化后运行，结果写入 benchmarks/result-history/<commit>_<tag>.json
-    mini-infra-bench --tag kv-cache
+    mini-infra-bench --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile
 
     # 快速试跑
     mini-infra-bench --tag dev --prompt-lens 32 --output-lens 16 --repeats 3
@@ -28,17 +28,19 @@ import statistics
 import subprocess
 import sys
 import time
+from enum import Enum
 from pathlib import Path
 
 import torch
 
 from mini_infra.generation import (
+    BatchingMethod,
     FeatureFlag,
     Mode,
     generate,
     percentile,
-    synchronize,
 )
+from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -46,6 +48,17 @@ from mini_infra.qwen3_model import (
     resolve_model_directory,
 )
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
+
+
+class ProfileMode(str, Enum):
+    """Profiler 性能剖析执行模式。"""
+
+    EXTRA_PROFILE = "extra-profile"
+    FULL_PROFILE = "full-profile"
+
+    def __str__(self) -> str:
+        return self.value
+
 
 BENCH_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", "benchmarks")).resolve()
 RESULTS_DIR = BENCH_DIR / "result-history"
@@ -130,126 +143,6 @@ def efficiency(cost, peaks, batch, prompt_len, output_len, ttft_ms, tpot_ms):
     return out
 
 
-# 算子类别关键字（按顺序匹配，小写）。kernel 名无法区分 attention 的 matmul 与线性层 GEMM，
-# 这部分归因交给下面的 module 级 scope 统计。
-KERNEL_CATEGORIES = [
-    ("attention", ("flash", "fmha", "mem_efficient", "sdpa", "attention")),
-    ("softmax", ("softmax",)),
-    ("gemm", ("gemm", "gemv", "cutlass", "cublas", "nvjet", "sgemm", "matmul", "bmm", "addmm", "mm")),
-    ("norm", ("rms", "layer_norm", "layernorm")),
-    ("reduce", ("reduce_kernel", "reduce")),
-    ("memory", ("memcpy", "memset", "copy", "catarray", "cat_", "index", "gather", "embedding")),
-    ("elementwise", ("elementwise", "vectorized", "mul", "add", "silu", "sigmoid", "rsqrt", "pow", "neg")),
-]
-
-# module 级 scope：类名 -> 类别。最外层的 scope 吸收子模块（如 attention 内的 q/k norm 与投影）。
-MODULE_SCOPES = {
-    "Qwen3Attention": "attention_block",
-    "Qwen3MLP": "mlp_block",
-    "RMSNorm": "norm",
-    "RotaryEmbedding": "rope",
-    "Embedding": "embedding",
-}
-
-
-def kernel_category(name):
-    lowered = name.lower()
-    for category, keywords in KERNEL_CATEGORIES:
-        if any(k in lowered for k in keywords):
-            return category
-    return "other"
-
-
-def _install_scope_hooks(model):
-    """给关键模块挂 record_function 范围，使 profiler 能把 GPU 时间归到 attention/mlp/norm/lm_head 等模块。"""
-
-    from torch.profiler import record_function
-
-    handles, stack = [], []
-
-    def pre(label):
-        def hook(_module, _inputs):
-            if stack:  # 已在某个 scope 内，不重复计数
-                stack.append(None)
-                return
-            ctx = record_function(f"mi_scope::{label}")
-            ctx.__enter__()
-            stack.append(ctx)
-
-        return hook
-
-    def post(_module, _inputs, _output):
-        ctx = stack.pop()
-        if ctx is not None:
-            ctx.__exit__(None, None, None)
-
-    for name, module in model.named_modules():
-        label = MODULE_SCOPES.get(type(module).__name__) or ("lm_head" if name == "lm_head" else None)
-        if label:
-            handles.append(module.register_forward_pre_hook(pre(label)))
-            handles.append(module.register_forward_hook(post))
-    return handles
-
-
-def profile_ops(model, mode, ids, output_len, top=10):
-    """用 torch.profiler 跑一次，返回三组归因信息（定位下一步优化目标）：
-
-    - top_kernels：按 CUDA 自身耗时排序的 top-N kernel，每个带 category 标签；
-    - by_category：按 kernel 类别（gemm/softmax/elementwise/...）汇总的 GPU 耗时占比；
-    - by_module：按模块（attention_block/mlp_block/norm/lm_head/...）汇总的 GPU 耗时占比。
-    """
-
-    from torch.profiler import ProfilerActivity, profile
-
-    handles = _install_scope_hooks(model)
-    try:
-        with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-            generate(
-                mode,
-                model,
-                ids,
-                output_len,
-                eos_token_id=-1,
-                device=ids.device,
-                stop_on_eos=False,
-            )
-            synchronize(ids.device)
-    finally:
-        for h in handles:
-            h.remove()
-
-    averages = list(prof.key_averages())
-    kernels = [
-        e for e in averages if getattr(e, "self_device_time_total", 0) > 0 and not e.key.startswith("mi_scope::")
-    ]
-    total = sum(e.self_device_time_total for e in kernels) or 1
-    kernels.sort(key=lambda e: e.self_device_time_total, reverse=True)
-
-    by_category = {}
-    for e in kernels:
-        c = kernel_category(e.key)
-        by_category[c] = by_category.get(c, 0.0) + e.self_device_time_total / total
-
-    scopes = [e for e in averages if e.key.startswith("mi_scope::")]
-    scope_total = sum(e.device_time_total for e in scopes) or 1
-    by_module = {e.key.split("::", 1)[1]: e.device_time_total / scope_total for e in scopes}
-
-    return {
-        "top_kernels": [
-            {
-                "name": e.key[:80],
-                "category": kernel_category(e.key),
-                "cuda_ms": e.self_device_time_total / 1000,
-                "share": e.self_device_time_total / total,
-                "calls": e.count,
-            }
-            for e in kernels[:top]
-        ],
-        "by_category": dict(sorted(by_category.items(), key=lambda kv: -kv[1])),
-        "by_module": dict(sorted(by_module.items(), key=lambda kv: -kv[1])),
-    }
-
-
 def git_info():
     def run(*args):
         return subprocess.run(["git", *args], cwd=BENCH_DIR.parent, capture_output=True, text=True).stdout.strip()
@@ -301,7 +194,9 @@ def make_prompt(vocab_size, length, batch_size, device):
     """固定 seed 的合成 prompt，保证每次运行输入完全一致。"""
 
     generator = torch.Generator(device="cpu").manual_seed(1234 + length)
-    ids = torch.randint(1000, min(vocab_size, 100000), (batch_size, length), generator=generator)
+    low = 1000 if vocab_size > 1000 else 1
+    high = min(vocab_size, 100000)
+    ids = torch.randint(low, high, (batch_size, length), generator=generator)
     return ids.to(device)
 
 
@@ -344,7 +239,8 @@ def run_workload(
     device,
     cost=None,
     peaks=None,
-    with_profile=False,
+    profile_mode: ProfileMode | None = None,
+    tensorboard_options: TensorBoardOptions | None = None,
 ):
     if max_new_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
@@ -362,6 +258,8 @@ def run_workload(
         )
 
     # 1. 执行多次迭代压测并采集单次运行结果
+    # 若 profile_mode 为 FULL_PROFILE，则所有 workload 压测迭代直接启用 profile，无需 extra run
+    is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
     runs = [
         generate(
             mode,
@@ -371,6 +269,8 @@ def run_workload(
             eos_token_id=-1,
             device=device,
             stop_on_eos=False,
+            profile=is_full_profile,
+            tensorboard_options=tensorboard_options if is_full_profile else None,
         )
         for _ in range(repeats)
     ]
@@ -429,8 +329,27 @@ def run_workload(
             result["ttft_ms"]["median"],
             result["tpot_ms"]["median"],
         )
-    if with_profile:
-        result["op_breakdown"] = profile_ops(model, mode, input_ids, max_new_tokens)
+    if is_full_profile and runs:
+        breakdowns = [r.op_latency_breakdown for r in runs if r.op_latency_breakdown is not None]
+        result["op_latency_breakdown"] = merge_op_latency_breakdowns(breakdowns)
+    elif profile_mode == ProfileMode.EXTRA_PROFILE:
+        # 【为什么要在压测循环之外单独执行 1 次 profiling 采样？】
+        # 基准测试的核心指标（TTFT、TPOT、Throughput）必须在无探针开销的纯净环境下测量。
+        # PyTorch Profiler / CUPTI 回调与 CPU 级 record_function hook 会引入显著的宿主机-设备
+        # 同步与调度拦截延迟（观察者效应），如果在 repeats 循环中开启会严重扭曲时延。
+        # 同时，算子类别与 Transformer 模块的耗时占比在固定负载下是高度确定的稳态特征，
+        # 因此在干净压测完成后，单独执行 1 次独立采样即可精准捕获算子耗时剖析。
+        prof_res = generate(
+            mode=mode,
+            model=model,
+            input_ids=input_ids,
+            max_new_tokens=max_new_tokens,
+            eos_token_id=-1,
+            stop_on_eos=False,
+            profile=True,
+            tensorboard_options=tensorboard_options,
+        )
+        result["op_latency_breakdown"] = prof_res.op_latency_breakdown
     return result
 
 
@@ -505,6 +424,12 @@ def parse_args():
         default=True,
         help="是否启用 KV Cache 特性（默认: True）",
     )
+    p.add_argument(
+        "--batching-method",
+        default=BatchingMethod.NONE.value,
+        choices=[m.value for m in BatchingMethod],
+        help="指定批处理策略（默认: none）",
+    )
     p.add_argument("--model", default=DEFAULT_MODEL_ID)
     p.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
     p.add_argument("--prompt-lens", type=int, nargs="+", default=[32, 128, 512, 1024])
@@ -517,8 +442,16 @@ def parse_args():
     p.add_argument("--peak-bandwidth-gbs", type=float, help="覆盖 GPU 峰值显存带宽（GB/s），用于 MBU")
     p.add_argument("--peak-tflops", type=float, help="覆盖 GPU 峰值 FP16/BF16 算力（TFLOPS），用于 MFU")
     p.add_argument(
-        "--profile-ops", action="store_true", help="每个 workload 额外跑一次 profiler，记录 top kernel 耗时占比"
+        "--profile-mode",
+        type=ProfileMode,
+        choices=list(ProfileMode),
+        default=None,
+        help=(
+            "Profiler 性能剖析模式: extra-profile (每个 workload 压测完成后额外独立运行 1 次采样) "
+            "或 full-profile (所有 workload 压测直接开启 profiling，无额外运行)"
+        ),
     )
+    p.add_argument("--tensorboard-dir", type=Path, default=None, help="导出 TensorBoard 格式性能剖析日志的目录（可选）")
     p.add_argument("--output", type=Path, help="自定义输出路径")
     args = p.parse_args()
     if any(ol < 2 for ol in args.output_lens):
@@ -532,7 +465,7 @@ def main():
         raise RuntimeError("需要可用的 NVIDIA GPU")
     device = torch.device("cuda")
     flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
-    mode = Mode(flags)
+    mode = Mode(flags, batching_method=args.batching_method)
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
@@ -548,6 +481,7 @@ def main():
     cost = model_cost(model)
     if None in peaks.values():
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
+    tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
     workloads = []
     for bs in args.batch_sizes:
         for pl in args.prompt_lens:
@@ -566,7 +500,8 @@ def main():
                         device,
                         cost=cost,
                         peaks=peaks,
-                        with_profile=args.profile_ops,
+                        profile_mode=args.profile_mode,
+                        tensorboard_options=tb_options,
                     )
                 except torch.cuda.OutOfMemoryError:
                     print("  OOM，跳过")
@@ -617,6 +552,7 @@ def main():
             "revision": args.revision,
             "dtype": str(next(model.parameters()).dtype),
             "tokenizer_included": False,
+            "profile_mode": str(args.profile_mode) if args.profile_mode else None,
         },
         "correctness": correctness,
         "workloads": workloads,

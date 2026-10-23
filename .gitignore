@@ -8,6 +8,7 @@ dist/
 .venv
 venv/
 venv
+uv.lock
 
 # 本地配置与凭据
 .env
@@ -40,3 +41,5 @@ venv
 *.tar.gz
 tmp/
 temp/
+log/
+*.trace.json

@@ -1,4 +1,5 @@
 import argparse
+from pathlib import Path
 
 import torch
 
@@ -9,6 +10,7 @@ from mini_infra.generation import (
     generate,
     synchronize,
 )
+from mini_infra.profiling import TensorBoardOptions
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -49,6 +51,24 @@ def parse_args():
         metavar="FEATURE",
         help="指定 1 个（与基准对比）或 2 个 feature（相互对比，如 fixed-batching continuous-batching）",
     )
+    parser.add_argument(
+        "--profile",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="是否启用底层 PyTorch Profiler 采集算子与 Kernel 耗时明细（默认: False）",
+    )
+    parser.add_argument(
+        "--top-kernels",
+        type=int,
+        default=10,
+        help="展示耗时前 K 个的 CUDA Kernel（默认: 10）",
+    )
+    parser.add_argument(
+        "--tensorboard-dir",
+        type=Path,
+        default=None,
+        help="导出 TensorBoard 格式性能剖析日志的目录（需配合 --profile 使用）",
+    )
     return parser.parse_args()
 
 
@@ -74,7 +94,24 @@ def resolve_feature(name: str) -> FeatureFlag | BatchingMethod:
     raise ValueError(f"--compare-feature 参数 '{name}' 未知。可选 feature: {valid_features}")
 
 
-def print_result(mode, result, tokenizer):
+def resolve_compare_features_string(mode: Mode, compare_features: list[str] | None) -> str:
+    """根据 compare_feature 从 mode 中查找对应值并拼接为字符串。"""
+    if not compare_features:
+        return ""
+    features: list[str] = []
+    for f in compare_features:
+        feat = resolve_feature(f)
+        val = (
+            mode.batching_method.value
+            if isinstance(feat, BatchingMethod)
+            else (feat.value if mode.is_enabled(feat) else f"no-{feat.value}")
+        )
+        if val not in features:
+            features.append(val)
+    return "_".join(features)
+
+
+def print_result(mode, result, tokenizer, tensorboard_dir=None):
     print("\n[%s]" % mode)
     for index, token_ids in enumerate(result.unpadded_output_token_ids):
         print("请求 %d Token IDs: %s" % (index, token_ids))
@@ -100,6 +137,28 @@ def print_result(mode, result, tokenizer):
     decode_times = result.step_latencies_ms[1:]
     if decode_times:
         print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])
+
+    if result.op_latency_breakdown:
+        breakdown = result.op_latency_breakdown
+        print("\n--- [%s] 算子与模块耗时分析 (Profiler) ---" % mode)
+        if breakdown.get("time_share_by_module"):
+            print("各模块耗时占比 (Module Scope):")
+            for mod, share in breakdown["time_share_by_module"].items():
+                print("  %-20s: %6.2f%%" % (mod, share * 100))
+        if breakdown.get("time_share_by_kernel_category"):
+            print("算子类型耗时占比 (Kernel Category):")
+            for cat, share in breakdown["time_share_by_kernel_category"].items():
+                print("  %-20s: %6.2f%%" % (cat, share * 100))
+        top_k = breakdown.get("top_kernels", [])
+        if top_k:
+            print("Top-%d CUDA Kernels:" % len(top_k))
+            for idx, k in enumerate(top_k, 1):
+                print(
+                    "  %2d. %-45s | %8.3f ms | %6.2f%% | %4d 次"
+                    % (idx, k["name"][:45], k["cuda_ms"], k["share"] * 100, k["calls"])
+                )
+    if tensorboard_dir is not None:
+        print("TensorBoard Trace 目录: %s" % tensorboard_dir)
 
 
 def main():
@@ -182,8 +241,20 @@ def main():
         prompt_lens = [len(s) for s in sequences]
         print(f"Prompt 数量: {len(sequences)}，各请求 Token 数: {prompt_lens}")
 
+    if args.tensorboard_dir is not None and not args.profile:
+        print("[warn] 指定了 --tensorboard-dir 但未开启 --profile，将不会采集并导出 TensorBoard 日志。")
+
+    do_profile = args.profile
     results = {}
     for mode in modes:
+        if do_profile and args.tensorboard_dir is not None:
+            compare_features_str = resolve_compare_features_string(mode, args.compare_feature)
+            tb_dir = args.tensorboard_dir / compare_features_str if compare_features_str else args.tensorboard_dir
+            tb_options = TensorBoardOptions(log_dir=tb_dir)
+        else:
+            tb_dir = None
+            tb_options = None
+
         results[mode] = generate(
             mode,
             model,
@@ -191,8 +262,11 @@ def main():
             args.max_new_tokens,
             tokenizer.eos_token_id,
             device,
+            profile=do_profile,
+            top_kernels=args.top_kernels,
+            tensorboard_options=tb_options,
         )
-        print_result(mode, results[mode], tokenizer)
+        print_result(mode, results[mode], tokenizer, tensorboard_dir=tb_dir)
 
     if len(modes) == 2:
         baseline = results[modes[0]]

@@ -157,7 +157,7 @@
         "decode_mfu": 0.0002748396396091737,
         "decode_mbu": 0.11017774975188784
       },
-      "op_breakdown": {
+      "op_latency_breakdown": {
         "top_kernels": [
           {
             "name": "aten::mm",
@@ -230,7 +230,7 @@
             "calls": 924
           }
         ],
-        "by_category": {
+        "time_share_by_kernel_category": {
           "gemm": 0.6519942572451455,
           "elementwise": 0.19167738853366806,
           "memory": 0.0930280516226869,
@@ -238,7 +238,7 @@
           "reduce": 0.02172465834865441,
           "softmax": 0.007723719186049079
         },
-        "by_module": {
+        "time_share_by_module": {
           "attention_block": 0.6042280850250478,
           "norm": 0.1585468468133311,
           "mlp_block": 0.08489706418537392,
@@ -361,7 +361,7 @@
         "decode_mfu": 0.00022145695462481163,
         "decode_mbu": 0.08798711185464049
       },
-      "op_breakdown": {
+      "op_latency_breakdown": {
         "top_kernels": [
           {
             "name": "aten::mm",
@@ -434,7 +434,7 @@
             "calls": 3584
           }
         ],
-        "by_category": {
+        "time_share_by_kernel_category": {
           "gemm": 0.6297645390625868,
           "elementwise": 0.20076358236672848,
           "memory": 0.10265557052064402,
@@ -442,7 +442,7 @@
           "reduce": 0.020088313130342386,
           "softmax": 0.012028829363440081
         },
-        "by_module": {
+        "time_share_by_module": {
           "attention_block": 0.5860113324896694,
           "norm": 0.15514932584623334,
           "mlp_block": 0.08335622867869863,
@@ -565,7 +565,7 @@
         "decode_mfu": 0.0002323529382574722,
         "decode_mbu": 0.08927568648005514
       },
-      "op_breakdown": {
+      "op_latency_breakdown": {
         "top_kernels": [
           {
             "name": "aten::mm",
@@ -638,7 +638,7 @@
             "calls": 1764
           }
         ],
-        "by_category": {
+        "time_share_by_kernel_category": {
           "gemm": 0.5559490563618007,
           "elementwise": 0.18467167096459372,
           "memory": 0.14456188514679488,
@@ -646,7 +646,7 @@
           "other": 0.022505434088134435,
           "reduce": 0.010903675896878988
         },
-        "by_module": {
+        "time_share_by_module": {
           "attention_block": 0.475180405917268,
           "norm": 0.12385850995337605,
           "mlp_block": 0.08061016701436488,
@@ -769,7 +769,7 @@
         "decode_mfu": 0.00011024995573771238,
         "decode_mbu": 0.040712757345905445
       },
-      "op_breakdown": {
+      "op_latency_breakdown": {
         "top_kernels": [
           {
             "name": "aten::copy_",
@@ -842,7 +842,7 @@
             "calls": 5376
           }
         ],
-        "by_category": {
+        "time_share_by_kernel_category": {
           "gemm": 0.3543741173794134,
           "memory": 0.26720183132671427,
           "elementwise": 0.2028913857378291,
@@ -850,7 +850,7 @@
           "other": 0.012566545463438716,
           "reduce": 0.0057398755820009875
         },
-        "by_module": {
+        "time_share_by_module": {
           "attention_block": 0.4027993050991216,
           "mlp_block": 0.05042561436423729,
           "lm_head": 0.022494898477029505,

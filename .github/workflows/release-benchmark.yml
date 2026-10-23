@@ -54,9 +54,9 @@ jobs:
 
           echo "Running benchmark for tag: $TAG (release_feature: ${FEATURE:-none})"
           if [[ -n "$FEATURE" ]]; then
-            .venv/bin/mini-infra-bench --tag "$TAG" --release-feature "$FEATURE" --profile-ops
+            .venv/bin/mini-infra-bench --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
           else
-            .venv/bin/mini-infra-bench --tag "$TAG" --profile-ops
+            .venv/bin/mini-infra-bench --tag "$TAG" --profile-mode extra-profile
           fi
 
       - name: Generate Reports and Evolution Plots
