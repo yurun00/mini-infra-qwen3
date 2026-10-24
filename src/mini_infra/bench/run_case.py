@@ -168,6 +168,23 @@ def run_case(
         "kv_cache_mb": max(r.memory["kv_cache_mb"] for r in runs),
     }
 
+    extra = dict(runs[0].extra) if runs and getattr(runs[0], "extra", None) is not None else None
+    if extra is not None:
+        extra_metric_names = (
+            "effective_prompt_token_throughput_per_second",
+            "padded_prompt_token_throughput_per_second",
+        )
+        for extra_metric_name in extra_metric_names:
+            if extra_metric_name in runs[0].extra:
+                samples = [
+                    r.extra[extra_metric_name]
+                    for r in runs
+                    if getattr(r, "extra", None) and extra_metric_name in r.extra
+                ]
+                if samples:
+                    extra[extra_metric_name] = summarize(samples)
+                    raw[extra_metric_name] = samples
+
     result = {
         "mode": str(mode),
         "prompt_len": list(prompt_len) if is_variable_len else prompt_len,
@@ -183,6 +200,7 @@ def run_case(
             summarize(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
         ),
         "memory": memory,
+        "extra": extra,
         "raw": raw,
     }
     if cost and peaks:

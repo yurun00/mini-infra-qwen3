@@ -30,6 +30,7 @@ uv.lock
 *.prof
 *.nsys-rep
 *.sqlite
+benchmarks/suites/
 
 # 模型与临时产物
 *.safetensors

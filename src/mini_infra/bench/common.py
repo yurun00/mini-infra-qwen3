@@ -236,6 +236,29 @@ def print_table(case_results: Sequence[dict[str, Any]], mode: str | None = None)
         "peak_memory_mib_max",
         "kv_cache_mb",
     ]
+
+    has_padding = any(
+        isinstance(w, dict) and bool(w.get("extra")) and w["extra"].get("padding_efficiency") is not None
+        for w in case_results
+    )
+    has_eff_prompt = any(
+        isinstance(w, dict)
+        and bool(w.get("extra"))
+        and w["extra"].get("effective_prompt_token_throughput_per_second") is not None
+        for w in case_results
+    )
+    has_slots = any(
+        isinstance(w, dict) and bool(w.get("extra")) and w["extra"].get("slot_utilization") is not None
+        for w in case_results
+    )
+
+    if has_padding:
+        header.append("padding_efficiency")
+    if has_eff_prompt:
+        header.append("effective_prompt_tok_s")
+    if has_slots:
+        header.append("slot_utilization")
+
     print(",".join(header))
     for w in case_results:
         if isinstance(w, list | tuple):
@@ -282,6 +305,23 @@ def print_table(case_results: Sequence[dict[str, Any]], mode: str | None = None)
             f"{peak_mem:.2f}",
             f"{kv_cache_mb:.2f}",
         ]
+
+        extra = w.get("extra") or {}
+        if has_padding:
+            pad_eff = extra.get("padding_efficiency")
+            row.append(f"{pad_eff * 100:.2f}%" if pad_eff is not None else "")
+        if has_eff_prompt:
+            eff_p = extra.get("effective_prompt_token_throughput_per_second")
+            if isinstance(eff_p, dict):
+                row.append(f"{eff_p.get('mean', eff_p.get('median', 0.0)):.1f}")
+            elif isinstance(eff_p, int | float):
+                row.append(f"{eff_p:.1f}")
+            else:
+                row.append("")
+        if has_slots:
+            slot_u = extra.get("slot_utilization")
+            row.append(f"{slot_u * 100:.2f}%" if slot_u is not None else "")
+
         print(",".join(row))
 
 

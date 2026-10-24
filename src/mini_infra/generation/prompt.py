@@ -98,22 +98,35 @@ def get_homogeneous_prompt_lengths(prompt_length: int, batch_size: int = 4) -> l
     return [prompt_length] * batch_size
 
 
-def get_mixed_prompt_lengths(prompt_length: int) -> list[int]:
+def get_mixed_prompt_lengths(max_prompt_length: int) -> list[int]:
     """获取一组不等长（阶梯稀疏）Prompt 长度列表。
 
     规则为：[max(1, L//8), max(1, L//4), max(1, L//2), L]。
     """
     return [
-        max(1, prompt_length // 8),
-        max(1, prompt_length // 4),
-        max(1, prompt_length // 2),
-        prompt_length,
+        max(1, max_prompt_length // 8),
+        max(1, max_prompt_length // 4),
+        max(1, max_prompt_length // 2),
+        max_prompt_length,
     ]
 
 
 def get_slots_prompt_lengths(prompt_length: int, num_budgets: int = 4) -> list[int]:
     """获取槽位利用率实验（Slots 场景）对应的 Prompt 长度列表。"""
     return [prompt_length] * num_budgets
+
+
+def get_mixed_output_budgets(max_new_tokens: int) -> list[int]:
+    """获取一组不等长（阶梯稀疏）生成 Token 预算列表（用于 Slots 变长预算对照实验）。
+
+    规则为：[max(2, B//8), max(2, B//4), max(2, B//2), B]。
+    """
+    return [
+        max(2, max_new_tokens // 8),
+        max(2, max_new_tokens // 4),
+        max(2, max_new_tokens // 2),
+        max_new_tokens,
+    ]
 
 
 def make_homogeneous_prompts(
@@ -160,6 +173,7 @@ __all__ = [
     "DEFAULT_GOLDEN_MAX_OUTPUT_TOKENS",
     "DEFAULT_GOLDEN_PROMPT",
     "get_homogeneous_prompt_lengths",
+    "get_mixed_output_budgets",
     "get_mixed_prompt_lengths",
     "get_slots_prompt_lengths",
     "make_chat_prompt",

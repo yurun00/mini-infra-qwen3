@@ -43,8 +43,10 @@ mini-infra-qwen3/
 │       │   └── run_inference.py       # mini-infra-run：单请求/批处理推理、计时与特性对比
 │       ├── testing/
 │       │   ├── smoke_test.py          # mini-infra-smoke：随机小模型快速自检（CPU）
-│       │   ├── compare_cache.py       # mini-infra-compare-cache：KV Cache 前后逐步 Logits 对齐
-│       │   └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
+│       │   └── parity/                # 精度与等价性对齐工具包
+│       │       ├── compare_cache.py   # mini-infra-compare-cache：KV Cache 前后逐步 Logits 对齐
+│       │       ├── compare_batch.py   # mini-infra-compare-batch：固定批处理请求隔离与数值对齐
+│       │       └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── run_case.py            # mini-infra-bench-case：单 case 基准测试执行引擎
@@ -54,7 +56,8 @@ mini-infra-qwen3/
 │           └── regression.py          # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码，不参与画图）
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
-│   └── gpu/                           # 需要 GPU/权重的测试（pytest -m gpu）
+│   └── gpu/
+│       └── parity/                    # GPU 精度与等价性对齐测试（pytest tests/gpu/parity/）
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
 │   ├── suites/                        # 预设基准测试套件配置（YAML）
@@ -175,12 +178,21 @@ mini-infra-run \
 - **代码规范检查**：`ruff check . && ruff format --check .`。
 
 #### 端到端精度对齐测试 (GPU)
+- **固定批处理请求隔离与数值对齐**：
+  ```bash
+  mini-infra-compare-batch \
+    --prompt "用一句话解释固定批处理。" \
+    --max-new-tokens 8
+  # 或作为 pytest GPU 用例：pytest tests/gpu/parity/test_batch_parity.py
+  ```
+  测试不同 Batch Size、排列顺序、同批伴随内容和不同 Padding 长度下各个请求的生成 Token 与 Logits，严格验证请求隔离（Request Isolation）与数值不变性。
+
 - **KV Cache 前后数值对齐**：
   ```bash
   mini-infra-compare-cache \
     --prompt "请用一句话介绍 KV Cache。" \
     --max-new-tokens 32
-  # 或作为 pytest GPU 用例：pytest tests/gpu/test_e2e_compare_cache.py
+  # 或作为 pytest GPU 用例：pytest tests/gpu/parity/test_cache_parity.py
   ```
   在 float32 精度下逐步比对同一手写模型在无 Cache 与有 Cache 两种执行路径下的 Logits 最大绝对误差与生成 Token，确保引入 KV Cache 之后数值完全等价。
 
@@ -189,7 +201,7 @@ mini-infra-run \
   mini-infra-compare \
     --prompt "请用一句话介绍 KV Cache。" \
     --max-new-tokens 32
-  # 或作为 pytest GPU 用例：pytest tests/gpu/test_e2e_transformers_parity.py
+  # 或作为 pytest GPU 用例：pytest tests/gpu/parity/test_transformers_parity.py
   ```
   对照程序会验证分词一致性，并在相同 greedy decoding 条件下逐步比较手写模型与 Hugging Face 参考实现的 Token ID、Logits 最大绝对误差与生成文本。
 
@@ -323,5 +335,5 @@ git push origin main --tags
 
 ## 致谢与参考 (Acknowledgments)
 
-- [SVDX-lab/miniinfra](https://github.com/SVDX-lab/miniinfra/) 《超轻量AI Infra教程—推理篇》。
+- [SVDX-lab/miniinfra](https://github.com/SVDX-lab/miniinfra/)
 

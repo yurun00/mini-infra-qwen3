@@ -10,6 +10,7 @@ from mini_infra.generation import (
     Mode,
     generate,
     get_homogeneous_prompt_lengths,
+    get_mixed_output_budgets,
     get_mixed_prompt_lengths,
     get_slots_prompt_lengths,
     make_homogeneous_prompts,
@@ -116,6 +117,9 @@ def test_benchmark_prompt_helpers():
     # Slots suite helper
     slots_lens = get_slots_prompt_lengths(prompt_length, num_budgets=4)
     assert slots_lens == [128, 128, 128, 128]
+
+    mixed_budgets = get_mixed_output_budgets(64)
+    assert mixed_budgets == [8, 16, 32, 64]
 
     slots_prompts = make_slots_prompts(prompt_length, vocab_size=50000, budgets=[8, 16, 32, 64])
     assert len(slots_prompts) == 4

@@ -1,1 +1,6 @@
-"""测试与对齐工具集：包含 CPU 快速冒烟测试、KV Cache 正确性对比及与 Transformers 逐 Token 对齐。"""
+"""测试与质量验证体系。
+
+包含：
+- smoke_test：基于随机小尺寸配置模型的 CPU 快速冒烟自检（2 秒）
+- parity/：端到端精度与数值等价性验证工具包（Cache、Batch 隔离与 Transformers 对齐）
+"""
