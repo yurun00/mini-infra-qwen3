@@ -1,7 +1,7 @@
 """对比两个独立 benchmark JSON 结果（例如比较不同的 mode），并生成对比图表与数据报表。
 
 适用场景：
-    日常调优时使用 mini-infra-bench --output 输出的独立 JSON 文件，
+    日常调优时使用 mini-infra-bench-case --output 输出的独立 JSON 文件，
     通过本脚本直接对比两个结果（例如 no-cache vs kv-cache），画出性能对比图，
     而无需沉淀到 benchmarks/result-history/ 污染正式发版时间线。
 
@@ -38,11 +38,13 @@ def resolve_label(rec: dict[str, Any], custom: str | None = None) -> str:
     return mode or tag or "unknown"
 
 
-def index_workloads(rec: dict[str, Any]) -> dict[tuple[int, int, int], dict[str, Any]]:
-    """按 (batch_size, prompt_len, output_len) 建立索引。"""
+def index_cases(rec: dict[str, Any]) -> dict[tuple[int, int, int], dict[str, Any]]:
+    """按 (batch_size, prompt_len, max_new_tokens) 建立索引。"""
     res = {}
-    for w in rec.get("workloads", []):
-        key = (w["batch_size"], w["prompt_len"], w["output_len"])
+    cases = rec.get("cases") or rec.get("workloads") or []
+    for w in cases:
+        pl = tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"]
+        key = (w["batch_size"], pl, w.get("max_new_tokens", w.get("output_len")))
         res[key] = w
     return res
 
@@ -54,8 +56,8 @@ def generate_comparison_table(
     label2: str,
 ) -> str:
     """生成 Markdown 对比表格与文字总结。"""
-    idx1 = index_workloads(rec1)
-    idx2 = index_workloads(rec2)
+    idx1 = index_cases(rec1)
+    idx2 = index_cases(rec2)
     common_keys = sorted(set(idx1.keys()) & set(idx2.keys()))
 
     gpu1 = rec1.get("env", {}).get("gpu", "Unknown GPU")
@@ -68,7 +70,7 @@ def generate_comparison_table(
         f"- **基准 (A)**：`{label1}` (commit: `{rec1.get('git', {}).get('commit', 'n/a')}`)",
         f"- **对比 (B)**：`{label2}` (commit: `{rec2.get('git', {}).get('commit', 'n/a')}`)",
         "",
-        "| Batch | Prompt | Output | TTFT A (ms) | TTFT B (ms) | TTFT 加速比 | "
+        "| Batch | Prompt | Max New Tokens | TTFT A (ms) | TTFT B (ms) | TTFT 加速比 | "
         "TPOT A (ms) | TPOT B (ms) | TPOT 加速比 | "
         "吞吐 A (tok/s) | 吞吐 B (tok/s) | 吞吐加速比 | 显存 A (MiB) | 显存 B (MiB) | 显存增量 (MiB) |",
         "| :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
@@ -78,7 +80,7 @@ def generate_comparison_table(
     thr_speedups = []
 
     for k in common_keys:
-        bs, pl, ol = k
+        bs, pl, max_new_tokens = k
         w1 = idx1[k]
         w2 = idx2[k]
 
@@ -101,7 +103,7 @@ def generate_comparison_table(
         d_mem = mem2 - mem1
 
         lines.append(
-            f"| {bs} | {pl} | {ol} | "
+            f"| {bs} | {pl} | {max_new_tokens} | "
             f"{ttft1:.2f} | {ttft2:.2f} | **{s_ttft:.2f}x** | "
             f"{tpot1:.2f} | {tpot2:.2f} | **{s_tpot:.2f}x** | "
             f"{thr1:.1f} | {thr2:.1f} | **{s_thr:.2f}x** | "
@@ -134,19 +136,19 @@ def plot_mode_comparison(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    idx1 = index_workloads(rec1)
-    idx2 = index_workloads(rec2)
+    idx1 = index_cases(rec1)
+    idx2 = index_cases(rec2)
     common_keys = sorted(set(idx1.keys()) & set(idx2.keys()), key=lambda k: (k[0], k[2], k[1]))
 
     if not common_keys:
-        raise ValueError("两份结果中没有找到匹配的 Workload (batch_size, prompt_len, output_len)，无法绘图。")
+        raise ValueError("两份结果中没有找到匹配的 case (batch_size, prompt_len, max_new_tokens)，无法绘图。")
 
-    # 优先筛选 batch_size == 1 且 output_len 最常见的子集画趋势曲线
+    # 优先筛选 batch_size == 1 且 max_new_tokens 最常见的子集画趋势曲线
     primary_bs = 1 if any(k[0] == 1 for k in common_keys) else common_keys[0][0]
-    output_lens = [k[2] for k in common_keys if k[0] == primary_bs]
-    primary_ol = max(set(output_lens), key=output_lens.count) if output_lens else common_keys[0][2]
+    tokens_list = [k[2] for k in common_keys if k[0] == primary_bs]
+    primary_tokens = max(set(tokens_list), key=tokens_list.count) if tokens_list else common_keys[0][2]
 
-    plot_keys = [k for k in common_keys if k[0] == primary_bs and k[2] == primary_ol]
+    plot_keys = [k for k in common_keys if k[0] == primary_bs and k[2] == primary_tokens]
     if not plot_keys:
         plot_keys = common_keys
 
@@ -273,7 +275,8 @@ def plot_mode_comparison(
 
     gpu_name = rec1.get("env", {}).get("gpu") or rec2.get("env", {}).get("gpu") or "GPU"
     default_title = (
-        f"Benchmark Comparison: {label1} vs {label2}\n[{gpu_name} | batch={primary_bs}, output_len={primary_ol}]"
+        f"Benchmark Comparison: {label1} vs {label2}\n"
+        f"[{gpu_name} | batch={primary_bs}, max_new_tokens={primary_tokens}]"
     )
     fig.suptitle(title or default_title, fontsize=13, y=0.995)
     fig.tight_layout()

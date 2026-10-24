@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from mini_infra.bench.run import ProfileMode
+from mini_infra.bench.common import ProfileMode
 from mini_infra.generation import BatchingMethod, Mode, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
@@ -158,6 +158,7 @@ def test_profile_with_tensorboard_option(tmp_path):
     res_no_profile = generate(mode, model, ids, max_new_tokens=2, profile=False, tensorboard_options=tb_opt)
     assert res_no_profile.op_latency_breakdown is None
 
+
 def test_profile_mode_enum():
     assert ProfileMode.EXTRA_PROFILE == "extra-profile"
     assert ProfileMode.FULL_PROFILE == "full-profile"
@@ -172,40 +173,40 @@ def test_profile_mode_enum():
 def test_bench_run_profile_modes():
     from unittest.mock import patch
 
-    from mini_infra.bench.run import parse_args, run_workload
+    from mini_infra.bench.run_case import parse_args, run_case
 
     # 1. 验证命令行参数解析
-    with patch("sys.argv", ["mini-infra-bench", "--tag", "test", "--profile-mode", "extra-profile"]):
+    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--profile-mode", "extra-profile"]):
         args = parse_args()
         assert args.profile_mode == ProfileMode.EXTRA_PROFILE
 
-    with patch("sys.argv", ["mini-infra-bench", "--tag", "test", "--profile-mode", "full-profile"]):
+    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--profile-mode", "full-profile"]):
         args = parse_args()
         assert args.profile_mode == ProfileMode.FULL_PROFILE
 
-    with patch("sys.argv", ["mini-infra-bench", "--tag", "test"]):
+    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test"]):
         args = parse_args()
         assert args.profile_mode is None
 
     # 验证历史参数不被支持（报错退出）
-    with patch("sys.argv", ["mini-infra-bench", "--tag", "test", "--extra-profile-run"]):
+    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--extra-profile-run"]):
         with pytest.raises(SystemExit):
             parse_args()
 
-    # 2. 验证 run_workload 执行逻辑
+    # 2. 验证 run_case 执行逻辑
     model = build_tiny_model()
     mode = Mode()
     device = torch.device("cpu")
     vocab = model.config.vocab_size
 
     # Mode 1: profile_mode=None -> 无 op_latency_breakdown
-    res_none = run_workload(
+    res_none = run_case(
         model, mode, prompt_len=4, max_new_tokens=2, batch_size=1, warmup=0, repeats=1, vocab=vocab, device=device
     )
     assert "op_latency_breakdown" not in res_none
 
     # Mode 2: profile_mode=EXTRA_PROFILE -> 有 op_latency_breakdown
-    res_extra = run_workload(
+    res_extra = run_case(
         model,
         mode,
         prompt_len=4,
@@ -222,7 +223,7 @@ def test_bench_run_profile_modes():
     assert "total_ms" in res_extra["op_latency_breakdown"]
 
     # Mode 3: profile_mode=FULL_PROFILE -> 每次 repeat 均 profile，直接从 runs 中提取 op_latency_breakdown
-    res_full = run_workload(
+    res_full = run_case(
         model,
         mode,
         prompt_len=4,

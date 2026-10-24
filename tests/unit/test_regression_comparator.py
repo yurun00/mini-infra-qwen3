@@ -8,11 +8,11 @@ def make_record(ttft, tpot, std=0.1):
         return {"median": median, "std": std}
 
     return {
-        "workloads": [
+        "cases": [
             {
                 "batch_size": 1,
                 "prompt_len": 32,
-                "output_len": 32,
+                "max_new_tokens": 32,
                 "ttft_ms": stat(ttft),
                 "tpot_ms": stat(tpot),
             }
@@ -42,8 +42,8 @@ def test_change_within_noise_not_flagged():
     assert regressed is False
 
 
-def test_no_common_workload_returns_none():
+def test_no_common_case_returns_none():
     candidate = make_record(40, 37)
-    candidate["workloads"][0]["prompt_len"] = 64
+    candidate["cases"][0]["prompt_len"] = 64
     regressed, _ = compare(candidate, make_record(40, 37), 0.05)
     assert regressed is None

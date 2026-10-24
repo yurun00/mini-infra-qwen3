@@ -43,10 +43,10 @@
     "passed": true,
     "match_ratio": 1.0
   },
-  "workloads": [
+  "cases": [
     {
       "prompt_len": 32,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 37.23775863647461,
@@ -250,7 +250,7 @@
     },
     {
       "prompt_len": 128,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 47.68627166748047,
@@ -454,7 +454,7 @@
     },
     {
       "prompt_len": 512,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 49.862335205078125,
@@ -658,7 +658,7 @@
     },
     {
       "prompt_len": 1024,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 101.13843536376953,

@@ -4,7 +4,7 @@
     本模块是纯粹的【质量门禁与防回退守门人（Quality Gate）】，只输出退出码（0/1/2）与控制台文本。
     其默认生成的 candidate.local.json 为临时比对文件（已被 .gitignore 忽略），不会写入
     benchmarks/result-history/，因此【不参与】mini-infra-bench-plot-history 的绘图与时间线分析。
-    绘图所需的全量数据源唯一定义来自 mini-infra-bench（run.py）。
+    绘图所需的全量数据源唯一定义来自 mini-infra-bench-case（run_case.py）。
 
 用法：
     # 首次/有意接受新性能后，刷新参考结果（需提交 benchmarks/data/reference.json）
@@ -22,41 +22,48 @@
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
-BENCH_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", "benchmarks")).resolve()
-DEFAULT_REFERENCE = BENCH_DIR / "data" / "reference.json"
-# *.local.json 已被 .gitignore 忽略
-DEFAULT_CANDIDATE = BENCH_DIR / "candidate.local.json"
+from mini_infra.bench.common import BENCH_ARTIFACTS_DIR
 
-# 轻量 workload：一个短、一个中等长度，约半分钟内完成
-LIGHT_ARGS = ["--prompt-lens", "32", "512", "--output-lens", "32", "--warmup", "2", "--repeats", "7"]
+DEFAULT_REFERENCE = BENCH_ARTIFACTS_DIR / "data" / "reference.json"
+# *.local.json 已被 .gitignore 忽略
+DEFAULT_CANDIDATE = BENCH_ARTIFACTS_DIR / "candidate.local.json"
+
+# 轻量 case：一个短、一个中等长度，约半分钟内完成
+LIGHT_ARGS = ["--prompt-lens", "32", "512", "--max-new-tokens", "32", "--warmup", "2", "--repeats", "7"]
 METRICS = [("ttft_ms", "TTFT"), ("tpot_ms", "TPOT")]
 
 
 def run_light_benchmark(output, tag):
-    cmd = [sys.executable, "-m", "mini_infra.bench.run", "--tag", tag, "--output", str(output), *LIGHT_ARGS]
+    cmd = [sys.executable, "-m", "mini_infra.bench.run_case", "--tag", tag, "--output", str(output), *LIGHT_ARGS]
     print("运行轻量 benchmark:", " ".join(cmd[1:]), flush=True)
-    return subprocess.run(cmd, cwd=BENCH_DIR.parent).returncode
+    return subprocess.run(cmd, cwd=BENCH_ARTIFACTS_DIR.parent).returncode
 
 
 def index(record):
-    return {(w["batch_size"], w["prompt_len"], w["output_len"]): w for w in record["workloads"]}
+    return {
+        (
+            w["batch_size"],
+            tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
+            w.get("max_new_tokens", w.get("output_len")),
+        ): w
+        for w in record["cases"]
+    }
 
 
 def compare(candidate, reference, threshold):
     """返回 (是否回归, 报告行)。延迟类指标：越大越差。"""
 
     cand, ref = index(candidate), index(reference)
-    common = sorted(set(cand) & set(ref))
+    common = sorted(set(cand) & set(ref), key=lambda k: (k[0], str(k[1]), k[2]))
     if not common:
-        return None, ["没有可比较的共同 workload"]
+        return None, ["没有可比较的共同 case"]
 
     regressed, lines = False, []
-    lines.append(f"{'workload (bs/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果")
+    lines.append(f"{'case (bs/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果")
     for key in common:
         for metric, name in METRICS:
             r, c = ref[key][metric]["median"], cand[key][metric]["median"]

@@ -119,7 +119,7 @@ def print_result(mode, result, tokenizer, tensorboard_dir=None):
 
     print("端到端 Wall-clock 延迟: %.2f ms" % result.e2e_wall_ms)
     print("端到端模型计算延迟: %.2f ms" % result.e2e_model_ms)
-    print("请求吞吐: %.3f requests/s" % result.request_throughput_per_second)
+    print("请求吞吐: %.3f requests/s" % result.throughput_req_s)
     print("输出吞吐: %.3f tokens/s" % result.throughput_tok_s)
 
     # 细粒度执行与显存指标（包含 batch 及超集分位数分析）

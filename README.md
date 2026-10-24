@@ -46,7 +46,9 @@ mini-infra-qwen3/
 │       │   ├── compare_cache.py       # mini-infra-compare-cache：KV Cache 前后逐步 Logits 对齐
 │       │   └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
-│           ├── run.py                 # mini-infra-bench：全量基准测量（落盘至 result-history/，plot 唯一数据源）
+│           ├── common.py              # 共享基准基础设施、指标计算与目录常量
+│           ├── run_case.py            # mini-infra-bench-case：单 case 基准测试执行引擎
+│           ├── run_suite.py           # mini-infra-bench-suite：预设测试套件执行引擎
 │           ├── plot_history.py        # mini-infra-bench-plot-history：读取 result-history/ 生成汇总表与演进趋势图
 │           ├── plot_compare.py        # mini-infra-bench-plot-compare：对比两个独立 JSON 结果（如不同 mode）并绘制多维对比图
 │           └── regression.py          # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码，不参与画图）
@@ -55,6 +57,7 @@ mini-infra-qwen3/
 │   └── gpu/                           # 需要 GPU/权重的测试（pytest -m gpu）
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
+│   ├── suites/                        # 预设基准测试套件配置（YAML）
 │   ├── result-history/                # 每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # SUMMARY.md、evolution_and_scaling.png、profiling_and_optimization.png（生成物）
 ├── .github/workflows/
@@ -197,10 +200,10 @@ mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中�
 - **本地保护**：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 运行 ruff，push 前运行回归守护。
 - **CI 自动化**：PR 会在 GPU runner 上自动触发 [pr-perf-regression.yml](.github/workflows/pr-perf-regression.yml)。
 - **算子剖析与瓶颈诊断（Profiling）**：
-  当守护机制触发告警（或日常开发需下钻瓶颈）时，可使用 `mini-infra-bench` 附带 `--profile-mode full-profile` 进行采样分析（采集各类别 Kernel 与 Transformer 模块的 GPU/CPU 耗时占比），并可通过 `--tensorboard-dir` 导出 Chrome / TensorBoard Trace 查看底层 CUDA Kernel 执行时序：
+  当守护机制触发告警（或日常开发需下钻瓶颈）时，可使用 `mini-infra-bench-case` 附带 `--profile-mode full-profile` 进行采样分析（采集各类别 Kernel 与 Transformer 模块的 GPU/CPU 耗时占比），并可通过 `--tensorboard-dir` 导出 Chrome / TensorBoard Trace 查看底层 CUDA Kernel 执行时序：
   ```bash
   # 运行轻量压测进行算子耗时诊断，落盘诊断 JSON 并导出 Trace 日志
-  mini-infra-bench --tag debug --prompt-lens 512 --output-lens 32 --repeats 1 --profile-mode full-profile --tensorboard-dir tmp/tb_trace --output tmp/profile.json
+  mini-infra-bench-case --tag debug --prompt-lens 512 --max-new-tokens 32 --repeats 1 --profile-mode full-profile --tensorboard-dir tmp/tb_trace --output tmp/profile.json
 
   # 查看方式一：通过 TensorBoard 查看
   # 1) 远程实例启动服务
@@ -223,17 +226,17 @@ mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中�
 在日常开发调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**，可通过 `--output` 指定输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略，不会上传到 GitHub），并使用 `mini-infra-bench-plot-compare` 绘制跨模式对比图：
 ```bash
 # 1. 测量无 cache 模式结果
-mini-infra-bench --tag dev --no-kv-cache --output tmp/test_nocache.json
+mini-infra-bench-case --tag dev --no-kv-cache --output tmp/test_nocache.json
 
 # 2. 测量有 KV Cache 模式结果
-mini-infra-bench --tag dev --kv-cache --output tmp/test_kvcache.json
+mini-infra-bench-case --tag dev --kv-cache --output tmp/test_kvcache.json
 
 # 3. 对比两个 JSON 结果：终端打印对比表，并绘制 6 维度对比图（Decode 延迟、吞吐、加速比、TTFT、显存占用、端到端延迟）
 mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 
 # 快速试跑对比（缩小测试矩阵）
-mini-infra-bench --tag dev --no-kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_nocache.json
-mini-infra-bench --tag dev --kv-cache --prompt-lens 32 128 --output-lens 32 --repeats 3 --output tmp/test_kvcache.json
+mini-infra-bench-case --tag dev --no-kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_nocache.json
+mini-infra-bench-case --tag dev --kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_kvcache.json
 mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 ```
 
@@ -271,7 +274,7 @@ pytest -m gpu
 pip install -e ".[bench]"
 
 # 1. 运行全矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
-mini-infra-bench --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile --update-golden
+mini-infra-bench-case --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile --update-golden
 
 # 2. 读取所有历史版本数据，重新生成多版本演化表与对比图
 mini-infra-bench-plot-history
@@ -281,12 +284,12 @@ mini-infra-bench-regression --update-reference
 ```
 
 > **注意（数据流与绘图约定）**：
-> * **`mini-infra-bench-plot-history` 只消费 `mini-infra-bench`（`run.py`）的输出**：只有通过 `mini-infra-bench` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
+> * **`mini-infra-bench-plot-history` 只消费 `mini-infra-bench-case`（`run_case.py`）的输出**：只有通过 `mini-infra-bench-case` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
 > * **`mini-infra-bench-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 > **版本号与特性（Feature）标注约定**：
 > * **Git Tag、pyproject.toml 与 `--tag`** 统一采用纯版本号（如 `v0.2.0`），严格遵循 SemVer 与 PEP 440 规范，保证 CI/CD 自动化构建一致性；
-> * **`mini-infra-bench` 新增 `--release-feature` 参数**（如 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra-bench-plot-history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.2.0 (KV cache)`。
+> * **`mini-infra-bench-case` 新增 `--release-feature` 参数**（如 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra-bench-plot-history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.2.0 (KV cache)`。
 
 #### 步骤 4：提交评测产物与版本代码
 将代码修改与自动生成的基准产物一同纳入 Git 提交：

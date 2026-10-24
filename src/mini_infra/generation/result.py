@@ -27,7 +27,7 @@ class GenerationResult:
     2. 核心标量指标 (Core Scalar Metrics，一等公民属性)：
        - 负载元数据：prompt_len, output_len, batch_size
        - 核心时延：ttft_ms, tpot_ms, p50_decode_step_ms, p95_decode_step_ms, e2e_wall_ms, e2e_model_ms
-       - 吞吐与利用率：throughput_tok_s, request_throughput_per_second, gpu_time_ratio
+       - 吞吐与利用率：throughput_tok_s, throughput_req_s, gpu_time_ratio
        - 显存结构字典：memory（包含 baseline/prefill/peak/reserved/fragmentation/kv_cache_mb 等）
 
     3. 跟踪明细与策略扩展 (Details & Extra Metrics)：
@@ -63,7 +63,7 @@ class GenerationResult:
         e2e_model_ms: float,
         # 2.3 吞吐与利用率
         throughput_tok_s: float,
-        request_throughput_per_second: float,
+        throughput_req_s: float,
         gpu_time_ratio: float | None,
         # 2.4 显存结构字典 (MB)
         memory: dict[str, Any],
@@ -91,7 +91,7 @@ class GenerationResult:
         self.e2e_wall_ms = e2e_wall_ms
         self.e2e_model_ms = e2e_model_ms
         self.throughput_tok_s = throughput_tok_s
-        self.request_throughput_per_second = request_throughput_per_second
+        self.throughput_req_s = throughput_req_s
         self.gpu_time_ratio = gpu_time_ratio
         self.memory = memory
 
@@ -177,7 +177,7 @@ class GenerationResult:
             valid_generated_tokens_count if valid_generated_tokens_count is not None else batch_size * output_len
         )
         throughput = total_tokens / (e2e_model_ms / 1000) if e2e_model_ms > 0 else 0.0
-        request_throughput_per_second = batch_size * 1000 / e2e_model_ms if e2e_model_ms > 0 else 0.0
+        throughput_req_s = batch_size * 1000 / e2e_model_ms if e2e_model_ms > 0 else 0.0
         # gpu_time_ratio 专属于 GPU（GPU 忙碌时间 / 墙钟时间）：非 CUDA 设备记为 None
         gpu_time_ratio = (min(1.0, e2e_model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0) if is_cuda else None
 
@@ -212,7 +212,7 @@ class GenerationResult:
             e2e_wall_ms=e2e_wall_ms,
             e2e_model_ms=e2e_model_ms,
             throughput_tok_s=throughput,
-            request_throughput_per_second=request_throughput_per_second,
+            throughput_req_s=throughput_req_s,
             gpu_time_ratio=gpu_time_ratio,
             memory=memory,
             # 3. 跟踪明细与策略扩展
@@ -250,7 +250,7 @@ class GenerationResult:
             "fragmentation_mb": max((m["fragmentation_mb"] for m in mems), default=0.0),
             "kv_cache_mb": max((m["kv_cache_mb"] for m in mems), default=0.0),
         }
-        request_throughput_per_second = total_requests * 1000 / e2e_model_ms if e2e_model_ms else 0.0
+        throughput_req_s = total_requests * 1000 / e2e_model_ms if e2e_model_ms else 0.0
         op_latency_breakdowns = [
             r.op_latency_breakdown for r in runs if getattr(r, "op_latency_breakdown", None) is not None
         ]
@@ -275,7 +275,7 @@ class GenerationResult:
             e2e_wall_ms=e2e_wall_ms,
             e2e_model_ms=e2e_model_ms,
             throughput_tok_s=valid_generated_tokens_count * 1000 / e2e_model_ms if e2e_model_ms else 0.0,
-            request_throughput_per_second=request_throughput_per_second,
+            throughput_req_s=throughput_req_s,
             gpu_time_ratio=sum(gpu_time_ratios) / len(gpu_time_ratios) if gpu_time_ratios else None,
             memory=memory,
             # 3. 跟踪明细与策略扩展

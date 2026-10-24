@@ -45,11 +45,11 @@
     "match_ratio": 1.0,
     "updated_golden": true
   },
-  "workloads": [
+  "cases": [
     {
       "mode": "kv-cache",
       "prompt_len": 32,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 39.417856216430664,
@@ -934,7 +934,7 @@
     {
       "mode": "kv-cache",
       "prompt_len": 128,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 49.465328216552734,
@@ -1819,7 +1819,7 @@
     {
       "mode": "kv-cache",
       "prompt_len": 512,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 51.517744064331055,
@@ -2704,7 +2704,7 @@
     {
       "mode": "kv-cache",
       "prompt_len": 1024,
-      "output_len": 64,
+      "max_new_tokens": 64,
       "batch_size": 1,
       "ttft_ms": {
         "median": 95.37201690673828,

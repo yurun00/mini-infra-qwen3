@@ -2,7 +2,7 @@
 
 基准版本：`baseline (no cache)*` (`a497386`)，GPU：NVIDIA L4，数值为 median，括号内为相对基准的加速比（>1 表示更快）。
 
-| 版本 | commit | batch | prompt | output | TTFT (ms) | TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | 正确性 |
+| 版本 | commit | batch | prompt | max_new_tokens | TTFT (ms) | TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | 正确性 |
 | :--- | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | baseline (no cache)* | a497386 | 1 | 32 | 64 | 37.49 (1.00x) | 36.29 (1.00x) | 27.5 (1.00x) | 1201 | ✅ |
 | baseline (no cache)* | a497386 | 1 | 128 | 64 | 47.04 (1.00x) | 45.86 (1.00x) | 21.8 (1.00x) | 1257 | ✅ |

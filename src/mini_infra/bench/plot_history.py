@@ -14,22 +14,29 @@
 
 import argparse
 import json
-import os
 from pathlib import Path
 
-BENCH_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", "benchmarks")).resolve()
-RESULTS_DIR = BENCH_DIR / "result-history"
-REPORTS_DIR = BENCH_DIR / "reports"
+from mini_infra.bench.common import (
+    REPORTS_DIR,
+    RESULT_HISTORY_DIR,
+)
 
 
 def load_results():
-    records = [json.loads(p.read_text()) for p in RESULTS_DIR.glob("*.json")]
+    records = [json.loads(p.read_text()) for p in RESULT_HISTORY_DIR.glob("*.json")]
     records.sort(key=lambda r: r["timestamp"])
     return records
 
 
 def index(record):
-    return {(w["batch_size"], w["prompt_len"], w["output_len"]): w for w in record["workloads"]}
+    return {
+        (
+            w["batch_size"],
+            tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
+            w.get("max_new_tokens", w.get("output_len")),
+        ): w
+        for w in record["cases"]
+    }
 
 
 def label(record):
@@ -47,7 +54,10 @@ def markdown_table(records, base):
         f"基准版本：`{label(base)}` (`{base['git']['commit']}`)，GPU：{base['env']['gpu']}，"
         "数值为 median，括号内为相对基准的加速比（>1 表示更快）。",
         "",
-        "| 版本 | commit | batch | prompt | output | TTFT (ms) | TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | 正确性 |",
+        (
+            "| 版本 | commit | batch | prompt | max_new_tokens | TTFT (ms) | TPOT (ms) | "
+            "吞吐 (tok/s) | 显存 (MiB) | 正确性 |"
+        ),
         "| :--- | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
     ]
     for rec in records:
@@ -87,11 +97,11 @@ def plot_evolution_and_scaling(records, base, out_path):
     version_labels = [label(r) for r in records]
     x_indices = list(range(len(records)))
 
-    all_prompt_lens = sorted({w["prompt_len"] for r in records for w in r["workloads"] if w["batch_size"] == 1})
+    all_prompt_lens = sorted({w["prompt_len"] for r in records for w in r["cases"] if w["batch_size"] == 1})
     key_prompts = [p for p in [32, 128, 512, 1024] if p in all_prompt_lens] or all_prompt_lens[:3]
 
     def pick_w(rec, p):
-        return next((w for w in rec["workloads"] if w["batch_size"] == 1 and w["prompt_len"] == p), None)
+        return next((w for w in rec["cases"] if w["batch_size"] == 1 and w["prompt_len"] == p), None)
 
     fig, axes = plt.subplots(3, 3, figsize=(18, 13))
 
@@ -161,7 +171,7 @@ def plot_evolution_and_scaling(records, base, out_path):
     ]
     for ax, metric, title, y_label in scaling_metrics:
         for rec in records:
-            ws = sorted((w for w in rec["workloads"] if w["batch_size"] == 1), key=lambda w: w["prompt_len"])
+            ws = sorted((w for w in rec["cases"] if w["batch_size"] == 1), key=lambda w: w["prompt_len"])
             if not ws:
                 continue
             x = [w["prompt_len"] for w in ws]
@@ -179,7 +189,7 @@ def plot_evolution_and_scaling(records, base, out_path):
     ax_mem, ax_tail, ax_corr = axes[2]
 
     # 3.1 显存演变（各版本在最大共有 prompt 下）
-    common = set.intersection(*[{w["prompt_len"] for w in r["workloads"] if w["batch_size"] == 1} for r in records])
+    common = set.intersection(*[{w["prompt_len"] for w in r["cases"] if w["batch_size"] == 1} for r in records])
     p_ref = max(common) if common else key_prompts[-1]
     mems = [(pick_w(r, p_ref) or {}).get("memory", {}).get("peak_allocated_mb", 0) for r in records]
     ax_mem.bar(x_indices, mems, alpha=0.85, color="tab:purple")
@@ -266,7 +276,7 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
 
     # --- 小类 2.1: 硬件物理天花板差距 ---
     ws = sorted(
-        (w for w in target_rec["workloads"] if w["batch_size"] == 1 and w.get("efficiency")),
+        (w for w in target_rec["cases"] if w["batch_size"] == 1 and w.get("efficiency")),
         key=lambda w: w["prompt_len"],
     )
     if ws:
@@ -328,7 +338,7 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
     # --- 小类 2.2 & 2.3: 架构模块与算子类型透视 ---
     prof_ws = [
         w
-        for w in target_rec["workloads"]
+        for w in target_rec["cases"]
         if w["batch_size"] == 1
         and isinstance(w.get("op_latency_breakdown"), dict)
         and w["op_latency_breakdown"].get("time_share_by_module")
@@ -386,7 +396,7 @@ def plot_profiling_and_optimization(records, target_rec, out_path):
             ax.set_axis_off()
 
     # --- 小类 2.4: 显存足迹剖析 ---
-    mem_ws = sorted((w for w in target_rec["workloads"] if w.get("memory")), key=lambda w: w["prompt_len"])
+    mem_ws = sorted((w for w in target_rec["cases"] if w.get("memory")), key=lambda w: w["prompt_len"])
     if mem_ws:
         x_prompts = [str(w["prompt_len"]) for w in mem_ws]
         xs = list(range(len(mem_ws)))
@@ -437,7 +447,7 @@ def generate_optimization_guidance(target_rec):
 
     prof_ws = [
         w
-        for w in target_rec["workloads"]
+        for w in target_rec["cases"]
         if w["batch_size"] == 1
         and isinstance(w.get("op_latency_breakdown"), dict)
         and w["op_latency_breakdown"].get("time_share_by_module")
@@ -445,7 +455,7 @@ def generate_optimization_guidance(target_rec):
     if not prof_ws:
         lines.append(
             "> 提示：当前记录中未包含详细的算子剖析采样数据。"
-            "使用 `mini-infra-bench --profile-mode extra-profile` 重跑可获取完整算子诊断。"
+            "使用 `mini-infra-bench-case --profile-mode extra-profile` 重跑可获取完整算子诊断。"
         )
         return "\n".join(lines)
 
@@ -570,7 +580,7 @@ def main():
 
     records = load_results()
     if not records:
-        raise SystemExit(f"{RESULTS_DIR} 中没有结果，请先运行 mini-infra-bench")
+        raise SystemExit(f"{RESULT_HISTORY_DIR} 中没有结果，请先运行 mini-infra-bench-case")
 
     base = next((r for r in records if r["tag"] == args.baseline), records[0]) if args.baseline else records[0]
     target = next((r for r in records if r["tag"] == args.target), records[-1]) if args.target else records[-1]

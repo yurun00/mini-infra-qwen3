@@ -29,7 +29,7 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -e ".[bench,compare]"
 
-      - name: Run Full Workload Benchmark
+      - name: Run Full Case Benchmark
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [[ -z "$TAG" || "$TAG" == "main" || "$TAG" == "master" ]]; then
@@ -54,9 +54,9 @@ jobs:
 
           echo "Running benchmark for tag: $TAG (release_feature: ${FEATURE:-none})"
           if [[ -n "$FEATURE" ]]; then
-            .venv/bin/mini-infra-bench --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
+            .venv/bin/mini-infra-bench-case --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
           else
-            .venv/bin/mini-infra-bench --tag "$TAG" --profile-mode extra-profile
+            .venv/bin/mini-infra-bench-case --tag "$TAG" --profile-mode extra-profile
           fi
 
       - name: Generate Reports and Evolution Plots
