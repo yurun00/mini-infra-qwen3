@@ -255,9 +255,7 @@ class GenerationResult:
             r.op_latency_breakdown for r in runs if getattr(r, "op_latency_breakdown", None) is not None
         ]
         op_latency_breakdown = merge_op_latency_breakdowns(op_latency_breakdowns)
-        extra = {
-            "runs": runs,
-        }
+        extra = None
 
         return cls._create(
             # 1. 核心结果
