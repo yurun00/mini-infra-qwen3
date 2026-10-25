@@ -5,6 +5,8 @@ from typing import Any
 
 import torch
 
+from mini_infra.generation.result import BatchScheduleInfo
+
 
 @dataclass
 class BatchGenerationState:
@@ -24,6 +26,7 @@ class BatchGenerationState:
     active_counts_per_step: list[int]
     outputs: list[list[int]]
     completion_steps: list[int | None]
+    finish_reasons: list[str]
 
     # 模型输入张量
     history_mask: torch.Tensor
@@ -60,6 +63,7 @@ class BatchGenerationState:
             active_counts_per_step=[],
             outputs=[[] for _ in range(batch_size)],
             completion_steps=[None] * batch_size,
+            finish_reasons=["max_tokens"] * batch_size,
             history_mask=history_mask,
             curr_input_ids=input_ids_tensor,
             curr_position_ids=position_ids,
@@ -92,9 +96,14 @@ class BatchGenerationState:
             self.generated_counts[req_idx] += 1
             reached_eos = eos_token_id is not None and token_id == eos_token_id
             reached_budget = bool((self.generated_counts[req_idx] >= self.budgets[req_idx]).item())
-            if (stop_on_eos and reached_eos) or reached_budget:
+            if stop_on_eos and reached_eos:
                 self.curr_active[req_idx] = False
                 self.completion_steps[req_idx] = step + 1
+                self.finish_reasons[req_idx] = "stop"
+            elif reached_budget:
+                self.curr_active[req_idx] = False
+                self.completion_steps[req_idx] = step + 1
+                self.finish_reasons[req_idx] = "max_tokens"
 
         return not bool(self.curr_active.any().item())
 
@@ -124,8 +133,8 @@ class BatchGenerationState:
     def compute_batch_metrics(
         self,
         step_latencies_ms: list[float],
-        kv_cache: Any,
-    ) -> dict[str, Any]:
+        kv_cache: Any = None,
+    ) -> BatchScheduleInfo:
         """统计批处理生成过程特有明细指标（利用率、Padding 效率、各请求完成时延等）。"""
         step_count = len(step_latencies_ms)
         valid_generated_tokens_count = sum(len(output) for output in self.outputs)
@@ -139,20 +148,19 @@ class BatchGenerationState:
         prompt_tokens = int(self.prompt_lengths.sum().item())
         padded_prompt_tokens = self.batch_size * self.padded_prompt_length
         capacity_tokens = self.batch_size * step_count
-        ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
 
-        return {
-            "prompt_lengths_per_req": self.prompt_lengths.cpu().tolist(),
-            "prompt_tokens": prompt_tokens,
-            "padded_prompt_tokens": padded_prompt_tokens,
-            "padding_efficiency": prompt_tokens / padded_prompt_tokens,
-            "effective_prompt_token_throughput_per_second": prompt_tokens * 1000 / ttft_ms if ttft_ms else 0.0,
-            "padded_prompt_token_throughput_per_second": padded_prompt_tokens * 1000 / ttft_ms if ttft_ms else 0.0,
-            "active_counts_per_step": self.active_counts_per_step,
-            "slot_utilization": valid_generated_tokens_count / capacity_tokens if capacity_tokens else 0.0,
-            "completion_steps_per_req": self.completion_steps,
-            "completion_times_ms_per_req": [
-                cumulative_ms[s - 1] if s is not None else None for s in self.completion_steps
-            ],
-            "cache_length": kv_cache.get_seq_length() if kv_cache is not None else 0,
-        }
+        completion_steps_per_req: list[int] = [s if s is not None else step_count for s in self.completion_steps]
+        completion_times_ms_per_req: list[float] = [
+            cumulative_ms[s - 1] if 0 < s <= len(cumulative_ms) else (cumulative_ms[-1] if cumulative_ms else 0.0)
+            for s in completion_steps_per_req
+        ]
+
+        return BatchScheduleInfo(
+            padding_efficiency=prompt_tokens / padded_prompt_tokens if padded_prompt_tokens else 0.0,
+            slot_utilization=valid_generated_tokens_count / capacity_tokens if capacity_tokens else 0.0,
+            prompt_tokens=prompt_tokens,
+            padded_prompt_tokens=padded_prompt_tokens,
+            prompt_lengths_per_req=[int(x) for x in self.prompt_lengths.cpu().tolist()],
+            completion_steps_per_req=completion_steps_per_req,
+            completion_times_ms_per_req=completion_times_ms_per_req,
+        )

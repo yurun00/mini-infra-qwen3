@@ -63,6 +63,8 @@ mini-infra-qwen3/
 │   ├── suites/                        # 预设基准测试套件配置（YAML）
 │   ├── result-history/                # 每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # SUMMARY.md、evolution_and_scaling.png、profiling_and_optimization.png（生成物）
+├── docs/
+│   └── profiling.md                   # 算子耗时剖析、Trace 导出与可视化分析指南
 ├── .github/workflows/
 │   ├── cpu-ci.yml                     # CPU 上 ruff + pytest
 │   ├── pr-perf-regression.yml         # PR 提测：GPU runner 上的性能回归守门
@@ -72,6 +74,8 @@ mini-infra-qwen3/
 ├── requirements.txt                   # 基础推理最小依赖
 ├── requirements-compare.txt           # 对齐评测扩展依赖
 ├── requirements-lock.txt              # 完整依赖锁文件
+├── CONTRIBUTING.md                    # 贡献指南与日常开发工作流（CPU/GPU 测试、质量守门）
+├── RELEASE.md                         # 特性发布与 Minor Release 标准流程 (SOP)
 ├── LICENSE                            # 开源许可证
 └── README.md                          # 项目文档与使用指南
 ```
@@ -164,172 +168,39 @@ mini-infra-run \
 
 ---
 
-## 质量保证与性能发布工作流
+## 性能评估与基准演进 (Benchmarks)
 
-本项目采用分层测试与性能工程管理策略：**日常提交保证高周转与零倒退（Zero-Regression），大版本/新特性发布时沉淀全矩阵性能对比与时间线演进图**。
+本项目采用严格的数据驱动与时间线演进追踪，每个特性的引入均经过全矩阵基准测试与性能诊断。
 
-### 日常开发与提交（Normal Commits & PRs）
+完整的多版本评测数据表、加速比对比与 Profiling 诊断详见 [SUMMARY.md](benchmarks/reports/SUMMARY.md)。
 
-在日常开发与 PR 提测过程中，通过分层检查保障代码质量、计算精度与性能不劣化：
+### 1. 跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)
+![Evolution & Scaling](benchmarks/reports/evolution_and_scaling.png)
 
-#### 代码规范与快速自检 (CPU)
-- **快速冒烟自检**：`mini-infra-smoke`（仅需 2 秒，CPU 快速验证模型结构与因果掩码）。
-- **单元测试**：`pytest -m "not gpu"`（覆盖算子实现、张量形状与判定逻辑）。
-- **代码规范检查**：`ruff check . && ruff format --check .`。
-
-#### 端到端精度对齐测试 (GPU)
-- **固定批处理请求隔离与数值对齐**：
-  ```bash
-  mini-infra-compare-batch \
-    --prompt "用一句话解释固定批处理。" \
-    --max-new-tokens 8
-  # 或作为 pytest GPU 用例：pytest tests/gpu/parity/test_batch_parity.py
-  ```
-  测试不同 Batch Size、排列顺序、同批伴随内容和不同 Padding 长度下各个请求的生成 Token 与 Logits，严格验证请求隔离（Request Isolation）与数值不变性。
-
-- **KV Cache 前后数值对齐**：
-  ```bash
-  mini-infra-compare-cache \
-    --prompt "请用一句话介绍 KV Cache。" \
-    --max-new-tokens 32
-  # 或作为 pytest GPU 用例：pytest tests/gpu/parity/test_cache_parity.py
-  ```
-  在 float32 精度下逐步比对同一手写模型在无 Cache 与有 Cache 两种执行路径下的 Logits 最大绝对误差与生成 Token，确保引入 KV Cache 之后数值完全等价。
-
-- **与 Transformers 对照测试**：
-  ```bash
-  mini-infra-compare \
-    --prompt "请用一句话介绍 KV Cache。" \
-    --max-new-tokens 32
-  # 或作为 pytest GPU 用例：pytest tests/gpu/parity/test_transformers_parity.py
-  ```
-  对照程序会验证分词一致性，并在相同 greedy decoding 条件下逐步比较手写模型与 Hugging Face 参考实现的 Token ID、Logits 最大绝对误差与生成文本。
-
-#### 零性能倒退守护（Zero-Regression Guard）
-```bash
-mini-infra-bench-regression    # 轻量级（约 1 分钟），TTFT / TPOT 中位数劣化 >5% 自动拦截报警
-```
-- **本地保护**：`pip install -e ".[dev]" && pre-commit install --hook-type pre-commit --hook-type pre-push`，commit 运行 ruff，push 前运行回归守护。
-- **CI 自动化**：PR 会在 GPU runner 上自动触发 [pr-perf-regression.yml](.github/workflows/pr-perf-regression.yml)。
-- **算子剖析与瓶颈诊断（Profiling）**：
-  当守护机制触发告警（或日常开发需下钻瓶颈）时，可使用 `mini-infra-bench-case` 附带 `--profile-mode full-profile` 进行采样分析（采集各类别 Kernel 与 Transformer 模块的 GPU/CPU 耗时占比），并可通过 `--tensorboard-dir` 导出 Chrome / TensorBoard Trace 查看底层 CUDA Kernel 执行时序：
-  ```bash
-  # 运行轻量压测进行算子耗时诊断，落盘诊断 JSON 并导出 Trace 日志
-  mini-infra-bench-case --tag debug --prompt-lens 512 --max-new-tokens 32 --repeats 1 --profile-mode full-profile --tensorboard-dir tmp/tb_trace --output tmp/profile.json
-
-  # 查看方式一：通过 TensorBoard 查看
-  # 1) 远程实例启动服务
-  tensorboard --logdir tmp/tb_trace --port 6006
-  # 2) 端口转发至本地（任选一种）：
-  #    - 若使用 VS Code / Antigravity IDE：直接在底部 "PORTS (端口)" 面板添加 6006 转发，无需执行命令
-  #    - 本地终端手动转发：
-  ssh -N -L 6006:localhost:6006 <user>@<remote_ip>
-  gcloud compute ssh <instance_name> --zone=<zone> -- -N -L 6006:localhost:6006
-  # 3) 本地浏览器访问 http://localhost:6006（在右上角切换至 "PyTorch Profiler" 插件）
-
-  # 查看方式二：更轻量流畅的替代方案（Perfetto / Chrome Tracing）
-  # 导出的 *.pt.trace.json 为标准 Chrome Trace 格式，大文件下比 TensorBoard 更丝滑、秒级加载：
-  # 1) 将 tmp/tb_trace/*.pt.trace.json 下载到本地，或在 IDE 中右键下载
-  # 2) 浏览器打开 https://ui.perfetto.dev/（或 chrome://tracing）
-  # 3) 点击 "Open trace file" 或直接拖入 *.pt.trace.json 即可 60fps 流畅缩放查看 CUDA Stream、Kernel 耗时与 CPU 调度
-  ```
-
-#### 独立全量基准测量（不污染发版历史）
-在日常开发调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**，可通过 `--output` 指定输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略，不会上传到 GitHub），并使用 `mini-infra-bench-plot-compare` 绘制跨模式对比图：
-```bash
-# 1. 测量无 cache 模式结果
-mini-infra-bench-case --tag dev --no-kv-cache --output tmp/test_nocache.json
-
-# 2. 测量有 KV Cache 模式结果
-mini-infra-bench-case --tag dev --kv-cache --output tmp/test_kvcache.json
-
-# 3. 对比两个 JSON 结果：终端打印对比表，并绘制 6 维度对比图（Decode 延迟、吞吐、加速比、TTFT、显存占用、端到端延迟）
-mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
-
-# 快速试跑对比（缩小测试矩阵）
-mini-infra-bench-case --tag dev --no-kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_nocache.json
-mini-infra-bench-case --tag dev --kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_kvcache.json
-mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
-```
+### 2. 当前版本深度剖析与优化指引 (Profiling & Next Steps)
+![Profiling](benchmarks/reports/profiling_and_optimization.png)
 
 ---
 
-### 特性发布与 Minor Release 标准流程（Feature Deliveries & Tags）
+## 工程规范与工作流指引 (Workflows & Guides)
 
-每当完成一个核心特性演进（如 KV Cache、FlashAttention 等，对应 `v0.2.0`、`v0.3.0` 等 Minor Release）时，需按以下标准发布流程（SOP）执行基准测试、跨版本演进图生成与版本固化：
+为了保持项目首页高信噪比，各阶段详细的工程实践与操作指南已整理归档至专属文档：
 
-#### 步骤 1：质量与精度对齐自检
-在准备发版前，确认代码规范与模型精度无误：
-```bash
-# 1. 语法规范与排版检查
-ruff check . && ruff format --check .
-
-# 2. CPU 快速自检与判定规则单测
-pytest -m "not gpu"
-
-# 3. GPU 端到端精度对齐（验证手写实现与 Hugging Face 绝对一致，bfloat16 达到 0 误差）
-pytest -m gpu
-```
-
-#### 步骤 2：更新版本号与文档
-1. 修改 `pyproject.toml` 中的版本号：
-   ```toml
-   [project]
-   version = "0.2.0"  # 升级至目标版本号
-   ```
-2. 更新 `README.md` 中的 **特性全景 (Features)** 状态（勾选已完成特性）。
-
-#### 步骤 3：全量基准测量与演进图表生成
-在固定的 GPU 测试机上运行全量基准，沉淀该版本的性能数据并绘制时间线图：
-```bash
-# 安装绘图与基准依赖
-pip install -e ".[bench]"
-
-# 1. 运行全矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
-mini-infra-bench-case --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile --update-golden
-
-# 2. 读取所有历史版本数据，重新生成多版本演化表与对比图
-mini-infra-bench-plot-history
-
-# 3. 将新性能固化为后续日常开发的零退化底线（更新 benchmarks/data/reference.json）
-mini-infra-bench-regression --update-reference
-```
-
-> **注意（数据流与绘图约定）**：
-> * **`mini-infra-bench-plot-history` 只消费 `mini-infra-bench-case`（`run_case.py`）的输出**：只有通过 `mini-infra-bench-case` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
-> * **`mini-infra-bench-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
-
-> **版本号与特性（Feature）标注约定**：
-> * **Git Tag、pyproject.toml 与 `--tag`** 统一采用纯版本号（如 `v0.2.0`），严格遵循 SemVer 与 PEP 440 规范，保证 CI/CD 自动化构建一致性；
-> * **`mini-infra-bench-case` 新增 `--release-feature` 参数**（如 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra-bench-plot-history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.2.0 (KV cache)`。
-
-#### 步骤 4：提交评测产物与版本代码
-将代码修改与自动生成的基准产物一同纳入 Git 提交：
-```bash
-git add pyproject.toml README.md benchmarks/
-git commit -m "release: v0.2.0 - add KV Cache support and update benchmark history"
-```
-
-#### 步骤 5：创建 Release Tag 并推送到远程
-打上带注解的版本 Tag 并推送到远程仓库：
-```bash
-git tag -a v0.2.0 -m "Release v0.2.0: KV Cache support"
-git push origin main --tags
-```
-
-> **CI 自动化机制**：
-> 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [release-benchmark.yml](.github/workflows/release-benchmark.yml) 工作流：
-> * **特性透传与解析**：工作流会自动提取并向 `--release-feature` 透传特性描述（按优先级自动获取：① 手动 `workflow_dispatch` 传参 $\rightarrow$ ② 匹配已有同 Tag 的历史 JSON 归档 $\rightarrow$ ③ 从 Git Annotated Tag 注释中解析，如 `Release v0.2.0: KV cache`）；
-> * **参数对齐与客观守门**：CI 同样启用 `--profile-mode extra-profile` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为考卷基准，独立校验云端推理正确性；
-> * **云端产物归档**：在云端具备 GPU Runner 时，会自动在 GitHub Actions 归档带有当前 Commit 签名的全矩阵评测数据、Markdown 诊断报告与时间线大图 Artifact。
-
-#### 发布产物清单：
-- **`benchmarks/result-history/<commit>_<tag>.json`**：该版本全矩阵测试的原始性能数据（持久化存储）。
-- **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
-- **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
-- **`benchmarks/reports/SUMMARY.md`**：记录所有历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
-- **`benchmarks/reports/evolution_and_scaling.png`（跨版本演化与扩展趋势大图）**：包含版本演进时间线（Decode 延迟下降、吞吐提升、加速比递增曲线）以及不同 Prompt 序列长度（32 $\sim$ 1024+）下的扩展曲线。
-- **`benchmarks/reports/profiling_and_optimization.png`（当前版本深度剖析与优化指引大图）**：包含 MBU/MFU 硬件天花板差距、Attention vs MLP 模块耗时归因、算子类型分布透视及显存碎片足迹剖析。
+* 🛠️ **[贡献与日常开发指南 (CONTRIBUTING.md)](CONTRIBUTING.md)**
+  * 本地开发环境配置与 Pre-commit 守护安装
+  * 代码规范检查（Ruff）与 CPU 快速冒烟自检（`mini-infra-smoke`、pytest）
+  * GPU 端到端精度对齐（固定批处理请求隔离、KV Cache 前后数值对齐、Transformers 对照）
+  * 零性能倒退守护（Zero-Regression Guard：`mini-infra-bench-regression`）与独立全量基准对比测量
+* 🔍 **[算子性能剖析与 Trace 指南 (docs/profiling.md)](docs/profiling.md)**
+  * 使用 `mini-infra-bench-case` 采样生成详细性能诊断数据
+  * 导出 Chrome / TensorBoard Trace（`*.pt.trace.json`）
+  * 使用 **Perfetto Web UI** 秒级加载与 60fps 交互缩放查看 CUDA Stream 与 Kernel 耗时
+  * 远程实例 TensorBoard 启动与 IDE / SSH 端口转发
+  * 硬件带宽利用率（MBU）与显存碎片诊断思路
+* 🚀 **[特性发布流程 SOP (RELEASE.md)](RELEASE.md)**
+  * 核心特性发版 5 步走（质量自检 → 版本号升级 → 全量基准固化 → 代码提交 → Git Tag 打标）
+  * 数据流约定与特性（Release Feature）命名规范
+  * GitHub Actions 自动云端测试与评测产物归档机制
 
 ---
 

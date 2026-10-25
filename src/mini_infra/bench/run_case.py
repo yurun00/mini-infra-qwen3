@@ -21,6 +21,7 @@
 import argparse
 import sys
 from collections.abc import Sequence
+from dataclasses import asdict
 
 import torch
 
@@ -146,44 +147,56 @@ def run_case(
     ]
 
     raw = {
-        "ttft_ms": [r.ttft_ms for r in runs],
-        "tpot_ms": [r.tpot_ms for r in runs],
-        "e2e_wall_ms": [r.e2e_wall_ms for r in runs],
-        "e2e_model_ms": [r.e2e_model_ms for r in runs],
-        "throughput_tok_s": [r.throughput_tok_s for r in runs],
-        "throughput_req_s": [r.throughput_req_s for r in runs],
-        "gpu_time_ratio": [r.gpu_time_ratio for r in runs],
-        "step_latencies_ms": [r.step_latencies_ms for r in runs],
+        "ttft_ms": [r.metrics.ttft_ms for r in runs],
+        "tpot_ms": [r.metrics.mean_tpot_ms for r in runs],
+        "e2e_wall_ms": [r.metrics.e2e_wall_ms for r in runs],
+        "e2e_model_ms": [r.metrics.e2e_model_ms for r in runs],
+        "throughput_tok_s": [r.metrics.throughput_tok_s for r in runs],
+        "throughput_req_s": [r.metrics.throughput_req_s for r in runs],
+        "gpu_time_ratio": [r.metrics.gpu_time_ratio for r in runs],
+        "step_latencies_ms": [r.trace.step_latencies_ms for r in runs],
     }
 
     mib = 1024**2
     memory = {
         "weights_mb": cost["weight_bytes"] / mib if cost else None,
-        "baseline_allocated_mb": max(r.memory["baseline_allocated_mb"] for r in runs),
-        "prefill_allocated_mb": max(r.memory["prefill_allocated_mb"] for r in runs),
-        "peak_allocated_mb": max(r.memory["peak_allocated_mb"] for r in runs),
-        "dynamic_peak_mb": max(r.memory["dynamic_peak_mb"] for r in runs),
-        "peak_reserved_mb": max(r.memory["peak_reserved_mb"] for r in runs),
-        "fragmentation_mb": max(r.memory["fragmentation_mb"] for r in runs),
-        "kv_cache_mb": max(r.memory["kv_cache_mb"] for r in runs),
+        "baseline_allocated_mb": max(r.memory.baseline_mb for r in runs),
+        "prefill_allocated_mb": max(r.memory.prefill_mb for r in runs),
+        "peak_allocated_mb": max(r.memory.peak_allocated_mb for r in runs),
+        "dynamic_peak_mb": max(r.memory.dynamic_peak_mb for r in runs),
+        "peak_reserved_mb": max(r.memory.peak_reserved_mb for r in runs),
+        "fragmentation_mb": max(r.memory.fragmentation_mb for r in runs),
+        "kv_cache_mb": max(r.memory.kv_cache_mb for r in runs),
     }
 
-    extra = dict(runs[0].extra) if runs and getattr(runs[0], "extra", None) is not None else None
-    if extra is not None:
-        extra_metric_names = (
-            "effective_prompt_token_throughput_per_second",
-            "padded_prompt_token_throughput_per_second",
-        )
-        for extra_metric_name in extra_metric_names:
-            if extra_metric_name in runs[0].extra:
-                samples = [
-                    r.extra[extra_metric_name]
-                    for r in runs
-                    if getattr(r, "extra", None) and extra_metric_name in r.extra
-                ]
-                if samples:
-                    extra[extra_metric_name] = summarize(samples)
-                    raw[extra_metric_name] = samples
+    extra = None
+    if runs and runs[0].batch_info is not None:
+        b0 = runs[0].batch_info
+        extra = {
+            "prompt_lengths_per_req": b0.prompt_lengths_per_req,
+            "prompt_tokens": b0.prompt_tokens,
+            "padded_prompt_tokens": b0.padded_prompt_tokens,
+            "padding_efficiency": b0.padding_efficiency,
+            "slot_utilization": b0.slot_utilization,
+            "completion_steps_per_req": b0.completion_steps_per_req,
+            "completion_times_ms_per_req": b0.completion_times_ms_per_req,
+        }
+        eff_samples = [
+            r.batch_info.prompt_tokens * 1000 / r.metrics.ttft_ms if r.metrics.ttft_ms else 0.0
+            for r in runs
+            if r.batch_info is not None
+        ]
+        padded_samples = [
+            r.batch_info.padded_prompt_tokens * 1000 / r.metrics.ttft_ms if r.metrics.ttft_ms else 0.0
+            for r in runs
+            if r.batch_info is not None
+        ]
+        if eff_samples:
+            extra["effective_prompt_token_throughput_per_second"] = summarize(eff_samples)
+            raw["effective_prompt_token_throughput_per_second"] = eff_samples
+        if padded_samples:
+            extra["padded_prompt_token_throughput_per_second"] = summarize(padded_samples)
+            raw["padded_prompt_token_throughput_per_second"] = padded_samples
 
     result = {
         "mode": str(mode),
@@ -214,8 +227,9 @@ def run_case(
             result["tpot_ms"]["median"],
         )
     if is_full_profile and runs:
-        breakdowns = [r.op_latency_breakdown for r in runs if r.op_latency_breakdown is not None]
-        result["op_latency_breakdown"] = merge_op_latency_breakdowns(breakdowns)
+        breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
+        merged_ob = merge_op_latency_breakdowns(breakdowns)
+        result["op_latency_breakdown"] = asdict(merged_ob) if merged_ob is not None else None
     elif profile_mode == ProfileMode.EXTRA_PROFILE:
         prof_res = generate(
             mode=mode,
@@ -227,7 +241,7 @@ def run_case(
             profile=True,
             tensorboard_options=tensorboard_options,
         )
-        result["op_latency_breakdown"] = prof_res.op_latency_breakdown
+        result["op_latency_breakdown"] = asdict(prof_res.op_breakdown) if prof_res.op_breakdown is not None else None
     return result
 
 

@@ -6,12 +6,11 @@
 import os
 from collections.abc import Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 import torch
-from typing_extensions import NotRequired
 
 
 @dataclass(frozen=True)
@@ -31,7 +30,8 @@ class TensorBoardOptions:
     with_stack: bool = True
 
 
-class KernelInfo(TypedDict):
+@dataclass(frozen=True)
+class KernelInfo:
     name: str
     category: str
     cuda_ms: float
@@ -39,12 +39,13 @@ class KernelInfo(TypedDict):
     calls: int
 
 
-class OpLatencyBreakdown(TypedDict):
+@dataclass(frozen=True)
+class OpLatencyBreakdown:
     total_ms: float
     top_kernels: list[KernelInfo]
     time_share_by_kernel_category: dict[str, float]
     time_share_by_module: dict[str, float]
-    all_kernels: NotRequired[list[KernelInfo]]
+    all_kernels: list[KernelInfo] = field(default_factory=list)
 
 
 # 算子类别关键字（按顺序匹配，小写）。kernel 名无法区分 attention 的 matmul 与线性层 GEMM，
@@ -138,13 +139,13 @@ def parse_op_latency_breakdown(prof: Any, top: int | None = 10) -> OpLatencyBrea
         time_share_by_module = {e.key.split("::", 1)[1]: e.device_time_total / scope_total for e in scopes}
 
         all_kernels: list[KernelInfo] = [
-            {
-                "name": e.key[:80],
-                "category": kernel_category(e.key),
-                "cuda_ms": e.self_device_time_total / 1000,
-                "share": e.self_device_time_total / total_div,
-                "calls": e.count,
-            }
+            KernelInfo(
+                name=e.key[:80],
+                category=kernel_category(e.key),
+                cuda_ms=e.self_device_time_total / 1000,
+                share=e.self_device_time_total / total_div,
+                calls=e.count,
+            )
             for e in kernels
         ]
         top_kernels = all_kernels[:top] if top is not None else all_kernels
@@ -170,24 +171,24 @@ def parse_op_latency_breakdown(prof: Any, top: int | None = 10) -> OpLatencyBrea
         time_share_by_module = {e.key.split("::", 1)[1]: e.cpu_time_total / scope_total for e in scopes}
 
         all_kernels = [
-            {
-                "name": e.key[:80],
-                "category": kernel_category(e.key),
-                "cuda_ms": e.self_cpu_time_total / 1000,
-                "share": e.self_cpu_time_total / total_div,
-                "calls": e.count,
-            }
+            KernelInfo(
+                name=e.key[:80],
+                category=kernel_category(e.key),
+                cuda_ms=e.self_cpu_time_total / 1000,
+                share=e.self_cpu_time_total / total_div,
+                calls=e.count,
+            )
             for e in kernels
         ]
         top_kernels = all_kernels[:top] if top is not None else all_kernels
 
-    return {
-        "total_ms": total_ms,
-        "top_kernels": top_kernels,
-        "time_share_by_kernel_category": dict(sorted(time_share_by_kernel_category.items(), key=lambda kv: -kv[1])),
-        "time_share_by_module": dict(sorted(time_share_by_module.items(), key=lambda kv: -kv[1])),
-        "all_kernels": all_kernels,
-    }
+    return OpLatencyBreakdown(
+        total_ms=total_ms,
+        top_kernels=top_kernels,
+        time_share_by_kernel_category=dict(sorted(time_share_by_kernel_category.items(), key=lambda kv: -kv[1])),
+        time_share_by_module=dict(sorted(time_share_by_module.items(), key=lambda kv: -kv[1])),
+        all_kernels=all_kernels,
+    )
 
 
 def merge_op_latency_breakdowns(
@@ -202,36 +203,36 @@ def merge_op_latency_breakdowns(
     - time_share_by_kernel_category: 按每次 run 的 total_ms 加权归一化
     - time_share_by_module: 按每次 run 的 total_ms 加权归一化
     """
-    valid = [b for b in op_latency_breakdowns if b]
+    valid = [b for b in op_latency_breakdowns if b is not None]
     if not valid:
         return None
     if len(valid) == 1:
         return valid[0]
 
     count = len(valid)
-    sum_total_ms = sum(b.get("total_ms", 0.0) for b in valid)
+    sum_total_ms = sum(b.total_ms for b in valid)
 
     # 1. 聚合 kernel 耗时与调用次数（优先取全量 all_kernels，若无则降级取 top_kernels）
     sum_kernel_stats: dict[tuple[str, str], dict[str, float]] = {}
     for b in valid:
-        kernel_list = b.get("all_kernels") or b.get("top_kernels", [])
+        kernel_list = b.all_kernels if b.all_kernels else b.top_kernels
         for k in kernel_list:
-            key = (k["name"], k["category"])
+            key = (k.name, k.category)
             if key not in sum_kernel_stats:
                 sum_kernel_stats[key] = {"sum_cuda_ms": 0.0, "sum_calls": 0.0}
-            sum_kernel_stats[key]["sum_cuda_ms"] += k.get("cuda_ms", 0.0)
-            sum_kernel_stats[key]["sum_calls"] += k.get("calls", 0)
+            sum_kernel_stats[key]["sum_cuda_ms"] += k.cuda_ms
+            sum_kernel_stats[key]["sum_calls"] += k.calls
 
     safe_sum_total_ms = sum_total_ms if sum_total_ms > 0 else 1.0
     sorted_sum_kernel_stats = sorted(sum_kernel_stats.items(), key=lambda kv: -kv[1]["sum_cuda_ms"])
     all_kernels: list[KernelInfo] = [
-        {
-            "name": name,
-            "category": cat,
-            "cuda_ms": s["sum_cuda_ms"],
-            "share": s["sum_cuda_ms"] / safe_sum_total_ms,
-            "calls": int(s["sum_calls"]),
-        }
+        KernelInfo(
+            name=name,
+            category=cat,
+            cuda_ms=s["sum_cuda_ms"],
+            share=s["sum_cuda_ms"] / safe_sum_total_ms,
+            calls=int(s["sum_calls"]),
+        )
         for (name, cat), s in sorted_sum_kernel_stats
     ]
     top_kernels = all_kernels[:top] if top is not None else all_kernels
@@ -240,8 +241,8 @@ def merge_op_latency_breakdowns(
     safe_sum_weight = sum_total_ms if sum_total_ms > 0 else float(count)
     sum_category_ms: dict[str, float] = {}
     for b in valid:
-        w = b.get("total_ms", 0.0) if sum_total_ms > 0 else 1.0
-        for cat, share in b.get("time_share_by_kernel_category", {}).items():
+        w = b.total_ms if sum_total_ms > 0 else 1.0
+        for cat, share in b.time_share_by_kernel_category.items():
             sum_category_ms[cat] = sum_category_ms.get(cat, 0.0) + share * w
 
     time_share_by_kernel_category = {
@@ -251,21 +252,21 @@ def merge_op_latency_breakdowns(
     # 3. 聚合 module 耗时占比 (按 total_ms 加权)
     sum_module_ms: dict[str, float] = {}
     for b in valid:
-        w = b.get("total_ms", 0.0) if sum_total_ms > 0 else 1.0
-        for mod, share in b.get("time_share_by_module", {}).items():
+        w = b.total_ms if sum_total_ms > 0 else 1.0
+        for mod, share in b.time_share_by_module.items():
             sum_module_ms[mod] = sum_module_ms.get(mod, 0.0) + share * w
 
     time_share_by_module = {
         mod: ms / safe_sum_weight for mod, ms in sorted(sum_module_ms.items(), key=lambda kv: -kv[1])
     }
 
-    return {
-        "total_ms": sum_total_ms,
-        "top_kernels": top_kernels,
-        "time_share_by_kernel_category": time_share_by_kernel_category,
-        "time_share_by_module": time_share_by_module,
-        "all_kernels": all_kernels,
-    }
+    return OpLatencyBreakdown(
+        total_ms=sum_total_ms,
+        top_kernels=top_kernels,
+        time_share_by_kernel_category=time_share_by_kernel_category,
+        time_share_by_module=time_share_by_module,
+        all_kernels=all_kernels,
+    )
 
 
 class ProfileCollector:

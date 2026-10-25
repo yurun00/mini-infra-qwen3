@@ -1,9 +1,13 @@
 """单元测试：算子性能剖析 (profiling) 与在 generate() 中可选启用剖析。"""
 
+from dataclasses import FrozenInstanceError, is_dataclass
+from unittest.mock import patch
+
 import pytest
 import torch
 
 from mini_infra.bench.common import ProfileMode
+from mini_infra.bench.run_case import parse_args, run_case
 from mini_infra.generation import BatchingMethod, Mode, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
@@ -22,8 +26,8 @@ def test_kernel_categories_and_scopes_definitions():
     assert len(KERNEL_CATEGORIES) > 0
     assert "Qwen3Attention" in MODULE_SCOPES
     assert MODULE_SCOPES["Qwen3Attention"] == "attention_block"
-    assert issubclass(OpLatencyBreakdown, dict)
-    assert issubclass(KernelInfo, dict)
+    assert is_dataclass(OpLatencyBreakdown)
+    assert is_dataclass(KernelInfo)
 
 
 def test_kernel_category():
@@ -56,10 +60,8 @@ def test_generate_without_profile():
     ids = torch.tensor([[1, 2, 3]])
 
     res = generate(mode, model, ids, max_new_tokens=2, profile=False)
-    assert res.op_latency_breakdown is None
-    assert "op_latency_breakdown" not in res.extra
-    assert res.output_len == 2
-    assert res.padded_output_tokens.shape == (1, 2)
+    assert res.op_breakdown is None
+    assert res.padded_output_tokens().shape == (1, 2)
 
 
 def test_generate_with_profile():
@@ -71,29 +73,29 @@ def test_generate_with_profile():
     res_prof = generate(mode, model, ids, max_new_tokens=3, profile=True, top_kernels=5)
 
     # 1. 验证生成 Token 结果一致
-    assert torch.equal(res_no_prof.padded_output_tokens, res_prof.padded_output_tokens)
+    assert torch.equal(res_no_prof.padded_output_tokens(), res_prof.padded_output_tokens())
 
     # 2. 验证 profiling 结构
-    assert res_prof.op_latency_breakdown is not None
-    assert isinstance(res_prof.op_latency_breakdown, dict)
-    assert "total_ms" in res_prof.op_latency_breakdown
-    assert isinstance(res_prof.op_latency_breakdown["total_ms"], int | float)
-    assert res_prof.op_latency_breakdown["total_ms"] > 0
-    assert "top_kernels" in res_prof.op_latency_breakdown
-    assert "time_share_by_kernel_category" in res_prof.op_latency_breakdown
-    assert "time_share_by_module" in res_prof.op_latency_breakdown
+    assert res_prof.op_breakdown is not None
+    assert is_dataclass(res_prof.op_breakdown)
+    assert isinstance(res_prof.op_breakdown.total_ms, int | float)
+    assert res_prof.op_breakdown.total_ms > 0
+    assert isinstance(res_prof.op_breakdown.top_kernels, list)
+    assert isinstance(res_prof.op_breakdown.time_share_by_kernel_category, dict)
+    assert isinstance(res_prof.op_breakdown.time_share_by_module, dict)
 
-    assert len(res_prof.op_latency_breakdown["top_kernels"]) <= 5
-    for item in res_prof.op_latency_breakdown["top_kernels"]:
-        assert "name" in item
-        assert "category" in item
-        assert "cuda_ms" in item
-        assert "share" in item
-        assert "calls" in item
+    assert len(res_prof.op_breakdown.top_kernels) <= 5
+    for item in res_prof.op_breakdown.top_kernels:
+        assert is_dataclass(item)
+        assert hasattr(item, "name")
+        assert hasattr(item, "category")
+        assert hasattr(item, "cuda_ms")
+        assert hasattr(item, "share")
+        assert hasattr(item, "calls")
 
-    # 3. 验证通过属性、字典项和 get() 均可访问
-    assert res_prof["op_latency_breakdown"] == res_prof.op_latency_breakdown
-    assert res_prof.get("op_latency_breakdown") == res_prof.op_latency_breakdown
+    # 3. 验证强类型属性访问与不可变性 (frozen)
+    with pytest.raises(FrozenInstanceError):
+        res_prof.op_breakdown.total_ms = 999.0  # type: ignore[misc]
 
 
 def test_generate_profile_breakdown():
@@ -102,14 +104,14 @@ def test_generate_profile_breakdown():
     ids = torch.tensor([[1, 2, 3]])
 
     res = generate(mode, model, ids, max_new_tokens=2, profile=True, top_kernels=3)
-    breakdown = res.op_latency_breakdown
-    assert isinstance(breakdown, dict)
-    assert "total_ms" in breakdown
-    assert isinstance(breakdown["total_ms"], int | float)
-    assert "top_kernels" in breakdown
-    assert "time_share_by_kernel_category" in breakdown
-    assert "time_share_by_module" in breakdown
-    assert len(breakdown["top_kernels"]) <= 3
+    breakdown = res.op_breakdown
+    assert breakdown is not None
+    assert is_dataclass(breakdown)
+    assert isinstance(breakdown.total_ms, int | float)
+    assert isinstance(breakdown.top_kernels, list)
+    assert isinstance(breakdown.time_share_by_kernel_category, dict)
+    assert isinstance(breakdown.time_share_by_module, dict)
+    assert len(breakdown.top_kernels) <= 3
 
 
 def test_generate_with_batching_and_profile():
@@ -118,9 +120,9 @@ def test_generate_with_batching_and_profile():
     prompts = torch.tensor([[1, 2, 3], [4, 5, 0]])
 
     res = generate(mode, model, prompts, max_new_tokens=2, profile=True)
-    assert res.op_latency_breakdown is not None
+    assert res.op_breakdown is not None
     assert res.batch_size == 2
-    assert res.padded_output_tokens.shape == (2, 2)
+    assert res.padded_output_tokens().shape == (2, 2)
 
 
 def test_tensorboard_options_structure():
@@ -147,8 +149,8 @@ def test_profile_with_tensorboard_option(tmp_path):
     tb_opt = TensorBoardOptions(log_dir=tb_dir)
     res = generate(mode, model, ids, max_new_tokens=2, profile=True, tensorboard_options=tb_opt)
 
-    assert res.op_latency_breakdown is not None
-    assert "total_ms" in res.op_latency_breakdown
+    assert res.op_breakdown is not None
+    assert res.op_breakdown.total_ms > 0
 
     trace_files = list(tb_dir.glob("*.pt.trace.json"))
     assert len(trace_files) >= 1
@@ -156,7 +158,7 @@ def test_profile_with_tensorboard_option(tmp_path):
 
     # 2. profile=False 时即使传入 tensorboard_options 也不进行剖析
     res_no_profile = generate(mode, model, ids, max_new_tokens=2, profile=False, tensorboard_options=tb_opt)
-    assert res_no_profile.op_latency_breakdown is None
+    assert res_no_profile.op_breakdown is None
 
 
 def test_profile_mode_enum():
@@ -171,10 +173,6 @@ def test_profile_mode_enum():
 
 
 def test_bench_run_profile_modes():
-    from unittest.mock import patch
-
-    from mini_infra.bench.run_case import parse_args, run_case
-
     # 1. 验证命令行参数解析
     with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--profile-mode", "extra-profile"]):
         args = parse_args()
@@ -244,97 +242,97 @@ def test_merge_op_latency_breakdowns():
     # 1. 空列表和单项处理
     assert merge_op_latency_breakdowns([]) is None
 
-    b1: OpLatencyBreakdown = {
-        "total_ms": 10.0,
-        "top_kernels": [
-            {"name": "aten::mm", "category": "gemm", "cuda_ms": 6.0, "share": 0.6, "calls": 2},
-            {"name": "aten::silu", "category": "elementwise", "cuda_ms": 4.0, "share": 0.4, "calls": 4},
+    b1 = OpLatencyBreakdown(
+        total_ms=10.0,
+        top_kernels=[
+            KernelInfo(name="aten::mm", category="gemm", cuda_ms=6.0, share=0.6, calls=2),
+            KernelInfo(name="aten::silu", category="elementwise", cuda_ms=4.0, share=0.4, calls=4),
         ],
-        "time_share_by_kernel_category": {"gemm": 0.6, "elementwise": 0.4},
-        "time_share_by_module": {"mlp_block": 0.7, "attention_block": 0.3},
-    }
+        time_share_by_kernel_category={"gemm": 0.6, "elementwise": 0.4},
+        time_share_by_module={"mlp_block": 0.7, "attention_block": 0.3},
+    )
     assert merge_op_latency_breakdowns([b1]) == b1
 
     # 2. 多项聚合
-    b2: OpLatencyBreakdown = {
-        "total_ms": 20.0,
-        "top_kernels": [
-            {"name": "aten::mm", "category": "gemm", "cuda_ms": 14.0, "share": 0.7, "calls": 4},
-            {"name": "aten::softmax", "category": "softmax", "cuda_ms": 6.0, "share": 0.3, "calls": 2},
+    b2 = OpLatencyBreakdown(
+        total_ms=20.0,
+        top_kernels=[
+            KernelInfo(name="aten::mm", category="gemm", cuda_ms=14.0, share=0.7, calls=4),
+            KernelInfo(name="aten::softmax", category="softmax", cuda_ms=6.0, share=0.3, calls=2),
         ],
-        "time_share_by_kernel_category": {"gemm": 0.7, "softmax": 0.3},
-        "time_share_by_module": {"mlp_block": 0.5, "attention_block": 0.5},
-    }
+        time_share_by_kernel_category={"gemm": 0.7, "softmax": 0.3},
+        time_share_by_module={"mlp_block": 0.5, "attention_block": 0.5},
+    )
 
     merged = merge_op_latency_breakdowns([b1, b2])
     assert merged is not None
     # 累加 total_ms (10.0 + 20.0)
-    assert merged["total_ms"] == pytest.approx(30.0)
+    assert merged.total_ms == pytest.approx(30.0)
 
     # 聚合 top_kernels (总调用次数与总耗时)
-    kernels_dict = {k["name"]: k for k in merged["top_kernels"]}
+    kernels_dict = {k.name: k for k in merged.top_kernels}
     assert "aten::mm" in kernels_dict
-    assert kernels_dict["aten::mm"]["calls"] == 6  # 2 + 4
-    assert kernels_dict["aten::mm"]["cuda_ms"] == pytest.approx(20.0)  # 6 + 14
-    assert kernels_dict["aten::silu"]["calls"] == 4  # 4 + 0
-    assert kernels_dict["aten::silu"]["cuda_ms"] == pytest.approx(4.0)  # 4 + 0
-    assert kernels_dict["aten::softmax"]["calls"] == 2  # 0 + 2
-    assert kernels_dict["aten::softmax"]["cuda_ms"] == pytest.approx(6.0)  # 0 + 6
+    assert kernels_dict["aten::mm"].calls == 6  # 2 + 4
+    assert kernels_dict["aten::mm"].cuda_ms == pytest.approx(20.0)  # 6 + 14
+    assert kernels_dict["aten::silu"].calls == 4  # 4 + 0
+    assert kernels_dict["aten::silu"].cuda_ms == pytest.approx(4.0)  # 4 + 0
+    assert kernels_dict["aten::softmax"].calls == 2  # 0 + 2
+    assert kernels_dict["aten::softmax"].cuda_ms == pytest.approx(6.0)  # 0 + 6
 
     # 加权聚合 time_share_by_kernel_category (b1 权重 10，b2 权重 20，总时间 30)
     # gemm: (0.6*10 + 0.7*20) / 30 = (6 + 14) / 30 = 20 / 30 ≈ 0.6667
-    assert merged["time_share_by_kernel_category"]["gemm"] == pytest.approx(20.0 / 30.0)
+    assert merged.time_share_by_kernel_category["gemm"] == pytest.approx(20.0 / 30.0)
 
     # 加权聚合 time_share_by_module
     # mlp_block: (0.7*10 + 0.5*20) / 30 = (7 + 10) / 30 = 17 / 30
-    assert merged["time_share_by_module"]["mlp_block"] == pytest.approx(17.0 / 30.0)
+    assert merged.time_share_by_module["mlp_block"] == pytest.approx(17.0 / 30.0)
 
 
 def test_merge_op_latency_breakdowns_global_topk():
     """验证：即使某个 kernel 在每个单次 run 的 top_kernels 里都不在（如排在局部第 3，局部 top=2），
     但从全量 all_kernels 聚合后，其累计耗时可以成为全局第 1 名并入选最终 top_kernels。"""
     # run 1: aten::mm (10ms), aten::silu (9ms), aten::add (8ms) -> top_kernels 只有 mm 和 silu
-    b1: OpLatencyBreakdown = {
-        "total_ms": 27.0,
-        "top_kernels": [
-            {"name": "aten::mm", "category": "gemm", "cuda_ms": 10.0, "share": 10 / 27, "calls": 1},
-            {"name": "aten::silu", "category": "elementwise", "cuda_ms": 9.0, "share": 9 / 27, "calls": 1},
+    b1 = OpLatencyBreakdown(
+        total_ms=27.0,
+        top_kernels=[
+            KernelInfo(name="aten::mm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
+            KernelInfo(name="aten::silu", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
         ],
-        "all_kernels": [
-            {"name": "aten::mm", "category": "gemm", "cuda_ms": 10.0, "share": 10 / 27, "calls": 1},
-            {"name": "aten::silu", "category": "elementwise", "cuda_ms": 9.0, "share": 9 / 27, "calls": 1},
-            {"name": "aten::add", "category": "elementwise", "cuda_ms": 8.0, "share": 8 / 27, "calls": 1},
+        all_kernels=[
+            KernelInfo(name="aten::mm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
+            KernelInfo(name="aten::silu", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
+            KernelInfo(name="aten::add", category="elementwise", cuda_ms=8.0, share=8 / 27, calls=1),
         ],
-        "time_share_by_kernel_category": {"gemm": 10 / 27, "elementwise": 17 / 27},
-        "time_share_by_module": {"mlp_block": 1.0},
-    }
+        time_share_by_kernel_category={"gemm": 10 / 27, "elementwise": 17 / 27},
+        time_share_by_module={"mlp_block": 1.0},
+    )
 
     # run 2: aten::bmm (10ms), aten::mul (9ms), aten::add (8ms) -> top_kernels 只有 bmm 和 mul
-    b2: OpLatencyBreakdown = {
-        "total_ms": 27.0,
-        "top_kernels": [
-            {"name": "aten::bmm", "category": "gemm", "cuda_ms": 10.0, "share": 10 / 27, "calls": 1},
-            {"name": "aten::mul", "category": "elementwise", "cuda_ms": 9.0, "share": 9 / 27, "calls": 1},
+    b2 = OpLatencyBreakdown(
+        total_ms=27.0,
+        top_kernels=[
+            KernelInfo(name="aten::bmm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
+            KernelInfo(name="aten::mul", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
         ],
-        "all_kernels": [
-            {"name": "aten::bmm", "category": "gemm", "cuda_ms": 10.0, "share": 10 / 27, "calls": 1},
-            {"name": "aten::mul", "category": "elementwise", "cuda_ms": 9.0, "share": 9 / 27, "calls": 1},
-            {"name": "aten::add", "category": "elementwise", "cuda_ms": 8.0, "share": 8 / 27, "calls": 1},
+        all_kernels=[
+            KernelInfo(name="aten::bmm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
+            KernelInfo(name="aten::mul", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
+            KernelInfo(name="aten::add", category="elementwise", cuda_ms=8.0, share=8 / 27, calls=1),
         ],
-        "time_share_by_kernel_category": {"gemm": 10 / 27, "elementwise": 17 / 27},
-        "time_share_by_module": {"mlp_block": 1.0},
-    }
+        time_share_by_kernel_category={"gemm": 10 / 27, "elementwise": 17 / 27},
+        time_share_by_module={"mlp_block": 1.0},
+    )
 
     # 聚合时请求 top=2
     merged = merge_op_latency_breakdowns([b1, b2], top=2)
     assert merged is not None
-    assert merged["total_ms"] == pytest.approx(54.0)
+    assert merged.total_ms == pytest.approx(54.0)
 
     # aten::add 累计 8 + 8 = 16ms，超过 mm(10), bmm(10), silu(9), mul(9)，成为全局第 1 名！
-    top_names = [k["name"] for k in merged["top_kernels"]]
+    top_names = [k.name for k in merged.top_kernels]
     assert top_names[0] == "aten::add"
-    assert merged["top_kernels"][0]["cuda_ms"] == pytest.approx(16.0)
-    assert merged["top_kernels"][0]["calls"] == 2
-    assert merged["top_kernels"][0]["share"] == pytest.approx(16.0 / 54.0)
-    assert len(merged["top_kernels"]) == 2
-    assert len(merged["all_kernels"]) == 5
+    assert merged.top_kernels[0].cuda_ms == pytest.approx(16.0)
+    assert merged.top_kernels[0].calls == 2
+    assert merged.top_kernels[0].share == pytest.approx(16.0 / 54.0)
+    assert len(merged.top_kernels) == 2
+    assert len(merged.all_kernels) == 5

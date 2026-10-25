@@ -113,49 +113,46 @@ def resolve_compare_features_string(mode: Mode, compare_features: list[str] | No
 
 def print_result(mode, result, tokenizer, tensorboard_dir=None):
     print("\n[%s]" % mode)
-    for index, token_ids in enumerate(result.unpadded_output_token_ids):
-        print("请求 %d Token IDs: %s" % (index, token_ids))
-        print("请求 %d 输出: %s" % (index, tokenizer.decode(token_ids, skip_special_tokens=True)))
+    for seq in result.sequences:
+        print("请求 %d Token IDs: %s" % (seq.request_index, seq.token_ids))
+        print("请求 %d 输出: %s" % (seq.request_index, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))
 
-    print("端到端 Wall-clock 延迟: %.2f ms" % result.e2e_wall_ms)
-    print("端到端模型计算延迟: %.2f ms" % result.e2e_model_ms)
-    print("请求吞吐: %.3f requests/s" % result.throughput_req_s)
-    print("输出吞吐: %.3f tokens/s" % result.throughput_tok_s)
+    print("端到端 Wall-clock 延迟: %.2f ms" % result.metrics.e2e_wall_ms)
+    print("端到端模型计算延迟: %.2f ms" % result.metrics.e2e_model_ms)
+    print("请求吞吐: %.3f requests/s" % result.metrics.throughput_req_s)
+    print("输出吞吐: %.3f tokens/s" % result.metrics.throughput_tok_s)
 
     # 细粒度执行与显存指标（包含 batch 及超集分位数分析）
-    print("Prefill 延迟: %.2f ms" % result.ttft_ms)
-    print("平均 Decode 迭代延迟: %.2f ms" % result.tpot_ms)
-    print("P50 Decode 延迟: %.2f ms" % result.p50_decode_step_ms)
-    print("P95 Decode 延迟: %.2f ms" % result.p95_decode_step_ms)
-    if mode.batching_method == BatchingMethod.FIXED:
-        if "padding_efficiency" in result:
-            print("Padding 有效率: %.2f%%" % (result["padding_efficiency"] * 100))
-        if "slot_utilization" in result:
-            print("槽位利用率: %.2f%%" % (result["slot_utilization"] * 100))
-    print("峰值显存: %.2f MiB" % result.memory["peak_allocated_mb"])
-    print("最终 KV Cache: %.2f MiB" % result.memory["kv_cache_mb"])
-    decode_times = result.step_latencies_ms[1:]
+    print("Prefill 延迟: %.2f ms" % result.metrics.ttft_ms)
+    print("平均 Decode 迭代延迟: %.2f ms" % result.metrics.mean_tpot_ms)
+    print("P50 Decode 延迟: %.2f ms" % result.metrics.p50_tpot_ms)
+    print("P95 Decode 延迟: %.2f ms" % result.metrics.p95_tpot_ms)
+    if mode.batching_method == BatchingMethod.FIXED and result.batch_info is not None:
+        print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
+        print("槽位利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
+    print("峰值显存: %.2f MiB" % result.memory.peak_allocated_mb)
+    print("最终 KV Cache: %.2f MiB" % result.memory.kv_cache_mb)
+    decode_times = result.trace.step_latencies_ms[1:]
     if decode_times:
         print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])
 
-    if result.op_latency_breakdown:
-        breakdown = result.op_latency_breakdown
+    if result.op_breakdown:
+        breakdown = result.op_breakdown
         print("\n--- [%s] 算子与模块耗时分析 (Profiler) ---" % mode)
-        if breakdown.get("time_share_by_module"):
+        if breakdown.time_share_by_module:
             print("各模块耗时占比 (Module Scope):")
-            for mod, share in breakdown["time_share_by_module"].items():
+            for mod, share in breakdown.time_share_by_module.items():
                 print("  %-20s: %6.2f%%" % (mod, share * 100))
-        if breakdown.get("time_share_by_kernel_category"):
+        if breakdown.time_share_by_kernel_category:
             print("算子类型耗时占比 (Kernel Category):")
-            for cat, share in breakdown["time_share_by_kernel_category"].items():
+            for cat, share in breakdown.time_share_by_kernel_category.items():
                 print("  %-20s: %6.2f%%" % (cat, share * 100))
-        top_k = breakdown.get("top_kernels", [])
+        top_k = breakdown.top_kernels
         if top_k:
             print("Top-%d CUDA Kernels:" % len(top_k))
             for idx, k in enumerate(top_k, 1):
                 print(
-                    "  %2d. %-45s | %8.3f ms | %6.2f%% | %4d 次"
-                    % (idx, k["name"][:45], k["cuda_ms"], k["share"] * 100, k["calls"])
+                    "  %2d. %-45s | %8.3f ms | %6.2f%% | %4d 次" % (idx, k.name[:45], k.cuda_ms, k.share * 100, k.calls)
                 )
     if tensorboard_dir is not None:
         print("TensorBoard Trace 目录: %s" % tensorboard_dir)
@@ -272,14 +269,18 @@ def main():
         baseline = results[modes[0]]
         optimized = results[modes[1]]
         print(f"\n[特性 '{compare_feature_name}' 对照结论]")
-        print("逐请求 Token 一致:", baseline.unpadded_output_token_ids == optimized.unpadded_output_token_ids)
-        baseline_decode = baseline.tpot_ms
-        optimized_decode = optimized.tpot_ms
+        same_tokens = [s.token_ids for s in baseline.sequences] == [s.token_ids for s in optimized.sequences]
+        print("逐请求 Token 一致:", same_tokens)
+        baseline_decode = baseline.metrics.mean_tpot_ms
+        optimized_decode = optimized.metrics.mean_tpot_ms
         if optimized_decode > 0:
             print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
-        if baseline.e2e_wall_ms > 0 and optimized.e2e_wall_ms > 0:
-            print("端到端 Wall-clock 耗时: %.2f ms -> %.2f ms" % (baseline.e2e_wall_ms, optimized.e2e_wall_ms))
-            print("Batch makespan 加速比: %.3fx" % (baseline.e2e_wall_ms / optimized.e2e_wall_ms))
+        if baseline.metrics.e2e_wall_ms > 0 and optimized.metrics.e2e_wall_ms > 0:
+            print(
+                "端到端 Wall-clock 耗时: %.2f ms -> %.2f ms"
+                % (baseline.metrics.e2e_wall_ms, optimized.metrics.e2e_wall_ms)
+            )
+            print("Batch makespan 加速比: %.3fx" % (baseline.metrics.e2e_wall_ms / optimized.metrics.e2e_wall_ms))
     print("说明: 计时不包含 tokenizer、模型下载和模型加载；默认 greedy decoding。")
 
 

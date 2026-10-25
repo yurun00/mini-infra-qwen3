@@ -53,7 +53,9 @@ def compare_trace(
     reference_index: int = 0,
 ) -> dict[str, Any]:
     """逐步对比两个运行轨迹中指定槽位的 Logits 误差、生成 Token 与 Top-1/Top-2 Margin。"""
-    step_count = min(len(reference["logits_trace"]), len(candidate["logits_trace"]))
+    ref_trace = reference.trace.logits_trace if hasattr(reference, "trace") else reference["logits_trace"]
+    cand_trace = candidate.trace.logits_trace if hasattr(candidate, "trace") else candidate["logits_trace"]
+    step_count = min(len(ref_trace), len(cand_trace))
     largest_error = 0.0
     largest_error_before_divergence = 0.0
     mean_error_sum = 0.0
@@ -63,8 +65,8 @@ def compare_trace(
     per_step = []
 
     for step in range(step_count):
-        reference_logits = reference["logits_trace"][step][reference_index]
-        candidate_logits = candidate["logits_trace"][step][target_index]
+        reference_logits = ref_trace[step][reference_index]
+        candidate_logits = cand_trace[step][target_index]
         difference = (reference_logits.float() - candidate_logits.float()).abs()
         max_error = difference.max().item()
         mean_error = difference.mean().item()

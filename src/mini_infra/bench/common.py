@@ -198,7 +198,7 @@ def check_correctness(
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
     res = generate(mode, model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
-    tokens = res.padded_output_tokens[0].tolist()
+    tokens = res.padded_output_tokens(0).tolist()
 
     if update_golden:
         GOLDEN_OUTPUT_PATH.write_text(

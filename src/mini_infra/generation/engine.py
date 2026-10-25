@@ -12,7 +12,14 @@ from mini_infra.generation.preprocessing import (
     _normalize_token_sequences,
     left_pad_sequences,
 )
-from mini_infra.generation.result import GenerationResult
+from mini_infra.generation.result import (
+    GenerationResult,
+    GenerationTrace,
+    SequenceOutput,
+    aggregate_generation_results,
+    build_memory_profile,
+    compute_step_aggregated_metrics,
+)
 from mini_infra.generation.state import BatchGenerationState
 from mini_infra.profiling import TensorBoardOptions, profile_scope
 from mini_infra.qwen3_model import KVCache, cache_size_bytes
@@ -208,7 +215,7 @@ def generate(
     """统一生成入口；mode 为 Mode 结构体对象。
 
     不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
-    支持 profile=True 采集底层算子与模块级耗时明细（保存在 result.op_latency_breakdown 中）。
+    支持 profile=True 采集底层算子与模块级耗时明细（保存在 result.op_breakdown 中）。
     支持指定 tensorboard_options（TensorBoardOptions 结构体）将详细 trace 导出为 TensorBoard 格式。
     """
     # 1. 规约输入 Prompt、预算与设备
@@ -262,32 +269,49 @@ def generate(
         )
         op_latency_breakdown = None
 
-    # 5. 组装结果对象
-    step_count = len(step_latencies)
     valid_tokens = sum(len(o) for o in state.outputs)
-    padded_output_tokens = state.build_padded_output_tokens(step_count)
     e2e_model_ms = sum(step_latencies)
-    batch_metrics = state.compute_batch_metrics(step_latencies, kv_cache)
+    batch_info = state.compute_batch_metrics(step_latencies, kv_cache)
 
-    return GenerationResult.build(
-        padded_output_tokens=padded_output_tokens,
-        unpadded_output_token_ids=state.outputs,
-        logits_trace=logits_trace,
-        prompt_len=state.padded_prompt_length,
-        output_len=step_count,
-        batch_size=state.batch_size,
-        e2e_wall_ms=e2e_wall_ms,
+    sequences = [
+        SequenceOutput(
+            request_index=idx,
+            token_ids=state.outputs[idx],
+            prompt_len=int(state.prompt_lengths[idx].item()),
+            output_len=len(state.outputs[idx]),
+            finish_reason=state.finish_reasons[idx],
+        )
+        for idx in range(state.batch_size)
+    ]
+    trace = GenerationTrace(
         step_latencies_ms=step_latencies,
+        active_tokens_per_step=state.active_counts_per_step,
+        logits_trace=logits_trace,
+    )
+    metrics = compute_step_aggregated_metrics(
+        step_latencies_ms=step_latencies,
+        e2e_wall_ms=e2e_wall_ms,
         e2e_model_ms=e2e_model_ms,
+        total_tokens=valid_tokens,
+        batch_size=state.batch_size,
+        is_cuda=is_cuda,
+    )
+    memory = build_memory_profile(
         baseline_allocated_bytes=baseline_allocated_bytes,
         memory_after_prefill_bytes=mem_prefill,
         peak_allocated_bytes=torch.cuda.max_memory_allocated(device) if is_cuda else 0,
         peak_reserved_bytes=torch.cuda.max_memory_reserved(device) if is_cuda else 0,
         cache_bytes=cache_size_bytes(kv_cache) if kv_cache is not None else 0,
-        is_cuda=is_cuda,
-        valid_generated_tokens_count=valid_tokens,
-        op_latency_breakdown=op_latency_breakdown,
-        extra=batch_metrics,
+    )
+
+    return GenerationResult(
+        sequences=sequences,
+        metrics=metrics,
+        memory=memory,
+        trace=trace,
+        batch_size=state.batch_size,
+        op_breakdown=op_latency_breakdown,
+        batch_info=batch_info,
     )
 
 
@@ -323,4 +347,4 @@ def _dispatch_serial_baseline(
         )
         for seq, budget in zip(token_sequences, budgets.tolist())
     ]
-    return GenerationResult._merge_generation_results(runs, pad_token_id)
+    return aggregate_generation_results(runs)
