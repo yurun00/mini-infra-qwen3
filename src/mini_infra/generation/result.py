@@ -82,7 +82,17 @@ class BatchScheduleInfo:
     padded_prompt_tokens: int
     prompt_lengths_per_req: list[int]
     completion_steps_per_req: list[int]
-    completion_times_ms_per_req: list[float]
+    ttft_ms: float = 0.0
+
+    @property
+    def effective_prompt_tok_s(self) -> float:
+        """Prefill 阶段有效 Prompt 吞吐率 (tokens/s)。"""
+        return self.prompt_tokens * 1000.0 / self.ttft_ms if self.ttft_ms > 0 else 0.0
+
+    @property
+    def padded_prompt_tok_s(self) -> float:
+        """Prefill 阶段包含 Padding 的物理计算吞吐率 (tokens/s)。"""
+        return self.padded_prompt_tokens * 1000.0 / self.ttft_ms if self.ttft_ms > 0 else 0.0
 
 
 @dataclass(frozen=True)

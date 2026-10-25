@@ -21,7 +21,6 @@
 import argparse
 import sys
 from collections.abc import Sequence
-from dataclasses import asdict
 
 import torch
 
@@ -38,9 +37,18 @@ from mini_infra.bench.common import (
     print_table,
     resolve_peak_specs,
     save_benchmark_record,
-    summarize,
 )
 from mini_infra.bench.suites import SuiteCase
+from mini_infra.bench.types import (
+    BatchScheduleSummary,
+    CaseBenchmarkResult,
+    CaseMemoryProfile,
+    HardwareEfficiency,
+    LatencyDistributions,
+    ThroughputDistributions,
+    WorkloadSpec,
+    summarize_samples,
+)
 from mini_infra.generation import (
     BatchingMethod,
     FeatureFlag,
@@ -109,14 +117,14 @@ def run_case(
     peaks: dict | None = None,
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
-) -> dict:
-    """运行单一用例基准测试并返回详细指标字典。"""
+) -> CaseBenchmarkResult:
+    """运行单一用例基准测试并返回 CaseBenchmarkResult 强类型结果。"""
     min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
 
-    is_variable_len = isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str)
-    effective_batch_size = len(prompt_len) if is_variable_len else batch_size
+    is_variable_prompt_lens = isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str)
+    effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
     input_ids = make_prompt(vocab, prompt_len, effective_batch_size, device)
 
     for _ in range(warmup):
@@ -154,82 +162,95 @@ def run_case(
         "throughput_tok_s": [r.metrics.throughput_tok_s for r in runs],
         "throughput_req_s": [r.metrics.throughput_req_s for r in runs],
         "gpu_time_ratio": [r.metrics.gpu_time_ratio for r in runs],
-        "step_latencies_ms": [r.trace.step_latencies_ms for r in runs],
     }
+    if runs and runs[0].batch_info is not None:
+        raw["effective_prompt_token_throughput_per_second"] = [
+            r.batch_info.effective_prompt_tok_s for r in runs if r.batch_info is not None
+        ]
+        raw["padded_prompt_token_throughput_per_second"] = [
+            r.batch_info.padded_prompt_tok_s for r in runs if r.batch_info is not None
+        ]
+
+    workload = WorkloadSpec(
+        mode=str(mode),
+        batch_size=effective_batch_size,
+        prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,
+        max_new_tokens=tuple(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
+        repeats=repeats,
+        warmup=warmup,
+    )
+
+    latency = LatencyDistributions(
+        ttft_ms=summarize_samples(raw["ttft_ms"]),
+        tpot_ms=summarize_samples(raw["tpot_ms"]),
+        e2e_wall_ms=summarize_samples(raw["e2e_wall_ms"]),
+        e2e_model_ms=summarize_samples(raw["e2e_model_ms"]),
+    )
+
+    eff_p_stat = (
+        summarize_samples(raw["effective_prompt_token_throughput_per_second"])
+        if "effective_prompt_token_throughput_per_second" in raw
+        else None
+    )
+    pad_p_stat = (
+        summarize_samples(raw["padded_prompt_token_throughput_per_second"])
+        if "padded_prompt_token_throughput_per_second" in raw
+        else None
+    )
+
+    throughput = ThroughputDistributions(
+        throughput_tok_s=summarize_samples(raw["throughput_tok_s"]),
+        throughput_req_s=summarize_samples(raw["throughput_req_s"]),
+        effective_prompt_tok_s=eff_p_stat,
+        padded_prompt_tok_s=pad_p_stat,
+    )
 
     mib = 1024**2
-    memory = {
-        "weights_mb": cost["weight_bytes"] / mib if cost else None,
-        "baseline_allocated_mb": max(r.memory.baseline_mb for r in runs),
-        "prefill_allocated_mb": max(r.memory.prefill_mb for r in runs),
-        "peak_allocated_mb": max(r.memory.peak_allocated_mb for r in runs),
-        "dynamic_peak_mb": max(r.memory.dynamic_peak_mb for r in runs),
-        "peak_reserved_mb": max(r.memory.peak_reserved_mb for r in runs),
-        "fragmentation_mb": max(r.memory.fragmentation_mb for r in runs),
-        "kv_cache_mb": max(r.memory.kv_cache_mb for r in runs),
-    }
+    worst_run = max(runs, key=lambda r: r.memory.peak_allocated_mb) if runs else None
+    case_memory = CaseMemoryProfile(
+        weights_mb=cost["weight_bytes"] / mib if cost else None,
+        baseline_allocated_mb=worst_run.memory.baseline_mb if worst_run else 0.0,
+        prefill_allocated_mb=worst_run.memory.prefill_mb if worst_run else 0.0,
+        peak_allocated_mb=worst_run.memory.peak_allocated_mb if worst_run else 0.0,
+        peak_reserved_mb=worst_run.memory.peak_reserved_mb if worst_run else 0.0,
+        kv_cache_mb=worst_run.memory.kv_cache_mb if worst_run else 0.0,
+    )
 
-    extra = None
+    scheduling = None
     if runs and runs[0].batch_info is not None:
         b0 = runs[0].batch_info
-        extra = {
-            "prompt_lengths_per_req": b0.prompt_lengths_per_req,
-            "prompt_tokens": b0.prompt_tokens,
-            "padded_prompt_tokens": b0.padded_prompt_tokens,
-            "padding_efficiency": b0.padding_efficiency,
-            "slot_utilization": b0.slot_utilization,
-            "completion_steps_per_req": b0.completion_steps_per_req,
-            "completion_times_ms_per_req": b0.completion_times_ms_per_req,
-        }
-        eff_samples = [
-            r.batch_info.prompt_tokens * 1000 / r.metrics.ttft_ms if r.metrics.ttft_ms else 0.0
-            for r in runs
-            if r.batch_info is not None
-        ]
-        padded_samples = [
-            r.batch_info.padded_prompt_tokens * 1000 / r.metrics.ttft_ms if r.metrics.ttft_ms else 0.0
-            for r in runs
-            if r.batch_info is not None
-        ]
-        if eff_samples:
-            extra["effective_prompt_token_throughput_per_second"] = summarize(eff_samples)
-            raw["effective_prompt_token_throughput_per_second"] = eff_samples
-        if padded_samples:
-            extra["padded_prompt_token_throughput_per_second"] = summarize(padded_samples)
-            raw["padded_prompt_token_throughput_per_second"] = padded_samples
+        scheduling = BatchScheduleSummary(
+            padding_efficiency=b0.padding_efficiency,
+            slot_utilization=b0.slot_utilization,
+            prompt_tokens=b0.prompt_tokens,
+            padded_prompt_tokens=b0.padded_prompt_tokens,
+            prompt_lengths_per_req=b0.prompt_lengths_per_req,
+            completion_steps_per_req=b0.completion_steps_per_req,
+            effective_prompt_throughput=eff_p_stat,
+            padded_prompt_throughput=pad_p_stat,
+        )
 
-    result = {
-        "mode": str(mode),
-        "prompt_len": list(prompt_len) if is_variable_len else prompt_len,
-        "max_new_tokens": list(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
-        "batch_size": effective_batch_size,
-        "ttft_ms": summarize(raw["ttft_ms"]),
-        "tpot_ms": summarize(raw["tpot_ms"]),
-        "e2e_wall_ms": summarize(raw["e2e_wall_ms"]),
-        "e2e_model_ms": summarize(raw["e2e_model_ms"]),
-        "throughput_tok_s": summarize(raw["throughput_tok_s"]),
-        "throughput_req_s": summarize(raw["throughput_req_s"]),
-        "gpu_time_ratio": (
-            summarize(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
-        ),
-        "memory": memory,
-        "extra": extra,
-        "raw": raw,
-    }
+    eff_obj = None
     if cost and peaks:
-        result["efficiency"] = efficiency(
+        eff_dict = efficiency(
             cost,
             peaks,
             batch_size,
             prompt_len,
             max_new_tokens,
-            result["ttft_ms"]["median"],
-            result["tpot_ms"]["median"],
+            latency.ttft_ms.median,
+            latency.tpot_ms.median,
         )
+        eff_obj = HardwareEfficiency(
+            prefill_mfu=eff_dict.get("prefill_mfu"),
+            decode_mfu=eff_dict.get("decode_mfu"),
+            decode_mbu=eff_dict.get("decode_mbu"),
+        )
+
+    op_breakdown = None
     if is_full_profile and runs:
         breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
-        merged_ob = merge_op_latency_breakdowns(breakdowns)
-        result["op_latency_breakdown"] = asdict(merged_ob) if merged_ob is not None else None
+        op_breakdown = merge_op_latency_breakdowns(breakdowns)
     elif profile_mode == ProfileMode.EXTRA_PROFILE:
         prof_res = generate(
             mode=mode,
@@ -241,8 +262,23 @@ def run_case(
             profile=True,
             tensorboard_options=tensorboard_options,
         )
-        result["op_latency_breakdown"] = asdict(prof_res.op_breakdown) if prof_res.op_breakdown is not None else None
-    return result
+        op_breakdown = prof_res.op_breakdown
+
+    gpu_ratio_stat = (
+        summarize_samples(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
+    )
+
+    return CaseBenchmarkResult(
+        workload=workload,
+        latency=latency,
+        throughput=throughput,
+        memory=case_memory,
+        scheduling=scheduling,
+        efficiency=eff_obj,
+        gpu_time_ratio=gpu_ratio_stat,
+        op_breakdown=op_breakdown,
+        raw_samples=raw,
+    )
 
 
 def parse_args():
@@ -339,23 +375,22 @@ def main():
     print(
         "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
         % (
-            result["ttft_ms"]["median"],
-            result["tpot_ms"]["median"],
-            result["tpot_ms"]["std"],
-            result["throughput_tok_s"]["median"],
-            result["throughput_req_s"]["median"],
-            result["memory"]["peak_allocated_mb"],
+            result.latency.ttft_ms.median,
+            result.latency.tpot_ms.median,
+            result.latency.tpot_ms.std,
+            result.throughput.throughput_tok_s.median,
+            result.throughput.throughput_req_s.median,
+            result.memory.peak_allocated_mb,
         )
     )
-    eff = result.get("efficiency") or {}
-    if eff.get("decode_mbu") is not None:
-        gpu_busy_str = "%.0f%%" % (100 * result["gpu_time_ratio"]["median"]) if result.get("gpu_time_ratio") else "N/A"
+    if result.efficiency and result.efficiency.decode_mbu is not None:
+        gpu_busy_str = "%.0f%%" % (100 * result.gpu_time_ratio.median) if result.gpu_time_ratio is not None else "N/A"
         print(
             "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
             % (
-                100 * eff["decode_mbu"],
-                100 * (eff["decode_mfu"] or 0),
-                100 * (eff["prefill_mfu"] or 0),
+                100 * result.efficiency.decode_mbu,
+                100 * (result.efficiency.decode_mfu or 0),
+                100 * (result.efficiency.prefill_mfu or 0),
                 gpu_busy_str,
             )
         )

@@ -106,27 +106,26 @@ def main():
         print(
             "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
             % (
-                case_result["ttft_ms"]["median"],
-                case_result["tpot_ms"]["median"],
-                case_result["tpot_ms"]["std"],
-                case_result["throughput_tok_s"]["median"],
-                case_result["throughput_req_s"]["median"],
-                case_result["memory"]["peak_allocated_mb"],
+                case_result.latency.ttft_ms.median,
+                case_result.latency.tpot_ms.median,
+                case_result.latency.tpot_ms.std,
+                case_result.throughput.throughput_tok_s.median,
+                case_result.throughput.throughput_req_s.median,
+                case_result.memory.peak_allocated_mb,
             )
         )
-        eff = case_result.get("efficiency") or {}
-        if eff.get("decode_mbu") is not None:
+        if case_result.efficiency and case_result.efficiency.decode_mbu is not None:
             gpu_busy_str = (
-                "%.0f%%" % (100 * case_result["gpu_time_ratio"]["median"])
-                if case_result.get("gpu_time_ratio")
+                "%.0f%%" % (100 * case_result.gpu_time_ratio.median)
+                if case_result.gpu_time_ratio is not None
                 else "N/A"
             )
             print(
                 "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
                 % (
-                    100 * eff["decode_mbu"],
-                    100 * (eff["decode_mfu"] or 0),
-                    100 * (eff["prefill_mfu"] or 0),
+                    100 * case_result.efficiency.decode_mbu,
+                    100 * (case_result.efficiency.decode_mfu or 0),
+                    100 * (case_result.efficiency.prefill_mfu or 0),
                     gpu_busy_str,
                 )
             )

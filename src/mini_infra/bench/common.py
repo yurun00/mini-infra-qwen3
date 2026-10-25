@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import platform
-import statistics
 import subprocess
 import time
 from collections.abc import Sequence
@@ -14,11 +13,11 @@ from typing import Any
 
 import torch
 
+from mini_infra.bench.types import CaseBenchmarkResult, summarize_samples
 from mini_infra.generation import (
     DEFAULT_GOLDEN_MAX_OUTPUT_TOKENS,
     DEFAULT_GOLDEN_PROMPT,
     generate,
-    percentile,
 )
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
@@ -48,17 +47,8 @@ SCHEMA_VERSION = 1
 
 
 def summarize(values: Sequence[float]) -> dict[str, float]:
-    """计算延迟分位数与均值方差指标。"""
-    return {
-        "median": statistics.median(values),
-        "mean": statistics.fmean(values),
-        "std": statistics.pstdev(values) if len(values) > 1 else 0.0,
-        "min": min(values),
-        "p90": percentile(values, 90),
-        "p95": percentile(values, 95),
-        "p99": percentile(values, 99),
-        "max": max(values),
-    }
+    """计算延迟分位数与均值方差指标（包装 summarize_samples 以保持字典兼容）。"""
+    return summarize_samples(values).to_dict()
 
 
 GPU_PEAK_SPECS = {
@@ -220,7 +210,7 @@ def check_correctness(
     return {"checked": True, "passed": passed, "match_ratio": ratio}
 
 
-def print_table(case_results: Sequence[dict[str, Any]], mode: str | None = None) -> None:
+def print_table(case_results: Sequence[CaseBenchmarkResult], mode: str | None = None) -> None:
     """控制台标准 CSV 格式输出。"""
     header = [
         "mode",
@@ -237,20 +227,11 @@ def print_table(case_results: Sequence[dict[str, Any]], mode: str | None = None)
         "kv_cache_mb",
     ]
 
-    has_padding = any(
-        isinstance(w, dict) and bool(w.get("extra")) and w["extra"].get("padding_efficiency") is not None
-        for w in case_results
-    )
+    has_padding = any(w.scheduling is not None for w in case_results)
     has_eff_prompt = any(
-        isinstance(w, dict)
-        and bool(w.get("extra"))
-        and w["extra"].get("effective_prompt_token_throughput_per_second") is not None
-        for w in case_results
+        w.scheduling is not None and w.scheduling.effective_prompt_throughput is not None for w in case_results
     )
-    has_slots = any(
-        isinstance(w, dict) and bool(w.get("extra")) and w["extra"].get("slot_utilization") is not None
-        for w in case_results
-    )
+    has_slots = any(w.scheduling is not None for w in case_results)
 
     if has_padding:
         header.append("padding_efficiency")
@@ -261,26 +242,18 @@ def print_table(case_results: Sequence[dict[str, Any]], mode: str | None = None)
 
     print(",".join(header))
     for w in case_results:
-        if isinstance(w, list | tuple):
-            print(",".join(str(x) for x in w))
-            continue
-        if "prompt_tokens" in w:
-            print(",".join(str(w.get(k, "")) for k in header))
-            continue
-
-        mode_str = w.get("mode") or mode or ""
-        prompt_tokens = w.get("prompt_len", 0)
-        generated_tokens = w.get("max_new_tokens", w.get("output_len", 0))
-        prefill_ms_mean = w["ttft_ms"]["mean"]
-        decode_ms_mean = w["tpot_ms"]["mean"]
-        decode_ms_p50 = w["tpot_ms"].get("p50", w["tpot_ms"]["median"])
-        decode_ms_p95 = w["tpot_ms"].get("p95", percentile(w["raw"]["tpot_ms"], 95) if "raw" in w else 0.0)
-        end_to_end_wall_ms_mean = w["e2e_wall_ms"]["mean"]
-        end_to_end_model_ms_mean = w["e2e_model_ms"]["mean"]
-        mem = w.get("memory", {})
-        prefill_mem = mem.get("prefill_allocated_mb", 0.0)
-        peak_mem = mem.get("peak_allocated_mb", 0.0)
-        kv_cache_mb = mem.get("kv_cache_mb", 0.0)
+        mode_str = w.workload.mode or mode or ""
+        prompt_tokens = w.workload.prompt_len
+        generated_tokens = w.workload.max_new_tokens
+        prefill_ms_mean = w.latency.ttft_ms.mean
+        decode_ms_mean = w.latency.tpot_ms.mean
+        decode_ms_p50 = w.latency.tpot_ms.median
+        decode_ms_p95 = w.latency.tpot_ms.p95
+        end_to_end_wall_ms_mean = w.latency.e2e_wall_ms.mean
+        end_to_end_model_ms_mean = w.latency.e2e_model_ms.mean
+        prefill_mem = w.memory.prefill_allocated_mb
+        peak_mem = w.memory.peak_allocated_mb
+        kv_cache_mb = w.memory.kv_cache_mb
 
         prompt_str = (
             "/".join(map(str, prompt_tokens)) if isinstance(prompt_tokens, list | tuple) else str(prompt_tokens)
@@ -306,20 +279,18 @@ def print_table(case_results: Sequence[dict[str, Any]], mode: str | None = None)
             f"{kv_cache_mb:.2f}",
         ]
 
-        extra = w.get("extra") or {}
         if has_padding:
-            pad_eff = extra.get("padding_efficiency")
+            pad_eff = w.scheduling.padding_efficiency if w.scheduling else None
             row.append(f"{pad_eff * 100:.2f}%" if pad_eff is not None else "")
         if has_eff_prompt:
-            eff_p = extra.get("effective_prompt_token_throughput_per_second")
-            if isinstance(eff_p, dict):
-                row.append(f"{eff_p.get('mean', eff_p.get('median', 0.0)):.1f}")
-            elif isinstance(eff_p, int | float):
-                row.append(f"{eff_p:.1f}")
-            else:
-                row.append("")
+            eff_p = (
+                w.scheduling.effective_prompt_throughput.mean
+                if (w.scheduling and w.scheduling.effective_prompt_throughput)
+                else None
+            )
+            row.append(f"{eff_p:.1f}" if eff_p is not None else "")
         if has_slots:
-            slot_u = extra.get("slot_utilization")
+            slot_u = w.scheduling.slot_utilization if w.scheduling else None
             row.append(f"{slot_u * 100:.2f}%" if slot_u is not None else "")
 
         print(",".join(row))
@@ -353,7 +324,7 @@ def build_benchmark_record(
     args: argparse.Namespace,
     model: torch.nn.Module,
     mode_label: str,
-    cases: list[dict[str, Any]],
+    cases: Sequence[CaseBenchmarkResult],
     correctness: dict[str, Any],
     env: dict[str, Any],
     peaks: dict[str, float | None],
@@ -364,6 +335,7 @@ def build_benchmark_record(
     suite_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构建标准评测结果 JSON 字典。"""
+    record_cases = [c.to_record_dict() for c in cases]
     record: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "tag": args.tag,
@@ -384,7 +356,7 @@ def build_benchmark_record(
             "profile_mode": str(args.profile_mode) if args.profile_mode else None,
         },
         "correctness": correctness,
-        "cases": cases,
+        "cases": record_cases,
     }
     if suite_info is not None:
         record["suite"] = suite_info

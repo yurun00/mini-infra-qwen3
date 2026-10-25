@@ -118,16 +118,16 @@ def test_registered_suites_run_end_to_end_on_cpu():
         for case in tiny.cases()
     ]
 
-    assert [(r["mode"], r["batch_size"]) for r in results] == [
+    assert [(r.workload.mode, r.workload.batch_size) for r in results] == [
         ("kv-cache", 1),
         ("kv-cache+fixed-batching", 1),
         ("kv-cache", 2),
         ("kv-cache+fixed-batching", 2),
     ]
     for r in results:
-        assert r["prompt_len"] == 4 and r["max_new_tokens"] == 2
-        assert r["throughput_req_s"]["median"] > 0
-        assert r["throughput_tok_s"]["median"] > 0
+        assert r.workload.prompt_len == 4 and r.workload.max_new_tokens == 2
+        assert r.throughput.throughput_req_s.median > 0
+        assert r.throughput.throughput_tok_s.median > 0
 
 
 def test_registry_contains_serial_vs_fixed_batch_throughput():
@@ -228,15 +228,15 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu():
     res_homo, res_mixed = results
 
     # uniform: [4, 4, 4, 4]，padding efficiency 应该为 100%
-    assert res_homo["batch_size"] == 4
-    assert res_homo["prompt_len"] == [4, 4, 4, 4]
-    assert res_homo["extra"]["padding_efficiency"] == 1.0
+    assert res_homo.workload.batch_size == 4
+    assert res_homo.workload.prompt_len == (4, 4, 4, 4)
+    assert res_homo.scheduling is not None and res_homo.scheduling.padding_efficiency == 1.0
 
     # variable: [max(1, 4//8), max(1, 4//4), max(1, 4//2), 4] = [1, 1, 2, 4]
-    assert res_mixed["batch_size"] == 4
-    assert res_mixed["prompt_len"] == [1, 1, 2, 4]
-    assert res_mixed["extra"]["padding_efficiency"] == (1 + 1 + 2 + 4) / 16
-    assert res_mixed["extra"]["padding_efficiency"] < 1.0
+    assert res_mixed.workload.batch_size == 4
+    assert res_mixed.workload.prompt_len == (1, 1, 2, 4)
+    assert res_mixed.scheduling is not None and res_mixed.scheduling.padding_efficiency == (1 + 1 + 2 + 4) / 16
+    assert res_mixed.scheduling.padding_efficiency < 1.0
 
 
 def test_uniform_vs_variable_budget_slots_defaults():
@@ -329,15 +329,15 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu():
     res_uniform, res_variable = results
 
     # uniform: [4, 4, 4, 4]，slot utilization 应该为 100%
-    assert res_uniform["batch_size"] == 4
-    assert res_uniform["prompt_len"] == [4, 4, 4, 4]
-    assert res_uniform["max_new_tokens"] == [4, 4, 4, 4]
-    assert res_uniform["extra"]["slot_utilization"] == 1.0
+    assert res_uniform.workload.batch_size == 4
+    assert res_uniform.workload.prompt_len == (4, 4, 4, 4)
+    assert res_uniform.workload.max_new_tokens == (4, 4, 4, 4)
+    assert res_uniform.scheduling is not None and res_uniform.scheduling.slot_utilization == 1.0
 
     # variable: [max(2, 4//8), max(2, 4//4), max(2, 4//2), 4] = [2, 2, 2, 4]
     # slot utilization = (2 + 2 + 2 + 4) / 16 = 0.625
-    assert res_variable["batch_size"] == 4
-    assert res_variable["prompt_len"] == [4, 4, 4, 4]
-    assert res_variable["max_new_tokens"] == [2, 2, 2, 4]
-    assert res_variable["extra"]["slot_utilization"] == (2 + 2 + 2 + 4) / 16
-    assert res_variable["extra"]["slot_utilization"] < 1.0
+    assert res_variable.workload.batch_size == 4
+    assert res_variable.workload.prompt_len == (4, 4, 4, 4)
+    assert res_variable.workload.max_new_tokens == (2, 2, 2, 4)
+    assert res_variable.scheduling is not None and res_variable.scheduling.slot_utilization == (2 + 2 + 2 + 4) / 16
+    assert res_variable.scheduling.slot_utilization < 1.0

@@ -445,3 +445,56 @@ def test_padded_output_tokens_method():
     )
     assert empty_res.padded_output_tokens().shape == (0, 0)
     assert empty_res.padded_output_tokens(pad_token_id=123).shape == (0, 0)
+
+
+def test_generation_result_prompt_throughput_properties():
+    """验证 BatchScheduleInfo.effective_prompt_tok_s 与 padded_prompt_tok_s 属性。"""
+    batch_info = BatchScheduleInfo(
+        padding_efficiency=0.5,
+        slot_utilization=1.0,
+        prompt_tokens=100,
+        padded_prompt_tokens=200,
+        prompt_lengths_per_req=[50, 50],
+        completion_steps_per_req=[10, 10],
+        ttft_ms=50.0,  # 50 ms
+    )
+    # 100 tokens / (50ms / 1000) = 2000 tokens/s
+    assert batch_info.effective_prompt_tok_s == 2000.0
+    # 200 tokens / (50ms / 1000) = 4000 tokens/s
+    assert batch_info.padded_prompt_tok_s == 4000.0
+
+    # ttft_ms 为 0 时安全返回 0.0
+    zero_ttft_info = BatchScheduleInfo(
+        padding_efficiency=0.5,
+        slot_utilization=1.0,
+        prompt_tokens=100,
+        padded_prompt_tokens=200,
+        prompt_lengths_per_req=[50, 50],
+        completion_steps_per_req=[10, 10],
+        ttft_ms=0.0,
+    )
+    assert zero_ttft_info.effective_prompt_tok_s == 0.0
+    assert zero_ttft_info.padded_prompt_tok_s == 0.0
+
+    # 验证 GenerationResult 顶层无伪穿透属性，保持六大正交领域纯粹性
+    metrics = StepAggregatedMetrics(
+        ttft_ms=50.0,
+        mean_tpot_ms=5.0,
+        p50_tpot_ms=5.0,
+        p95_tpot_ms=5.0,
+        e2e_wall_ms=100.0,
+        e2e_model_ms=90.0,
+        throughput_tok_s=200.0,
+        throughput_req_s=20.0,
+    )
+    res = GenerationResult(
+        sequences=[],
+        metrics=metrics,
+        memory=MemoryProfile(0, 0, 0, 0, 0),
+        trace=GenerationTrace([], []),
+        batch_size=2,
+        batch_info=batch_info,
+    )
+    assert not hasattr(res, "effective_prompt_tok_s")
+    assert not hasattr(res, "padded_prompt_tok_s")
+    assert res.batch_info.effective_prompt_tok_s == 2000.0

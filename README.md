@@ -48,6 +48,7 @@ mini-infra-qwen3/
 │       │       ├── compare_batch.py   # mini-infra-compare-batch：固定批处理请求隔离与数值对齐
 │       │       └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
+│           ├── types.py               # 评测强类型领域模型 CaseBenchmarkResult 与分布统计
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── run_case.py            # mini-infra-bench-case：单 case 基准测试执行引擎
 │           ├── run_suite.py           # mini-infra-bench-suite：预设测试套件执行引擎

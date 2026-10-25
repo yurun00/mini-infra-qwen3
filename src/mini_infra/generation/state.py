@@ -139,22 +139,12 @@ class BatchGenerationState:
         step_count = len(step_latencies_ms)
         valid_generated_tokens_count = sum(len(output) for output in self.outputs)
 
-        cumulative_ms: list[float] = []
-        running_ms = 0.0
-        for value in step_latencies_ms:
-            running_ms += value
-            cumulative_ms.append(running_ms)
-
         prompt_tokens = int(self.prompt_lengths.sum().item())
         padded_prompt_tokens = self.batch_size * self.padded_prompt_length
         capacity_tokens = self.batch_size * step_count
 
         completion_steps_per_req: list[int] = [s if s is not None else step_count for s in self.completion_steps]
-        completion_times_ms_per_req: list[float] = [
-            cumulative_ms[s - 1] if 0 < s <= len(cumulative_ms) else (cumulative_ms[-1] if cumulative_ms else 0.0)
-            for s in completion_steps_per_req
-        ]
-
+        ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
         return BatchScheduleInfo(
             padding_efficiency=prompt_tokens / padded_prompt_tokens if padded_prompt_tokens else 0.0,
             slot_utilization=valid_generated_tokens_count / capacity_tokens if capacity_tokens else 0.0,
@@ -162,5 +152,5 @@ class BatchGenerationState:
             padded_prompt_tokens=padded_prompt_tokens,
             prompt_lengths_per_req=[int(x) for x in self.prompt_lengths.cpu().tolist()],
             completion_steps_per_req=completion_steps_per_req,
-            completion_times_ms_per_req=completion_times_ms_per_req,
+            ttft_ms=ttft_ms,
         )

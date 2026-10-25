@@ -201,7 +201,8 @@ def test_bench_run_profile_modes():
     res_none = run_case(
         model, mode, prompt_len=4, max_new_tokens=2, batch_size=1, warmup=0, repeats=1, vocab=vocab, device=device
     )
-    assert "op_latency_breakdown" not in res_none
+    assert res_none.op_breakdown is None
+    assert "op_latency_breakdown" not in res_none.to_record_dict()
 
     # Mode 2: profile_mode=EXTRA_PROFILE -> 有 op_latency_breakdown
     res_extra = run_case(
@@ -216,9 +217,9 @@ def test_bench_run_profile_modes():
         device=device,
         profile_mode=ProfileMode.EXTRA_PROFILE,
     )
-    assert "op_latency_breakdown" in res_extra
-    assert isinstance(res_extra["op_latency_breakdown"], dict)
-    assert "total_ms" in res_extra["op_latency_breakdown"]
+    assert res_extra.op_breakdown is not None
+    assert res_extra.op_breakdown.total_ms > 0
+    assert "op_latency_breakdown" in res_extra.to_record_dict()
 
     # Mode 3: profile_mode=FULL_PROFILE -> 每次 repeat 均 profile，直接从 runs 中提取 op_latency_breakdown
     res_full = run_case(
@@ -233,9 +234,9 @@ def test_bench_run_profile_modes():
         device=device,
         profile_mode=ProfileMode.FULL_PROFILE,
     )
-    assert "op_latency_breakdown" in res_full
-    assert isinstance(res_full["op_latency_breakdown"], dict)
-    assert "total_ms" in res_full["op_latency_breakdown"]
+    assert res_full.op_breakdown is not None
+    assert res_full.op_breakdown.total_ms > 0
+    assert "op_latency_breakdown" in res_full.to_record_dict()
 
 
 def test_merge_op_latency_breakdowns():
