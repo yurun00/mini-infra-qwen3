@@ -441,7 +441,7 @@ def generate_optimization_guidance(target_rec):
     lines = [
         "## 二、当前版本深度剖析与优化指引 (Profiling & Next Steps)",
         "",
-        "![Profiling](profiling_and_optimization.png)",
+        "![Profiling](./profiling_and_optimization.png)",
         "",
     ]
 
@@ -595,7 +595,7 @@ def main():
         "",
         "## 一、跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)",
         "",
-        "![Evolution & Scaling](evolution_and_scaling.png)",
+        "![Evolution & Scaling](./evolution_and_scaling.png)",
         "",
         guidance,
         "",

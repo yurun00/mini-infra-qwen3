@@ -173,13 +173,13 @@ mini-infra-run \
 
 本项目采用严格的数据驱动与时间线演进追踪，每个特性的引入均经过全矩阵基准测试与性能诊断。
 
-完整的多版本评测数据表、加速比对比与 Profiling 诊断详见 [SUMMARY.md](benchmarks/reports/SUMMARY.md)。
+完整的多版本评测数据表、加速比对比与 Profiling 诊断详见 [SUMMARY.md](./benchmarks/reports/SUMMARY.md)。
 
 ### 1. 跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)
-![Evolution & Scaling](benchmarks/reports/evolution_and_scaling.png)
+![Evolution & Scaling](./benchmarks/reports/evolution_and_scaling.png)
 
 ### 2. 当前版本深度剖析与优化指引 (Profiling & Next Steps)
-![Profiling](benchmarks/reports/profiling_and_optimization.png)
+![Profiling](./benchmarks/reports/profiling_and_optimization.png)
 
 ---
 
