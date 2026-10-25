@@ -1,6 +1,6 @@
 # mini-infra-qwen3 特性发布流程指南 (Release SOP)
 
-本项目采用 **特性驱动（Feature-Driven）** 的演进方式。每当完成一个核心特性演进（如 KV Cache、FlashAttention 等，对应 `v0.2.0`、`v0.3.0` 等 Minor Release）时，需按本标准发布流程（SOP）执行精度校验、全量基准测试、跨版本演进图生成与版本固化。
+本项目采用 **特性驱动（Feature-Driven）** 的演进方式。每当完成一个核心特性演进（如 KV Cache、Fixed Batching、FlashAttention 等，对应 `v0.2.0`、`v0.3.0` 等 Minor Release）时，需按本标准发布流程（SOP）执行精度校验、全量基准测试、跨版本演进图生成与版本固化。
 
 ---
 
@@ -26,7 +26,7 @@ pytest -m gpu
 1. 修改 `pyproject.toml` 中的版本号：
    ```toml
    [project]
-   version = "0.2.0"  # 升级至目标版本号
+   version = "0.3.0"  # 升级至目标版本号
    ```
 2. 更新 `README.md` 中的 **特性全景 (Features)** 状态（勾选本次已完成的特性）。
 
