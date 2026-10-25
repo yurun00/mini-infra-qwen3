@@ -27,7 +27,7 @@ from mini_infra.bench.common import (
 from mini_infra.bench.run_case import run_case
 from mini_infra.bench.suites import SUITES, get_suite
 from mini_infra.profiling import TensorBoardOptions
-from mini_infra.qwen3_model import load_handwritten_model, resolve_model_directory
+from mini_infra.qwen3_model import load_model, resolve_model_directory
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 
@@ -57,7 +57,7 @@ def main():
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_handwritten_model(model_dir, device)
+    model = load_model(model_dir, device)
     vocab = model.config.vocab_size
 
     correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}

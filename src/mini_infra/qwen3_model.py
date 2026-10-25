@@ -525,8 +525,8 @@ def model_dtype_from_config(config):
     return supported_dtypes[config.torch_dtype]
 
 
-def load_handwritten_model(model_directory, device, dtype=None):
-    """从 safetensors 权重构造手写 Qwen3 模型。"""
+def load_model(model_directory, device, dtype=None):
+    """从 safetensors 权重构造 Qwen3 模型。"""
 
     config = Qwen3Config.from_model_directory(model_directory)
     model = Qwen3ForCausalLM(config)
@@ -561,3 +561,4 @@ def load_handwritten_model(model_directory, device, dtype=None):
     model.model.rotary_emb.inv_freq = rotary_inv_freq.to(device)
     model.eval()
     return model
+

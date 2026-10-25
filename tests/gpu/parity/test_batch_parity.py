@@ -12,7 +12,7 @@ pytestmark = pytest.mark.gpu
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
 def test_compare_batch():
-    from mini_infra.testing.parity.compare_batch import main
+    from mini_infra.verification.parity.compare_batch import main
 
     # 隔离或数值检查未通过时 main 会 raise SystemExit(非零)，pytest 会将其视为失败
     main(["--prompt", "用一句话解释固定批处理。", "--max-new-tokens", "8"])

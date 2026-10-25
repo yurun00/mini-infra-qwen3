@@ -49,16 +49,16 @@ from mini_infra.bench.types import (
     WorkloadSpec,
     summarize_samples,
 )
+from mini_infra.bench.workloads import make_prompt
 from mini_infra.generation import (
     BatchingMethod,
     FeatureFlag,
     Mode,
     generate,
-    make_prompt,
 )
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 from mini_infra.qwen3_model import (
-    load_handwritten_model,
+    load_model,
     resolve_model_directory,
 )
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
@@ -335,7 +335,7 @@ def main():
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_handwritten_model(model_dir, device)
+    model = load_model(model_dir, device)
     vocab = model.config.vocab_size
 
     correctness = check_correctness(model, tokenizer, case.mode, device, args.update_golden)

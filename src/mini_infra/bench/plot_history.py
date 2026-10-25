@@ -571,11 +571,6 @@ def main():
     parser.add_argument("--evolution-figure", type=Path, default=REPORTS_DIR / "evolution_and_scaling.png")
     parser.add_argument("--profiling-figure", type=Path, default=REPORTS_DIR / "profiling_and_optimization.png")
     parser.add_argument("--summary-path", type=Path, default=REPORTS_DIR / "SUMMARY.md")
-    # 向下兼容旧参数
-    parser.add_argument("--figure", type=Path, default=None)
-    parser.add_argument("--timeline-figure", type=Path, default=None)
-    parser.add_argument("--extras-figure", type=Path, default=None)
-    parser.add_argument("--efficiency-figure", type=Path, default=None)
     args = parser.parse_args()
 
     records = load_results()

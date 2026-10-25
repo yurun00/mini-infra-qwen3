@@ -166,7 +166,7 @@ class BatchScheduleSummary:
     padded_prompt_throughput: DistributionStats | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """导出为向下兼容 extra 的字典结构。"""
+        """导出为调度特征字典结构。"""
         d: dict[str, Any] = {
             "padding_efficiency": self.padding_efficiency,
             "slot_utilization": self.slot_utilization,
@@ -197,7 +197,7 @@ class CaseBenchmarkResult:
     raw_samples: dict[str, list[float]] = field(default_factory=dict)
 
     def to_record_dict(self) -> dict[str, Any]:
-        """导出为与现有 JSON Schema 100% 兼容的字典格式。"""
+        """导出为标准评测记录字典格式。"""
         rec: dict[str, Any] = {
             "mode": self.workload.mode,
             "prompt_len": (

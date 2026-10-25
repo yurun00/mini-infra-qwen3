@@ -14,7 +14,7 @@ from mini_infra.profiling import TensorBoardOptions
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    load_handwritten_model,
+    load_model,
     resolve_model_directory,
 )
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
@@ -178,7 +178,7 @@ def main():
     else:
         input_ids = sequences
 
-    model = load_handwritten_model(model_directory, device)
+    model = load_model(model_directory, device)
 
     flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
     base_mode = Mode(flags, batching_method=args.batching_method)
@@ -195,8 +195,8 @@ def main():
             else:
                 if item == BatchingMethod.NONE:
                     raise ValueError("不能将 'none' 作为单个对比 feature")
-                mode_disable = base_mode.with_batching(BatchingMethod.NONE)
-                mode_enable = base_mode.with_batching(item)
+                mode_disable = base_mode.with_batching_method(BatchingMethod.NONE)
+                mode_enable = base_mode.with_batching_method(item)
                 compare_feature_name = item.value
             modes = (mode_disable, mode_enable)
         elif len(items) == 2:
@@ -207,7 +207,7 @@ def main():
             def apply_feature(mode: Mode, feature: FeatureFlag | BatchingMethod) -> Mode:
                 if isinstance(feature, FeatureFlag):
                     return mode.with_flag(feature, True)
-                return mode.with_batching(feature)
+                return mode.with_batching_method(feature)
 
             mode1 = apply_feature(base_mode, item1)
             mode2 = apply_feature(base_mode, item2)

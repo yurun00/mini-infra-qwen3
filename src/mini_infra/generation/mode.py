@@ -61,8 +61,6 @@ class Mode:
         self,
         flags: "Iterable[FeatureFlag | str] | None" = None,
         batching_method: BatchingMethod | str = BatchingMethod.NONE,
-        *,
-        batching: BatchingMethod | str | None = None,
     ):
         if flags is None:
             flag_set = frozenset()
@@ -71,16 +69,10 @@ class Mode:
         else:
             flag_set = frozenset(FeatureFlag.from_str(f) for f in flags)
 
-        target_method = batching if batching is not None else batching_method
-        method = BatchingMethod.from_str(target_method)
+        method = BatchingMethod.from_str(batching_method)
 
         object.__setattr__(self, "flags", flag_set)
         object.__setattr__(self, "batching_method", method)
-
-    @property
-    def batching(self) -> BatchingMethod:
-        """向后兼容属性别名。"""
-        return self.batching_method
 
     def is_enabled(self, flag: FeatureFlag | str) -> bool:
         """检查指定的 FeatureFlag 是否启用。"""
@@ -96,10 +88,6 @@ class Mode:
     def with_batching_method(self, batching_method: BatchingMethod | str) -> "Mode":
         """返回指定 batching_method 策略修改后的新 Mode 实例。"""
         return Mode(flags=self.flags, batching_method=batching_method)
-
-    def with_batching(self, batching: BatchingMethod | str) -> "Mode":
-        """向后兼容方法别名。"""
-        return self.with_batching_method(batching)
 
     @property
     def kv_cache(self) -> bool:
@@ -118,10 +106,9 @@ class Mode:
         return self.batching_method != BatchingMethod.NONE
 
     def to_dict(self) -> dict[str, Any]:
-        """将 mode 中的所有 feature flag 状态及 batching 转换为字典。"""
+        """将 mode 中的所有 feature flag 状态及 batching 策略转换为字典。"""
         result = {flag.value: self.is_enabled(flag) for flag in FeatureFlag}
         result["batching_method"] = self.batching_method.value
-        result["batching"] = self.batching_method.value
         return result
 
     def __contains__(self, item: FeatureFlag | BatchingMethod | str) -> bool:

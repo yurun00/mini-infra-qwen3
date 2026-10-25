@@ -123,13 +123,6 @@ class BatchGenerationState:
             self.full_input_ids = torch.cat((self.full_input_ids, step_token), dim=1)
             self.full_position_ids = torch.cat((self.full_position_ids, curr_pos), dim=1)
 
-    def build_padded_output_tokens(self, step_count: int) -> torch.Tensor:
-        """构建 [B, step_count] 的 padded_output_tokens 矩形张量。"""
-        padded_output_tokens = torch.full((self.batch_size, step_count), self.pad_token_id, dtype=torch.long)
-        for req_idx, output in enumerate(self.outputs):
-            padded_output_tokens[req_idx, : len(output)] = torch.tensor(output, dtype=torch.long)
-        return padded_output_tokens
-
     def compute_batch_metrics(
         self,
         step_latencies_ms: list[float],

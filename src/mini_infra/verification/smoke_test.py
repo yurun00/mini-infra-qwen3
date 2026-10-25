@@ -102,7 +102,7 @@ def check_fixed_batching(model):
     assert lengths.tolist() == [4, 2]
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
-    fixed_batching_mode = Mode({FeatureFlag.KV_CACHE}, batching=BatchingMethod.FIXED)
+    fixed_batching_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
     kwargs = {"eos_token_id": -1, "device": device, "stop_on_eos": False, "capture_logits": True}
     single = generate(fixed_batching_mode, model, [request_a], 4, **kwargs)
     paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], **kwargs)

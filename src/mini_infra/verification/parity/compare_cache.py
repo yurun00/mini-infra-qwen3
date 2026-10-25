@@ -8,7 +8,7 @@ from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     KVCache,
-    load_handwritten_model,
+    load_model,
     resolve_model_directory,
 )
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
@@ -135,7 +135,7 @@ def main(argv=None):
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
     }[args.dtype]
-    model = load_handwritten_model(model_directory, device, dtype=comparison_dtype)
+    model = load_model(model_directory, device, dtype=comparison_dtype)
 
     print("Prompt Token 数: %d" % len(token_ids))
     print("正确性对照 dtype: %s" % args.dtype)

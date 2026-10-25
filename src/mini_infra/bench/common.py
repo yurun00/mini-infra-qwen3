@@ -13,12 +13,8 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.types import CaseBenchmarkResult, summarize_samples
-from mini_infra.generation import (
-    DEFAULT_GOLDEN_MAX_OUTPUT_TOKENS,
-    DEFAULT_GOLDEN_PROMPT,
-    generate,
-)
+from mini_infra.bench.types import CaseBenchmarkResult
+from mini_infra.generation import generate
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -41,14 +37,9 @@ RESULT_HISTORY_DIR = BENCH_ARTIFACTS_DIR / "result-history"
 SUITES_DIR = BENCH_ARTIFACTS_DIR / "suites"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
 GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "data" / "golden_output_tokens.json"
-GOLDEN_PROMPT = DEFAULT_GOLDEN_PROMPT
-GOLDEN_MAX_OUTPUT_TOKENS = DEFAULT_GOLDEN_MAX_OUTPUT_TOKENS
+GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
+GOLDEN_MAX_OUTPUT_TOKENS = 32
 SCHEMA_VERSION = 1
-
-
-def summarize(values: Sequence[float]) -> dict[str, float]:
-    """计算延迟分位数与均值方差指标（包装 summarize_samples 以保持字典兼容）。"""
-    return summarize_samples(values).to_dict()
 
 
 GPU_PEAK_SPECS = {

@@ -26,12 +26,14 @@ run_suite.py 不关心 suite 的内部细节，只按 `suite.cases()` 逐个执�
 from dataclasses import asdict, dataclass
 from typing import Protocol, runtime_checkable
 
+from mini_infra.bench.workloads import (
+    get_mixed_output_budgets,
+    get_mixed_prompt_lengths,
+)
 from mini_infra.generation import (
     BatchingMethod,
     FeatureFlag,
     Mode,
-    get_mixed_output_budgets,
-    get_mixed_prompt_lengths,
 )
 
 

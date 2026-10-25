@@ -8,7 +8,7 @@ from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     Qwen3Config,
-    load_handwritten_model,
+    load_model,
     model_dtype_from_config,
     resolve_model_directory,
 )
@@ -131,7 +131,7 @@ def main(argv=None):
 
     config = Qwen3Config.from_model_directory(model_directory)
     model_dtype = model_dtype_from_config(config)
-    handwritten_model = load_handwritten_model(model_directory, device)
+    handwritten_model = load_model(model_directory, device)
 
     # 强制参考实现使用 eager attention，并关闭 KV Cache，使两边执行条件一致。
     reference_model = AutoModelForCausalLM.from_pretrained(

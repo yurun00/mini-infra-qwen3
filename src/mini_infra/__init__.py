@@ -1,6 +1,7 @@
 from mini_infra.generation import (
     BatchingMethod,
     FeatureFlag,
+    GenerationResult,
     Mode,
     generate,
 )
@@ -22,7 +23,7 @@ from mini_infra.qwen3_model import (
     Qwen3Config,
     Qwen3ForCausalLM,
     cache_size_bytes,
-    load_handwritten_model,
+    load_model,
     model_dtype_from_config,
     resolve_model_directory,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
     "FeatureFlag",
+    "GenerationResult",
     "KERNEL_CATEGORIES",
     "KVCache",
     "KernelInfo",
@@ -47,7 +49,7 @@ __all__ = [
     "generate",
     "install_scope_hooks",
     "kernel_category",
-    "load_handwritten_model",
+    "load_model",
     "merge_op_latency_breakdowns",
     "model_dtype_from_config",
     "profile_scope",

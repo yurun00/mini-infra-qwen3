@@ -110,9 +110,6 @@ def install_scope_hooks(model: torch.nn.Module) -> list[Any]:
     return handles
 
 
-_install_scope_hooks = install_scope_hooks
-
-
 def parse_op_latency_breakdown(prof: Any, top: int | None = 10) -> OpLatencyBreakdown:
     """从 PyTorch profiler 收集到的事件中解析算子分类与耗时归因。"""
     averages = list(prof.key_averages())

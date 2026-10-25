@@ -12,7 +12,7 @@ from mini_infra.generation.mode import BatchingMethod, FeatureFlag, Mode
 from mini_infra.qwen3_model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    load_handwritten_model,
+    load_model,
     resolve_model_directory,
 )
 from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
@@ -53,8 +53,8 @@ def compare_trace(
     reference_index: int = 0,
 ) -> dict[str, Any]:
     """逐步对比两个运行轨迹中指定槽位的 Logits 误差、生成 Token 与 Top-1/Top-2 Margin。"""
-    ref_trace = reference.trace.logits_trace if hasattr(reference, "trace") else reference["logits_trace"]
-    cand_trace = candidate.trace.logits_trace if hasattr(candidate, "trace") else candidate["logits_trace"]
+    ref_trace = reference.trace.logits_trace
+    cand_trace = candidate.trace.logits_trace
     step_count = min(len(ref_trace), len(cand_trace))
     largest_error = 0.0
     largest_error_before_divergence = 0.0
@@ -144,7 +144,7 @@ def run_compare_batch(
         ("pair_long_second", [target, long], 0),
     ]
 
-    fixed_batch_mode = Mode({FeatureFlag.KV_CACHE}, batching=BatchingMethod.FIXED)
+    fixed_batch_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
 
     # 1. 运行 reference (单请求 batch baseline)
     reference = generate(
@@ -268,7 +268,7 @@ def main(argv=None):
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
     }[args.dtype]
-    model = load_handwritten_model(model_directory, device, dtype=comparison_dtype)
+    model = load_model(model_directory, device, dtype=comparison_dtype)
 
     environment = {
         "gpu": torch.cuda.get_device_name(device),
