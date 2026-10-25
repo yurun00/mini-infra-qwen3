@@ -10,7 +10,7 @@
     mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 
     # 或者作为模块调用
-    python -m mini_infra.bench.plot_compare tmp/test_nocache.json tmp/test_kvcache.json
+    python -m mini_infra.bench.plotting.compare tmp/test_nocache.json tmp/test_kvcache.json
 """
 
 import argparse

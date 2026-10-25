@@ -12,7 +12,8 @@ from mini_infra.generation.preprocessing import (
     _normalize_token_sequences,
     left_pad_sequences,
 )
-from mini_infra.generation.result import (
+from mini_infra.generation.state import BatchGenerationState
+from mini_infra.generation.types import (
     GenerationResult,
     GenerationTrace,
     SequenceOutput,
@@ -20,9 +21,8 @@ from mini_infra.generation.result import (
     build_memory_profile,
     compute_step_aggregated_metrics,
 )
-from mini_infra.generation.state import BatchGenerationState
+from mini_infra.model.cache import KVCache, cache_size_bytes
 from mini_infra.profiling import TensorBoardOptions, profile_scope
-from mini_infra.qwen3_model import KVCache, cache_size_bytes
 
 
 def synchronize(device: torch.device) -> None:

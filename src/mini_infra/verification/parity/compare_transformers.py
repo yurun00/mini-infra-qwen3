@@ -4,15 +4,15 @@ import argparse
 
 import torch
 
-from mini_infra.qwen3_model import (
+from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     Qwen3Config,
+    Qwen3Tokenizer,
     load_model,
     model_dtype_from_config,
     resolve_model_directory,
 )
-from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 
 def parse_args(argv=None):

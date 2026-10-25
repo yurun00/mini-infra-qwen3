@@ -7,7 +7,7 @@ import torch
 
 from mini_infra.bench.run_case import parse_args, resolve_case_specs, run_case
 from mini_infra.generation import Mode
-from mini_infra.verification.smoke_test import build_tiny_model
+from mini_infra.verification.smoke import build_tiny_model
 
 
 def test_resolve_case_specs_scalars():

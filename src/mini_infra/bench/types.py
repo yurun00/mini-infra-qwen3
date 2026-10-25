@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from mini_infra.generation.result import percentile
+from mini_infra.generation.types import percentile
 from mini_infra.profiling import OpLatencyBreakdown
 
 

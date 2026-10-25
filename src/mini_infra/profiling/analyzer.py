@@ -1,55 +1,12 @@
-"""算子性能剖析与耗时归因模块。
+"""算子分类归因与耗时聚合分析器。"""
 
-提供模块级 Scope 打点、算子分类与 PyTorch Profiler 的封装，用于定位推理瓶颈。
-"""
-
-import os
 from collections.abc import Sequence
-from contextlib import contextmanager
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
-import torch
-
-
-@dataclass(frozen=True)
-class TensorBoardOptions:
-    """TensorBoard 性能分析日志导出配置选项。
-
-    参数:
-        log_dir: 日志输出目录（如 "./log/profiler_trace"，默认 "./log"）
-        record_shapes: 是否记录每个算子的输入 Tensor Shape（默认 True）
-        profile_memory: 是否记录 GPU 显存分配与释放轨迹曲线（默认 True）
-        with_stack: 是否记录 Python 代码调用栈回溯（默认 True）
-    """
-
-    log_dir: str | Path = "./log"
-    record_shapes: bool = True
-    profile_memory: bool = True
-    with_stack: bool = True
-
-
-@dataclass(frozen=True)
-class KernelInfo:
-    name: str
-    category: str
-    cuda_ms: float
-    share: float
-    calls: int
-
-
-@dataclass(frozen=True)
-class OpLatencyBreakdown:
-    total_ms: float
-    top_kernels: list[KernelInfo]
-    time_share_by_kernel_category: dict[str, float]
-    time_share_by_module: dict[str, float]
-    all_kernels: list[KernelInfo] = field(default_factory=list)
-
+from mini_infra.profiling.types import KernelInfo, OpLatencyBreakdown
 
 # 算子类别关键字（按顺序匹配，小写）。kernel 名无法区分 attention 的 matmul 与线性层 GEMM，
-# 这部分归因交给下面的 module 级 scope 统计。
+# 这部分归因交给 module 级 scope 统计。
 KERNEL_CATEGORIES: list[tuple[str, tuple[str, ...]]] = [
     ("attention", ("flash", "fmha", "mem_efficient", "sdpa", "attention")),
     ("softmax", ("softmax",)),
@@ -60,15 +17,6 @@ KERNEL_CATEGORIES: list[tuple[str, tuple[str, ...]]] = [
     ("elementwise", ("elementwise", "vectorized", "mul", "add", "silu", "sigmoid", "rsqrt", "pow", "neg")),
 ]
 
-# module 级 scope：类名 -> 类别。最外层的 scope 吸收子模块（如 attention 内的 q/k norm 与投影）。
-MODULE_SCOPES: dict[str, str] = {
-    "Qwen3Attention": "attention_block",
-    "Qwen3MLP": "mlp_block",
-    "RMSNorm": "norm",
-    "RotaryEmbedding": "rope",
-    "Embedding": "embedding",
-}
-
 
 def kernel_category(name: str) -> str:
     """按算子名称关键字匹配归类；未命中则返回 'other'。"""
@@ -77,37 +25,6 @@ def kernel_category(name: str) -> str:
         if any(k in lowered for k in keywords):
             return category
     return "other"
-
-
-def install_scope_hooks(model: torch.nn.Module) -> list[Any]:
-    """给关键模块挂 record_function 范围，使 profiler 能把耗时归到 attention/mlp/norm/lm_head 等模块。"""
-    from torch.profiler import record_function
-
-    handles = []
-    stack: list[Any] = []
-
-    def pre(label: str):
-        def hook(_module: torch.nn.Module, _inputs: Any) -> None:
-            if stack:  # 已在某个 scope 内，不重复计数
-                stack.append(None)
-                return
-            ctx = record_function(f"mi_scope::{label}")
-            ctx.__enter__()
-            stack.append(ctx)
-
-        return hook
-
-    def post(_module: torch.nn.Module, _inputs: Any, _output: Any) -> None:
-        ctx = stack.pop()
-        if ctx is not None:
-            ctx.__exit__(None, None, None)
-
-    for name, module in model.named_modules():
-        label = MODULE_SCOPES.get(type(module).__name__) or ("lm_head" if name == "lm_head" else None)
-        if label:
-            handles.append(module.register_forward_pre_hook(pre(label)))
-            handles.append(module.register_forward_hook(post))
-    return handles
 
 
 def parse_op_latency_breakdown(prof: Any, top: int | None = 10) -> OpLatencyBreakdown:
@@ -192,14 +109,7 @@ def merge_op_latency_breakdowns(
     op_latency_breakdowns: Sequence[OpLatencyBreakdown],
     top: int | None = 10,
 ) -> OpLatencyBreakdown | None:
-    """聚合多个 OpLatencyBreakdown（如多次重复压测或多请求批处理结果）。
-
-    - total_ms: 算子总耗时的累加值
-    - top_kernels: 按 (name, category) 聚合所有 breakdown 的全量 kernel 后全局排序，取前 top 个全局热点算子
-    - all_kernels: 全量聚合后的所有算子列表（按耗时倒序）
-    - time_share_by_kernel_category: 按每次 run 的 total_ms 加权归一化
-    - time_share_by_module: 按每次 run 的 total_ms 加权归一化
-    """
+    """聚合多个 OpLatencyBreakdown（如多次重复压测或多请求批处理结果）。"""
     valid = [b for b in op_latency_breakdowns if b is not None]
     if not valid:
         return None
@@ -264,55 +174,3 @@ def merge_op_latency_breakdowns(
         time_share_by_module=time_share_by_module,
         all_kernels=all_kernels,
     )
-
-
-class ProfileCollector:
-    """包装已完成的 Profiler 实例，提供指标解析方法。"""
-
-    def __init__(self, prof: Any):
-        self.prof = prof
-
-    def get_latency_breakdown(self, top: int | None = 10) -> OpLatencyBreakdown:
-        return parse_op_latency_breakdown(self.prof, top=top)
-
-
-@contextmanager
-def profile_scope(
-    model: torch.nn.Module,
-    device: torch.device | None = None,
-    tensorboard_options: TensorBoardOptions | None = None,
-):
-    """上下文管理器：为 model 安装 scope hooks，并在进入和退出时控制 torch.profiler。
-
-    参数:
-        model: 需要被监控的 PyTorch 模型
-        device: 计算设备
-        tensorboard_options: 可选。传入 TensorBoardOptions 结构体对象；
-                             若指定则在 trace 就绪时自动保存为 TensorBoard 格式文件；
-                             若为 None（默认）则不向磁盘写入任何 log 文件。
-    """
-    from torch.profiler import ProfilerActivity, profile, tensorboard_trace_handler
-
-    is_cuda = (device is not None and device.type == "cuda") or (device is None and torch.cuda.is_available())
-    activities = [ProfilerActivity.CPU]
-    if is_cuda:
-        activities.append(ProfilerActivity.CUDA)
-
-    on_trace_ready = None
-    if tensorboard_options is not None:
-        os.makedirs(str(tensorboard_options.log_dir), exist_ok=True)
-        on_trace_ready = tensorboard_trace_handler(str(tensorboard_options.log_dir))
-
-    handles = install_scope_hooks(model)
-    try:
-        with profile(
-            activities=activities,
-            on_trace_ready=on_trace_ready,
-            record_shapes=tensorboard_options.record_shapes if tensorboard_options is not None else False,
-            profile_memory=tensorboard_options.profile_memory if tensorboard_options is not None else False,
-            with_stack=tensorboard_options.with_stack if tensorboard_options is not None else False,
-        ) as prof:
-            yield ProfileCollector(prof)
-    finally:
-        for h in handles:
-            h.remove()

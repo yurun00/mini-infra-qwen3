@@ -26,9 +26,8 @@ from mini_infra.bench.common import (
 )
 from mini_infra.bench.run_case import run_case
 from mini_infra.bench.suites import SUITES, get_suite
+from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
-from mini_infra.qwen3_model import load_model, resolve_model_directory
-from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
 
 
 def parse_args():

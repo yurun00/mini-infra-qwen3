@@ -13,7 +13,8 @@ from mini_infra.generation.mode import (
 from mini_infra.generation.preprocessing import (
     left_pad_sequences,
 )
-from mini_infra.generation.result import (
+from mini_infra.generation.state import BatchGenerationState
+from mini_infra.generation.types import (
     AggregationOptions,
     BatchScheduleInfo,
     GenerationResult,
@@ -26,7 +27,6 @@ from mini_infra.generation.result import (
     compute_step_aggregated_metrics,
     percentile,
 )
-from mini_infra.generation.state import BatchGenerationState
 
 __all__ = [
     "AggregationOptions",

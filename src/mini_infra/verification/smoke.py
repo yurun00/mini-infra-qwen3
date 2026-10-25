@@ -6,7 +6,7 @@
 import torch
 
 from mini_infra.generation import BatchingMethod, FeatureFlag, Mode, generate, left_pad_sequences
-from mini_infra.qwen3_model import KVCache, Qwen3Config, Qwen3ForCausalLM, cache_size_bytes
+from mini_infra.model import KVCache, Qwen3Config, Qwen3ForCausalLM, cache_size_bytes
 
 
 def build_tiny_model():

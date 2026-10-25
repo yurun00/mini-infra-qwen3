@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.generation.result import BatchScheduleInfo
+from mini_infra.generation.types import BatchScheduleInfo
 
 
 @dataclass

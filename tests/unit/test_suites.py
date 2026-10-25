@@ -16,7 +16,7 @@ from mini_infra.bench.suites import (
     get_suite,
 )
 from mini_infra.generation import BatchingMethod
-from mini_infra.verification.smoke_test import build_tiny_model
+from mini_infra.verification.smoke import build_tiny_model
 
 
 def test_serial_vs_fixed_batch_throughput_defaults():

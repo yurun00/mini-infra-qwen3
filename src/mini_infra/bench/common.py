@@ -15,7 +15,7 @@ import torch
 
 from mini_infra.bench.types import CaseBenchmarkResult
 from mini_infra.generation import generate
-from mini_infra.qwen3_model import (
+from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )

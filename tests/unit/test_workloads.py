@@ -16,7 +16,7 @@ from mini_infra.generation import (
     Mode,
     generate,
 )
-from mini_infra.verification.smoke_test import build_tiny_model
+from mini_infra.verification.smoke import build_tiny_model
 
 
 def test_get_mixed_prompt_lengths():

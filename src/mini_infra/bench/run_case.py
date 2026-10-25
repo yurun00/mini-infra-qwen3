@@ -56,12 +56,12 @@ from mini_infra.generation import (
     Mode,
     generate,
 )
-from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
-from mini_infra.qwen3_model import (
+from mini_infra.model import (
+    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )
-from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
+from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
 def resolve_case_specs(

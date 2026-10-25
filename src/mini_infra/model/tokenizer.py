@@ -1,7 +1,7 @@
 """面向教学的 Qwen3 Byte-level BPE Tokenizer。
 
 本实现直接读取模型目录中的 tokenizer.json，不依赖 Transformers 或
-tokenizers 库。它只覆盖第 01 期需要的文本编码、文本解码和单轮聊天模板。
+tokenizers 库。它只覆盖文本编码、文本解码和单轮聊天模板。
 """
 
 import json
@@ -10,8 +10,6 @@ from pathlib import Path
 
 import regex
 
-# 这个正则表达式来自固定模型版本的 tokenizer.json。它先把文本切成
-# 较小片段，之后再对每个片段分别执行 Byte-level BPE。
 PRE_TOKEN_PATTERN = regex.compile(
     r"(?i:'s|'t|'re|'ve|'m|'ll|'d)"
     r"|[^\r\n\p{L}\p{N}]?\p{L}+"
@@ -23,9 +21,8 @@ PRE_TOKEN_PATTERN = regex.compile(
 )
 
 
-def build_byte_to_unicode():
+def build_byte_to_unicode() -> dict[int, str]:
     """建立可逆的 byte 到 Unicode 字符映射。"""
-
     visible_bytes = list(range(ord("!"), ord("~") + 1))
     visible_bytes += list(range(ord("¡"), ord("¬") + 1))
     visible_bytes += list(range(ord("®"), ord("ÿ") + 1))
@@ -47,7 +44,7 @@ def build_byte_to_unicode():
 class Qwen3Tokenizer:
     """从 tokenizer.json 加载词表和 BPE 合并规则。"""
 
-    def __init__(self, model_directory):
+    def __init__(self, model_directory: str | Path):
         tokenizer_path = Path(model_directory) / "tokenizer.json"
         if not tokenizer_path.is_file():
             raise FileNotFoundError("没有找到 tokenizer 配置: " + str(tokenizer_path))
@@ -86,9 +83,8 @@ class Qwen3Tokenizer:
         self.unicode_to_byte = {character: byte_value for byte_value, character in self.byte_to_unicode.items()}
         self.eos_token_id = self.added_token_to_id["<|im_end|>"]
 
-    def bpe(self, byte_text):
+    def bpe(self, byte_text: str) -> list[str]:
         """按照 merge 优先级，把字符序列逐步合并成词表 Token。"""
-
         if byte_text in self.bpe_cache:
             return self.bpe_cache[byte_text]
 
@@ -123,9 +119,8 @@ class Qwen3Tokenizer:
         self.bpe_cache[byte_text] = pieces
         return pieces
 
-    def encode_ordinary_text(self, text):
+    def encode_ordinary_text(self, text: str) -> list[int]:
         """编码一段不包含 added token 的普通文本。"""
-
         token_ids = []
         normalized_text = unicodedata.normalize("NFC", text)
 
@@ -141,9 +136,8 @@ class Qwen3Tokenizer:
 
         return token_ids
 
-    def encode(self, text):
+    def encode(self, text: str) -> list[int]:
         """把文本编码为 Token IDs，并正确处理 Qwen3 added tokens。"""
-
         token_ids = []
         text_parts = self.added_token_pattern.split(text)
 
@@ -157,9 +151,8 @@ class Qwen3Tokenizer:
 
         return token_ids
 
-    def decode(self, token_ids, skip_special_tokens=False):
+    def decode(self, token_ids: list[int], skip_special_tokens: bool = False) -> str:
         """把 Token IDs 还原为 UTF-8 文本。"""
-
         output_parts = []
         ordinary_tokens = []
 
@@ -187,13 +180,8 @@ class Qwen3Tokenizer:
         flush_ordinary_tokens()
         return "".join(output_parts)
 
-    def apply_chat_template(self, messages, add_generation_prompt=True):
-        """构造本期使用的 Qwen3 non-thinking 文本模板。
-
-        第 01 期只需要 system/user 文本消息，不覆盖工具调用、多模态内容和
-        assistant 历史 reasoning。这些更复杂的模板分支不属于本期主题。
-        """
-
+    def apply_chat_template(self, messages: list[dict[str, str]], add_generation_prompt: bool = True) -> str:
+        """构造本期使用的 Qwen3 non-thinking 文本模板。"""
         prompt_parts = []
         for message in messages:
             role = message.get("role")
@@ -209,9 +197,8 @@ class Qwen3Tokenizer:
 
         return "".join(prompt_parts)
 
-    def encode_chat_prompt(self, prompt):
+    def encode_chat_prompt(self, prompt: str) -> list[int]:
         """把单轮用户问题直接转换为模型输入 Token IDs。"""
-
         messages = [{"role": "user", "content": prompt}]
         prompt_text = self.apply_chat_template(messages, add_generation_prompt=True)
         return self.encode(prompt_text)

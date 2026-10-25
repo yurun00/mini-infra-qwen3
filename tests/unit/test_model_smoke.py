@@ -1,6 +1,6 @@
-"""pytest 包装：复用 mini_infra.verification.smoke_test 的自检逻辑（CPU 可运行）。"""
+"""pytest 包装：复用 mini_infra.verification.smoke 的自检逻辑（CPU 可运行）。"""
 
-from mini_infra.verification.smoke_test import (
+from mini_infra.verification.smoke import (
     build_tiny_model,
     check_causal_mask,
     check_fixed_batching,

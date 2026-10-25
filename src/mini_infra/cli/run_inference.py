@@ -10,14 +10,14 @@ from mini_infra.generation import (
     generate,
     synchronize,
 )
-from mini_infra.profiling import TensorBoardOptions
-from mini_infra.qwen3_model import (
+from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
+    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )
-from mini_infra.qwen3_tokenizer import Qwen3Tokenizer
+from mini_infra.profiling import TensorBoardOptions
 
 
 def parse_args():

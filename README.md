@@ -29,24 +29,30 @@
 mini-infra-qwen3/
 ├── src/
 │   └── mini_infra/
-│       ├── __init__.py                # mini_infra 包导出入口
-│       ├── qwen3_model.py             # Qwen3-0.6B 结构与前向算子手写实现
-│       ├── qwen3_tokenizer.py         # 教学版 Byte-level BPE Tokenizer
-│       ├── profiling.py               # 算子性能剖析、Module Scope 打点与多 run 聚合
-│       ├── generation/                # 自回归生成主引擎与状态机包
+│       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, Mode, load_model 等
+│       ├── model/                     # 统一模型与 Tokenizer 域
+│       │   ├── config.py              # Qwen3Config 模型配置
+│       │   ├── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
+│       │   ├── tokenizer.py           # Qwen3Tokenizer
+│       │   └── cache.py               # KVCache 键值缓存容器与显存统计
+│       ├── generation/                # 核心文本生成引擎域
 │       │   ├── engine.py              # generate 统一生成入口与调度流程
 │       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义
 │       │   ├── state.py               # 批自回归循环状态机 BatchGenerationState
-│       │   ├── result.py              # 推理结果容器 GenerationResult 与跨 run 聚合
+│       │   ├── types.py               # 推理结果容器 GenerationResult 与强类型数据结构
 │       │   └── preprocessing.py       # Prompt 规约与左填充（Left Padding）
+│       ├── profiling/                 # 算子耗时剖析域
+│       │   ├── tracer.py              # PyTorch Profiler 打点、Scope 注入与 ProfileCollector
+│       │   ├── analyzer.py            # 耗时统计、Kernel 分类与跨 run 聚合
+│       │   └── types.py               # OpLatencyBreakdown, KernelInfo, TensorBoardOptions
 │       ├── cli/
 │       │   └── run_inference.py       # mini-infra-run：单请求/批处理推理、计时与特性对比
 │       ├── verification/              # 正确性验证与数值等价性工具包
-│       │   ├── smoke_test.py          # mini-infra-smoke：随机小模型快速自检（CPU）
+│       │   ├── smoke.py               # mini-infra-smoke：随机小模型快速自检（CPU）
 │       │   └── parity/                # 精度与等价性对齐工具包
 │       │       ├── compare_cache.py   # mini-infra-compare-cache：KV Cache 前后逐步 Logits 对齐
 │       │       ├── compare_batch.py   # mini-infra-compare-batch：固定批处理请求隔离与数值对齐
-│       │       └── compare_with_transformers.py # mini-infra-compare：与 Transformers 对齐
+│       │       └── compare_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
 │           ├── types.py               # 评测强类型领域模型 CaseBenchmarkResult 与分布统计
 │           ├── workloads.py           # 合成 Prompt 与变长预算序列生成工具
@@ -54,9 +60,10 @@ mini-infra-qwen3/
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── run_case.py            # mini-infra-bench-case：单 case 基准测试执行引擎
 │           ├── run_suite.py           # mini-infra-bench-suite：预设测试套件执行引擎
-│           ├── plot_history.py        # mini-infra-bench-plot-history：读取 result-history/ 生成汇总表与演进趋势图
-│           ├── plot_compare.py        # mini-infra-bench-plot-compare：对比两个独立 JSON 结果（如不同 mode）并绘制多维对比图
-│           └── check_regression.py    # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码，不参与画图）
+│           ├── check_regression.py    # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码）
+│           └── plotting/              # 绘图工具包
+│               ├── history.py         # mini-infra-bench-plot-history：读取 result-history/ 生成演进趋势图
+│               └── compare.py         # mini-infra-bench-plot-compare：对比独立 JSON 结果绘制多维对比图
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
 │   └── gpu/
