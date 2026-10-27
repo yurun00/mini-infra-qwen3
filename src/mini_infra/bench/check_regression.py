@@ -38,7 +38,7 @@ METRICS = [("ttft_ms", "TTFT"), ("tpot_ms", "TPOT")]
 
 
 def run_light_benchmark(output, tag):
-    cmd = [sys.executable, "-m", "mini_infra.bench.run_case", "--tag", tag, "--output", str(output), *LIGHT_ARGS]
+    cmd = [sys.executable, "-m", "mini_infra.bench.batch.run_case", "--tag", tag, "--output", str(output), *LIGHT_ARGS]
     print("运行轻量 benchmark:", " ".join(cmd[1:]), flush=True)
     return subprocess.run(cmd, cwd=BENCH_ARTIFACTS_DIR.parent).returncode
 

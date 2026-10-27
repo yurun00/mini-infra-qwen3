@@ -1,18 +1,43 @@
-from mini_infra.generation import (
+from mini_infra.core import (
+    ArrivalQueue,
+    RequestMetrics,
+    RequestSpec,
+    RequestState,
+    RequestStatus,
+    ScheduleEvent,
+    ScheduleMetrics,
+    SchedulePhase,
+    ScheduleResult,
+    make_request_specs,
+    summarize_schedule,
+    validate_request_specs,
+)
+from mini_infra.device import (
+    peak_memory_mb,
+    reset_peak_memory,
+    synchronize,
+)
+from mini_infra.engine import (
+    BatchGenerationState,
     BatchingMethod,
+    FeatureDimension,
     FeatureFlag,
     GenerationResult,
     Mode,
-    generate,
+    run_scheduler,
+)
+from mini_infra.entrypoints import generate
+from mini_infra.memory import (
+    DenseSlotCache,
+    KVCache,
+    cache_size_bytes,
 )
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    KVCache,
     Qwen3Config,
     Qwen3ForCausalLM,
     Qwen3Tokenizer,
-    cache_size_bytes,
     load_model,
     model_dtype_from_config,
     resolve_model_directory,
@@ -28,11 +53,16 @@ from mini_infra.profiling import (
     merge_op_latency_breakdowns,
     profile_scope,
 )
+from mini_infra.utils import percentile
 
 __all__ = [
+    "ArrivalQueue",
+    "BatchGenerationState",
     "BatchingMethod",
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
+    "DenseSlotCache",
+    "FeatureDimension",
     "FeatureFlag",
     "GenerationResult",
     "KERNEL_CATEGORIES",
@@ -44,14 +74,30 @@ __all__ = [
     "Qwen3Config",
     "Qwen3ForCausalLM",
     "Qwen3Tokenizer",
+    "RequestMetrics",
+    "RequestSpec",
+    "RequestState",
+    "RequestStatus",
+    "ScheduleEvent",
+    "ScheduleMetrics",
+    "SchedulePhase",
+    "ScheduleResult",
     "TensorBoardOptions",
     "cache_size_bytes",
     "generate",
     "install_scope_hooks",
     "kernel_category",
     "load_model",
+    "make_request_specs",
     "merge_op_latency_breakdowns",
     "model_dtype_from_config",
+    "peak_memory_mb",
+    "percentile",
     "profile_scope",
+    "reset_peak_memory",
     "resolve_model_directory",
+    "run_scheduler",
+    "summarize_schedule",
+    "synchronize",
+    "validate_request_specs",
 ]

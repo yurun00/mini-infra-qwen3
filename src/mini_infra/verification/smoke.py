@@ -5,8 +5,9 @@
 
 import torch
 
-from mini_infra.generation import BatchingMethod, FeatureFlag, Mode, generate, left_pad_sequences
-from mini_infra.model import KVCache, Qwen3Config, Qwen3ForCausalLM, cache_size_bytes
+from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, generate, left_pad_sequences
+from mini_infra.memory import KVCache, cache_size_bytes
+from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
 
 
 def build_tiny_model():
@@ -149,12 +150,40 @@ def check_fixed_batching(model):
             raise AssertionError("错误长度的 Attention Mask 未被拒绝")
 
 
+def check_continuous_batching(model):
+    """验证 Continuous Batching 动态组批调度与串行 baseline 输出完全一致。"""
+    device = torch.device("cpu")
+    request_a = [3, 5, 7, 9]
+    request_b = [11, 13]
+    requests = [request_a, request_b]
+    budgets = [4, 3]
+
+    continuous_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    serial_mode = Mode({FeatureFlag.KV_CACHE})
+
+    # 1. 统一 generate 接口分发
+    cont_gen = generate(continuous_mode, model, requests, budgets, eos_token_id=-1, device=device, stop_on_eos=False)
+    serial_gen = generate(serial_mode, model, requests, budgets, eos_token_id=-1, device=device, stop_on_eos=False)
+    assert [s.token_ids for s in cont_gen.sequences] == [s.token_ids for s in serial_gen.sequences]
+
+    from mini_infra.core import make_request_specs
+    from mini_infra.engine import run_scheduler
+
+    specs = make_request_specs(requests, budgets, arrival_times_ms=[0.0, 5.0])
+    res = run_scheduler(
+        "continuous", model, specs, max_running_requests=1, eos_token_id=-1, device=device, stop_on_eos=False
+    )
+    assert [s.token_ids for s in res.sequences] == [s.token_ids for s in serial_gen.sequences]
+    print("Continuous Batching 动态调度与串行输出一致性检查通过")
+
+
 def run_smoke_test():
     model = build_tiny_model()
     check_output_shape_and_tied_weights(model)
     check_causal_mask(model)
     check_kv_cache_correctness(model)
     check_fixed_batching(model)
+    check_continuous_batching(model)
 
 
 def main():

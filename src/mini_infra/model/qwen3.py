@@ -14,7 +14,7 @@ from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 from torch import nn
 
-from mini_infra.model.cache import KVCache
+from mini_infra.memory import KVCache
 from mini_infra.model.config import DEFAULT_MODEL_REVISION, Qwen3Config, model_dtype_from_config
 
 
@@ -358,9 +358,7 @@ def resolve_model_directory(model_name_or_path: str, revision: str = DEFAULT_MOD
     )
 
 
-def load_model(
-    model_directory: str | Path, device: torch.device, dtype: torch.dtype | None = None
-) -> Qwen3ForCausalLM:
+def load_model(model_directory: str | Path, device: torch.device, dtype: torch.dtype | None = None) -> Qwen3ForCausalLM:
     """从 safetensors 权重构造 Qwen3 模型。"""
     config = Qwen3Config.from_model_directory(model_directory)
     model = Qwen3ForCausalLM(config)

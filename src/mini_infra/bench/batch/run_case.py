@@ -24,23 +24,9 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.common import (
-    RESULT_HISTORY_DIR,
-    ProfileMode,
-    add_common_args,
-    build_benchmark_record,
-    check_correctness,
-    efficiency,
-    git_info,
-    gpu_info,
-    model_cost,
-    print_table,
-    resolve_peak_specs,
-    save_benchmark_record,
-)
-from mini_infra.bench.suites import SuiteCase
-from mini_infra.bench.types import (
-    BatchScheduleSummary,
+from mini_infra.bench.batch.suites import SuiteCase
+from mini_infra.bench.batch.types import (
+    BatchPackingProfile,
     CaseBenchmarkResult,
     CaseMemoryProfile,
     HardwareEfficiency,
@@ -49,8 +35,25 @@ from mini_infra.bench.types import (
     WorkloadSpec,
     summarize_samples,
 )
+from mini_infra.bench.common import (
+    RESULT_HISTORY_DIR,
+    ProfileMode,
+    add_common_args,
+    build_benchmark_record,
+    check_correctness,
+    efficiency,
+    format_lengths,
+    git_info,
+    gpu_info,
+    model_cost,
+    print_case_summary,
+    print_table,
+    require_cuda,
+    resolve_peak_specs,
+    save_benchmark_record,
+)
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.generation import (
+from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     Mode,
@@ -216,10 +219,10 @@ def run_case(
         kv_cache_mb=worst_run.memory.kv_cache_mb if worst_run else 0.0,
     )
 
-    scheduling = None
+    packing = None
     if runs and runs[0].batch_info is not None:
         b0 = runs[0].batch_info
-        scheduling = BatchScheduleSummary(
+        packing = BatchPackingProfile(
             padding_efficiency=b0.padding_efficiency,
             slot_utilization=b0.slot_utilization,
             prompt_tokens=b0.prompt_tokens,
@@ -273,7 +276,7 @@ def run_case(
         latency=latency,
         throughput=throughput,
         memory=case_memory,
-        scheduling=scheduling,
+        packing=packing,
         efficiency=eff_obj,
         gpu_time_ratio=gpu_ratio_stat,
         op_breakdown=op_breakdown,
@@ -313,17 +316,13 @@ def parse_args():
         default=[64],
         help="最大新生成 Token 预算（1 项表示等长，多项表示逐请求长度，默认: 64）",
     )
-    p.add_argument("--warmup", type=int, default=3, help="预热次数（默认: 3）")
-    p.add_argument("--repeats", type=int, default=10, help="正式测量重复次数（默认: 10）")
     p.add_argument("--update-golden", action="store_true", help="用当前输出覆盖 golden（仅在 baseline 上使用）")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
-    if not torch.cuda.is_available():
-        raise RuntimeError("需要可用的 NVIDIA GPU")
-    device = torch.device("cuda")
+    device = require_cuda()
 
     target_bs, resolved_prompt_len, resolved_max_new_tokens = resolve_case_specs(
         args.prompt_lens, args.max_new_tokens, args.batch_size
@@ -349,10 +348,9 @@ def main():
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
-    pl_disp = "/".join(map(str, case.prompt_len)) if isinstance(case.prompt_len, tuple) else case.prompt_len
-    ol_disp = "/".join(map(str, case.max_new_tokens)) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens
     print(
-        f"[bench-case] mode={case.mode} batch={case.batch_size} prompt={pl_disp} max_new_tokens={ol_disp} ...",
+        f"[bench-case] mode={case.mode} batch={case.batch_size} prompt={format_lengths(case.prompt_len)} "
+        f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
         flush=True,
     )
 
@@ -372,28 +370,7 @@ def main():
         tensorboard_options=tb_options,
     )
 
-    print(
-        "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
-        % (
-            result.latency.ttft_ms.median,
-            result.latency.tpot_ms.median,
-            result.latency.tpot_ms.std,
-            result.throughput.throughput_tok_s.median,
-            result.throughput.throughput_req_s.median,
-            result.memory.peak_allocated_mb,
-        )
-    )
-    if result.efficiency and result.efficiency.decode_mbu is not None:
-        gpu_busy_str = "%.0f%%" % (100 * result.gpu_time_ratio.median) if result.gpu_time_ratio is not None else "N/A"
-        print(
-            "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
-            % (
-                100 * result.efficiency.decode_mbu,
-                100 * (result.efficiency.decode_mfu or 0),
-                100 * (result.efficiency.prefill_mfu or 0),
-                gpu_busy_str,
-            )
-        )
+    print_case_summary(result)
 
     git = git_info()
     record = build_benchmark_record(
@@ -413,6 +390,7 @@ def main():
     output = args.output or RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
     save_benchmark_record(output, record, dirty=git["dirty"])
     print()
+    # 末尾输出标准单行 CSV 表格：供脚本重定向收集或复制至电子表格对比（与前文人类可读的 summary 互补）
     print_table([result], mode=str(case.mode))
 
 

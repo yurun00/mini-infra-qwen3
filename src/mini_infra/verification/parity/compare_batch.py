@@ -7,8 +7,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.generation.engine import generate
-from mini_infra.generation.mode import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,

@@ -6,27 +6,9 @@ from typing import Literal
 
 import torch
 
+from mini_infra.core.types import BatchScheduleInfo, ScheduleResult, SequenceOutput
 from mini_infra.profiling import OpLatencyBreakdown, merge_op_latency_breakdowns
-
-
-def percentile(values: list[float], percent: int | float) -> float:
-    """使用 nearest-rank 定义计算小样本延迟分位数。"""
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    rank = max(1, (len(ordered) * percent + 99) // 100)
-    return ordered[min(rank, len(ordered)) - 1]
-
-
-@dataclass(frozen=True)
-class SequenceOutput:
-    """单个请求的生成序列输出。"""
-
-    request_index: int
-    token_ids: list[int]
-    prompt_len: int
-    output_len: int
-    finish_reason: str  # 结束原因: "stop"（命中 EOS）或 "max_tokens"（达到 Token 预算上限）
+from mini_infra.utils import percentile
 
 
 @dataclass(frozen=True)
@@ -70,29 +52,6 @@ class GenerationTrace:
     step_latencies_ms: list[float]
     active_tokens_per_step: list[int]
     logits_trace: list[torch.Tensor] | None = None
-
-
-@dataclass(frozen=True)
-class BatchScheduleInfo:
-    """批处理调度效率与完成状态明细。"""
-
-    padding_efficiency: float
-    slot_utilization: float
-    prompt_tokens: int
-    padded_prompt_tokens: int
-    prompt_lengths_per_req: list[int]
-    completion_steps_per_req: list[int]
-    ttft_ms: float = 0.0
-
-    @property
-    def effective_prompt_tok_s(self) -> float:
-        """Prefill 阶段有效 Prompt 吞吐率 (tokens/s)。"""
-        return self.prompt_tokens * 1000.0 / self.ttft_ms if self.ttft_ms > 0 else 0.0
-
-    @property
-    def padded_prompt_tok_s(self) -> float:
-        """Prefill 阶段包含 Padding 的物理计算吞吐率 (tokens/s)。"""
-        return self.padded_prompt_tokens * 1000.0 / self.ttft_ms if self.ttft_ms > 0 else 0.0
 
 
 @dataclass(frozen=True)
@@ -354,4 +313,35 @@ def aggregate_generation_results(
         batch_size=total_requests,
         op_breakdown=op_breakdown,
         batch_info=None,
+    )
+
+
+def to_generation_result(result: ScheduleResult, baseline_allocated_mb: float, is_cuda: bool) -> GenerationResult:
+    """把 ScheduleResult 映射为统一的 GenerationResult（所有请求同时到达的场景），以复用现有 parity/正确性门禁。"""
+    step_latencies = [event.total_ms for event in result.events]
+    metrics = compute_step_aggregated_metrics(
+        step_latencies_ms=step_latencies,
+        e2e_wall_ms=result.metrics.makespan_ms,
+        e2e_model_ms=result.metrics.model_ms,
+        total_tokens=sum(seq.output_len for seq in result.sequences),
+        batch_size=result.metrics.request_count,
+        is_cuda=is_cuda,
+    )
+    memory = MemoryProfile(
+        baseline_mb=baseline_allocated_mb,
+        prefill_mb=0.0,
+        peak_allocated_mb=result.metrics.peak_allocated_mb,
+        peak_reserved_mb=result.metrics.peak_reserved_mb,
+        kv_cache_mb=result.metrics.peak_live_cache_mb,
+    )
+    trace = GenerationTrace(
+        step_latencies_ms=step_latencies,
+        active_tokens_per_step=[event.generated_tokens for event in result.events],
+    )
+    return GenerationResult(
+        sequences=result.sequences,
+        metrics=metrics,
+        memory=memory,
+        trace=trace,
+        batch_size=result.metrics.request_count,
     )

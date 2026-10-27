@@ -12,20 +12,23 @@ import sys
 
 import torch
 
+from mini_infra.bench.batch.run_case import run_case
+from mini_infra.bench.batch.suites import SUITES, get_suite
 from mini_infra.bench.common import (
     SUITES_DIR,
     add_common_args,
     build_benchmark_record,
     check_correctness,
+    format_lengths,
     git_info,
     gpu_info,
     model_cost,
+    print_case_summary,
     print_table,
+    require_cuda,
     resolve_peak_specs,
     save_benchmark_record,
 )
-from mini_infra.bench.run_case import run_case
-from mini_infra.bench.suites import SUITES, get_suite
 from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
 
@@ -44,14 +47,13 @@ def parse_args():
 
 def main():
     args = parse_args()
-    if not torch.cuda.is_available():
-        raise RuntimeError("需要可用的 NVIDIA GPU")
-    device = torch.device("cuda")
+    device = require_cuda()
 
     suite = get_suite(args.suite)
     modes = suite.modes()
     cases = suite.cases()
-    warmup, repeats = suite.warmup, suite.repeats
+    warmup = args.warmup if args.warmup is not None else suite.warmup
+    repeats = args.repeats if args.repeats is not None else suite.repeats
     mode_label = ",".join(str(m) for m in modes)
 
     model_dir = resolve_model_directory(args.model, args.revision)
@@ -73,12 +75,9 @@ def main():
 
     case_results = []
     for case in cases:
-        pl_disp = "/".join(map(str, case.prompt_len)) if isinstance(case.prompt_len, tuple) else case.prompt_len
-        ol_disp = (
-            "/".join(map(str, case.max_new_tokens)) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens
-        )
         print(
-            f"[bench-suite] mode={case.mode} batch={case.batch_size} prompt={pl_disp} max_new_tokens={ol_disp} ...",
+            f"[bench-suite] mode={case.mode} batch={case.batch_size} prompt={format_lengths(case.prompt_len)} "
+            f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
             flush=True,
         )
         try:
@@ -102,32 +101,7 @@ def main():
             torch.cuda.empty_cache()
             continue
         case_results.append(case_result)
-        print(
-            "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
-            % (
-                case_result.latency.ttft_ms.median,
-                case_result.latency.tpot_ms.median,
-                case_result.latency.tpot_ms.std,
-                case_result.throughput.throughput_tok_s.median,
-                case_result.throughput.throughput_req_s.median,
-                case_result.memory.peak_allocated_mb,
-            )
-        )
-        if case_result.efficiency and case_result.efficiency.decode_mbu is not None:
-            gpu_busy_str = (
-                "%.0f%%" % (100 * case_result.gpu_time_ratio.median)
-                if case_result.gpu_time_ratio is not None
-                else "N/A"
-            )
-            print(
-                "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
-                % (
-                    100 * case_result.efficiency.decode_mbu,
-                    100 * (case_result.efficiency.decode_mfu or 0),
-                    100 * (case_result.efficiency.prefill_mfu or 0),
-                    gpu_busy_str,
-                )
-            )
+        print_case_summary(case_result)
 
     git = git_info()
     record = build_benchmark_record(

@@ -3,7 +3,7 @@
 遵循标准三层正交领域模型：
 1. 负载与配置层：WorkloadSpec
 2. 统计分布汇总层：DistributionStats, LatencyDistributions, ThroughputDistributions,
-   CaseMemoryProfile, BatchScheduleSummary, HardwareEfficiency
+   CaseMemoryProfile, BatchPackingProfile, HardwareEfficiency
 3. 诊断与明细层：OpLatencyBreakdown, raw_samples
 """
 
@@ -12,8 +12,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from mini_infra.generation.types import percentile
 from mini_infra.profiling import OpLatencyBreakdown
+from mini_infra.utils import percentile
 
 
 @dataclass(frozen=True)
@@ -153,8 +153,8 @@ class HardwareEfficiency:
 
 
 @dataclass(frozen=True)
-class BatchScheduleSummary:
-    """批处理调度特征与槽位利用率汇总（终结 extra 杂物箱）。"""
+class BatchPackingProfile:
+    """批处理打包（Padding 与槽位有效利用率）特征画像。"""
 
     padding_efficiency: float
     slot_utilization: float
@@ -166,7 +166,7 @@ class BatchScheduleSummary:
     padded_prompt_throughput: DistributionStats | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """导出为调度特征字典结构。"""
+        """导出为批处理打包特征字典结构。"""
         d: dict[str, Any] = {
             "padding_efficiency": self.padding_efficiency,
             "slot_utilization": self.slot_utilization,
@@ -190,7 +190,7 @@ class CaseBenchmarkResult:
     latency: LatencyDistributions
     throughput: ThroughputDistributions
     memory: CaseMemoryProfile
-    scheduling: BatchScheduleSummary | None = None
+    packing: BatchPackingProfile | None = None
     efficiency: HardwareEfficiency | None = None
     gpu_time_ratio: DistributionStats | None = None
     op_breakdown: OpLatencyBreakdown | None = None
@@ -223,8 +223,8 @@ class CaseBenchmarkResult:
             "memory": self.memory.to_dict(),
             "raw": self.raw_samples,
         }
-        if self.scheduling is not None:
-            rec["extra"] = self.scheduling.to_dict()
+        if self.packing is not None:
+            rec["packing"] = self.packing.to_dict()
         if self.efficiency is not None:
             rec["efficiency"] = self.efficiency.to_dict()
         if self.op_breakdown is not None:

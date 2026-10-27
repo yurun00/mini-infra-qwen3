@@ -4,8 +4,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from mini_infra.bench.types import (
-    BatchScheduleSummary,
+from mini_infra.bench.batch.types import (
+    BatchPackingProfile,
     CaseBenchmarkResult,
     CaseMemoryProfile,
     DistributionStats,
@@ -78,7 +78,7 @@ def test_case_benchmark_result_structure_and_dot_access():
         peak_reserved_mb=800.0,
         kv_cache_mb=12.0,
     )
-    scheduling = BatchScheduleSummary(
+    packing = BatchPackingProfile(
         padding_efficiency=0.85,
         slot_utilization=0.90,
         prompt_tokens=48,
@@ -103,7 +103,7 @@ def test_case_benchmark_result_structure_and_dot_access():
         latency=latency,
         throughput=throughput,
         memory=memory,
-        scheduling=scheduling,
+        packing=packing,
         efficiency=efficiency,
         gpu_time_ratio=dummy_stat,
         op_breakdown=op_breakdown,
@@ -118,7 +118,7 @@ def test_case_benchmark_result_structure_and_dot_access():
     assert case_result.memory.peak_allocated_mb == 700.0
     assert case_result.memory.dynamic_peak_mb == 100.0
     assert case_result.memory.fragmentation_mb == 100.0
-    assert case_result.scheduling is not None and case_result.scheduling.padding_efficiency == 0.85
+    assert case_result.packing is not None and case_result.packing.padding_efficiency == 0.85
     assert case_result.efficiency is not None and case_result.efficiency.decode_mbu == 0.45
     assert case_result.gpu_time_ratio is not None and case_result.gpu_time_ratio.median == 10.0
     assert case_result.op_breakdown is not None and case_result.op_breakdown.total_ms == 100.0
@@ -131,7 +131,7 @@ def test_case_benchmark_result_structure_and_dot_access():
     with pytest.raises(TypeError):
         _ = case_result["latency"]  # type: ignore[index]
 
-    # 4. 验证 to_record_dict() 与历史 JSON Schema 格式 100% 兼容
+    # 4. 验证 to_record_dict() 字典导出结构
     rec = case_result.to_record_dict()
     assert rec["mode"] == "kv-cache"
     assert rec["batch_size"] == 2
@@ -142,8 +142,8 @@ def test_case_benchmark_result_structure_and_dot_access():
     assert rec["memory"]["peak_allocated_mb"] == 700.0
     assert rec["memory"]["dynamic_peak_mb"] == 100.0
     assert rec["memory"]["fragmentation_mb"] == 100.0
-    assert rec["extra"]["padding_efficiency"] == 0.85
-    assert rec["extra"]["slot_utilization"] == 0.90
+    assert rec["packing"]["padding_efficiency"] == 0.85
+    assert rec["packing"]["slot_utilization"] == 0.90
     assert rec["efficiency"]["decode_mbu"] == 0.45
     assert rec["op_latency_breakdown"]["total_ms"] == 100.0
     assert rec["raw"]["tpot_ms"] == [10.0, 10.5]

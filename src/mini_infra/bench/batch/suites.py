@@ -27,10 +27,10 @@ from dataclasses import asdict, dataclass
 from typing import Protocol, runtime_checkable
 
 from mini_infra.bench.workloads import (
-    get_mixed_output_budgets,
-    get_mixed_prompt_lengths,
+    make_variable_output_budgets,
+    make_variable_prompt_lengths,
 )
-from mini_infra.generation import (
+from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     Mode,
@@ -162,10 +162,10 @@ class UniformVsVariablePromptPaddingSuite:
     def cases(self) -> list[SuiteCase]:
         mode = self.modes()[0]
         homo_lengths = tuple([self.max_prompt_length] * self.batch_size)
-        mixed_lengths = tuple(get_mixed_prompt_lengths(self.max_prompt_length))
+        variable_lengths = tuple(make_variable_prompt_lengths(self.max_prompt_length))
         return [
             SuiteCase(mode, self.batch_size, homo_lengths, self.max_new_tokens),
-            SuiteCase(mode, self.batch_size, mixed_lengths, self.max_new_tokens),
+            SuiteCase(mode, self.batch_size, variable_lengths, self.max_new_tokens),
         ]
 
     def to_dict(self) -> dict:
@@ -218,10 +218,10 @@ class UniformVsVariableBudgetSlotsSuite:
         mode = self.modes()[0]
         prompt_lens = tuple([self.prompt_length] * self.batch_size)
         uniform_budgets = tuple([self.max_new_tokens] * self.batch_size)
-        mixed_budgets = tuple(get_mixed_output_budgets(self.max_new_tokens))
+        variable_budgets = tuple(make_variable_output_budgets(self.max_new_tokens))
         return [
             SuiteCase(mode, self.batch_size, prompt_lens, uniform_budgets),
-            SuiteCase(mode, self.batch_size, prompt_lens, mixed_budgets),
+            SuiteCase(mode, self.batch_size, prompt_lens, variable_budgets),
         ]
 
     def to_dict(self) -> dict:

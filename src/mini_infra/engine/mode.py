@@ -3,7 +3,9 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
+
+from mini_infra.core.types import BatchingMethod
 
 
 class FeatureFlag(str, Enum):
@@ -24,26 +26,7 @@ class FeatureFlag(str, Enum):
         return self.value
 
 
-class BatchingMethod(str, Enum):
-    """互斥的批处理策略。"""
-
-    NONE = "none"
-    FIXED = "fixed-batching"
-    CONTINUOUS = "continuous-batching"
-
-    @classmethod
-    def from_str(cls, value: "str | BatchingMethod | None") -> "BatchingMethod":
-        if value is None:
-            return cls.NONE
-        if isinstance(value, cls):
-            return value
-        try:
-            return cls(value)
-        except ValueError as err:
-            raise ValueError(f"未知批处理策略: {value}，可选策略: {[m.value for m in cls]}") from err
-
-    def __str__(self) -> str:
-        return self.value
+FeatureDimension = FeatureFlag | type[BatchingMethod]
 
 
 @dataclass(frozen=True)
@@ -53,6 +36,11 @@ class Mode:
     - flags: 正交的功能开关集合（如 FeatureFlag.KV_CACHE）。
     - batching_method: 互斥的批处理策略（BatchingMethod.NONE / FIXED / CONTINUOUS）。
     """
+
+    FEATURE_DIMENSIONS: ClassVar[tuple[FeatureDimension, ...]] = (
+        *FeatureFlag,
+        BatchingMethod,
+    )
 
     flags: frozenset[FeatureFlag] = frozenset()
     batching_method: BatchingMethod = BatchingMethod.NONE
@@ -105,6 +93,19 @@ class Mode:
     def is_batch(self) -> bool:
         return self.batching_method != BatchingMethod.NONE
 
+    @property
+    def feature_dimensions(self) -> tuple[FeatureDimension, ...]:
+        """返回当前 Mode 支持的所有特征维度元组。"""
+        return self.FEATURE_DIMENSIONS
+
+    def feature_value(self, feature: FeatureDimension) -> Any:
+        """提取指定特征维度的当前取值。"""
+        if feature is BatchingMethod:
+            return self.batching_method
+        if isinstance(feature, FeatureFlag):
+            return self.is_enabled(feature)
+        raise TypeError(f"未知的特征维度类型: {feature!r}，必须为 FeatureFlag 成员或 BatchingMethod")
+
     def to_dict(self) -> dict[str, Any]:
         """将 mode 中的所有 feature flag 状态及 batching 策略转换为字典。"""
         result = {flag.value: self.is_enabled(flag) for flag in FeatureFlag}
@@ -127,3 +128,11 @@ class Mode:
         if not parts:
             return "no-cache"
         return "+".join(parts)
+
+
+__all__ = [
+    "BatchingMethod",
+    "FeatureDimension",
+    "FeatureFlag",
+    "Mode",
+]

@@ -5,9 +5,9 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from mini_infra.bench.run_case import run_case
-from mini_infra.bench.run_suite import parse_args
-from mini_infra.bench.suites import (
+from mini_infra.bench.batch.run_case import run_case
+from mini_infra.bench.batch.run_suite import parse_args
+from mini_infra.bench.batch.suites import (
     SUITES,
     SerialVsFixedBatchThroughputSuite,
     Suite,
@@ -15,7 +15,7 @@ from mini_infra.bench.suites import (
     UniformVsVariablePromptPaddingSuite,
     get_suite,
 )
-from mini_infra.generation import BatchingMethod
+from mini_infra.engine import BatchingMethod
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -230,13 +230,13 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu():
     # uniform: [4, 4, 4, 4]，padding efficiency 应该为 100%
     assert res_homo.workload.batch_size == 4
     assert res_homo.workload.prompt_len == (4, 4, 4, 4)
-    assert res_homo.scheduling is not None and res_homo.scheduling.padding_efficiency == 1.0
+    assert res_homo.packing is not None and res_homo.packing.padding_efficiency == 1.0
 
     # variable: [max(1, 4//8), max(1, 4//4), max(1, 4//2), 4] = [1, 1, 2, 4]
     assert res_mixed.workload.batch_size == 4
     assert res_mixed.workload.prompt_len == (1, 1, 2, 4)
-    assert res_mixed.scheduling is not None and res_mixed.scheduling.padding_efficiency == (1 + 1 + 2 + 4) / 16
-    assert res_mixed.scheduling.padding_efficiency < 1.0
+    assert res_mixed.packing is not None and res_mixed.packing.padding_efficiency == (1 + 1 + 2 + 4) / 16
+    assert res_mixed.packing.padding_efficiency < 1.0
 
 
 def test_uniform_vs_variable_budget_slots_defaults():
@@ -332,12 +332,12 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu():
     assert res_uniform.workload.batch_size == 4
     assert res_uniform.workload.prompt_len == (4, 4, 4, 4)
     assert res_uniform.workload.max_new_tokens == (4, 4, 4, 4)
-    assert res_uniform.scheduling is not None and res_uniform.scheduling.slot_utilization == 1.0
+    assert res_uniform.packing is not None and res_uniform.packing.slot_utilization == 1.0
 
     # variable: [max(2, 4//8), max(2, 4//4), max(2, 4//2), 4] = [2, 2, 2, 4]
     # slot utilization = (2 + 2 + 2 + 4) / 16 = 0.625
     assert res_variable.workload.batch_size == 4
     assert res_variable.workload.prompt_len == (4, 4, 4, 4)
     assert res_variable.workload.max_new_tokens == (2, 2, 2, 4)
-    assert res_variable.scheduling is not None and res_variable.scheduling.slot_utilization == (2 + 2 + 2 + 4) / 16
-    assert res_variable.scheduling.slot_utilization < 1.0
+    assert res_variable.packing is not None and res_variable.packing.slot_utilization == (2 + 2 + 2 + 4) / 16
+    assert res_variable.packing.slot_utilization < 1.0

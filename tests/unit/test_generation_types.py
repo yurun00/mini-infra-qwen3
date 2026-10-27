@@ -12,7 +12,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.generation.types import (
+from mini_infra.engine.types import (
     AggregationOptions,
     BatchScheduleInfo,
     GenerationResult,

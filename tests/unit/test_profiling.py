@@ -6,9 +6,9 @@ from unittest.mock import patch
 import pytest
 import torch
 
+from mini_infra.bench.batch.run_case import parse_args, run_case
 from mini_infra.bench.common import ProfileMode
-from mini_infra.bench.run_case import parse_args, run_case
-from mini_infra.generation import BatchingMethod, Mode, generate
+from mini_infra.engine import BatchingMethod, Mode, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
     MODULE_SCOPES,

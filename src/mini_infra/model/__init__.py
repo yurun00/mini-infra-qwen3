@@ -1,6 +1,6 @@
 """Qwen3 模型与 Tokenizer 架构。"""
 
-from mini_infra.model.cache import (
+from mini_infra.memory import (
     KVCache,
     cache_size_bytes,
 )

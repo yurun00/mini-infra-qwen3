@@ -40,7 +40,8 @@ def left_pad_sequences(
     return input_ids, attention_mask, position_ids, torch.tensor(lengths, dtype=torch.long, device=device)
 
 
-def _normalize_budgets(max_new_tokens: int | Sequence[int], batch_size: int, device: torch.device) -> torch.Tensor:
+def normalize_budgets(max_new_tokens: int | Sequence[int], batch_size: int, device: torch.device) -> torch.Tensor:
+    """把标量或逐请求的输出预算统一为 [B] 的 long Tensor，并校验每项大于 0。"""
     if isinstance(max_new_tokens, int):
         budgets = [max_new_tokens] * batch_size
     else:
@@ -50,7 +51,7 @@ def _normalize_budgets(max_new_tokens: int | Sequence[int], batch_size: int, dev
     return torch.tensor(budgets, dtype=torch.long, device=device)
 
 
-def _normalize_token_sequences(input_ids: Sequence[Any]) -> list[torch.Tensor]:
+def normalize_token_sequences(input_ids: Sequence[Any]) -> list[torch.Tensor]:
     """统一将非 Tensor 的输入归一化为一维 Token 序列 Tensor 列表。"""
     if len(input_ids) > 0 and isinstance(input_ids[0], int):
         return [torch.as_tensor(input_ids, dtype=torch.long)]

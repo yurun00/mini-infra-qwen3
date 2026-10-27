@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from mini_infra.generation import (
+from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     Mode,

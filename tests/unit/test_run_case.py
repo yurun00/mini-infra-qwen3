@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from mini_infra.bench.run_case import parse_args, resolve_case_specs, run_case
-from mini_infra.generation import Mode
+from mini_infra.bench.batch.run_case import parse_args, resolve_case_specs, run_case
+from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -72,6 +72,8 @@ def test_parse_args_run_case():
     assert args.prompt_lens == [32]
     assert args.max_new_tokens == [16]
     assert args.batch_size is None
+    assert args.warmup == 3
+    assert args.repeats == 10
 
 
 def test_run_case_on_cpu():

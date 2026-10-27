@@ -13,11 +13,12 @@
 - **单请求与固定批处理（Fixed Batching）自回归推理**：支持 greedy decoding 逐 Token 生成与左填充（Left Padding）对齐，支持 `--compare-feature` 对比特性标志（如 `kv-cache`）或批处理策略（如 `fixed-batching`）并自动计算加速比。
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
+- **Continuous Batching 调度与在线并发 Serving 基准**：实现原生 `DenseSlotCache` 显存槽位管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占空槽，消除队头阻塞；内建 `mini-infra-bench-serving` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
 
 ### 规划中特性 (Roadmap)
 - [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
 - [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
-- [ ] **Continuous Batching 调度**：支持多请求动态并发与动态组批
+- [x] **Continuous Batching 调度**：支持多请求动态并发与动态组批（DenseSlotCache + mini-infra-bench-serving）
 - [ ] **PagedAttention 内存管理**：非连续显存分页分配与碎片消除
 - [ ] **Tensor Parallelism (TP)**：张量并行分布式推理
 
@@ -30,17 +31,28 @@ mini-infra-qwen3/
 ├── src/
 │   └── mini_infra/
 │       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, Mode, load_model 等
+│       ├── device.py                  # 通用硬件设备同步与显存统计工具
+│       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
 │       ├── model/                     # 统一模型与 Tokenizer 域
 │       │   ├── config.py              # Qwen3Config 模型配置
 │       │   ├── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
-│       │   ├── tokenizer.py           # Qwen3Tokenizer
-│       │   └── cache.py               # KVCache 键值缓存容器与显存统计
-│       ├── generation/                # 核心文本生成引擎域
-│       │   ├── engine.py              # generate 统一生成入口与调度流程
+│       │   └── tokenizer.py           # Qwen3Tokenizer
+│       ├── memory/                    # 显存与 KV Cache 管理体系
+│       │   ├── kv_cache.py            # KVCache 键值缓存容器与显存统计
+│       │   └── slot_cache.py          # DenseSlotCache 连续批处理槽位管理器
+│       ├── core/                      # 调度与请求核心领域域（纯 CPU 逻辑，无 GPU/模型依赖）
+│       │   ├── request.py             # RequestSpec, RequestState (append_token), RequestStatus 请求领域模型
+│       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）
+│       │   └── types.py               # ScheduleResult, ScheduleEvent 调度核心类型
+│       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）
+│       │   └── offline.py             # 离线文本生成入口（Offline Entrypoint）：generate
+│       ├── engine/                    # 推理与 Serving 执行引擎域
+│       │   ├── runner.py              # 模型执行器 ModelRunner（step_forward / prefill_requests / decode_slots / step_batch）
+│       │   ├── batch_state.py         # 批自回归循环张量状态机 BatchGenerationState
+│       │   ├── scheduler_loop.py      # 核心批处理调度循环（Core Scheduler Loop）：run_scheduler (分发内部 _run_continuous_batching / _run_fixed_batching)
 │       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义
-│       │   ├── state.py               # 批自回归循环状态机 BatchGenerationState
-│       │   ├── types.py               # 推理结果容器 GenerationResult 与强类型数据结构
-│       │   └── preprocessing.py       # Prompt 规约与左填充（Left Padding）
+│       │   ├── preprocessing.py       # Prompt 规约与左填充（Left Padding）
+│       │   └── types.py               # 推理结果容器 GenerationResult、to_generation_result 与强类型数据结构
 │       ├── profiling/                 # 算子耗时剖析域
 │       │   ├── tracer.py              # PyTorch Profiler 打点、Scope 注入与 ProfileCollector
 │       │   ├── analyzer.py            # 耗时统计、Kernel 分类与跨 run 聚合
@@ -54,13 +66,20 @@ mini-infra-qwen3/
 │       │       ├── compare_batch.py   # mini-infra-compare-batch：固定批处理请求隔离与数值对齐
 │       │       └── compare_transformers.py # mini-infra-compare：与 Transformers 对齐
 │       └── bench/
-│           ├── types.py               # 评测强类型领域模型 CaseBenchmarkResult 与分布统计
-│           ├── workloads.py           # 合成 Prompt 与变长预算序列生成工具
-│           ├── suites.py              # Benchmark Suite 配置注册表（Protocol 规范）
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
-│           ├── run_case.py            # mini-infra-bench-case：单 case 基准测试执行引擎
-│           ├── run_suite.py           # mini-infra-bench-suite：预设测试套件执行引擎
+│           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
 │           ├── check_regression.py    # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码）
+│           ├── batch/                 # 离线与静态 Batch 基准测试
+│           │   ├── types.py           # CaseBenchmarkResult, BatchPackingProfile 等领域模型
+│           │   ├── suites.py          # 静态批处理套件定义（吞吐扫描、Prompt Padding、Slot 浪费）
+│           │   ├── run_case.py        # mini-infra-bench-case：单 case 基准测试执行引擎
+│           │   └── run_suite.py       # mini-infra-bench-suite：预设测试套件执行引擎
+│           ├── serving/               # 在线动态调度与 Continuous Batching 基准测试
+│           │   ├── types.py           # ServingCaseResult, ServingSuiteResult 等领域模型
+│           │   ├── suites.py          # Serving 受控实验套件与 ServingSuiteCase
+│           │   ├── plan.py            # 特征多维展开与基于 Feature 的 Interleave 执行计划生成器
+│           │   ├── run_case.py        # mini-infra-bench-serving-case：单用例评测执行引擎
+│           │   └── run_suite.py       # mini-infra-bench-serving-suite：Serving 套件计划执行引擎
 │           └── plotting/              # 绘图工具包
 │               ├── history.py         # mini-infra-bench-plot-history：读取 result-history/ 生成演进趋势图
 │               └── compare.py         # mini-infra-bench-plot-compare：对比独立 JSON 结果绘制多维对比图
@@ -70,10 +89,11 @@ mini-infra-qwen3/
 │       └── parity/                    # GPU 精度与等价性对齐测试（pytest tests/gpu/parity/）
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
-│   ├── suites/                        # 预设基准测试套件配置（YAML）
+│   ├── suites/                        # 预设基准测试套件配置（YAML 及 serving 结果）
 │   ├── result-history/                # 每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # SUMMARY.md、evolution_and_scaling.png、profiling_and_optimization.png（生成物）
 ├── docs/
+│   ├── continuous-batching.md         # 连续批处理架构原理、槽位管理与 Serving 评测指南
 │   └── profiling.md                   # 算子耗时剖析、Trace 导出与可视化分析指南
 ├── .github/workflows/
 │   ├── cpu-ci.yml                     # CPU 上 ruff + pytest

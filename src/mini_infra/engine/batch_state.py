@@ -1,11 +1,11 @@
-"""批生成执行状态机，管理槽位激活状态、输入张量更新与完成判断。"""
+"""批生成执行期张量状态机，管理模型前向输入张量、槽位掩码与完成判断。"""
 
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 
-from mini_infra.generation.types import BatchScheduleInfo
+from mini_infra.core.types import BatchScheduleInfo
 
 
 @dataclass
@@ -84,28 +84,33 @@ class BatchGenerationState:
         eos_token_id: int | None,
         stop_on_eos: bool,
     ) -> bool:
-        """更新槽位输出 Token、预算/EOS 判定并返回是否所有槽位均已完成。"""
-        curr_active_before = self.curr_active.clone()
-        self.active_counts_per_step.append(int(curr_active_before.sum().item()))
+        """更新槽位输出 Token、预算/EOS 判定并返回是否所有槽位均已完成。
 
+        完成判定在设备侧向量化完成，再用一次堆叠传输取回 Host，避免逐请求 `.item()` 带来的 O(B) 次同步。
+        """
+        active_before = self.curr_active
+        self.generated_counts += active_before.long()
+        if stop_on_eos and eos_token_id is not None:
+            stopped = active_before & (next_tokens == eos_token_id)
+        else:
+            stopped = torch.zeros_like(active_before)
+        reached_budget = self.generated_counts >= self.budgets
+        finished = active_before & (stopped | reached_budget)
+        self.curr_active = active_before & ~finished
+
+        tokens, was_active, now_finished, by_eos, still_active = torch.stack(
+            (next_tokens.long(), active_before.long(), finished.long(), stopped.long(), self.curr_active.long())
+        ).tolist()
+        self.active_counts_per_step.append(sum(was_active))
         for req_idx in range(self.batch_size):
-            if not bool(curr_active_before[req_idx].item()):
+            if not was_active[req_idx]:
                 continue
-            token_id = int(next_tokens[req_idx].item())
-            self.outputs[req_idx].append(token_id)
-            self.generated_counts[req_idx] += 1
-            reached_eos = eos_token_id is not None and token_id == eos_token_id
-            reached_budget = bool((self.generated_counts[req_idx] >= self.budgets[req_idx]).item())
-            if stop_on_eos and reached_eos:
-                self.curr_active[req_idx] = False
+            self.outputs[req_idx].append(tokens[req_idx])
+            if now_finished[req_idx]:
                 self.completion_steps[req_idx] = step + 1
-                self.finish_reasons[req_idx] = "stop"
-            elif reached_budget:
-                self.curr_active[req_idx] = False
-                self.completion_steps[req_idx] = step + 1
-                self.finish_reasons[req_idx] = "max_tokens"
+                self.finish_reasons[req_idx] = "stop" if by_eos[req_idx] else "max_tokens"
 
-        return not bool(self.curr_active.any().item())
+        return not any(still_active)
 
     def prepare_next_step(self, next_tokens: torch.Tensor, use_cache: bool) -> None:
         """准备下一步前向输入：活跃槽位传真实 Token，已完成槽位填 Padding 并 mask 掉。"""
