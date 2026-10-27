@@ -26,7 +26,7 @@ from mini_infra.engine import (
     Mode,
     run_scheduler,
 )
-from mini_infra.entrypoints import generate
+from mini_infra.entrypoints import OfflineGenerationOptions, generate
 from mini_infra.memory import (
     DenseSlotCache,
     KVCache,
@@ -70,6 +70,7 @@ __all__ = [
     "KernelInfo",
     "MODULE_SCOPES",
     "Mode",
+    "OfflineGenerationOptions",
     "OpLatencyBreakdown",
     "Qwen3Config",
     "Qwen3ForCausalLM",

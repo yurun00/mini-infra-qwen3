@@ -61,3 +61,76 @@ def test_add_common_args_includes_warmup_and_repeats():
     assert args.tag == "test"
     assert args.warmup == 2
     assert args.repeats == 5
+
+
+def test_repo_root_anchored_to_project_root():
+    from mini_infra.bench.common import BENCH_ARTIFACTS_DIR, REPO_ROOT
+
+    assert REPO_ROOT.is_dir()
+    assert (REPO_ROOT / "pyproject.toml").exists()
+    assert BENCH_ARTIFACTS_DIR == (REPO_ROOT / "benchmarks").resolve()
+
+
+def test_dataclasses_attributes_and_dict_compatibility():
+    from mini_infra.bench.common import (
+        CorrectnessReport,
+        EfficiencyMetrics,
+        HardwarePeakSpecs,
+        ModelCostProfile,
+    )
+
+    # 1. HardwarePeakSpecs
+    peaks = HardwarePeakSpecs(bandwidth_gbs=864.0, tflops=362.0)
+    assert peaks.bandwidth_gbs == 864.0
+    assert peaks.tflops == 362.0
+    assert peaks["bandwidth_gbs"] == 864.0
+    assert peaks["tflops"] == 362.0
+    assert peaks == {"bandwidth_gbs": 864.0, "tflops": 362.0}
+    assert peaks.to_dict() == {"bandwidth_gbs": 864.0, "tflops": 362.0}
+
+    # 2. ModelCostProfile
+    cost = ModelCostProfile(
+        n_params=600_000_000,
+        weight_bytes=1_200_000_000,
+        kv_bytes_per_token=2048,
+        attn_flop_coeff=16,
+    )
+    assert cost.n_params == 600_000_000
+    assert cost["n_params"] == 600_000_000
+    assert cost.to_dict()["kv_bytes_per_token"] == 2048
+
+    # 3. EfficiencyMetrics
+    eff = EfficiencyMetrics(prefill_mfu=0.45, decode_mfu=0.32, decode_mbu=0.78)
+    assert eff.prefill_mfu == 0.45
+    assert eff["decode_mbu"] == 0.78
+    assert eff.to_dict()["decode_mfu"] == 0.32
+
+    # 4. CorrectnessReport
+    rep = CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+    assert rep.checked is True
+    assert rep.passed is True
+    assert rep["passed"] is True
+    assert rep.to_dict() == {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": False}
+
+
+def test_common_strictly_decoupled_from_batch():
+    import mini_infra.bench.common as bench_common
+    from mini_infra.bench.batch import (
+        build_benchmark_record,
+        print_case_summary,
+        print_table,
+    )
+
+    # 1. common.py 自身不直接反向引入 CaseBenchmarkResult，解除分层倒置
+    assert "CaseBenchmarkResult" not in bench_common.__dict__
+
+    # 2. common.py 没有任何批处理专属展示/记录函数与兼容钩子
+    assert not hasattr(bench_common, "print_table")
+    assert not hasattr(bench_common, "print_case_summary")
+    assert not hasattr(bench_common, "build_benchmark_record")
+    assert not hasattr(bench_common, "_format_case_row")
+
+    # 3. 批处理展示与记录构建函数在 batch 域完整导出且可用
+    assert callable(print_table)
+    assert callable(print_case_summary)
+    assert callable(build_benchmark_record)

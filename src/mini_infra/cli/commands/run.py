@@ -1,4 +1,10 @@
+"""CLI 子命令：mini-infra run
+
+手写模型单请求/批处理推理与特性对照。
+"""
+
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -20,8 +26,8 @@ from mini_infra.model import (
 from mini_infra.profiling import TensorBoardOptions
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="运行手写模型单请求/固定批处理推理与对照")
+def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """向指定 parser 添加 run 命令的所有参数。"""
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
     parser.add_argument(
@@ -69,7 +75,15 @@ def parse_args():
         default=None,
         help="导出 TensorBoard 格式性能剖析日志的目录（需配合 --profile 使用）",
     )
-    return parser.parse_args()
+    return parser
+
+
+def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+    """在根/上级 subparsers 中注册 run 子命令。"""
+    parser = subparsers.add_parser("run", help="运行手写模型单请求/批处理推理与特性对照")
+    add_run_args(parser)
+    parser.set_defaults(func=handle_run)
+    return parser
 
 
 def resolve_feature(name: str) -> FeatureFlag | BatchingMethod:
@@ -94,7 +108,7 @@ def resolve_feature(name: str) -> FeatureFlag | BatchingMethod:
     raise ValueError(f"--compare-feature 参数 '{name}' 未知。可选 feature: {valid_features}")
 
 
-def resolve_compare_features_string(mode: Mode, compare_features: list[str] | None) -> str:
+def resolve_compare_features_string(mode: Mode, compare_features: Sequence[str] | None) -> str:
     """根据 compare_feature 从 mode 中查找对应值并拼接为字符串。"""
     if not compare_features:
         return ""
@@ -111,7 +125,7 @@ def resolve_compare_features_string(mode: Mode, compare_features: list[str] | No
     return "_".join(features)
 
 
-def print_result(mode, result, tokenizer, tensorboard_dir=None):
+def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
     print("\n[%s]" % mode)
     for seq in result.sequences:
         print("请求 %d Token IDs: %s" % (seq.request_index, seq.token_ids))
@@ -158,8 +172,8 @@ def print_result(mode, result, tokenizer, tensorboard_dir=None):
         print("TensorBoard Trace 目录: %s" % tensorboard_dir)
 
 
-def main():
-    args = parse_args()
+def handle_run(args: argparse.Namespace) -> int:
+    """执行 run 命令。"""
     if args.max_new_tokens < 1:
         raise ValueError("--max-new-tokens 必须大于 0")
     if args.warmup < 0:
@@ -282,7 +296,4 @@ def main():
             )
             print("Batch makespan 加速比: %.3fx" % (baseline.metrics.e2e_wall_ms / optimized.metrics.e2e_wall_ms))
     print("说明: 计时不包含 tokenizer、模型下载和模型加载；默认 greedy decoding。")
-
-
-if __name__ == "__main__":
-    main()
+    return 0

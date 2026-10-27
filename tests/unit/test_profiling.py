@@ -1,12 +1,11 @@
 """单元测试：算子性能剖析 (profiling) 与在 generate() 中可选启用剖析。"""
 
 from dataclasses import FrozenInstanceError, is_dataclass
-from unittest.mock import patch
 
 import pytest
 import torch
 
-from mini_infra.bench.batch.run_case import parse_args, run_case
+from mini_infra.bench.batch.run_case import run_case
 from mini_infra.bench.common import ProfileMode
 from mini_infra.engine import BatchingMethod, Mode, generate
 from mini_infra.profiling import (
@@ -174,22 +173,21 @@ def test_profile_mode_enum():
 
 def test_bench_run_profile_modes():
     # 1. 验证命令行参数解析
-    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--profile-mode", "extra-profile"]):
-        args = parse_args()
-        assert args.profile_mode == ProfileMode.EXTRA_PROFILE
+    from mini_infra.cli import build_parser
 
-    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--profile-mode", "full-profile"]):
-        args = parse_args()
-        assert args.profile_mode == ProfileMode.FULL_PROFILE
+    parser = build_parser()
+    args = parser.parse_args(["bench", "batch", "case", "--tag", "test", "--profile-mode", "extra-profile"])
+    assert args.profile_mode == ProfileMode.EXTRA_PROFILE
 
-    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test"]):
-        args = parse_args()
-        assert args.profile_mode is None
+    args = parser.parse_args(["bench", "batch", "case", "--tag", "test", "--profile-mode", "full-profile"])
+    assert args.profile_mode == ProfileMode.FULL_PROFILE
+
+    args = parser.parse_args(["bench", "batch", "case", "--tag", "test"])
+    assert args.profile_mode is None
 
     # 验证历史参数不被支持（报错退出）
-    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "test", "--extra-profile-run"]):
-        with pytest.raises(SystemExit):
-            parse_args()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["bench", "batch", "case", "--tag", "test", "--extra-profile-run"])
 
     # 2. 验证 run_case 执行逻辑
     model = build_tiny_model()

@@ -1,12 +1,7 @@
 """run_case.py 与 run_suite.py 的单元测试（CPU 可运行，使用 tiny_model）。"""
 
-from unittest.mock import patch
-
 import torch
 
-from mini_infra.bench.serving.run_case import (
-    parse_args as parse_case_args,
-)
 from mini_infra.bench.serving.run_case import (
     run_case,
     run_case_once,
@@ -16,12 +11,6 @@ from mini_infra.bench.serving.run_suite import (
     print_serving_table,
     run_suite,
 )
-from mini_infra.bench.serving.run_suite import (
-    main as suite_main,
-)
-from mini_infra.bench.serving.run_suite import (
-    parse_args as parse_suite_args,
-)
 from mini_infra.bench.serving.suites import FixedVsContinuousVariableOutputLengthSuite, ServingSuiteCase
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
@@ -29,10 +18,14 @@ from mini_infra.verification.smoke import build_tiny_model
 
 
 def test_parse_args_serving_suite():
-    with patch(
-        "sys.argv",
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
         [
-            "mini-infra-bench-serving-suite",
+            "bench",
+            "serving",
+            "suite",
             "--tag",
             "dev",
             "--suite",
@@ -42,9 +35,8 @@ def test_parse_args_serving_suite():
             "--interleave",
             "batching_method",
             "--dry-run",
-        ],
-    ):
-        args = parse_suite_args()
+        ]
+    )
     assert args.tag == "dev"
     assert args.suite == "fixed-vs-continuous-variable-output-length"
     assert args.repeats == 2
@@ -55,31 +47,35 @@ def test_parse_args_serving_suite():
 def test_parse_args_serving_suite_validation():
     import pytest
 
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
     # 1. 验证 --suite 为必填项
-    with patch("sys.argv", ["mini-infra-bench-serving-suite", "--tag", "dev"]):
-        with pytest.raises(SystemExit):
-            parse_suite_args()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["bench", "serving", "suite", "--tag", "dev"])
 
     # 2. 验证已不再支持 'all'，一次只跑一个 suite
-    with patch("sys.argv", ["mini-infra-bench-serving-suite", "--tag", "dev", "--suite", "all"]):
-        with pytest.raises(SystemExit):
-            parse_suite_args()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["bench", "serving", "suite", "--tag", "dev", "--suite", "all"])
 
 
 def test_parse_args_serving_case():
-    with patch(
-        "sys.argv",
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
         [
-            "mini-infra-bench-serving-case",
+            "bench",
+            "serving",
+            "case",
             "--tag",
             "dev",
             "--batching-method",
             "continuous-batching",
             "--max-running-requests",
             "2",
-        ],
-    ):
-        args = parse_case_args()
+        ]
+    )
     assert args.tag == "dev"
     assert args.batching_method == "continuous-batching"
     assert args.max_running_requests == 2
@@ -179,10 +175,13 @@ def test_run_serving_suite_on_cpu():
 
 def test_serving_suite_dry_run_main(capsys):
     """验证 --dry-run 参数无需 GPU 与模型即可打印执行计划。"""
-    with patch(
-        "sys.argv",
+    from mini_infra.cli import main
+
+    ret = main(
         [
-            "mini-infra-bench-serving-suite",
+            "bench",
+            "serving",
+            "suite",
             "--tag",
             "dev",
             "--dry-run",
@@ -192,9 +191,9 @@ def test_serving_suite_dry_run_main(capsys):
             "2",
             "--interleave",
             "batching_method",
-        ],
-    ):
-        suite_main()
+        ]
+    )
+    assert ret == 0
 
     captured = capsys.readouterr().out
     assert "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured

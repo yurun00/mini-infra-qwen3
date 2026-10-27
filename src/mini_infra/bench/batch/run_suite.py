@@ -1,131 +1,73 @@
-"""套件基准测试（run_suite）：一次调用执行整套 BenchmarkSuite 的全部用例。
+"""套件基准测试（run_suite）：执行整套 Batch BenchmarkSuite 的纯调度内核。
 
-配置全部来自 suites.py（包括 batch_sizes, prompt_length, max_new_tokens, warmup, repeats, modes 等）。
-结果默认落盘至 benchmarks/suites/<suite_name>/<commit>_<tag>.json。
-
-用法示例：
-    mini-infra-bench-suite --tag dev --suite serial-vs-fixed-batch-throughput
+驱动 Suite 中的所有用例顺序执行，捕获 OOM 并收集结果。
 """
 
-import argparse
-import sys
+from collections.abc import Callable
+from typing import Any
 
 import torch
 
 from mini_infra.bench.batch.run_case import run_case
-from mini_infra.bench.batch.suites import SUITES, get_suite
-from mini_infra.bench.common import (
-    SUITES_DIR,
-    add_common_args,
-    build_benchmark_record,
-    check_correctness,
-    format_lengths,
-    git_info,
-    gpu_info,
-    model_cost,
-    print_case_summary,
-    print_table,
-    require_cuda,
-    resolve_peak_specs,
-    save_benchmark_record,
-)
-from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
+from mini_infra.bench.batch.suites import Suite, SuiteCase
+from mini_infra.bench.batch.types import CaseBenchmarkResult
+from mini_infra.bench.common import ProfileMode
 from mini_infra.profiling import TensorBoardOptions
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description="mini-infra-qwen3 benchmark suite runner")
-    add_common_args(p)
-    p.add_argument(
-        "--suite",
-        choices=sorted(SUITES),
-        required=True,
-        help="运行 suites.py 中注册的命名 suite（配置来自该文件，结果写入 benchmarks/suites/<name>/）",
-    )
-    return p.parse_args()
-
-
-def main():
-    args = parse_args()
-    device = require_cuda()
-
-    suite = get_suite(args.suite)
-    modes = suite.modes()
+def run_suite(
+    model: torch.nn.Module,
+    device: torch.device,
+    suite: Suite,
+    vocab: int,
+    warmup: int | None = None,
+    repeats: int | None = None,
+    cost: dict[str, Any] | None = None,
+    peaks: dict[str, float | None] | None = None,
+    profile_mode: ProfileMode | None = None,
+    tensorboard_options: TensorBoardOptions | None = None,
+    on_case_progress: Callable[[int, int, SuiteCase], None] | None = None,
+    on_case_result: Callable[[CaseBenchmarkResult], None] | None = None,
+) -> list[CaseBenchmarkResult]:
+    """按序执行 Suite 中的所有用例，返回评测结果列表。"""
     cases = suite.cases()
-    warmup = args.warmup if args.warmup is not None else suite.warmup
-    repeats = args.repeats if args.repeats is not None else suite.repeats
-    mode_label = ",".join(str(m) for m in modes)
+    warmup_val = warmup if warmup is not None else suite.warmup
+    repeats_val = repeats if repeats is not None else suite.repeats
 
-    model_dir = resolve_model_directory(args.model, args.revision)
-    tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
+    case_results: list[CaseBenchmarkResult] = []
+    for idx, case in enumerate(cases, 1):
+        if on_case_progress is not None:
+            on_case_progress(idx, len(cases), case)
 
-    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
-    gate_failed = any(c["passed"] is False for c in correctness.values())
-    if gate_failed and not args.allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
-
-    env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    if None in peaks.values():
-        print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
-    tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
-
-    case_results = []
-    for case in cases:
-        print(
-            f"[bench-suite] mode={case.mode} batch={case.batch_size} prompt={format_lengths(case.prompt_len)} "
-            f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
-            flush=True,
-        )
         try:
             case_result = run_case(
-                model,
-                case.mode,
-                list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
-                list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens,
-                case.batch_size,
-                warmup,
-                repeats,
-                vocab,
-                device,
+                model=model,
+                mode=case.mode,
+                prompt_len=list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
+                max_new_tokens=(
+                    list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens
+                ),
+                batch_size=case.batch_size,
+                warmup=warmup_val,
+                repeats=repeats_val,
+                vocab=vocab,
+                device=device,
                 cost=cost,
                 peaks=peaks,
-                profile_mode=args.profile_mode,
-                tensorboard_options=tb_options,
+                profile_mode=profile_mode,
+                tensorboard_options=tensorboard_options,
             )
         except torch.cuda.OutOfMemoryError:
-            print("  OOM，跳过")
             torch.cuda.empty_cache()
             continue
+
         case_results.append(case_result)
-        print_case_summary(case_result)
+        if on_case_result is not None:
+            on_case_result(case_result)
 
-    git = git_info()
-    record = build_benchmark_record(
-        args=args,
-        model=model,
-        mode_label=mode_label,
-        cases=case_results,
-        correctness=correctness,
-        env=env,
-        peaks=peaks,
-        cost=cost,
-        git=git,
-        warmup=warmup,
-        repeats=repeats,
-        suite_info=suite.to_dict(),
-    )
-
-    default_dir = SUITES_DIR / suite.name
-    output = args.output or default_dir / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
-    if case_results:
-        print()
-        print_table(case_results, mode=mode_label)
+    return case_results
 
 
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "run_suite",
+]

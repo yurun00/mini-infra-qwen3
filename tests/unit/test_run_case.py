@@ -1,11 +1,9 @@
 """run_case.py 广播规则与单用例执行测试（CPU 可运行）。"""
 
-from unittest.mock import patch
-
 import pytest
 import torch
 
-from mini_infra.bench.batch.run_case import parse_args, resolve_case_specs, run_case
+from mini_infra.bench.batch.run_case import resolve_case_specs, run_case
 from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -66,8 +64,12 @@ def test_resolve_case_specs_shape_mismatches():
 
 
 def test_parse_args_run_case():
-    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]):
-        args = parse_args()
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        ["bench", "batch", "case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]
+    )
     assert args.tag == "dev"
     assert args.prompt_lens == [32]
     assert args.max_new_tokens == [16]

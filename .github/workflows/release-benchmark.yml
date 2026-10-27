@@ -54,18 +54,18 @@ jobs:
 
           echo "Running benchmark for tag: $TAG (release_feature: ${FEATURE:-none})"
           if [[ -n "$FEATURE" ]]; then
-            .venv/bin/mini-infra-bench-case --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
+            .venv/bin/mini-infra bench batch case --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
           else
-            .venv/bin/mini-infra-bench-case --tag "$TAG" --profile-mode extra-profile
+            .venv/bin/mini-infra bench batch case --tag "$TAG" --profile-mode extra-profile
           fi
 
       - name: Generate Reports and Evolution Plots
         run: |
-          .venv/bin/mini-infra-bench-plot-history
+          .venv/bin/mini-infra bench plot history
 
       - name: Update Regression Reference for Future Commits
         run: |
-          .venv/bin/mini-infra-bench-regression --update-reference
+          .venv/bin/mini-infra bench check-regression --update-reference
 
       - name: Upload Benchmark Reports & Data
         if: always()

@@ -1,6 +1,5 @@
-"""检查 Batch Size、排列、同批内容和 Padding 对 Decode 输出的影响。入口： mini-infra-compare-batch。"""
+"""检查 Batch Size、排列、同批内容和 Padding 对 Decode 输出的影响。入口： mini-infra verify batch。"""
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -15,28 +14,6 @@ from mini_infra.model import (
     load_model,
     resolve_model_directory,
 )
-
-
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="固定 Batch 数值与请求隔离实验")
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
-    parser.add_argument("--prompt", default="用一句话解释固定批处理。")
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数")
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=1e-4,
-        help="允许的最大 Logits 绝对误差",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser.parse_args(argv)
 
 
 def synthetic_sequence(length: int, vocab_size: int, salt: int) -> list[int]:
@@ -247,61 +224,74 @@ def run_compare_batch(
     return rows, failures
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    if args.max_new_tokens < 1:
+def execute_compare_batch(
+    model: str = DEFAULT_MODEL_ID,
+    revision: str = DEFAULT_MODEL_REVISION,
+    prompt: str = "用一句话解释固定批处理。",
+    max_new_tokens: int = 8,
+    dtype: str = "float32",
+    logits_atol: float = 1e-4,
+    output: str | None = None,
+) -> int:
+    """运行固定批处理数值与请求隔离对齐验证，返回退出码（0 成功，1 失败）。"""
+    if max_new_tokens < 1:
         raise ValueError("输出长度必须大于 0")
-    if args.logits_atol < 0:
+    if logits_atol < 0:
         raise ValueError("误差阈值不能小于 0")
     if not torch.cuda.is_available():
         raise RuntimeError("本实验需要可用的 NVIDIA GPU")
 
     torch.manual_seed(0)
     device = torch.device("cuda")
-    model_directory = resolve_model_directory(args.model, args.revision)
+    model_directory = resolve_model_directory(model, revision)
     tokenizer = Qwen3Tokenizer(model_directory)
-    target = tokenizer.encode_chat_prompt(args.prompt)
+    target = tokenizer.encode_chat_prompt(prompt)
     vocab_size = len(tokenizer.vocab)
 
     comparison_dtype = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
-    }[args.dtype]
-    model = load_model(model_directory, device, dtype=comparison_dtype)
+    }[dtype]
+    model_instance = load_model(model_directory, device, dtype=comparison_dtype)
 
     environment = {
         "gpu": torch.cuda.get_device_name(device),
         "pytorch": torch.__version__,
         "cuda_runtime": torch.version.cuda,
-        "model": args.model,
-        "revision": args.revision,
-        "dtype": args.dtype,
+        "model": model,
+        "revision": revision,
+        "dtype": dtype,
         "prompt_tokens": len(target),
-        "max_new_tokens": args.max_new_tokens,
+        "max_new_tokens": max_new_tokens,
         "decoding": "greedy",
         "thinking": False,
     }
 
     print("Prompt Token 数: %d" % len(target))
-    print("对比 dtype: %s, 最大允许 Logits 绝对误差: %.6f" % (args.dtype, args.logits_atol))
+    print("对比 dtype: %s, 最大允许 Logits 绝对误差: %.6f" % (dtype, logits_atol))
 
     rows, failures = run_compare_batch(
-        model=model,
+        model=model_instance,
         target=target,
         vocab_size=vocab_size,
-        max_new_tokens=args.max_new_tokens,
+        max_new_tokens=max_new_tokens,
         eos_token_id=tokenizer.eos_token_id,
         device=device,
-        dtype=args.dtype,
-        logits_atol=args.logits_atol,
-        output=args.output,
+        dtype=dtype,
+        logits_atol=logits_atol,
+        output=output,
         environment_metadata=environment,
     )
 
-    if args.dtype == "float32" and failures:
+    if dtype == "float32" and failures:
         print("float32 请求隔离或数值误差检查未通过")
-        raise SystemExit(1)
+        return 1
+    return 0
 
 
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "compare_trace",
+    "execute_compare_batch",
+    "run_compare_batch",
+    "synthetic_sequence",
+]

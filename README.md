@@ -16,10 +16,10 @@
 - **Continuous Batching 调度与在线并发 Serving 基准**：实现原生 `DenseSlotCache` 显存槽位管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占空槽，消除队头阻塞；内建 `mini-infra-bench-serving` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
 
 ### 规划中特性 (Roadmap)
-- [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
-- [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
 - [x] **Continuous Batching 调度**：支持多请求动态并发与动态组批（DenseSlotCache + mini-infra-bench-serving）
 - [ ] **PagedAttention 内存管理**：非连续显存分页分配与碎片消除
+- [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
+- [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
 - [ ] **Tensor Parallelism (TP)**：张量并行分布式推理
 
 ---
@@ -57,32 +57,38 @@ mini-infra-qwen3/
 │       │   ├── tracer.py              # PyTorch Profiler 打点、Scope 注入与 ProfileCollector
 │       │   ├── analyzer.py            # 耗时统计、Kernel 分类与跨 run 聚合
 │       │   └── types.py               # OpLatencyBreakdown, KernelInfo, TensorBoardOptions
-│       ├── cli/
-│       │   └── run_inference.py       # mini-infra-run：单请求/批处理推理、计时与特性对比
-│       ├── verification/              # 正确性验证与数值等价性工具包
-│       │   ├── smoke.py               # mini-infra-smoke：随机小模型快速自检（CPU）
-│       │   └── parity/                # 精度与等价性对齐工具包
-│       │       ├── compare_cache.py   # mini-infra-compare-cache：KV Cache 前后逐步 Logits 对齐
-│       │       ├── compare_batch.py   # mini-infra-compare-batch：固定批处理请求隔离与数值对齐
-│       │       └── compare_transformers.py # mini-infra-compare：与 Transformers 对齐
-│       └── bench/
+│       ├── cli/                       # 统一命令行门面层（mini-infra 统一主入口）
+│       │   ├── main.py                # 根命令 mini-infra 注册与分发
+│       │   └── commands/              # run / bench / verify 分级子命令实现
+│       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch)
+│       │       └── bench/             # mini-infra bench (batch / serving / plot / check-regression)
+│       ├── verification/              # 正确性验证与数值等价性核心库
+│       │   ├── smoke.py               # 快速自检算法实现（CPU）
+│       │   └── parity/                # 精度与等价性对齐核心库
+│       │       ├── compare_cache.py   # KV Cache 前后逐步 Logits 对齐
+│       │       ├── compare_batch.py   # 固定批处理请求隔离与数值对齐
+│       │       └── compare_transformers.py # 与 Transformers 对齐
+│       └── bench/                     # 性能基准测试与分析核心库
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
-│           ├── check_regression.py    # mini-infra-bench-regression：轻量质量守门（仅 0/1 退出码）
+│           ├── regression.py          # 性能回归质量门禁核心逻辑
+
 │           ├── batch/                 # 离线与静态 Batch 基准测试
 │           │   ├── types.py           # CaseBenchmarkResult, BatchPackingProfile 等领域模型
-│           │   ├── suites.py          # 静态批处理套件定义（吞吐扫描、Prompt Padding、Slot 浪费）
-│           │   ├── run_case.py        # mini-infra-bench-case：单 case 基准测试执行引擎
-│           │   └── run_suite.py       # mini-infra-bench-suite：预设测试套件执行引擎
+│           │   ├── suites.py          # 静态批处理套件定义
+│           │   ├── display.py         # 终端表格格式化与基准记录封装
+│           │   ├── run_case.py        # 单 case 基准测试执行引擎
+│           │   └── run_suite.py       # 预设测试套件执行引擎
 │           ├── serving/               # 在线动态调度与 Continuous Batching 基准测试
 │           │   ├── types.py           # ServingCaseResult, ServingSuiteResult 等领域模型
 │           │   ├── suites.py          # Serving 受控实验套件与 ServingSuiteCase
 │           │   ├── plan.py            # 特征多维展开与基于 Feature 的 Interleave 执行计划生成器
-│           │   ├── run_case.py        # mini-infra-bench-serving-case：单用例评测执行引擎
-│           │   └── run_suite.py       # mini-infra-bench-serving-suite：Serving 套件计划执行引擎
+│           │   ├── run_case.py        # 单用例评测执行引擎
+│           │   └── run_suite.py       # Serving 套件计划执行引擎
 │           └── plotting/              # 绘图工具包
-│               ├── history.py         # mini-infra-bench-plot-history：读取 result-history/ 生成演进趋势图
-│               └── compare.py         # mini-infra-bench-plot-compare：对比独立 JSON 结果绘制多维对比图
+│               ├── history.py         # 读取 result-history/ 生成演进趋势图
+│               └── compare.py         # 对比独立 JSON 结果绘制多维对比图
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
 │   └── gpu/
@@ -165,7 +171,7 @@ pip install -e ".[dev]"            # 开发：pytest、ruff、pre-commit
 使用随机生成的小模型在 CPU 上快速验证模型结构与 Causal Mask 计算正确性（无需下载真实权重）：
 
 ```bash
-mini-infra-smoke
+mini-infra verify smoke
 ```
 
 输出 `smoke test passed` 即表示自检通过。完整的 CPU 测试集（含 smoke test）可用 `pytest -m "not gpu"` 运行。
@@ -176,19 +182,19 @@ mini-infra-smoke
 
 ```bash
 # 1. 比较指定特性的 enable 与 disable 对照（如 KV Cache 开启/关闭）
-mini-infra-run \
+mini-infra run \
   --compare-feature kv-cache \
   --prompts "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
 
 # 2. 单模式或固定批处理（Fixed Batching）运行多条提示词
-mini-infra-run \
+mini-infra run \
   --batching-method fixed-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
 
 # 3. 对比两种批处理策略（如串行 none 与固定批处理 fixed-batching）
-mini-infra-run \
+mini-infra run \
   --compare-feature none fixed-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
@@ -218,11 +224,11 @@ mini-infra-run \
 
 * 🛠️ **[贡献与日常开发指南 (CONTRIBUTING.md)](CONTRIBUTING.md)**
   * 本地开发环境配置与 Pre-commit 守护安装
-  * 代码规范检查（Ruff）与 CPU 快速冒烟自检（`mini-infra-smoke`、pytest）
+  * 代码规范检查（Ruff）与 CPU 快速冒烟自检（`mini-infra verify smoke`、pytest）
   * GPU 端到端精度对齐（固定批处理请求隔离、KV Cache 前后数值对齐、Transformers 对照）
-  * 零性能倒退守护（Zero-Regression Guard：`mini-infra-bench-regression`）与独立全量基准对比测量
+  * 零性能倒退守护（Zero-Regression Guard：`mini-infra bench check-regression`）与独立全量基准对比测量
 * 🔍 **[算子性能剖析与 Trace 指南 (docs/profiling.md)](docs/profiling.md)**
-  * 使用 `mini-infra-bench-case` 采样生成详细性能诊断数据
+  * 使用 `mini-infra bench batch case` 采样生成详细性能诊断数据
   * 导出 Chrome / TensorBoard Trace（`*.pt.trace.json`）
   * 使用 **Perfetto Web UI** 秒级加载与 60fps 交互缩放查看 CUDA Stream 与 Kernel 耗时
   * 远程实例 TensorBoard 启动与 IDE / SSH 端口转发

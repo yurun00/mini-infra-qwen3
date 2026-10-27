@@ -44,9 +44,9 @@
 
 ---
 
-## 三、Serving 基准测试套件 (`mini-infra-bench-serving`)
+## 三、Serving 基准测试套件 (`mini-infra bench serving`)
 
-为了科学量化 Continuous Batching 在不同在线负载模式下的收益与开销，项目提供了独立的 Serving 评测入口 `mini-infra-bench-serving`（独立于单请求的 `mini-infra-bench-case` / `mini-infra-bench-suite`）。
+为了科学量化 Continuous Batching 在不同在线负载模式下的收益与开销，项目提供了独立的 Serving 评测入口 `mini-infra bench serving`（独立于单请求的 `mini-infra bench batch case` / `mini-infra bench batch suite`）。
 
 ### 1. 四大受控实验套件 (Suites)
 
@@ -73,15 +73,16 @@
 ### 1. 运行单用例独立评测（Single-Case Runner）
 
 ```bash
-# 单独评测 fixed-vs-continuous-variable-output-length 负载在 Continuous Batching 下的表现（不跑对比）
-mini-infra-bench-serving-case --tag dev --suite fixed-vs-continuous-variable-output-length --batching-method continuous-batching
+# 单独评测指定负载在 Continuous Batching 下的表现
+mini-infra bench serving case --tag dev --batching-method continuous-batching --request-count 8 --prompt-length 128 --output-budget 32
+
 ```
 
 ### 2. 运行单一套件对比测试（Suite Runner）
 
 ```bash
 # 在 GPU 上评测长短请求混合场景下的连续批处理加速比（自动对比 Fixed 与 Continuous）
-mini-infra-bench-serving-suite --tag dev --suite fixed-vs-continuous-variable-output-length --warmup 1 --repeats 3
+mini-infra bench serving suite --tag dev --suite fixed-vs-continuous-variable-output-length --warmup 1 --repeats 3
 ```
 
 输出示例：
@@ -96,12 +97,12 @@ mini-infra-bench-serving-suite --tag dev --suite fixed-vs-continuous-variable-ou
 
 ```bash
 # 运行指定的受控评测套件，生成 Serving 评测报告
-mini-infra-bench-serving-suite --tag v0.3.0 --suite fixed-vs-continuous-variable-output-length
+mini-infra bench serving suite --tag v0.3.0 --suite fixed-vs-continuous-variable-output-length
 ```
 
 ### 4. 热漂移规避（Thermal Drift Mitigation）
 
-为消除连续基准测试中 GPU 升温与功耗降频对公平性带来的偏差，`mini-infra-bench-serving` 内建了交替执行机制（Run Alternation）：在奇数轮次按 `Fixed -> Continuous` 顺序执行，在偶数轮次按 `Continuous -> Fixed` 顺序执行，并在每次重复之间强制进行垃圾回收与显存重置。
+为消除连续基准测试中 GPU 升温与功耗降频对公平性带来的偏差，`mini-infra bench serving` 内建了交替执行机制（Run Alternation）：在奇数轮次按 `Fixed -> Continuous` 顺序执行，在偶数轮次按 `Continuous -> Fixed` 顺序执行，并在每次重复之间强制进行垃圾回收与显存重置。
 
 ---
 
@@ -116,4 +117,4 @@ mini-infra-bench-serving-suite --tag v0.3.0 --suite fixed-vs-continuous-variable
 2. **GPU 真实权重等价性测试**：
    * `pytest tests/gpu/parity/test_continuous_parity.py`：在真实的 Qwen3-0.6B 权重上，验证 Continuous Batching 和 Fixed Batching 的生成结果与单请求串行生成 100% 逐 Token 严格对齐。
 3. **Smoke 快速冒烟**：
-   * `mini-infra-smoke` 已集成 `check_continuous_batching`，数秒内完成 CPU 端全链路自检。
+   * `mini-infra verify smoke` 已集成 `check_continuous_batching`，数秒内完成 CPU 端全链路自检。

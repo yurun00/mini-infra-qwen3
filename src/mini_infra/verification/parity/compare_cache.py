@@ -1,6 +1,4 @@
-"""逐步比较同一手写模型的 no-cache 与 KV Cache 输出。入口： mini-infra-compare-cache。"""
-
-import argparse
+"""逐步比较同一手写模型的 no-cache 与 KV Cache 输出。"""
 
 import torch
 
@@ -14,31 +12,9 @@ from mini_infra.model import (
 )
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="验证 KV Cache 前后的逐 Token 正确性")
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
-    parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
-    parser.add_argument("--max-new-tokens", type=int, default=32)
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=1e-4,
-        help="两条执行路径允许的最大 Logits 绝对误差",
-    )
-    return parser.parse_args(argv)
-
-
 @torch.inference_mode()
 def compare_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
     """逐步比较同一手写模型在无 Cache 与有 Cache 两种执行路径下的 Logits 与生成结果。"""
-
     generated_ids = input_ids
     cached_input = input_ids
     cache = KVCache()
@@ -116,33 +92,40 @@ def compare_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
     }
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    if args.max_new_tokens < 1:
+def run_compare_cache(
+    model: str = DEFAULT_MODEL_ID,
+    revision: str = DEFAULT_MODEL_REVISION,
+    prompt: str = "请用一句话介绍 KV Cache。",
+    max_new_tokens: int = 32,
+    dtype: str = "float32",
+    logits_atol: float = 1e-4,
+) -> int:
+    """运行 KV Cache 对齐检查，返回退出码（0 成功，1 Token 不一致，2 误差超标）。"""
+    if max_new_tokens < 1:
         raise ValueError("--max-new-tokens 必须大于 0")
-    if args.logits_atol < 0:
+    if logits_atol < 0:
         raise ValueError("--logits-atol 不能小于 0")
     if not torch.cuda.is_available():
         raise RuntimeError("本实验需要可用的 NVIDIA GPU")
 
     torch.manual_seed(0)
     device = torch.device("cuda")
-    model_directory = resolve_model_directory(args.model, args.revision)
+    model_directory = resolve_model_directory(model, revision)
     tokenizer = Qwen3Tokenizer(model_directory)
-    token_ids = tokenizer.encode_chat_prompt(args.prompt)
+    token_ids = tokenizer.encode_chat_prompt(prompt)
     input_ids = torch.tensor([token_ids], dtype=torch.long, device=device)
     comparison_dtype = {
         "float32": torch.float32,
         "bfloat16": torch.bfloat16,
-    }[args.dtype]
-    model = load_model(model_directory, device, dtype=comparison_dtype)
+    }[dtype]
+    model_instance = load_model(model_directory, device, dtype=comparison_dtype)
 
     print("Prompt Token 数: %d" % len(token_ids))
-    print("正确性对照 dtype: %s" % args.dtype)
+    print("对比 dtype: %s, 最大允许 Logits 绝对误差: %.6f" % (dtype, logits_atol))
     result = compare_step_by_step(
-        model,
+        model_instance,
         input_ids,
-        args.max_new_tokens,
+        max_new_tokens,
         tokenizer.eos_token_id,
     )
     generated_text = tokenizer.decode(result["token_ids"], skip_special_tokens=True)
@@ -154,11 +137,14 @@ def main(argv=None):
 
     if not result["tokens_match"]:
         print("首个不一致步骤:", result["first_mismatch_step"])
-        raise SystemExit(1)
-    if result["largest_error"] > args.logits_atol:
+        return 1
+    if result["largest_error"] > logits_atol:
         print("Token 一致，但 Logits 误差超过设定阈值。")
-        raise SystemExit(2)
+        return 2
+    return 0
 
 
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "compare_step_by_step",
+    "run_compare_cache",
+]

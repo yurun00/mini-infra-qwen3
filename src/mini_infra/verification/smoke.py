@@ -1,6 +1,6 @@
 """快速自检：用很小的随机模型检查核心代码，不需要下载真实权重，CPU 数秒内完成。
 
-入口：mini-infra-smoke。同一份逻辑也被 tests/unit/test_model_smoke.py 复用。
+入口：mini-infra verify smoke。同一份逻辑也被 tests/unit/test_model_smoke.py 复用。
 """
 
 import torch
@@ -186,10 +186,7 @@ def run_smoke_test():
     check_continuous_batching(model)
 
 
-def main():
-    run_smoke_test()
-    print("smoke test passed")
-
-
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "build_tiny_model",
+    "run_smoke_test",
+]

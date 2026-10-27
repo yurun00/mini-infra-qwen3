@@ -29,6 +29,7 @@ from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.engine.types import (
     GenerationResult,
     GenerationTrace,
+    OfflineGenerationOptions,
     SequenceOutput,
     aggregate_generation_results,
     build_memory_profile,
@@ -161,16 +162,20 @@ def generate(
     max_new_tokens: int | Sequence[int],
     eos_token_id: int | None = None,
     device: torch.device | None = None,
-    stop_on_eos: bool = True,
-    pad_token_id: int = 0,
-    capture_logits: bool = False,
-    profile: bool = False,
-    top_kernels: int = 10,
+    *,
+    options: OfflineGenerationOptions | None = None,
+    stop_on_eos: bool | None = None,
+    pad_token_id: int | None = None,
+    capture_logits: bool | None = None,
+    profile: bool | None = None,
+    top_kernels: int | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
     max_running_requests: int | None = None,
+    **kwargs: Any,
 ) -> GenerationResult:
     """统一生成入口；mode 为 Mode 结构体对象。
 
+    支持通过 options（OfflineGenerationOptions 结构体）进行结构化配置，或沿用既有的平铺关键字参数调用。
     不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
     支持 profile=True 采集底层算子与模块级耗时明细（保存在 result.op_breakdown 中）。
     支持指定 tensorboard_options（TensorBoardOptions 结构体）将详细 trace 导出为 TensorBoard 格式。
@@ -179,9 +184,40 @@ def generate(
     指定并发上限（未指定时默认为请求总数），要求启用 KV Cache，且不支持 capture_logits/profile；
     带自定义到达时间的场景请直接使用 run_scheduler。
     """
+    has_flat_args = (
+        eos_token_id is not None
+        or device is not None
+        or stop_on_eos is not None
+        or pad_token_id is not None
+        or capture_logits is not None
+        or profile is not None
+        or top_kernels is not None
+        or tensorboard_options is not None
+        or max_running_requests is not None
+        or bool(kwargs)
+    )
+
+    if options is not None:
+        if has_flat_args:
+            raise ValueError("不能同时指定 options 结构体与平铺配置参数")
+        opts = options
+    else:
+        opts = OfflineGenerationOptions(
+            eos_token_id=eos_token_id,
+            device=device,
+            stop_on_eos=True if stop_on_eos is None else stop_on_eos,
+            pad_token_id=0 if pad_token_id is None else pad_token_id,
+            capture_logits=False if capture_logits is None else capture_logits,
+            profile=False if profile is None else profile,
+            top_kernels=10 if top_kernels is None else top_kernels,
+            tensorboard_options=tensorboard_options,
+            max_running_requests=max_running_requests,
+            **kwargs,
+        )
+
     # 1. 规约输入 Prompt、预算与设备
-    token_sequences, device, has_uniform_len = _prepare_prompt_sequences(input_ids, device)
-    budgets = normalize_budgets(max_new_tokens, len(token_sequences), device)
+    token_sequences, target_device, has_uniform_len = _prepare_prompt_sequences(input_ids, opts.device)
+    budgets = normalize_budgets(max_new_tokens, len(token_sequences), target_device)
 
     # 2. Continuous Batching 分发（不再静默回退到固定批次路径）
     if mode.batching_method == BatchingMethod.CONTINUOUS:
@@ -190,13 +226,8 @@ def generate(
             model,
             token_sequences,
             budgets,
-            eos_token_id,
-            device,
-            stop_on_eos,
-            pad_token_id,
-            capture_logits,
-            profile,
-            max_running_requests=max_running_requests,
+            target_device,
+            opts,
         )
 
     # 3. 串行 baseline 分发
@@ -206,43 +237,53 @@ def generate(
             model,
             token_sequences,
             budgets,
-            eos_token_id,
-            device,
-            stop_on_eos,
-            pad_token_id,
-            capture_logits=capture_logits,
-            profile=profile,
-            top_kernels=top_kernels,
-            tensorboard_options=tensorboard_options,
+            target_device,
+            opts,
         )
 
     # 4. 构造批 Tensor 与状态机
     input_tensor, history_mask, pos_ids, prompt_lens = _init_batch_tensors(
-        input_ids, token_sequences, has_uniform_len, pad_token_id, device
+        input_ids, token_sequences, has_uniform_len, opts.pad_token_id, target_device
     )
     use_cache = mode.is_enabled(FeatureFlag.KV_CACHE)
     kv_cache = KVCache() if use_cache else None
 
     state = BatchGenerationState.create(
-        input_tensor, history_mask, pos_ids, prompt_lens, budgets, device, pad_token_id, use_cache
+        input_tensor, history_mask, pos_ids, prompt_lens, budgets, target_device, opts.pad_token_id, use_cache
     )
 
     # 5. 显存打点与执行循环
-    is_cuda = device.type == "cuda"
-    synchronize(device)
-    baseline_allocated_bytes = torch.cuda.memory_allocated(device) if is_cuda else 0
+    is_cuda = target_device.type == "cuda"
+    synchronize(target_device)
+    baseline_allocated_bytes = torch.cuda.memory_allocated(target_device) if is_cuda else 0
     if is_cuda:
-        torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.reset_peak_memory_stats(target_device)
 
-    if profile:
-        with profile_scope(model, device=device, tensorboard_options=tensorboard_options) as prof_collector:
+    if opts.profile:
+        with profile_scope(model, device=target_device, tensorboard_options=opts.tensorboard_options) as prof_collector:
             step_latencies, logits_trace, mem_prefill, e2e_wall_ms = _run_generation_loop(
-                model, state, use_cache, kv_cache, eos_token_id, stop_on_eos, capture_logits, device, is_cuda
+                model,
+                state,
+                use_cache,
+                kv_cache,
+                opts.eos_token_id,
+                opts.stop_on_eos,
+                opts.capture_logits,
+                target_device,
+                is_cuda,
             )
-        op_latency_breakdown = prof_collector.get_latency_breakdown(top=top_kernels)
+        op_latency_breakdown = prof_collector.get_latency_breakdown(top=opts.top_kernels)
     else:
         step_latencies, logits_trace, mem_prefill, e2e_wall_ms = _run_generation_loop(
-            model, state, use_cache, kv_cache, eos_token_id, stop_on_eos, capture_logits, device, is_cuda
+            model,
+            state,
+            use_cache,
+            kv_cache,
+            opts.eos_token_id,
+            opts.stop_on_eos,
+            opts.capture_logits,
+            target_device,
+            is_cuda,
         )
         op_latency_breakdown = None
 
@@ -276,8 +317,8 @@ def generate(
     memory = build_memory_profile(
         baseline_allocated_bytes=baseline_allocated_bytes,
         memory_after_prefill_bytes=mem_prefill,
-        peak_allocated_bytes=torch.cuda.max_memory_allocated(device) if is_cuda else 0,
-        peak_reserved_bytes=torch.cuda.max_memory_reserved(device) if is_cuda else 0,
+        peak_allocated_bytes=torch.cuda.max_memory_allocated(target_device) if is_cuda else 0,
+        peak_reserved_bytes=torch.cuda.max_memory_reserved(target_device) if is_cuda else 0,
         cache_bytes=cache_size_bytes(kv_cache) if kv_cache is not None else 0,
     )
 
@@ -297,30 +338,27 @@ def _dispatch_serial_baseline(
     model: torch.nn.Module,
     token_sequences: list[torch.Tensor],
     budgets: torch.Tensor,
-    eos_token_id: int | None,
     device: torch.device,
-    stop_on_eos: bool,
-    pad_token_id: int,
-    capture_logits: bool = False,
-    profile: bool = False,
-    top_kernels: int = 10,
-    tensorboard_options: TensorBoardOptions | None = None,
+    opts: OfflineGenerationOptions,
 ) -> GenerationResult:
     """按顺序逐个执行请求（串行 baseline 模式）。"""
+    single_req_options = OfflineGenerationOptions(
+        eos_token_id=opts.eos_token_id,
+        device=device,
+        stop_on_eos=opts.stop_on_eos,
+        pad_token_id=opts.pad_token_id,
+        capture_logits=opts.capture_logits,
+        profile=opts.profile,
+        top_kernels=opts.top_kernels,
+        tensorboard_options=opts.tensorboard_options,
+    )
     runs = [
         generate(
             mode,
             model,
             seq.to(device=device, dtype=torch.long).unsqueeze(0),
             budget,
-            eos_token_id=eos_token_id,
-            device=device,
-            stop_on_eos=stop_on_eos,
-            pad_token_id=pad_token_id,
-            capture_logits=capture_logits,
-            profile=profile,
-            top_kernels=top_kernels,
-            tensorboard_options=tensorboard_options,
+            options=single_req_options,
         )
         for seq, budget in zip(token_sequences, budgets.tolist())
     ]
@@ -332,34 +370,35 @@ def _dispatch_continuous(
     model: torch.nn.Module,
     token_sequences: list[torch.Tensor],
     budgets: torch.Tensor,
-    eos_token_id: int | None,
     device: torch.device,
-    stop_on_eos: bool,
-    pad_token_id: int,
-    capture_logits: bool,
-    profile: bool,
-    max_running_requests: int | None = None,
+    opts: OfflineGenerationOptions,
 ) -> GenerationResult:
     """以 Continuous Batching 执行（所有请求同时到达，支持自定义并发上限），并映射为 GenerationResult。"""
     if not mode.is_enabled(FeatureFlag.KV_CACHE):
         raise ValueError("continuous-batching 依赖 KV Cache，请启用 FeatureFlag.KV_CACHE")
-    if capture_logits or profile:
+    if opts.capture_logits or opts.profile:
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
-    if max_running_requests is not None and max_running_requests < 1:
+    if opts.max_running_requests is not None and opts.max_running_requests < 1:
         raise ValueError("max_running_requests 必须大于 0")
     is_cuda = device.type == "cuda"
     synchronize(device)
     baseline_allocated_mb = torch.cuda.memory_allocated(device) / 1024**2 if is_cuda else 0.0
     specs = make_request_specs(token_sequences, budgets.tolist())
-    concurrency = max_running_requests if max_running_requests is not None else len(specs)
+    concurrency = opts.max_running_requests if opts.max_running_requests is not None else len(specs)
     result = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
         specs,
         concurrency,
-        eos_token_id,
+        opts.eos_token_id,
         device,
-        pad_token_id=pad_token_id,
-        stop_on_eos=stop_on_eos,
+        pad_token_id=opts.pad_token_id,
+        stop_on_eos=opts.stop_on_eos,
     )
     return to_generation_result(result, baseline_allocated_mb, is_cuda)
+
+
+__all__ = [
+    "OfflineGenerationOptions",
+    "generate",
+]

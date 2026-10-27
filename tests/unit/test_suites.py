@@ -1,12 +1,9 @@
 """suites.py 配置与 run_suite.py 接入的单元测试（CPU 可运行）。"""
 
-from unittest.mock import patch
-
 import pytest
 import torch
 
 from mini_infra.bench.batch.run_case import run_case
-from mini_infra.bench.batch.run_suite import parse_args
 from mini_infra.bench.batch.suites import (
     SUITES,
     SerialVsFixedBatchThroughputSuite,
@@ -71,30 +68,31 @@ def test_get_suite_unknown_name():
 
 
 def test_parse_args_suite():
-    with patch("sys.argv", ["mini-infra-bench-suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"]):
-        args = parse_args()
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["bench", "batch", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"])
     assert args.suite == "serial-vs-fixed-batch-throughput"
 
     # 无法识别的参数直接报错
     for invalid in (["--prompt-lens", "32"], ["--batch-size", "2"], ["--no-kv-cache"]):
-        with patch(
-            "sys.argv",
-            ["mini-infra-bench-suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput", *invalid],
-        ):
-            with pytest.raises(SystemExit):
-                parse_args()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["bench", "batch", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput", *invalid]
+            )
 
     # 未知 suite 报错
-    with patch("sys.argv", ["mini-infra-bench-suite", "--tag", "t", "--suite", "unknown"]):
-        with pytest.raises(SystemExit):
-            parse_args()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["bench", "batch", "suite", "--tag", "t", "--suite", "unknown"])
 
 
 def test_parse_args_requires_suite():
     # run_suite 缺少 --suite 时直接报错退出
-    with patch("sys.argv", ["mini-infra-bench-suite", "--tag", "t"]):
-        with pytest.raises(SystemExit):
-            parse_args()
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["bench", "batch", "suite", "--tag", "t"])
 
 
 def test_registered_suites_run_end_to_end_on_cpu():

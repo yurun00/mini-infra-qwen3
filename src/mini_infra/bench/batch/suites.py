@@ -6,7 +6,7 @@
 
 run_suite.py 不关心 suite 的内部细节，只按 `suite.cases()` 逐个执行并汇总结果：
 
-    mini-infra-bench-suite --tag dev --suite serial-vs-fixed-batch-throughput
+    mini-infra bench batch suite --tag dev --suite serial-vs-fixed-batch-throughput
 
 新增 suite：定义一个提供 name / warmup / repeats / modes() / cases() / to_dict() 的配置类，
 再注册到 SUITES 即可。

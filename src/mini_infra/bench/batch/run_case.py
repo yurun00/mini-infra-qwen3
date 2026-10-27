@@ -8,23 +8,21 @@
 
 用法示例：
     # 单用例快速测试（batch=1, prompt=32, max_new_tokens=16）
-    mini-infra-bench-case --tag dev --prompt-lens 32 --max-new-tokens 16
+    mini-infra bench batch case --tag dev --prompt-lens 32 --max-new-tokens 16
 
     # 批处理等长测试（batch=4, prompt=128, max_new_tokens=32）
-    mini-infra-bench-case --tag dev --batch-size 4 --prompt-lens 128 \
+    mini-infra bench batch case --tag dev --batch-size 4 --prompt-lens 128 \
         --max-new-tokens 32 --batching-method fixed-batching
 
     # 不等长变长测试（batch 自动由 prompt_lens 推断为 4）
-    mini-infra-bench-case --tag dev --prompt-lens 16 32 64 128 --max-new-tokens 32 --batching-method fixed-batching
+    mini-infra bench batch case --tag dev --prompt-lens 16 32 64 128 \
+        --max-new-tokens 32 --batching-method fixed-batching
 """
 
-import argparse
-import sys
 from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.batch.suites import SuiteCase
 from mini_infra.bench.batch.types import (
     BatchPackingProfile,
     CaseBenchmarkResult,
@@ -35,35 +33,9 @@ from mini_infra.bench.batch.types import (
     WorkloadSpec,
     summarize_samples,
 )
-from mini_infra.bench.common import (
-    RESULT_HISTORY_DIR,
-    ProfileMode,
-    add_common_args,
-    build_benchmark_record,
-    check_correctness,
-    efficiency,
-    format_lengths,
-    git_info,
-    gpu_info,
-    model_cost,
-    print_case_summary,
-    print_table,
-    require_cuda,
-    resolve_peak_specs,
-    save_benchmark_record,
-)
+from mini_infra.bench.common import ProfileMode, efficiency
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.engine import (
-    BatchingMethod,
-    FeatureFlag,
-    Mode,
-    generate,
-)
-from mini_infra.model import (
-    Qwen3Tokenizer,
-    load_model,
-    resolve_model_directory,
-)
+from mini_infra.engine import Mode, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
@@ -284,115 +256,7 @@ def run_case(
     )
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description="mini-infra-qwen3 benchmark single case runner")
-    add_common_args(p)
-    p.add_argument(
-        "--kv-cache",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="是否启用 KV Cache 特性（默认: True）",
-    )
-    p.add_argument(
-        "--batching-method",
-        default=BatchingMethod.NONE.value,
-        choices=[m.value for m in BatchingMethod],
-        help="指定批处理策略（默认: none）",
-    )
-    p.add_argument(
-        "--batch-size", type=int, default=None, help="批处理大小；未指定时自动由 prompt_lens/max_new_tokens 推断"
-    )
-    p.add_argument(
-        "--prompt-lens",
-        type=int,
-        nargs="+",
-        default=[128],
-        help="Prompt 长度（1 项表示等长，多项表示逐请求长度，默认: 128）",
-    )
-    p.add_argument(
-        "--max-new-tokens",
-        type=int,
-        nargs="+",
-        default=[64],
-        help="最大新生成 Token 预算（1 项表示等长，多项表示逐请求长度，默认: 64）",
-    )
-    p.add_argument("--update-golden", action="store_true", help="用当前输出覆盖 golden（仅在 baseline 上使用）")
-    return p.parse_args()
-
-
-def main():
-    args = parse_args()
-    device = require_cuda()
-
-    target_bs, resolved_prompt_len, resolved_max_new_tokens = resolve_case_specs(
-        args.prompt_lens, args.max_new_tokens, args.batch_size
-    )
-
-    flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
-    mode = Mode(flags, batching_method=args.batching_method)
-    case = SuiteCase(mode, target_bs, resolved_prompt_len, resolved_max_new_tokens)
-
-    model_dir = resolve_model_directory(args.model, args.revision)
-    tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
-
-    correctness = check_correctness(model, tokenizer, case.mode, device, args.update_golden)
-    if correctness["passed"] is False and not args.allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
-
-    env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    if None in peaks.values():
-        print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
-    tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
-
-    print(
-        f"[bench-case] mode={case.mode} batch={case.batch_size} prompt={format_lengths(case.prompt_len)} "
-        f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
-        flush=True,
-    )
-
-    result = run_case(
-        model,
-        case.mode,
-        list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
-        list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens,
-        case.batch_size,
-        args.warmup,
-        args.repeats,
-        vocab,
-        device,
-        cost=cost,
-        peaks=peaks,
-        profile_mode=args.profile_mode,
-        tensorboard_options=tb_options,
-    )
-
-    print_case_summary(result)
-
-    git = git_info()
-    record = build_benchmark_record(
-        args=args,
-        model=model,
-        mode_label=str(case.mode),
-        cases=[result],
-        correctness=correctness,
-        env=env,
-        peaks=peaks,
-        cost=cost,
-        git=git,
-        warmup=args.warmup,
-        repeats=args.repeats,
-    )
-
-    output = args.output or RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
-    print()
-    # 末尾输出标准单行 CSV 表格：供脚本重定向收集或复制至电子表格对比（与前文人类可读的 summary 互补）
-    print_table([result], mode=str(case.mode))
-
-
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "resolve_case_specs",
+    "run_case",
+]

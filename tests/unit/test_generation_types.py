@@ -18,6 +18,7 @@ from mini_infra.engine.types import (
     GenerationResult,
     GenerationTrace,
     MemoryProfile,
+    OfflineGenerationOptions,
     SequenceOutput,
     StepAggregatedMetrics,
     aggregate_generation_results,
@@ -32,6 +33,7 @@ def test_frozen_dataclass_contract():
     """验证所有核心数据类均为 frozen dataclass，且支持不可变性保护。"""
     classes = [
         SequenceOutput,
+        OfflineGenerationOptions,
         MemoryProfile,
         StepAggregatedMetrics,
         GenerationTrace,
@@ -498,3 +500,31 @@ def test_generation_result_prompt_throughput_properties():
     assert not hasattr(res, "effective_prompt_tok_s")
     assert not hasattr(res, "padded_prompt_tok_s")
     assert res.batch_info.effective_prompt_tok_s == 2000.0
+
+
+def test_offline_generation_options_dual_track_and_immutability(diverse_model):
+    from mini_infra import Mode, OfflineGenerationOptions, generate
+
+    CPU = torch.device("cpu")
+    mode = Mode()
+    prompt = [[1, 2, 3]]
+
+    # 1. 不可变性测试
+    opts = OfflineGenerationOptions(device=CPU, stop_on_eos=False, pad_token_id=0)
+    with pytest.raises(FrozenInstanceError):
+        opts.stop_on_eos = True  # type: ignore[misc]
+
+    # 2. options 结构体传参
+    res_opts = generate(mode, diverse_model, prompt, 3, options=opts)
+    assert len(res_opts.sequences[0].token_ids) == 3
+
+    # 3. 平铺参数传参（与结构体传参等价）
+    res_flat = generate(mode, diverse_model, prompt, 3, device=CPU, stop_on_eos=False, pad_token_id=0)
+    assert res_flat.sequences[0].token_ids == res_opts.sequences[0].token_ids
+
+    # 4. 同时指定 options 与平铺参数报错
+    with pytest.raises(ValueError, match="不能同时指定"):
+        generate(mode, diverse_model, prompt, 3, options=opts, stop_on_eos=False)
+
+    with pytest.raises(ValueError, match="不能同时指定"):
+        generate(mode, diverse_model, prompt, 3, options=opts, profile=True)

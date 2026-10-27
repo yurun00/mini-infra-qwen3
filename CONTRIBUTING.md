@@ -34,7 +34,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 
 * **冒烟自检**：
   ```bash
-  mini-infra-smoke
+  mini-infra verify smoke
   ```
   使用随机生成的小模型在 CPU 上快速验证模型网络结构、前向传播与因果掩码（Causal Mask）计算正确性。
 * **CPU 单元测试**：
@@ -54,7 +54,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 
 * **固定批处理请求隔离与数值对齐**：
   ```bash
-  mini-infra-compare-batch \
+  mini-infra verify batch \
     --prompt "用一句话解释固定批处理。" \
     --max-new-tokens 8
   # 或使用 pytest：pytest tests/gpu/parity/test_batch_parity.py
@@ -63,7 +63,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 
 * **KV Cache 前后数值对齐**：
   ```bash
-  mini-infra-compare-cache \
+  mini-infra verify cache \
     --prompt "请用一句话介绍 KV Cache。" \
     --max-new-tokens 32
   # 或使用 pytest：pytest tests/gpu/parity/test_cache_parity.py
@@ -72,7 +72,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 
 * **与 Hugging Face Transformers 对照测试**：
   ```bash
-  mini-infra-compare \
+  mini-infra verify transformers \
     --prompt "请用一句话介绍 KV Cache。" \
     --max-new-tokens 32
   # 或使用 pytest：pytest tests/gpu/parity/test_transformers_parity.py
@@ -84,7 +84,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 ### 3. 零性能倒退守护（Zero-Regression Guard）
 
 ```bash
-mini-infra-bench-regression
+mini-infra bench check-regression
 ```
 * **机制**：轻量级性能回归守护测试（耗时约 1 分钟）。比对当前实现与 `benchmarks/data/reference.json` 中的底线基准，若 TTFT 或 TPOT 中位数劣化超过 5%，自动以非零状态码退出并告警。
 * **本地自动化**：通过 `pre-commit` 注册在 `pre-push` hook 中，防止意外推送劣化性能的代码。
@@ -96,22 +96,22 @@ mini-infra-bench-regression
 
 在日常性能调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**：
 
-可通过 `--output` 将结果输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略），并使用 `mini-infra-bench-plot-compare` 绘制跨模式对比图：
+可通过 `--output` 将结果输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略），并使用 `mini-infra bench plot compare` 绘制跨模式对比图：
 
 ```bash
 # 1. 测量无 cache 模式
-mini-infra-bench-case --tag dev --no-kv-cache --output tmp/test_nocache.json
+mini-infra bench batch case --tag dev --no-kv-cache --output tmp/test_nocache.json
 
 # 2. 测量有 KV Cache 模式
-mini-infra-bench-case --tag dev --kv-cache --output tmp/test_kvcache.json
+mini-infra bench batch case --tag dev --kv-cache --output tmp/test_kvcache.json
 
 # 3. 对比两个 JSON 结果：终端打印对比表，并绘制 6 维度对比图（Decode 延迟、吞吐、加速比、TTFT、显存占用、端到端延迟）
-mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
+mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 
 # 快速试跑对比（缩小测试矩阵）
-mini-infra-bench-case --tag dev --no-kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_nocache.json
-mini-infra-bench-case --tag dev --kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_kvcache.json
-mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
+mini-infra bench batch case --tag dev --no-kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_nocache.json
+mini-infra bench batch case --tag dev --kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_kvcache.json
+mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 ```
 
 ---

@@ -1,8 +1,12 @@
 """离线与静态 Batch 基准测试模块（单用例与套件）。"""
 
-from mini_infra.bench.batch.run_case import main as run_case_main
-from mini_infra.bench.batch.run_case import run_case
-from mini_infra.bench.batch.run_suite import main as run_suite_main
+from mini_infra.bench.batch.display import (
+    build_benchmark_record,
+    print_case_summary,
+    print_table,
+)
+from mini_infra.bench.batch.run_case import resolve_case_specs, run_case
+from mini_infra.bench.batch.run_suite import run_suite
 from mini_infra.bench.batch.suites import (
     SUITES,
     SerialVsFixedBatchThroughputSuite,
@@ -39,9 +43,12 @@ __all__ = [
     "UniformVsVariableBudgetSlotsSuite",
     "UniformVsVariablePromptPaddingSuite",
     "WorkloadSpec",
+    "build_benchmark_record",
     "get_suite",
+    "print_case_summary",
+    "print_table",
+    "resolve_case_specs",
     "run_case",
-    "run_case_main",
-    "run_suite_main",
+    "run_suite",
     "summarize_samples",
 ]

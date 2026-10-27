@@ -8,19 +8,15 @@ from mini_infra.bench.serving.plan import (
     parse_interleave_dimension,
 )
 from mini_infra.bench.serving.run_case import (
-    main as run_case_main,
-)
-from mini_infra.bench.serving.run_case import (
+    print_single_case_table,
     run_case,
     run_case_once,
 )
 from mini_infra.bench.serving.run_suite import (
     build_serving_record,
+    parse_interleave_args,
     print_serving_table,
     run_suite,
-)
-from mini_infra.bench.serving.run_suite import (
-    main as run_suite_main,
 )
 from mini_infra.bench.serving.suites import (
     SERVING_SUITES,
@@ -56,12 +52,12 @@ __all__ = [
     "format_serving_run_plan",
     "get_all_serving_suites",
     "get_serving_suite",
+    "parse_interleave_args",
     "parse_interleave_dimension",
     "print_serving_table",
+    "print_single_case_table",
     "run_case",
-    "run_case_main",
     "run_case_once",
     "run_suite",
-    "run_suite_main",
     "summarize_serving_runs",
 ]
