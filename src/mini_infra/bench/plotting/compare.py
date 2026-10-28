@@ -1,7 +1,7 @@
 """对比两个独立 benchmark JSON 结果（例如比较不同的 mode），并生成对比图表与数据报表。
 
 适用场景：
-    日常调优时使用 mini-infra bench batch case --output 输出的独立 JSON 文件，
+    日常调优时使用 mini-infra bench lockstep case --output 输出的独立 JSON 文件，
     通过本脚本直接对比两个结果（例如 no-cache vs kv-cache），画出性能对比图，
     而无需沉淀到 benchmarks/result-history/ 污染正式发版时间线。
 

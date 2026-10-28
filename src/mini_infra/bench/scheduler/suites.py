@@ -25,8 +25,8 @@ from mini_infra.engine import BatchingMethod, FeatureDimension, FeatureFlag, Mod
 
 
 @dataclass(frozen=True)
-class ServingSuiteCase:
-    """Serving 评测最小单用例配置：包含用例 ID、套件名、运行模式（Mode）、最大并发数与请求规格。"""
+class SchedulerSuiteCase:
+    """Scheduler 评测最小单用例配置：包含用例 ID、套件名、运行模式（Mode）、最大并发数与请求规格。"""
 
     id: str
     suite_name: str
@@ -65,8 +65,8 @@ class ServingSuiteCase:
 
 
 @runtime_checkable
-class ServingSuite(Protocol):
-    """Serving 评测套件统一接口协议。"""
+class SchedulerSuite(Protocol):
+    """Scheduler 评测套件统一接口协议。"""
 
     name: str
     warmup: int
@@ -78,7 +78,7 @@ class ServingSuite(Protocol):
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]: ...
 
-    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[ServingSuiteCase]: ...
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]: ...
 
     def to_dict(self) -> dict[str, Any]: ...
 
@@ -96,11 +96,11 @@ def _case_id_for_mode(mode: Mode) -> str:
     return str(mode)
 
 
-def _expand_suite_cases_by_modes(suite: ServingSuite, specs: Sequence[RequestSpec]) -> list[ServingSuiteCase]:
+def _expand_suite_cases_by_modes(suite: SchedulerSuite, specs: Sequence[RequestSpec]) -> list[SchedulerSuiteCase]:
     """根据 Suite 的 modes() 列表与请求规格展开出具体的用例列表。"""
     specs_tuple = tuple(specs)
     return [
-        ServingSuiteCase(
+        SchedulerSuiteCase(
             id=_case_id_for_mode(mode),
             suite_name=suite.name,
             mode=mode,
@@ -147,7 +147,7 @@ class FixedVsContinuousVariableOutputLengthSuite:
         budgets = make_alternating_budgets(self.request_count, self.short_output, self.long_output)
         return make_request_specs(sequences, budgets)
 
-    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[ServingSuiteCase]:
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
         return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
 
     def to_dict(self) -> dict[str, Any]:
@@ -192,7 +192,7 @@ class FixedVsContinuousUniformOutputLengthSuite:
         budgets = [self.output_budget] * self.request_count
         return make_request_specs(sequences, budgets)
 
-    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[ServingSuiteCase]:
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
         return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
 
     def to_dict(self) -> dict[str, Any]:
@@ -242,7 +242,7 @@ class FixedVsContinuousStaggeredArrivalsSuite:
         arrivals = make_arrival_times(self.request_count, self.arrival_interval_ms)
         return make_request_specs(sequences, budgets, arrivals)
 
-    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[ServingSuiteCase]:
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
         return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
 
     def to_dict(self) -> dict[str, Any]:
@@ -294,7 +294,7 @@ class FixedVsContinuousPrefillInterferenceSuite:
         arrivals = [0.0, 0.0, self.interference_arrival_ms]
         return make_request_specs(sequences, budgets, arrivals)
 
-    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[ServingSuiteCase]:
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
         return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
 
     def to_dict(self) -> dict[str, Any]:
@@ -304,7 +304,7 @@ class FixedVsContinuousPrefillInterferenceSuite:
         return data
 
 
-SERVING_SUITES: dict[str, ServingSuite] = {
+SCHEDULER_SUITES: dict[str, SchedulerSuite] = {
     "fixed-vs-continuous-variable-output-length": FixedVsContinuousVariableOutputLengthSuite(),
     "fixed-vs-continuous-uniform-output-length": FixedVsContinuousUniformOutputLengthSuite(),
     "fixed-vs-continuous-staggered-arrivals": FixedVsContinuousStaggeredArrivalsSuite(),
@@ -312,15 +312,15 @@ SERVING_SUITES: dict[str, ServingSuite] = {
 }
 
 
-def get_serving_suite(name: str) -> ServingSuite:
+def get_scheduler_suite(name: str) -> SchedulerSuite:
     try:
-        return SERVING_SUITES[name]
+        return SCHEDULER_SUITES[name]
     except KeyError as err:
-        raise ValueError(f"未知 serving suite: {name}，可选: {sorted(SERVING_SUITES)}") from err
+        raise ValueError(f"未知 scheduler suite: {name}，可选: {sorted(SCHEDULER_SUITES)}") from err
 
 
-def get_all_serving_suites() -> Sequence[ServingSuite]:
-    return list(SERVING_SUITES.values())
+def get_all_scheduler_suites() -> Sequence[SchedulerSuite]:
+    return list(SCHEDULER_SUITES.values())
 
 
 __all__ = [
@@ -328,9 +328,9 @@ __all__ = [
     "FixedVsContinuousStaggeredArrivalsSuite",
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
-    "SERVING_SUITES",
-    "ServingSuite",
-    "ServingSuiteCase",
-    "get_all_serving_suites",
-    "get_serving_suite",
+    "SCHEDULER_SUITES",
+    "SchedulerSuite",
+    "SchedulerSuiteCase",
+    "get_all_scheduler_suites",
+    "get_scheduler_suite",
 ]

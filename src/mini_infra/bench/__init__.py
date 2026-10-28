@@ -1,12 +1,30 @@
 """Benchmark 评测模块与领域类型。
 
-结构组织（方案 B: 按场景目录划分）：
-- mini_infra.bench.batch: 离线与静态批处理评测（run_case, run_suite, suites, types）
-- mini_infra.bench.serving: 动态调度与 Continuous Batching 评测（run, suites, types）
+结构组织（按执行循环划分）：
+- mini_infra.bench.lockstep: 齐步（Lockstep）循环评测（所有请求同时开始，无调度器）
+- mini_infra.bench.scheduler: 队列调度器（Scheduler）循环评测（Fixed vs Continuous Batching）
 - mini_infra.bench.common: 共享基础设施（环境探测、CLI 参数、基准记录构建）
 """
 
-from mini_infra.bench.batch import (
+from mini_infra.bench.common import (
+    DEFAULT_REPEATS,
+    DEFAULT_WARMUP,
+    REPO_ROOT,
+    CorrectnessReport,
+    EfficiencyMetrics,
+    HardwarePeakSpecs,
+    ModelCostProfile,
+    add_common_args,
+    check_correctness,
+    format_lengths,
+    git_info,
+    gpu_info,
+    model_cost,
+    require_cuda,
+    resolve_peak_specs,
+    save_benchmark_record,
+)
+from mini_infra.bench.lockstep import (
     SUITES,
     BatchPackingProfile,
     CaseBenchmarkResult,
@@ -28,38 +46,20 @@ from mini_infra.bench.batch import (
     run_case,
     summarize_samples,
 )
-from mini_infra.bench.common import (
-    DEFAULT_REPEATS,
-    DEFAULT_WARMUP,
-    REPO_ROOT,
-    CorrectnessReport,
-    EfficiencyMetrics,
-    HardwarePeakSpecs,
-    ModelCostProfile,
-    add_common_args,
-    check_correctness,
-    format_lengths,
-    git_info,
-    gpu_info,
-    model_cost,
-    require_cuda,
-    resolve_peak_specs,
-    save_benchmark_record,
-)
-from mini_infra.bench.serving import (
-    SERVING_SUITES,
+from mini_infra.bench.scheduler import (
+    SCHEDULER_SUITES,
     FixedVsContinuousPrefillInterferenceSuite,
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
     FixedVsContinuousVariableOutputLengthSuite,
-    ServingCaseResult,
-    ServingSuite,
-    ServingSuiteCase,
-    ServingSuiteResult,
-    get_all_serving_suites,
-    get_serving_suite,
-    print_serving_table,
-    summarize_serving_runs,
+    SchedulerCaseResult,
+    SchedulerSuite,
+    SchedulerSuiteCase,
+    SchedulerSuiteResult,
+    get_all_scheduler_suites,
+    get_scheduler_suite,
+    print_scheduler_table,
+    summarize_scheduler_runs,
 )
 from mini_infra.bench.workloads import (
     make_alternating_budgets,
@@ -74,7 +74,8 @@ from mini_infra.bench.workloads import (
 __all__ = [
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",
-    "SERVING_SUITES",
+    "REPO_ROOT",
+    "SCHEDULER_SUITES",
     "SUITES",
     "BatchPackingProfile",
     "CaseBenchmarkResult",
@@ -90,12 +91,11 @@ __all__ = [
     "HardwarePeakSpecs",
     "LatencyDistributions",
     "ModelCostProfile",
-    "REPO_ROOT",
+    "SchedulerCaseResult",
+    "SchedulerSuite",
+    "SchedulerSuiteCase",
+    "SchedulerSuiteResult",
     "SerialVsFixedBatchThroughputSuite",
-    "ServingCaseResult",
-    "ServingSuite",
-    "ServingSuiteCase",
-    "ServingSuiteResult",
     "Suite",
     "SuiteCase",
     "ThroughputDistributions",
@@ -106,8 +106,8 @@ __all__ = [
     "build_benchmark_record",
     "check_correctness",
     "format_lengths",
-    "get_all_serving_suites",
-    "get_serving_suite",
+    "get_all_scheduler_suites",
+    "get_scheduler_suite",
     "get_suite",
     "git_info",
     "gpu_info",
@@ -120,12 +120,12 @@ __all__ = [
     "make_variable_prompt_lengths",
     "model_cost",
     "print_case_summary",
-    "print_serving_table",
+    "print_scheduler_table",
     "print_table",
     "require_cuda",
     "resolve_peak_specs",
     "run_case",
     "save_benchmark_record",
     "summarize_samples",
-    "summarize_serving_runs",
+    "summarize_scheduler_runs",
 ]

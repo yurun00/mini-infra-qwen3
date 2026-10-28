@@ -145,3 +145,20 @@ def test_release_and_reset(model):
 def test_capacity_must_be_positive():
     with pytest.raises(ValueError):
         DenseSlotCache(capacity=0, device=CPU)
+
+
+def test_bind_wave_zero_copy_and_reset_restores_capacity(model):
+    prompts = [[3, 5, 7, 9], [11, 13]]
+    states = [admitted_state(0, prompts[0], slot=0), admitted_state(1, prompts[1], slot=1)]
+    slots = DenseSlotCache(capacity=4, device=CPU)
+    prefill_cache = prefill(model, prompts)
+
+    slots.bind_wave(states, prefill_cache)
+
+    assert slots.capacity == 2
+    assert slots.cache is prefill_cache
+    assert slots.history_mask.tolist() == [[True, True, True, True], [False, False, True, True]]
+
+    slots.reset()
+    assert slots.capacity == 4
+    assert slots.cache is None and slots.history_mask is None

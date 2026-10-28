@@ -1,15 +1,15 @@
-"""plan.py 执行计划与特征调度算法的单元测试（纯 CPU）。"""
+"""bench.scheduler.plan 执行计划与特征调度算法的单元测试（纯 CPU）。"""
 
 import pytest
 
-from mini_infra.bench.serving.plan import (
+from mini_infra.bench.scheduler.plan import (
     RunPhase,
-    build_serving_run_plan,
+    build_scheduler_run_plan,
     extract_case_feature,
-    format_serving_run_plan,
+    format_scheduler_run_plan,
     parse_interleave_dimension,
 )
-from mini_infra.bench.serving.suites import ServingSuiteCase
+from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
 
@@ -19,12 +19,12 @@ def make_dummy_case(
     kv_cache: bool,
     suite_name: str = "test-suite",
     case_id: str | None = None,
-) -> ServingSuiteCase:
+) -> SchedulerSuiteCase:
     flags = {FeatureFlag.KV_CACHE} if kv_cache else set()
     mode = Mode(flags, batching_method=batching_method)
     spec = RequestSpec(request_index=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     cid = case_id or ("continuous" if batching_method == BatchingMethod.CONTINUOUS else "fixed")
-    return ServingSuiteCase(
+    return SchedulerSuiteCase(
         id=cid,
         suite_name=suite_name,
         mode=mode,
@@ -77,7 +77,7 @@ def test_interleave_batching_method_unselected_kv_cache():
     c4 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=False)
     cases = [c1, c2, c3, c4]
 
-    plan = build_serving_run_plan(cases, warmup=1, repeats=3, interleave=(BatchingMethod,))
+    plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=(BatchingMethod,))
 
     # 总步数：每个 Group 有 2 cases * 1 warmup + 2 cases * 3 repeats = 8 步，共 2 Groups = 16 步
     assert len(plan) == 16
@@ -126,7 +126,7 @@ def test_interleave_none_pure_serial():
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
     c2 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
 
-    plan = build_serving_run_plan([c1, c2], warmup=1, repeats=2, interleave=())
+    plan = build_scheduler_run_plan([c1, c2], warmup=1, repeats=2, interleave=())
     assert len(plan) == 6
 
     # c1 跑完 warmup 与 2 轮 repeats
@@ -146,7 +146,9 @@ def test_interleave_all_features():
     c2 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
     c3 = make_dummy_case(BatchingMethod.FIXED, kv_cache=False)
 
-    plan = build_serving_run_plan([c1, c2, c3], warmup=0, repeats=2, interleave=(BatchingMethod, FeatureFlag.KV_CACHE))
+    plan = build_scheduler_run_plan(
+        [c1, c2, c3], warmup=0, repeats=2, interleave=(BatchingMethod, FeatureFlag.KV_CACHE)
+    )
     assert len(plan) == 6
     assert all(p.group_id == 0 for p in plan)
 
@@ -160,20 +162,20 @@ def test_interleave_all_features():
 def test_interleave_invalid_type():
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
     with pytest.raises(TypeError, match="未知的 interleave 特征维度"):
-        build_serving_run_plan([c1], warmup=1, repeats=2, interleave=("batching_method",))  # type: ignore[arg-type]
+        build_scheduler_run_plan([c1], warmup=1, repeats=2, interleave=("batching_method",))  # type: ignore[arg-type]
 
 
-def test_format_serving_run_plan():
+def test_format_scheduler_run_plan():
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
     c2 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
-    plan = build_serving_run_plan([c1, c2], warmup=1, repeats=2, interleave=(BatchingMethod,))
-    output = format_serving_run_plan(plan)
+    plan = build_scheduler_run_plan([c1, c2], warmup=1, repeats=2, interleave=(BatchingMethod,))
+    output = format_scheduler_run_plan(plan)
     assert "共 6 步" in output
     assert "warmup" in output
     assert "repeat 1" in output
 
 
 def test_empty_plan():
-    assert build_serving_run_plan([], warmup=1, repeats=2) == []
+    assert build_scheduler_run_plan([], warmup=1, repeats=2) == []
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
-    assert build_serving_run_plan([c1], warmup=1, repeats=0) == []
+    assert build_scheduler_run_plan([c1], warmup=1, repeats=0) == []

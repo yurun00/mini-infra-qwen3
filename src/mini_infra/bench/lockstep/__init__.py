@@ -1,13 +1,13 @@
-"""离线与静态 Batch 基准测试模块（单用例与套件）。"""
+"""齐步（Lockstep）无调度器基准测试模块（所有请求同时开始，含单用例与套件）。"""
 
-from mini_infra.bench.batch.display import (
+from mini_infra.bench.lockstep.display import (
     build_benchmark_record,
     print_case_summary,
     print_table,
 )
-from mini_infra.bench.batch.run_case import resolve_case_specs, run_case
-from mini_infra.bench.batch.run_suite import run_suite
-from mini_infra.bench.batch.suites import (
+from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
+from mini_infra.bench.lockstep.run_suite import run_suite
+from mini_infra.bench.lockstep.suites import (
     SUITES,
     SerialVsFixedBatchThroughputSuite,
     Suite,
@@ -16,7 +16,7 @@ from mini_infra.bench.batch.suites import (
     UniformVsVariablePromptPaddingSuite,
     get_suite,
 )
-from mini_infra.bench.batch.types import (
+from mini_infra.bench.lockstep.types import (
     BatchPackingProfile,
     CaseBenchmarkResult,
     CaseMemoryProfile,

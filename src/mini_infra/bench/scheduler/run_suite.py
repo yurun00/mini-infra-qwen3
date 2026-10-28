@@ -1,6 +1,6 @@
-"""套件基准测试（run_suite）：执行整套 Serving 评测套件的纯执行调度内核。
+"""套件基准测试（run_suite）：执行整套 Scheduler 评测套件的纯执行调度内核。
 
-根据 ServingSuite 与配置生成执行计划（支持按特征 interleave），
+根据 SchedulerSuite 与配置生成执行计划（支持按特征 interleave），
 逐项调用 run_case 模块的原子 step 执行，最后汇总结算加速比与吞吐。
 """
 
@@ -10,20 +10,19 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.serving.plan import (
+from mini_infra.bench.scheduler.plan import (
     RunPhase,
-    build_serving_run_plan,
+    build_scheduler_run_plan,
     parse_interleave_dimension,
 )
-from mini_infra.bench.serving.run_case import run_case_once
-from mini_infra.bench.serving.suites import ServingSuite
-from mini_infra.bench.serving.types import (
-    ServingCaseResult,
-    ServingSuiteResult,
-    summarize_serving_runs,
+from mini_infra.bench.scheduler.run_case import run_case_once
+from mini_infra.bench.scheduler.suites import SchedulerSuite
+from mini_infra.bench.scheduler.types import (
+    SchedulerCaseResult,
+    SchedulerSuiteResult,
+    summarize_scheduler_runs,
 )
-from mini_infra.core.types import ScheduleResult
-from mini_infra.engine import FeatureDimension
+from mini_infra.engine import FeatureDimension, ScheduleResult
 
 SCHEMA_VERSION = "1.0"
 
@@ -42,13 +41,13 @@ def parse_interleave_args(
 def run_suite(
     model: torch.nn.Module,
     device: torch.device,
-    suite: ServingSuite,
+    suite: SchedulerSuite,
     vocab_size: int,
     warmup: int | None = None,
     repeats: int | None = None,
     interleave: Sequence[FeatureDimension] | None = None,
-) -> ServingSuiteResult:
-    """运行一个 Serving 评测套件：根据计划驱动执行，支持选定特征在 repeat 间轮换交替。"""
+) -> SchedulerSuiteResult:
+    """运行一个 Scheduler 评测套件：根据计划驱动执行，支持选定特征在 repeat 间轮换交替。"""
     warmup_val = warmup if warmup is not None else suite.warmup
     repeats_val = repeats if repeats is not None else suite.repeats
     interleave_features = tuple(interleave) if interleave is not None else suite.interleave
@@ -57,7 +56,7 @@ def run_suite(
     mode_by_case_id = {case.id: str(case.mode) for case in cases}
 
     # 生成执行计划
-    plan = build_serving_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_features)
+    plan = build_scheduler_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_features)
 
     # 驱动执行计划，按用例 ID 归集测量结果
     collected: dict[str, list[ScheduleResult]] = {case.id: [] for case in cases}
@@ -66,8 +65,8 @@ def run_suite(
         if planned_run.phase == RunPhase.MEASURE:
             collected[planned_run.case.id].append(res)
 
-    case_results: dict[str, ServingCaseResult] = {
-        cid: summarize_serving_runs(cid, mode_by_case_id[cid], runs) for cid, runs in collected.items()
+    case_results: dict[str, SchedulerCaseResult] = {
+        cid: summarize_scheduler_runs(cid, mode_by_case_id[cid], runs) for cid, runs in collected.items()
     }
 
     # 计算加速比：若存在 fixed 与 continuous 对比，计算 makespan 加速比
@@ -77,14 +76,14 @@ def run_suite(
         c_mean = case_results["continuous"].makespan_ms.mean
         speedup = f_mean / c_mean if c_mean > 0 else 1.0
 
-    return ServingSuiteResult(
+    return SchedulerSuiteResult(
         suite_name=suite.name,
         cases=case_results,
         continuous_makespan_speedup=speedup,
     )
 
 
-def print_serving_table(suite_results: Sequence[ServingSuiteResult]) -> None:
+def print_scheduler_table(suite_results: Sequence[SchedulerSuiteResult]) -> None:
     """打印控制台标准 CSV 汇总表格。"""
     header = [
         "suite",
@@ -108,8 +107,8 @@ def print_serving_table(suite_results: Sequence[ServingSuiteResult]) -> None:
                 cid,
                 res.mode,
                 f"{res.makespan_ms.mean:.3f}",
-                f"{res.request_throughput_req_s.mean:.3f}",
-                f"{res.output_token_throughput_tok_s.mean:.3f}",
+                f"{res.throughput_req_s.mean:.3f}",
+                f"{res.throughput_tok_s.mean:.3f}",
                 f"{res.execution_slot_utilization.mean * 100:.2f}%",
                 f"{res.ttft_ms_p95.mean:.3f}",
                 f"{res.itl_ms_p95.mean:.3f}",
@@ -119,22 +118,22 @@ def print_serving_table(suite_results: Sequence[ServingSuiteResult]) -> None:
             print(",".join(row))
 
 
-def build_serving_record(
+def build_scheduler_record(
     args: Any,
     model: torch.nn.Module,
-    suite: ServingSuite,
-    suite_result: ServingSuiteResult,
+    suite: SchedulerSuite,
+    suite_result: SchedulerSuiteResult,
     correctness: dict[str, Any],
     env: dict[str, Any],
     peaks: dict[str, float | None],
     cost: dict[str, Any] | None,
     git: dict[str, Any],
 ) -> dict[str, Any]:
-    """构建 Serving 评测结果标准 JSON 记录。"""
+    """构建 Scheduler 评测结果标准 JSON 记录。"""
     return {
         "schema_version": SCHEMA_VERSION,
         "tag": args.tag,
-        "benchmark_type": "serving",
+        "benchmark_type": "scheduler",
         "suite": suite_result.suite_name,
         "suite_config": suite.to_dict(),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -157,8 +156,8 @@ def build_serving_record(
 
 __all__ = [
     "SCHEMA_VERSION",
-    "build_serving_record",
+    "build_scheduler_record",
     "parse_interleave_args",
-    "print_serving_table",
+    "print_scheduler_table",
     "run_suite",
 ]

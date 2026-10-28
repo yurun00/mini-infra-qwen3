@@ -5,7 +5,14 @@
 
 import torch
 
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, generate, left_pad_sequences
+from mini_infra.engine import (
+    BatchingMethod,
+    FeatureFlag,
+    Mode,
+    OfflineGenerationOptions,
+    generate,
+    left_pad_sequences,
+)
 from mini_infra.memory import KVCache, cache_size_bytes
 from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
 
@@ -104,20 +111,21 @@ def check_fixed_batching(model):
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
     fixed_batching_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
-    kwargs = {"eos_token_id": -1, "device": device, "stop_on_eos": False, "capture_logits": True}
-    single = generate(fixed_batching_mode, model, [request_a], 4, **kwargs)
-    paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], **kwargs)
-    replaced = generate(fixed_batching_mode, model, [request_c, request_a], [4, 4], **kwargs)
+    logits_opts = OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
+    single = generate(fixed_batching_mode, model, [request_a], 4, options=logits_opts)
+    paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], options=logits_opts)
+    replaced = generate(fixed_batching_mode, model, [request_c, request_a], [4, 4], options=logits_opts)
 
     assert single.sequences[0].token_ids == paired.sequences[1].token_ids == replaced.sequences[1].token_ids
     for step in range(4):
         assert torch.allclose(single.trace.logits_trace[step][0], paired.trace.logits_trace[step][1], atol=1e-5)
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
+    base_opts = OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
     slots = generate(
-        fixed_batching_mode, model, [request_a, request_b], [2, 4], eos_token_id=-1, device=device, stop_on_eos=False
+        fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts
     )
-    assert slots.trace.active_tokens_per_step == [2, 2, 1, 1]
+    assert slots.trace.num_active_tokens_per_step == [2, 2, 1, 1]
     assert slots.batch_info.completion_steps_per_req == [2, 4]
     assert abs(slots.batch_info.slot_utilization - 0.75) < 1e-12
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
@@ -130,9 +138,7 @@ def check_fixed_batching(model):
         model,
         [request_a, request_b],
         [2, 4],
-        eos_token_id=-1,
-        device=device,
-        stop_on_eos=False,
+        options=base_opts,
     )
     assert [s.token_ids for s in serial.sequences] == [s.token_ids for s in slots.sequences]
     print("Batch 与串行输出一致性检查通过")
@@ -160,10 +166,11 @@ def check_continuous_batching(model):
 
     continuous_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
     serial_mode = Mode({FeatureFlag.KV_CACHE})
+    base_opts = OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
 
     # 1. 统一 generate 接口分发
-    cont_gen = generate(continuous_mode, model, requests, budgets, eos_token_id=-1, device=device, stop_on_eos=False)
-    serial_gen = generate(serial_mode, model, requests, budgets, eos_token_id=-1, device=device, stop_on_eos=False)
+    cont_gen = generate(continuous_mode, model, requests, budgets, options=base_opts)
+    serial_gen = generate(serial_mode, model, requests, budgets, options=base_opts)
     assert [s.token_ids for s in cont_gen.sequences] == [s.token_ids for s in serial_gen.sequences]
 
     from mini_infra.core import make_request_specs

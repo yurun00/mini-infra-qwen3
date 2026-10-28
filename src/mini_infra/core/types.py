@@ -1,10 +1,11 @@
-"""调度与请求核心领域强类型结构体与指标汇总。"""
+"""跨层共享基础领域结构体（BatchingMethod、SequenceOutput、RequestMetrics、StepAggregatedMetrics、MemoryProfile、BatchScheduleInfo）。"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from mini_infra.core.request import RequestState
+import torch
+
 from mini_infra.utils import percentile
 
 
@@ -32,7 +33,7 @@ class BatchingMethod(str, Enum):
 
 @dataclass(frozen=True)
 class SequenceOutput:
-    """单个请求的生成序列输出。"""
+    """单个请求的生成序列输出（Offline 与 Serving 共享）。"""
 
     request_index: int
     token_ids: list[int]
@@ -42,64 +43,15 @@ class SequenceOutput:
 
 
 @dataclass(frozen=True)
-class BatchScheduleInfo:
-    """批处理调度效率与完成状态明细。"""
-
-    padding_efficiency: float
-    slot_utilization: float
-    prompt_tokens: int
-    padded_prompt_tokens: int
-    prompt_lengths_per_req: list[int]
-    completion_steps_per_req: list[int]
-    ttft_ms: float = 0.0
-
-    @property
-    def effective_prompt_tok_s(self) -> float:
-        """Prefill 阶段有效 Prompt 吞吐率 (tokens/s)。"""
-        return self.prompt_tokens * 1000.0 / self.ttft_ms if self.ttft_ms > 0 else 0.0
-
-    @property
-    def padded_prompt_tok_s(self) -> float:
-        """Prefill 阶段包含 Padding 的物理计算吞吐率 (tokens/s)。"""
-        return self.padded_prompt_tokens * 1000.0 / self.ttft_ms if self.ttft_ms > 0 else 0.0
-
-
-class SchedulePhase(str, Enum):
-    """一次调度事件所处阶段。"""
-
-    PREFILL = "prefill"
-    DECODE = "decode"
-
-    def __str__(self) -> str:
-        return self.value
-
-
-@dataclass(frozen=True)
-class ScheduleEvent:
-    """一次模型调用（Prefill 或 Decode）及其搬移开销的调度事件记录。"""
-
-    phase: SchedulePhase
-    admitted: tuple[int, ...]  # 本事件入场的 request_index
-    completed: tuple[int, ...]  # 本事件结束的 request_index
-    executed_batch_size: int  # 模型实际执行的行数（含空槽位/已结束槽位）
-    active_requests: int  # 事件期间仍在占用槽位的请求数
-    generated_tokens: int  # 本事件产出的有效 Token 数
-    total_ms: float
-    model_ms: float
-    cache_management_ms: float
-    live_cache_bytes: int
-
-
-@dataclass(frozen=True)
 class RequestMetrics:
-    """单个请求在逻辑时间线上的关键时间戳（单位 ms）。"""
+    """单个请求在逻辑时间线上的关键时间戳与延迟指标（单位 ms）。"""
 
     request_index: int
     arrival_ms: float
     admitted_ms: float
     first_token_ms: float
     completion_ms: float
-    output_tokens: int
+    num_output_tokens: int
     token_times_ms: tuple[float, ...]
 
     @property
@@ -119,123 +71,180 @@ class RequestMetrics:
         return [right - left for left, right in zip(self.token_times_ms, self.token_times_ms[1:])]
 
 
+def pad_output_tokens(
+    sequences: Sequence[SequenceOutput],
+    request_idx: int | Sequence[int] | None = None,
+    pad_token_id: int = 0,
+) -> torch.Tensor:
+    """从 SequenceOutput 列表动态计算并返回对齐输出张量（OfflineGenerationResult 与 ScheduleResult 共用）。
+
+    Args:
+        sequences: 请求序列输出列表。
+        request_idx: 单个请求 index (int)、请求 index 序列 (list/tuple) 或 None。
+            - 若传入单个 int：返回该请求的 1D 输出张量 [output_len]；若未找到引发 IndexError。
+            - 若传入 Sequence[int]：按指定顺序返回选定请求的 2D 对齐张量 [len(request_idx), max_output_len]。
+            - 若为 None（默认）：返回整个批次的 2D 对齐张量 [B, max_output_len]。
+        pad_token_id: 填充 token ID，默认为 0。仅在 2D 对齐时生效。
+    """
+    if isinstance(request_idx, int):
+        for seq in sequences:
+            if seq.request_index == request_idx:
+                return torch.tensor(seq.token_ids, dtype=torch.long)
+        raise IndexError(f"Request index {request_idx} not found in sequences")
+
+    if request_idx is not None:
+        seq_map = {seq.request_index: seq for seq in sequences}
+        selected_seqs: Sequence[SequenceOutput] = []
+        for r_idx in request_idx:
+            if r_idx not in seq_map:
+                raise IndexError(f"Request index {r_idx} not found in sequences")
+            selected_seqs.append(seq_map[r_idx])
+    else:
+        selected_seqs = sequences
+
+    if not selected_seqs:
+        return torch.empty((0, 0), dtype=torch.long)
+
+    max_len = max((seq.output_len for seq in selected_seqs), default=0)
+    tensor = torch.full((len(selected_seqs), max_len), pad_token_id, dtype=torch.long)
+    for idx, seq in enumerate(selected_seqs):
+        if seq.token_ids:
+            tensor[idx, : seq.output_len] = torch.tensor(seq.token_ids, dtype=torch.long)
+    return tensor
+
+
 @dataclass(frozen=True)
-class ScheduleMetrics:
-    """一次调度运行的聚合指标。"""
+class MemoryProfile:
+    """显存监控强类型结构体（统一单位 MB，Offline 与 Serving 共享）。"""
 
-    request_count: int
-    max_running_requests: int
-    makespan_ms: float
-    busy_ms: float
-    model_ms: float
-    cache_management_ms: float
-    cache_management_fraction: float
-    request_throughput_req_s: float
-    output_token_throughput_tok_s: float
-    execution_slot_utilization: float  # 有效输出 Token 数 / 模型实际执行的行数
-    running_capacity_utilization: float  # 按时间加权的并发槽位占用率
-    queue_ms_p50: float
-    queue_ms_p95: float
-    ttft_ms_p50: float
-    ttft_ms_p95: float
-    end_to_end_ms_p50: float
-    end_to_end_ms_p95: float
-    itl_ms_p50: float
-    itl_ms_p95: float
-    itl_ms_max: float
-    peak_allocated_mb: float
-    peak_reserved_mb: float
-    peak_live_cache_mb: float
+    baseline_mb: float = 0.0
+    prefill_mb: float | None = 0.0
+    peak_allocated_mb: float = 0.0
+    peak_reserved_mb: float = 0.0
+    kv_cache_mb: float = 0.0
+
+    @property
+    def dynamic_peak_mb(self) -> float:
+        return max(0.0, self.peak_allocated_mb - self.baseline_mb)
+
+    @property
+    def fragmentation_mb(self) -> float:
+        return max(0.0, self.peak_reserved_mb - self.peak_allocated_mb)
+
+    @property
+    def peak_live_cache_mb(self) -> float:
+        """Serving 口径下的活跃 KV Cache 峰值别名（与 kv_cache_mb 等价）。"""
+        return self.kv_cache_mb
 
 
-@dataclass(frozen=True)
-class ScheduleResult:
-    """批调度运行的顶层不可变结果容器。"""
-
-    batching_method: BatchingMethod
-    sequences: list[SequenceOutput]
-    requests: list[RequestMetrics]
-    events: list[ScheduleEvent]
-    metrics: ScheduleMetrics
-
-
-def _require(value: float | None, name: str, request_index: int) -> float:
-    if value is None:
-        raise RuntimeError(f"请求 {request_index} 未完成调度，缺少 {name}")
-    return value
-
-
-def summarize_schedule(
-    batching_method: BatchingMethod,
-    states: Sequence[RequestState],
-    events: Sequence[ScheduleEvent],
-    max_running_requests: int,
-    peak_allocated_mb: float,
-    peak_reserved_mb: float,
-) -> ScheduleResult:
-    """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
-    requests = [
-        RequestMetrics(
-            request_index=state.spec.request_index,
-            arrival_ms=state.spec.arrival_ms,
-            admitted_ms=_require(state.admitted_ms, "admitted_ms", state.spec.request_index),
-            first_token_ms=_require(state.first_token_ms, "first_token_ms", state.spec.request_index),
-            completion_ms=_require(state.completion_ms, "completion_ms", state.spec.request_index),
-            output_tokens=len(state.generated),
-            token_times_ms=tuple(state.token_times_ms),
-        )
-        for state in states
-    ]
-    sequences = [
-        SequenceOutput(
-            request_index=state.spec.request_index,
-            token_ids=list(state.generated),
-            prompt_len=state.spec.prompt_len,
-            output_len=len(state.generated),
-            finish_reason=state.finish_reason,
-        )
-        for state in states
-    ]
-
-    makespan_ms = max(r.completion_ms for r in requests) - min(r.arrival_ms for r in requests)
-    busy_ms = sum(e.total_ms for e in events)
-    model_ms = sum(e.model_ms for e in events)
-    cache_ms = sum(e.cache_management_ms for e in events)
-    output_tokens = sum(r.output_tokens for r in requests)
-    executed_rows = sum(e.executed_batch_size for e in events)
-    capacity_area = sum(e.active_requests * e.total_ms for e in events)
-    itls = [itl for r in requests for itl in r.inter_token_latencies_ms]
+def build_memory_profile(
+    baseline_allocated_bytes: int,
+    memory_after_prefill_bytes: int,
+    peak_allocated_bytes: int,
+    peak_reserved_bytes: int,
+    cache_bytes: int,
+) -> MemoryProfile:
+    """将监控字节数转换为以 MB 为单位的 MemoryProfile。"""
     mib = 1024**2
+    return MemoryProfile(
+        baseline_mb=baseline_allocated_bytes / mib,
+        prefill_mb=memory_after_prefill_bytes / mib,
+        peak_allocated_mb=peak_allocated_bytes / mib,
+        peak_reserved_mb=peak_reserved_bytes / mib,
+        kv_cache_mb=cache_bytes / mib,
+    )
 
-    metrics = ScheduleMetrics(
-        request_count=len(requests),
-        max_running_requests=max_running_requests,
-        makespan_ms=makespan_ms,
-        busy_ms=busy_ms,
-        model_ms=model_ms,
-        cache_management_ms=cache_ms,
-        cache_management_fraction=cache_ms / busy_ms if busy_ms else 0.0,
-        request_throughput_req_s=len(requests) * 1000 / makespan_ms if makespan_ms else 0.0,
-        output_token_throughput_tok_s=output_tokens * 1000 / makespan_ms if makespan_ms else 0.0,
-        execution_slot_utilization=output_tokens / executed_rows if executed_rows else 0.0,
-        running_capacity_utilization=capacity_area / (max_running_requests * busy_ms) if busy_ms else 0.0,
-        queue_ms_p50=percentile([r.queue_ms for r in requests], 50),
-        queue_ms_p95=percentile([r.queue_ms for r in requests], 95),
-        ttft_ms_p50=percentile([r.ttft_ms for r in requests], 50),
-        ttft_ms_p95=percentile([r.ttft_ms for r in requests], 95),
-        end_to_end_ms_p50=percentile([r.end_to_end_ms for r in requests], 50),
-        end_to_end_ms_p95=percentile([r.end_to_end_ms for r in requests], 95),
-        itl_ms_p50=percentile(itls, 50),
-        itl_ms_p95=percentile(itls, 95),
-        itl_ms_max=max(itls, default=0.0),
-        peak_allocated_mb=peak_allocated_mb,
-        peak_reserved_mb=peak_reserved_mb,
-        peak_live_cache_mb=max((e.live_cache_bytes for e in events), default=0) / mib,
+
+@dataclass(frozen=True)
+class BatchScheduleInfo:
+    """批处理打包（Padding 效率）与槽位利用率明细（Offline 与 Serving 共享）。"""
+
+    padding_efficiency: float
+    slot_utilization: float
+    num_prompt_tokens: int
+    num_padded_prompt_tokens: int
+    prompt_lengths_per_req: list[int]
+    completion_steps_per_req: list[int]
+    ttft_ms: float | None = None
+    running_capacity_utilization: float | None = None
+
+    @property
+    def execution_slot_utilization(self) -> float:
+        """Serving 口径下的执行槽位利用率别名（与 slot_utilization 等价）。"""
+        return self.slot_utilization
+
+    @property
+    def effective_prompt_tok_s(self) -> float:
+        """Prefill 阶段有效 Prompt 吞吐率 (tokens/s)。"""
+        if self.ttft_ms is not None and self.ttft_ms > 0:
+            return self.num_prompt_tokens * 1000.0 / self.ttft_ms
+        return 0.0
+
+    @property
+    def padded_prompt_tok_s(self) -> float:
+        """Prefill 阶段包含 Padding 的物理计算吞吐率 (tokens/s)。"""
+        if self.ttft_ms is not None and self.ttft_ms > 0:
+            return self.num_padded_prompt_tokens * 1000.0 / self.ttft_ms
+        return 0.0
+
+
+@dataclass(frozen=True)
+class StepAggregatedMetrics:
+    """生成性能度量纯标量指标（由同步步 step-level 统计或调度事件流聚合而成，Offline 与 Serving 共享）。"""
+
+    ttft_ms: float | None = None
+    mean_tpot_ms: float | None = None
+    p50_tpot_ms: float | None = None
+    p95_tpot_ms: float | None = None
+    e2e_wall_ms: float = 0.0
+    e2e_model_ms: float = 0.0
+    throughput_tok_s: float = 0.0
+    throughput_req_s: float = 0.0
+    gpu_time_ratio: float | None = None
+
+
+def compute_step_aggregated_metrics(
+    step_latencies_ms: list[float],
+    e2e_wall_ms: float,
+    e2e_model_ms: float | None = None,
+    *,
+    total_tokens: int,
+    batch_size: int,
+    is_cuda: bool = False,
+) -> StepAggregatedMetrics:
+    """计算时延分位数、吞吐率与 GPU 利用率纯标量指标（由各 step 统计聚合而成）。"""
+    decode_latencies = step_latencies_ms[1:] if len(step_latencies_ms) > 1 else []
+    ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
+    mean_tpot_ms = (sum(decode_latencies) / len(decode_latencies)) if decode_latencies else 0.0
+    p50_tpot_ms = percentile(decode_latencies, 50)
+    p95_tpot_ms = percentile(decode_latencies, 95)
+    if e2e_model_ms is None:
+        e2e_model_ms = sum(step_latencies_ms)
+    throughput_tok_s = total_tokens / (e2e_model_ms / 1000) if e2e_model_ms > 0 else 0.0
+    throughput_req_s = batch_size * 1000 / e2e_model_ms if e2e_model_ms > 0 else 0.0
+    gpu_time_ratio = (min(1.0, e2e_model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0) if is_cuda else None
+
+    return StepAggregatedMetrics(
+        ttft_ms=ttft_ms,
+        mean_tpot_ms=mean_tpot_ms,
+        p50_tpot_ms=p50_tpot_ms,
+        p95_tpot_ms=p95_tpot_ms,
+        e2e_wall_ms=e2e_wall_ms,
+        e2e_model_ms=e2e_model_ms,
+        throughput_tok_s=throughput_tok_s,
+        throughput_req_s=throughput_req_s,
+        gpu_time_ratio=gpu_time_ratio,
     )
-    return ScheduleResult(
-        batching_method=batching_method,
-        sequences=sequences,
-        requests=requests,
-        events=list(events),
-        metrics=metrics,
-    )
+
+
+__all__ = [
+    "BatchScheduleInfo",
+    "BatchingMethod",
+    "MemoryProfile",
+    "RequestMetrics",
+    "SequenceOutput",
+    "StepAggregatedMetrics",
+    "build_memory_profile",
+    "compute_step_aggregated_metrics",
+    "pad_output_tokens",
+]

@@ -100,17 +100,17 @@ mini-infra bench check-regression
 
 ```bash
 # 1. 测量无 cache 模式
-mini-infra bench batch case --tag dev --no-kv-cache --output tmp/test_nocache.json
+mini-infra bench lockstep case --tag dev --no-kv-cache --output tmp/test_nocache.json
 
 # 2. 测量有 KV Cache 模式
-mini-infra bench batch case --tag dev --kv-cache --output tmp/test_kvcache.json
+mini-infra bench lockstep case --tag dev --kv-cache --output tmp/test_kvcache.json
 
 # 3. 对比两个 JSON 结果：终端打印对比表，并绘制 6 维度对比图（Decode 延迟、吞吐、加速比、TTFT、显存占用、端到端延迟）
 mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 
 # 快速试跑对比（缩小测试矩阵）
-mini-infra bench batch case --tag dev --no-kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_nocache.json
-mini-infra bench batch case --tag dev --kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_kvcache.json
+mini-infra bench lockstep case --tag dev --no-kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_nocache.json
+mini-infra bench lockstep case --tag dev --kv-cache --prompt-lens 32 128 --max-new-tokens 32 --repeats 3 --output tmp/test_kvcache.json
 mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 ```
 

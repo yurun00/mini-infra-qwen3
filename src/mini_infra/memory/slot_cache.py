@@ -28,6 +28,7 @@ class DenseSlotCache:
     def __init__(self, capacity: int, device: torch.device):
         if capacity < 1:
             raise ValueError("capacity 必须大于 0")
+        self._initial_capacity = capacity
         self.capacity = capacity
         self.device = device
         self.cache: KVCache | None = None
@@ -102,13 +103,23 @@ class DenseSlotCache:
         """Decode 单步前向后（模型已把新 Token 的 KV 追加到 Cache 右侧），把本步 attention_mask 记为新的历史 Mask。"""
         self.history_mask = attention_mask
 
+    def bind_wave(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:
+        """直接绑定当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 零拷贝路径）。"""
+        self.capacity = len(states)
+        self.cache = prefill_cache
+        target_length = prefill_cache.get_seq_length()
+        self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
+        for state in states:
+            self.history_mask[state.slot_index, target_length - state.cache_length :] = True
+
     def release(self, state: RequestState) -> None:
         """释放已结束请求的槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
         if self.history_mask is not None and state.slot_index is not None:
             self.history_mask[state.slot_index].zero_()
 
     def reset(self) -> None:
-        """没有任何运行中请求时丢弃整块 Cache，回收显存。"""
+        """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始槽位容量。"""
+        self.capacity = self._initial_capacity
         self.cache = None
         self.history_mask = None
 

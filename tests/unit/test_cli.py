@@ -45,10 +45,10 @@ def test_cli_subcommand_helps():
         ["verify", "parity", "transformers", "--help"],
         ["verify", "parity", "cache", "--help"],
         ["verify", "parity", "batch", "--help"],
-        ["bench", "batch", "case", "--help"],
-        ["bench", "batch", "suite", "--help"],
-        ["bench", "serving", "case", "--help"],
-        ["bench", "serving", "suite", "--help"],
+        ["bench", "lockstep", "case", "--help"],
+        ["bench", "lockstep", "suite", "--help"],
+        ["bench", "scheduler", "case", "--help"],
+        ["bench", "scheduler", "suite", "--help"],
         ["bench", "plot", "history", "--help"],
         ["bench", "plot", "compare", "--help"],
         ["bench", "check-regression", "--help"],
@@ -69,12 +69,12 @@ def test_cli_verify_smoke(capsys):
     assert "smoke test passed" in captured
 
 
-def test_cli_serving_suite_dry_run(capsys):
-    """测试 mini-infra bench serving suite --dry-run 端到端执行。"""
+def test_cli_scheduler_suite_dry_run(capsys):
+    """测试 mini-infra bench scheduler suite --dry-run 端到端执行。"""
     ret = main(
         [
             "bench",
-            "serving",
+            "scheduler",
             "suite",
             "--tag",
             "dev",
@@ -88,7 +88,7 @@ def test_cli_serving_suite_dry_run(capsys):
     assert ret == 0
     captured = capsys.readouterr().out
     assert "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
-    assert "Serving 基准评测执行计划" in captured
+    assert "Scheduler 基准评测执行计划" in captured
 
 
 def test_cli_plot_history_no_records(tmp_path, monkeypatch, capsys):

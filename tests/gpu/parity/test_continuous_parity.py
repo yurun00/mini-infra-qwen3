@@ -10,7 +10,14 @@ import pytest
 import torch
 
 from mini_infra.core.request import make_request_specs
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, generate, run_scheduler
+from mini_infra.engine import (
+    BatchingMethod,
+    FeatureFlag,
+    Mode,
+    OfflineGenerationOptions,
+    generate,
+    run_scheduler,
+)
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -65,6 +72,7 @@ def test_continuous_batching_gpu_parity() -> None:
 
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
     single_mode = Mode({FeatureFlag.KV_CACHE})
+    single_opts = OfflineGenerationOptions(eos_token_id=eos_token_id, device=cuda, stop_on_eos=False)
     golden_tokens: list[list[int]] = []
     for p_tokens, budget in zip(prompt_tokens, budgets):
         gen_res = generate(
@@ -72,9 +80,7 @@ def test_continuous_batching_gpu_parity() -> None:
             model,
             [p_tokens],
             budget,
-            eos_token_id=eos_token_id,
-            device=cuda,
-            stop_on_eos=False,
+            options=single_opts,
         )
         golden_tokens.append(gen_res.sequences[0].token_ids)
 
@@ -90,10 +96,10 @@ def test_continuous_batching_gpu_parity() -> None:
         )
 
     # 5. 指标健康检查
-    assert cont_result.metrics.makespan_ms > 0
-    assert cont_result.metrics.peak_allocated_mb > 0
-    assert len(cont_result.requests) == len(specs)
-    for rm in cont_result.requests:
-        assert rm.output_tokens > 0
+    assert cont_result.step_agg_metrics.e2e_wall_ms > 0
+    assert cont_result.memory.peak_allocated_mb > 0
+    assert len(cont_result.request_metrics) == len(specs)
+    for rm in cont_result.request_metrics:
+        assert rm.num_output_tokens > 0
         assert rm.ttft_ms > 0
         assert rm.end_to_end_ms >= rm.ttft_ms

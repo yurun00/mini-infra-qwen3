@@ -1,4 +1,4 @@
-"""调度核心领域包：包含请求规范、调度队列与调度结果类型。"""
+"""调度核心领域包（纯 CPU 控制面）：包含请求模型、三级调度队列与跨层共享基础类型。"""
 
 from mini_infra.core.request import (
     RequestSpec,
@@ -16,34 +16,32 @@ from mini_infra.core.scheduler import (
 from mini_infra.core.types import (
     BatchingMethod,
     BatchScheduleInfo,
+    MemoryProfile,
     RequestMetrics,
-    ScheduleEvent,
-    ScheduleMetrics,
-    SchedulePhase,
-    ScheduleResult,
     SequenceOutput,
-    percentile,
-    summarize_schedule,
+    StepAggregatedMetrics,
+    build_memory_profile,
+    compute_step_aggregated_metrics,
+    pad_output_tokens,
 )
 
 __all__ = [
     "ArrivalQueue",
     "BatchScheduleInfo",
     "BatchingMethod",
+    "MemoryProfile",
     "RequestMetrics",
     "RequestSpec",
     "RequestState",
     "RequestStatus",
     "RunningQueue",
-    "ScheduleEvent",
-    "ScheduleMetrics",
-    "SchedulePhase",
-    "ScheduleResult",
     "SequenceOutput",
+    "StepAggregatedMetrics",
     "WaitingQueue",
+    "build_memory_profile",
+    "compute_step_aggregated_metrics",
     "make_request_specs",
-    "percentile",
+    "pad_output_tokens",
     "prepare_schedule",
-    "summarize_schedule",
     "validate_request_specs",
 ]

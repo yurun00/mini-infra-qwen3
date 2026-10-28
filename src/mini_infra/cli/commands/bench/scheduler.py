@@ -1,6 +1,6 @@
-"""CLI 子命令：mini-infra bench serving (case / suite)
+"""CLI 子命令：mini-infra bench scheduler (case / suite)
 
-Serving 评测套件与用例执行入口。
+队列调度器（Scheduler）评测套件与用例执行入口。
 """
 
 import argparse
@@ -21,21 +21,21 @@ from mini_infra.bench.common import (
     resolve_peak_specs,
     save_benchmark_record,
 )
-from mini_infra.bench.serving.plan import build_serving_run_plan, format_serving_run_plan
-from mini_infra.bench.serving.run_case import print_single_case_table
-from mini_infra.bench.serving.run_case import run_case as run_serving_case
-from mini_infra.bench.serving.run_suite import (
-    build_serving_record,
+from mini_infra.bench.scheduler.plan import build_scheduler_run_plan, format_scheduler_run_plan
+from mini_infra.bench.scheduler.run_case import print_single_case_table
+from mini_infra.bench.scheduler.run_case import run_case as run_scheduler_case
+from mini_infra.bench.scheduler.run_suite import (
+    build_scheduler_record,
     parse_interleave_args,
-    print_serving_table,
+    print_scheduler_table,
 )
-from mini_infra.bench.serving.run_suite import (
-    run_suite as run_serving_suite,
+from mini_infra.bench.scheduler.run_suite import (
+    run_suite as run_scheduler_suite,
 )
-from mini_infra.bench.serving.suites import (
-    SERVING_SUITES,
-    ServingSuiteCase,
-    get_serving_suite,
+from mini_infra.bench.scheduler.suites import (
+    SCHEDULER_SUITES,
+    SchedulerSuiteCase,
+    get_scheduler_suite,
 )
 from mini_infra.bench.workloads import make_arrival_times, make_sequences
 from mini_infra.core.request import make_request_specs
@@ -43,8 +43,8 @@ from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
 from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
 
 
-def add_serving_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 serving case 参数。"""
+def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """向 parser 添加 scheduler case 参数。"""
     add_common_args(p)
     p.add_argument(
         "--batching-method",
@@ -65,14 +65,14 @@ def add_serving_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser
     return p
 
 
-def add_serving_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 serving suite 参数。"""
+def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """向 parser 添加 scheduler suite 参数。"""
     add_common_args(p)
     p.add_argument(
         "--suite",
-        choices=sorted(SERVING_SUITES),
+        choices=sorted(SCHEDULER_SUITES),
         required=True,
-        help="运行 suites.py 中注册的命名 Serving 套件（结果写入 benchmarks/suites/serving/<name>/）",
+        help="运行 suites.py 中注册的命名 Scheduler 套件（结果写入 benchmarks/suites/scheduler/<name>/）",
     )
     p.add_argument(
         "--interleave",
@@ -89,30 +89,30 @@ def add_serving_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParse
 
 
 def build_case_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行单用例 Serving 基准测试")
-    add_serving_case_args(p)
+    p = argparse.ArgumentParser(description="运行单用例 Scheduler 基准测试")
+    add_scheduler_case_args(p)
     return p
 
 
 def build_suite_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行预设 Serving 套件")
-    add_serving_suite_args(p)
+    p = argparse.ArgumentParser(description="运行预设 Scheduler 套件")
+    add_scheduler_suite_args(p)
     return p
 
 
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 serving 组及 case/suite 子命令。"""
-    serving_parser = subparsers.add_parser("serving", help="在线并发 Serving 调度基准测试")
-    serving_subs = serving_parser.add_subparsers(dest="serving_subcommand", required=True)
+    """在 bench 下注册 scheduler 组及 case/suite 子命令。"""
+    scheduler_parser = subparsers.add_parser("scheduler", help="队列调度器（Scheduler: Fixed vs Continuous）基准测试")
+    scheduler_subs = scheduler_parser.add_subparsers(dest="scheduler_subcommand", required=True)
 
-    case_parser = serving_subs.add_parser("case", help="运行单用例 Serving 基准测试")
-    add_serving_case_args(case_parser)
+    case_parser = scheduler_subs.add_parser("case", help="运行单用例 Scheduler 基准测试")
+    add_scheduler_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
 
-    suite_parser = serving_subs.add_parser("suite", help="运行预设 Serving 套件")
-    add_serving_suite_args(suite_parser)
+    suite_parser = scheduler_subs.add_parser("suite", help="运行预设 Scheduler 套件")
+    add_scheduler_suite_args(suite_parser)
     suite_parser.set_defaults(func=handle_suite)
-    return serving_parser
+    return scheduler_parser
 
 
 def handle_case(args: argparse.Namespace) -> int:
@@ -141,7 +141,7 @@ def handle_case(args: argparse.Namespace) -> int:
     case_name = "custom"
 
     case_variant_id = "continuous" if method == BatchingMethod.CONTINUOUS else "fixed"
-    case = ServingSuiteCase(
+    case = SchedulerSuiteCase(
         id=case_variant_id,
         suite_name=case_name,
         mode=target_mode,
@@ -150,12 +150,12 @@ def handle_case(args: argparse.Namespace) -> int:
     )
 
     print(
-        f"[bench-serving-case] case={case_name} mode={target_mode} requests={len(specs)} "
+        f"[bench-scheduler-case] case={case_name} mode={target_mode} requests={len(specs)} "
         f"max_running={max_running} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 
-    res = run_serving_case(
+    res = run_scheduler_case(
         model=model,
         device=device,
         case=case,
@@ -168,7 +168,7 @@ def handle_case(args: argparse.Namespace) -> int:
         record: dict[str, Any] = {
             "schema_version": "1.0",
             "tag": args.tag,
-            "benchmark_type": "serving-case",
+            "benchmark_type": "scheduler-case",
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "git": git_info(),
             "env": gpu_info(device),
@@ -184,16 +184,16 @@ def handle_case(args: argparse.Namespace) -> int:
 
 
 def handle_suite(args: argparse.Namespace) -> int:
-    suite = get_serving_suite(args.suite)
+    suite = get_scheduler_suite(args.suite)
 
     if args.dry_run:
         warmup = args.warmup if args.warmup is not None else suite.warmup
         repeats = args.repeats if args.repeats is not None else suite.repeats
         interleave_features = parse_interleave_args(args.interleave, suite.interleave)
         cases = suite.cases(vocab_size=100, device=torch.device("cpu"))
-        plan = build_serving_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
+        plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
         print(f"=== [Dry Run] Suite: {args.suite} ===")
-        print(format_serving_run_plan(plan))
+        print(format_scheduler_run_plan(plan))
         return 0
 
     device = require_cuda()
@@ -222,12 +222,12 @@ def handle_suite(args: argparse.Namespace) -> int:
     interleave_features = parse_interleave_args(args.interleave, suite.interleave)
 
     print(
-        f"[bench-serving-suite] suite={suite.name} max_running={suite.max_running_requests} "
+        f"[bench-scheduler-suite] suite={suite.name} max_running={suite.max_running_requests} "
         f"warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 
-    suite_res = run_serving_suite(
+    suite_res = run_scheduler_suite(
         model=model,
         device=device,
         suite=suite,
@@ -246,13 +246,13 @@ def handle_suite(args: argparse.Namespace) -> int:
         speedup_info = f" | speedup {suite_res.continuous_makespan_speedup:.2f}x" if "continuous" in case_id else ""
         print(
             f"  {case_id:<12}: makespan {res.makespan_ms.mean:.2f} ms | "
-            f"{res.output_token_throughput_tok_s.mean:.1f} tok/s | {res.request_throughput_req_s.mean:.2f} req/s | "
+            f"{res.throughput_tok_s.mean:.1f} tok/s | {res.throughput_req_s.mean:.2f} req/s | "
             f"slot_util {res.execution_slot_utilization.mean * 100:.1f}% | "
             f"ttft_p95 {res.ttft_ms_p95.mean:.2f} ms | itl_p95 {res.itl_ms_p95.mean:.2f} ms"
             f"{cache_info}{speedup_info}"
         )
 
-    record = build_serving_record(
+    record = build_scheduler_record(
         args=args,
         model=model,
         suite=suite,
@@ -264,10 +264,10 @@ def handle_suite(args: argparse.Namespace) -> int:
         git=git,
     )
 
-    serving_dir = BENCH_ARTIFACTS_DIR / "suites" / "serving"
-    output_path = args.output or (serving_dir / args.suite / f"{git['commit']}_{args.tag}.json")
+    scheduler_dir = BENCH_ARTIFACTS_DIR / "suites" / "scheduler"
+    output_path = args.output or (scheduler_dir / args.suite / f"{git['commit']}_{args.tag}.json")
     save_benchmark_record(output_path, record, dirty=git["dirty"])
 
     print()
-    print_serving_table([suite_res])
+    print_scheduler_table([suite_res])
     return 0

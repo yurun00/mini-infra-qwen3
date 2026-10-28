@@ -452,7 +452,7 @@ def generate_optimization_guidance(target_rec):
     if not prof_ws:
         lines.append(
             "> 提示：当前记录中未包含详细的算子剖析采样数据。"
-            "使用 `mini-infra bench batch case --profile-mode extra-profile` 重跑可获取完整算子诊断。"
+            "使用 `mini-infra bench lockstep case --profile-mode extra-profile` 重跑可获取完整算子诊断。"
         )
         return "\n".join(lines)
 

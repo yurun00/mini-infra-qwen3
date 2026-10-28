@@ -86,7 +86,7 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 def handle_history(args: argparse.Namespace) -> int:
     records = load_results()
     if not records:
-        print(f"{RESULT_HISTORY_DIR} 中没有结果，请先运行 mini-infra bench batch case")
+        print(f"{RESULT_HISTORY_DIR} 中没有结果，请先运行 mini-infra bench lockstep case")
         return 1
 
     base = next((r for r in records if r["tag"] == args.baseline), records[0]) if args.baseline else records[0]

@@ -15,6 +15,13 @@ def reset_peak_memory(device: torch.device) -> None:
         torch.cuda.reset_peak_memory_stats(device)
 
 
+def allocated_memory_mb(device: torch.device) -> float:
+    """返回当前已分配显存（MB）；非 CUDA 设备返回 0.0。"""
+    if device.type != "cuda":
+        return 0.0
+    return torch.cuda.memory_allocated(device) / 1024**2
+
+
 def peak_memory_mb(device: torch.device) -> tuple[float, float]:
     """返回 (峰值已分配, 峰值已预留) 显存（MB）；非 CUDA 设备返回 (0.0, 0.0)。"""
     if device.type != "cuda":

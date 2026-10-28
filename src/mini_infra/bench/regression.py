@@ -25,7 +25,7 @@ def run_light_benchmark(output: Any, tag: str) -> int:
         "-m",
         "mini_infra.cli",
         "bench",
-        "batch",
+        "lockstep",
         "case",
         "--tag",
         tag,

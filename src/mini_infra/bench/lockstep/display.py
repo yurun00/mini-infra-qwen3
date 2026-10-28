@@ -1,4 +1,4 @@
-"""离线与静态 Batch 基准测试终端展示、表格格式化与结果记录构建。"""
+"""齐步（Lockstep）基准测试终端展示、表格格式化与结果记录构建。"""
 
 import argparse
 import time
@@ -7,7 +7,6 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.batch.types import CaseBenchmarkResult
 from mini_infra.bench.common import (
     SCHEMA_VERSION,
     CorrectnessReport,
@@ -15,6 +14,7 @@ from mini_infra.bench.common import (
     ModelCostProfile,
     format_lengths,
 )
+from mini_infra.bench.lockstep.types import CaseBenchmarkResult
 
 
 def _format_case_row(w: CaseBenchmarkResult, mode: str | None, has_packing: bool) -> list[str]:

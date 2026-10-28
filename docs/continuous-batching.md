@@ -44,9 +44,9 @@
 
 ---
 
-## 三、Serving 基准测试套件 (`mini-infra bench serving`)
+## 三、Scheduler 基准测试套件 (`mini-infra bench scheduler`)
 
-为了科学量化 Continuous Batching 在不同在线负载模式下的收益与开销，项目提供了独立的 Serving 评测入口 `mini-infra bench serving`（独立于单请求的 `mini-infra bench batch case` / `mini-infra bench batch suite`）。
+为了科学量化 Continuous Batching 在不同在线负载模式下的收益与开销，项目提供了独立的 Scheduler 评测入口 `mini-infra bench scheduler`（独立于齐步生成的 `mini-infra bench lockstep case` / `mini-infra bench lockstep suite`）。
 
 ### 1. 四大受控实验套件 (Suites)
 
@@ -74,7 +74,7 @@
 
 ```bash
 # 单独评测指定负载在 Continuous Batching 下的表现
-mini-infra bench serving case --tag dev --batching-method continuous-batching --request-count 8 --prompt-length 128 --output-budget 32
+mini-infra bench scheduler case --tag dev --batching-method continuous-batching --request-count 8 --prompt-length 128 --output-budget 32
 
 ```
 
@@ -82,27 +82,27 @@ mini-infra bench serving case --tag dev --batching-method continuous-batching --
 
 ```bash
 # 在 GPU 上评测长短请求混合场景下的连续批处理加速比（自动对比 Fixed 与 Continuous）
-mini-infra bench serving suite --tag dev --suite fixed-vs-continuous-variable-output-length --warmup 1 --repeats 3
+mini-infra bench scheduler suite --tag dev --suite fixed-vs-continuous-variable-output-length --warmup 1 --repeats 3
 ```
 
 输出示例：
 ```text
-[bench-serving-suite] suite=fixed-vs-continuous-variable-output-length max_running=4 warmup=1 repeats=3 ...
+[bench-scheduler-suite] suite=fixed-vs-continuous-variable-output-length max_running=4 warmup=1 repeats=3 ...
   Fixed     : makespan 2784.10 ms | 57.5 tok/s | 2.87 req/s | slot_util 62.5% | ttft_p95 1431.17 ms | itl_p95 51.22 ms
   Continuous: makespan 2416.91 ms | 66.2 tok/s | 3.31 req/s | slot_util 74.1% | ttft_p95 1082.18 ms | itl_p95 86.73 ms | cache 0.9% | speedup 1.15x
-结果已写入 benchmarks/suites/serving/fixed-vs-continuous-variable-output-length/<commit>_dev.json
+结果已写入 benchmarks/suites/scheduler/fixed-vs-continuous-variable-output-length/<commit>_dev.json
 ```
 
-### 3. 运行特定受控 Serving 套件
+### 3. 运行特定受控 Scheduler 套件
 
 ```bash
-# 运行指定的受控评测套件，生成 Serving 评测报告
-mini-infra bench serving suite --tag v0.3.0 --suite fixed-vs-continuous-variable-output-length
+# 运行指定的受控评测套件，生成 Scheduler 评测报告
+mini-infra bench scheduler suite --tag v0.3.0 --suite fixed-vs-continuous-variable-output-length
 ```
 
 ### 4. 热漂移规避（Thermal Drift Mitigation）
 
-为消除连续基准测试中 GPU 升温与功耗降频对公平性带来的偏差，`mini-infra bench serving` 内建了交替执行机制（Run Alternation）：在奇数轮次按 `Fixed -> Continuous` 顺序执行，在偶数轮次按 `Continuous -> Fixed` 顺序执行，并在每次重复之间强制进行垃圾回收与显存重置。
+为消除连续基准测试中 GPU 升温与功耗降频对公平性带来的偏差，`mini-infra bench scheduler` 内建了交替执行机制（Run Alternation）：在奇数轮次按 `Fixed -> Continuous` 顺序执行，在偶数轮次按 `Continuous -> Fixed` 顺序执行，并在每次重复之间强制进行垃圾回收与显存重置。
 
 ---
 

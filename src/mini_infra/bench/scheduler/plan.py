@@ -1,4 +1,4 @@
-"""Serving 基准评测执行计划生成器（纯 CPU、无 PyTorch 依赖）。
+"""Scheduler 基准评测执行计划生成器（纯 CPU、无 PyTorch 依赖）。
 
 负责根据 Suite 的用例列表与 interleave 特征配置，
 生成严格确定性的执行计划序列（PlannedRun 列表）。
@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from mini_infra.bench.serving.suites import ServingSuiteCase
+from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
 from mini_infra.engine import BatchingMethod, FeatureDimension, FeatureFlag, Mode
 
 SUPPORTED_FEATURES = set(Mode.FEATURE_DIMENSIONS)
@@ -27,7 +27,7 @@ class RunPhase(str, Enum):
 class PlannedRun:
     """单一计划执行步：包含目标用例、执行阶段、测量轮次及所属特征分组 ID。"""
 
-    case: ServingSuiteCase
+    case: SchedulerSuiteCase
     phase: RunPhase
     repeat_index: int | None
     group_id: int
@@ -43,13 +43,13 @@ def parse_interleave_dimension(name: str) -> FeatureDimension:
     raise ValueError(f"未知的 interleave 特征: {name}，可选: ['batching_method', '{FeatureFlag.KV_CACHE.value}']")
 
 
-def extract_case_feature(case: ServingSuiteCase, feature: FeatureDimension) -> Any:
+def extract_case_feature(case: SchedulerSuiteCase, feature: FeatureDimension) -> Any:
     """从用例的 Mode 中提取指定特征维度的取值。"""
     return case.mode.feature_value(feature)
 
 
-def build_serving_run_plan(
-    cases: Sequence[ServingSuiteCase],
+def build_scheduler_run_plan(
+    cases: Sequence[SchedulerSuiteCase],
     warmup: int,
     repeats: int,
     interleave: Sequence[FeatureDimension] = (BatchingMethod,),
@@ -61,7 +61,7 @@ def build_serving_run_plan(
     2. 未选中的 feature：作为外层分组键，每个分组连续跑完所有 repeat 后才切换到下一分组。
 
     Args:
-        cases: 展开后的 ServingSuiteCase 用例列表。
+        cases: 展开后的 SchedulerSuiteCase 用例列表。
         warmup: 每个用例在测量前执行的预热轮数。
         repeats: 正式测量轮数。
         interleave: 选中的交替特征序列（如 (BatchingMethod,) 或 ()）。
@@ -83,7 +83,7 @@ def build_serving_run_plan(
     non_interleaved_features = [f for f in ALL_FEATURE_DIMENSIONS if f not in interleaved_features]
 
     # 3. 按未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
-    groups: dict[tuple[Any, ...], list[ServingSuiteCase]] = {}
+    groups: dict[tuple[Any, ...], list[SchedulerSuiteCase]] = {}
     for case in cases:
         key = tuple(extract_case_feature(case, f) for f in non_interleaved_features)
         groups.setdefault(key, []).append(case)
@@ -128,11 +128,11 @@ def build_serving_run_plan(
     return plan
 
 
-def format_serving_run_plan(plan: Sequence[PlannedRun]) -> str:
+def format_scheduler_run_plan(plan: Sequence[PlannedRun]) -> str:
     """格式化打印执行序列，用于日志记录与 --dry-run 预览。"""
     if not plan:
         return "执行计划为空。"
-    lines = [f"Serving 基准评测执行计划（共 {len(plan)} 步）："]
+    lines = [f"Scheduler 基准评测执行计划（共 {len(plan)} 步）："]
     for i, planned_run in enumerate(plan, 1):
         rep = f"repeat {planned_run.repeat_index + 1}" if planned_run.repeat_index is not None else "warmup"
         case = planned_run.case
@@ -148,8 +148,8 @@ __all__ = [
     "PlannedRun",
     "RunPhase",
     "SUPPORTED_FEATURES",
-    "build_serving_run_plan",
+    "build_scheduler_run_plan",
     "extract_case_feature",
-    "format_serving_run_plan",
+    "format_scheduler_run_plan",
     "parse_interleave_dimension",
 ]

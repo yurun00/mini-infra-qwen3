@@ -13,6 +13,7 @@ from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     Mode,
+    OfflineGenerationOptions,
     generate,
     synchronize,
 )
@@ -137,11 +138,15 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
     print("输出吞吐: %.3f tokens/s" % result.metrics.throughput_tok_s)
 
     # 细粒度执行与显存指标（包含 batch 及超集分位数分析）
-    print("Prefill 延迟: %.2f ms" % result.metrics.ttft_ms)
-    print("平均 Decode 迭代延迟: %.2f ms" % result.metrics.mean_tpot_ms)
-    print("P50 Decode 延迟: %.2f ms" % result.metrics.p50_tpot_ms)
-    print("P95 Decode 延迟: %.2f ms" % result.metrics.p95_tpot_ms)
-    if mode.batching_method == BatchingMethod.FIXED and result.batch_info is not None:
+    if result.metrics.ttft_ms is not None:
+        print("Prefill 延迟: %.2f ms" % result.metrics.ttft_ms)
+    if result.metrics.mean_tpot_ms is not None:
+        print("平均 Decode 迭代延迟: %.2f ms" % result.metrics.mean_tpot_ms)
+    if result.metrics.p50_tpot_ms is not None:
+        print("P50 Decode 延迟: %.2f ms" % result.metrics.p50_tpot_ms)
+    if result.metrics.p95_tpot_ms is not None:
+        print("P95 Decode 延迟: %.2f ms" % result.metrics.p95_tpot_ms)
+    if mode.is_batch and result.batch_info is not None:
         print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
         print("槽位利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
     print("峰值显存: %.2f MiB" % result.memory.peak_allocated_mb)
@@ -234,6 +239,10 @@ def handle_run(args: argparse.Namespace) -> int:
     else:
         modes = (base_mode,)
 
+    warmup_opts = OfflineGenerationOptions(
+        eos_token_id=tokenizer.eos_token_id,
+        device=device,
+    )
     for mode in modes:
         for _ in range(args.warmup):
             generate(
@@ -241,8 +250,7 @@ def handle_run(args: argparse.Namespace) -> int:
                 model,
                 input_ids,
                 min(args.max_new_tokens, 2),
-                tokenizer.eos_token_id,
-                device,
+                options=warmup_opts,
             )
         synchronize(device)
 
@@ -266,16 +274,19 @@ def handle_run(args: argparse.Namespace) -> int:
             tb_dir = None
             tb_options = None
 
+        run_opts = OfflineGenerationOptions(
+            eos_token_id=tokenizer.eos_token_id,
+            device=device,
+            profile=do_profile,
+            top_kernels=args.top_kernels,
+            tensorboard_options=tb_options,
+        )
         results[mode] = generate(
             mode,
             model,
             input_ids,
             args.max_new_tokens,
-            tokenizer.eos_token_id,
-            device,
-            profile=do_profile,
-            top_kernels=args.top_kernels,
-            tensorboard_options=tb_options,
+            options=run_opts,
         )
         print_result(mode, results[mode], tokenizer, tensorboard_dir=tb_dir)
 
@@ -287,7 +298,7 @@ def handle_run(args: argparse.Namespace) -> int:
         print("逐请求 Token 一致:", same_tokens)
         baseline_decode = baseline.metrics.mean_tpot_ms
         optimized_decode = optimized.metrics.mean_tpot_ms
-        if optimized_decode > 0:
+        if baseline_decode is not None and optimized_decode is not None and optimized_decode > 0:
             print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
         if baseline.metrics.e2e_wall_ms > 0 and optimized.metrics.e2e_wall_ms > 0:
             print(

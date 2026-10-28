@@ -16,6 +16,7 @@ from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     Mode,
+    OfflineGenerationOptions,
     generate,
 )
 from mini_infra.verification.smoke import build_tiny_model
@@ -123,9 +124,7 @@ def test_variable_length_prompt_generation_smoke():
         model=model,
         input_ids=prompts,
         max_new_tokens=4,
-        eos_token_id=-1,
-        device=device,
-        stop_on_eos=False,
+        options=OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False),
     )
     assert res.padded_output_tokens().shape == (2, 4)
     assert len(res.sequences) == 2

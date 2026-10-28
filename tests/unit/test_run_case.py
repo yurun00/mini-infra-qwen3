@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from mini_infra.bench.batch.run_case import resolve_case_specs, run_case
+from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -68,7 +68,7 @@ def test_parse_args_run_case():
 
     parser = build_parser()
     args = parser.parse_args(
-        ["bench", "batch", "case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]
+        ["bench", "lockstep", "case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]
     )
     assert args.tag == "dev"
     assert args.kv_cache is True

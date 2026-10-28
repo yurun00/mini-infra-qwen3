@@ -1,4 +1,4 @@
-"""请求规格与运行态：Serving 调度所需的最小数据模型。"""
+"""请求规格与可变运行态：调度队列中的请求生命周期状态模型。"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -6,6 +6,14 @@ from enum import Enum
 from typing import Any
 
 import torch
+
+from mini_infra.core.types import RequestMetrics, SequenceOutput
+
+
+def _require(value: float | None, name: str, request_index: int) -> float:
+    if value is None:
+        raise RuntimeError(f"请求 {request_index} 未完成调度，缺少 {name}")
+    return value
 
 
 class RequestStatus(str, Enum):
@@ -77,6 +85,29 @@ class RequestState:
             self.finish_reason = "stop" if reached_eos else "max_tokens"
             return True
         return False
+
+    def to_sequence_output(self) -> SequenceOutput:
+        """导出为不可变的单请求序列输出 SequenceOutput。"""
+        return SequenceOutput(
+            request_index=self.spec.request_index,
+            token_ids=list(self.generated),
+            prompt_len=self.spec.prompt_len,
+            output_len=len(self.generated),
+            finish_reason=self.finish_reason,
+        )
+
+    def to_request_metrics(self) -> RequestMetrics:
+        """导出为不可变的单请求时间线指标 RequestMetrics。"""
+        idx = self.spec.request_index
+        return RequestMetrics(
+            request_index=idx,
+            arrival_ms=self.spec.arrival_ms,
+            admitted_ms=_require(self.admitted_ms, "admitted_ms", idx),
+            first_token_ms=_require(self.first_token_ms, "first_token_ms", idx),
+            completion_ms=_require(self.completion_ms, "completion_ms", idx),
+            num_output_tokens=len(self.generated),
+            token_times_ms=tuple(self.token_times_ms),
+        )
 
 
 def make_request_specs(

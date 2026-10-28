@@ -8,10 +8,10 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.batch.run_case import run_case
-from mini_infra.bench.batch.suites import Suite, SuiteCase
-from mini_infra.bench.batch.types import CaseBenchmarkResult
 from mini_infra.bench.common import ProfileMode
+from mini_infra.bench.lockstep.run_case import run_case
+from mini_infra.bench.lockstep.suites import Suite, SuiteCase
+from mini_infra.bench.lockstep.types import CaseBenchmarkResult
 from mini_infra.profiling import TensorBoardOptions
 
 

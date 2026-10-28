@@ -40,7 +40,7 @@ pytest -m gpu
 pip install -e ".[bench]"
 
 # 1. 运行全矩阵测试并记录新版本特性（以 KV Cache 为例，结果落盘至 benchmarks/result-history/）
-mini-infra bench batch case --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile --update-golden
+mini-infra bench lockstep case --tag "v0.2.0" --release-feature "KV cache" --profile-mode extra-profile --update-golden
 
 # 2. 读取所有历史版本数据，重新生成多版本演化表与对比图
 mini-infra bench plot history
@@ -50,12 +50,12 @@ mini-infra bench check-regression --update-reference
 ```
 
 > ⚠️ **数据流与绘图约定**：
-> * **`mini-infra bench plot history` 只消费 `mini-infra bench batch case` 的输出**：只有通过 `mini-infra bench batch case` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
+> * **`mini-infra bench plot history` 只消费 `mini-infra bench lockstep case` 的输出**：只有通过 `mini-infra bench lockstep case` 跑出的全矩阵数据才会归档至 `benchmarks/result-history/` 并被自动读入绘制成趋势图与演进时间线；
 > * **`mini-infra bench check-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 > 🏷️ **版本号与特性（Feature）标注约定**：
 > * **Git Tag、pyproject.toml 与 `--tag`** 统一采用纯版本号（如 `v0.2.0`），严格遵循 SemVer 与 PEP 440 规范，保证 CI/CD 自动化构建一致性；
-> * **`mini-infra bench batch case` 接收 `--release-feature` 参数**（如 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra bench plot history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.2.0 (KV cache)`。
+> * **`mini-infra bench lockstep case` 接收 `--release-feature` 参数**（如 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra bench plot history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.2.0 (KV cache)`。
 
 ---
 

@@ -113,9 +113,9 @@ def test_dataclasses_attributes_and_dict_compatibility():
     assert rep.to_dict() == {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": False}
 
 
-def test_common_strictly_decoupled_from_batch():
+def test_common_strictly_decoupled_from_lockstep():
     import mini_infra.bench.common as bench_common
-    from mini_infra.bench.batch import (
+    from mini_infra.bench.lockstep import (
         build_benchmark_record,
         print_case_summary,
         print_table,

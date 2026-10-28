@@ -8,14 +8,14 @@
 
 用法示例：
     # 单用例快速测试（batch=1, prompt=32, max_new_tokens=16）
-    mini-infra bench batch case --tag dev --prompt-lens 32 --max-new-tokens 16
+    mini-infra bench lockstep case --tag dev --prompt-lens 32 --max-new-tokens 16
 
     # 批处理等长测试（batch=4, prompt=128, max_new_tokens=32）
-    mini-infra bench batch case --tag dev --batch-size 4 --prompt-lens 128 \
+    mini-infra bench lockstep case --tag dev --batch-size 4 --prompt-lens 128 \
         --max-new-tokens 32 --batching-method fixed-batching
 
     # 不等长变长测试（batch 自动由 prompt_lens 推断为 4）
-    mini-infra bench batch case --tag dev --prompt-lens 16 32 64 128 \
+    mini-infra bench lockstep case --tag dev --prompt-lens 16 32 64 128 \
         --max-new-tokens 32 --batching-method fixed-batching
 """
 
@@ -23,7 +23,8 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.batch.types import (
+from mini_infra.bench.common import ProfileMode, efficiency
+from mini_infra.bench.lockstep.types import (
     BatchPackingProfile,
     CaseBenchmarkResult,
     CaseMemoryProfile,
@@ -33,9 +34,8 @@ from mini_infra.bench.batch.types import (
     WorkloadSpec,
     summarize_samples,
 )
-from mini_infra.bench.common import ProfileMode, efficiency
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.engine import Mode, generate
+from mini_infra.engine import Mode, OfflineGenerationOptions, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
@@ -102,29 +102,35 @@ def run_case(
     effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
     input_ids = make_prompt(vocab, prompt_len, effective_batch_size, device)
 
+    warmup_opts = OfflineGenerationOptions(
+        eos_token_id=-1,
+        device=device,
+        stop_on_eos=False,
+    )
     for _ in range(warmup):
         generate(
             mode,
             model,
             input_ids,
             max_new_tokens,
-            eos_token_id=-1,
-            device=device,
-            stop_on_eos=False,
+            options=warmup_opts,
         )
 
     is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
+    run_opts = OfflineGenerationOptions(
+        eos_token_id=-1,
+        device=device,
+        stop_on_eos=False,
+        profile=is_full_profile,
+        tensorboard_options=tensorboard_options if is_full_profile else None,
+    )
     runs = [
         generate(
             mode,
             model,
             input_ids,
             max_new_tokens,
-            eos_token_id=-1,
-            device=device,
-            stop_on_eos=False,
-            profile=is_full_profile,
-            tensorboard_options=tensorboard_options if is_full_profile else None,
+            options=run_opts,
         )
         for _ in range(repeats)
     ]
@@ -182,28 +188,20 @@ def run_case(
 
     mib = 1024**2
     worst_run = max(runs, key=lambda r: r.memory.peak_allocated_mb) if runs else None
-    case_memory = CaseMemoryProfile(
+    case_memory = CaseMemoryProfile.from_memory_profile(
+        worst_run.memory if worst_run else None,
         weights_mb=cost["weight_bytes"] / mib if cost else None,
-        baseline_allocated_mb=worst_run.memory.baseline_mb if worst_run else 0.0,
-        prefill_allocated_mb=worst_run.memory.prefill_mb if worst_run else 0.0,
-        peak_allocated_mb=worst_run.memory.peak_allocated_mb if worst_run else 0.0,
-        peak_reserved_mb=worst_run.memory.peak_reserved_mb if worst_run else 0.0,
-        kv_cache_mb=worst_run.memory.kv_cache_mb if worst_run else 0.0,
     )
 
-    packing = None
-    if runs and runs[0].batch_info is not None:
-        b0 = runs[0].batch_info
-        packing = BatchPackingProfile(
-            padding_efficiency=b0.padding_efficiency,
-            slot_utilization=b0.slot_utilization,
-            prompt_tokens=b0.prompt_tokens,
-            padded_prompt_tokens=b0.padded_prompt_tokens,
-            prompt_lengths_per_req=b0.prompt_lengths_per_req,
-            completion_steps_per_req=b0.completion_steps_per_req,
+    packing = (
+        BatchPackingProfile.from_batch_info(
+            runs[0].batch_info,
             effective_prompt_throughput=eff_p_stat,
             padded_prompt_throughput=pad_p_stat,
         )
+        if runs and runs[0].batch_info is not None
+        else None
+    )
 
     eff_obj = None
     if cost and peaks:
@@ -227,15 +225,19 @@ def run_case(
         breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
         op_breakdown = merge_op_latency_breakdowns(breakdowns)
     elif profile_mode == ProfileMode.EXTRA_PROFILE:
+        prof_opts = OfflineGenerationOptions(
+            eos_token_id=-1,
+            device=device,
+            stop_on_eos=False,
+            profile=True,
+            tensorboard_options=tensorboard_options,
+        )
         prof_res = generate(
             mode=mode,
             model=model,
             input_ids=input_ids,
             max_new_tokens=max_new_tokens,
-            eos_token_id=-1,
-            stop_on_eos=False,
-            profile=True,
-            tensorboard_options=tensorboard_options,
+            options=prof_opts,
         )
         op_breakdown = prof_res.op_breakdown
 

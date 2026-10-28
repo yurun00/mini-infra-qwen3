@@ -5,9 +5,9 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.bench.batch.run_case import run_case
 from mini_infra.bench.common import ProfileMode
-from mini_infra.engine import BatchingMethod, Mode, generate
+from mini_infra.bench.lockstep.run_case import run_case
+from mini_infra.engine import BatchingMethod, Mode, OfflineGenerationOptions, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
     MODULE_SCOPES,
@@ -58,7 +58,7 @@ def test_generate_without_profile():
     mode = Mode()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(mode, model, ids, max_new_tokens=2, profile=False)
+    res = generate(mode, model, ids, max_new_tokens=2, options=OfflineGenerationOptions(profile=False))
     assert res.op_breakdown is None
     assert res.padded_output_tokens().shape == (1, 2)
 
@@ -68,8 +68,10 @@ def test_generate_with_profile():
     mode = Mode()
     ids = torch.tensor([[1, 2, 3]])
 
-    res_no_prof = generate(mode, model, ids, max_new_tokens=3, profile=False)
-    res_prof = generate(mode, model, ids, max_new_tokens=3, profile=True, top_kernels=5)
+    res_no_prof = generate(mode, model, ids, max_new_tokens=3, options=OfflineGenerationOptions(profile=False))
+    res_prof = generate(
+        mode, model, ids, max_new_tokens=3, options=OfflineGenerationOptions(profile=True, top_kernels=5)
+    )
 
     # 1. 验证生成 Token 结果一致
     assert torch.equal(res_no_prof.padded_output_tokens(), res_prof.padded_output_tokens())
@@ -102,7 +104,7 @@ def test_generate_profile_breakdown():
     mode = Mode()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(mode, model, ids, max_new_tokens=2, profile=True, top_kernels=3)
+    res = generate(mode, model, ids, max_new_tokens=2, options=OfflineGenerationOptions(profile=True, top_kernels=3))
     breakdown = res.op_breakdown
     assert breakdown is not None
     assert is_dataclass(breakdown)
@@ -118,7 +120,7 @@ def test_generate_with_batching_and_profile():
     mode = Mode(batching_method=BatchingMethod.FIXED)
     prompts = torch.tensor([[1, 2, 3], [4, 5, 0]])
 
-    res = generate(mode, model, prompts, max_new_tokens=2, profile=True)
+    res = generate(mode, model, prompts, max_new_tokens=2, options=OfflineGenerationOptions(profile=True))
     assert res.op_breakdown is not None
     assert res.batch_size == 2
     assert res.padded_output_tokens().shape == (2, 2)
@@ -146,7 +148,13 @@ def test_profile_with_tensorboard_option(tmp_path):
     # 1. 结构化传参：profile=True 且传入 TensorBoardOptions 对象到 generate
     tb_dir = tmp_path / "profiler_tb"
     tb_opt = TensorBoardOptions(log_dir=tb_dir)
-    res = generate(mode, model, ids, max_new_tokens=2, profile=True, tensorboard_options=tb_opt)
+    res = generate(
+        mode,
+        model,
+        ids,
+        max_new_tokens=2,
+        options=OfflineGenerationOptions(profile=True, tensorboard_options=tb_opt),
+    )
 
     assert res.op_breakdown is not None
     assert res.op_breakdown.total_ms > 0
@@ -156,7 +164,13 @@ def test_profile_with_tensorboard_option(tmp_path):
     assert trace_files[0].stat().st_size > 0
 
     # 2. profile=False 时即使传入 tensorboard_options 也不进行剖析
-    res_no_profile = generate(mode, model, ids, max_new_tokens=2, profile=False, tensorboard_options=tb_opt)
+    res_no_profile = generate(
+        mode,
+        model,
+        ids,
+        max_new_tokens=2,
+        options=OfflineGenerationOptions(profile=False, tensorboard_options=tb_opt),
+    )
     assert res_no_profile.op_breakdown is None
 
 
@@ -176,18 +190,18 @@ def test_bench_run_profile_modes():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
-    args = parser.parse_args(["bench", "batch", "case", "--tag", "test", "--profile-mode", "extra-profile"])
+    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profile-mode", "extra-profile"])
     assert args.profile_mode == ProfileMode.EXTRA_PROFILE
 
-    args = parser.parse_args(["bench", "batch", "case", "--tag", "test", "--profile-mode", "full-profile"])
+    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profile-mode", "full-profile"])
     assert args.profile_mode == ProfileMode.FULL_PROFILE
 
-    args = parser.parse_args(["bench", "batch", "case", "--tag", "test"])
+    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test"])
     assert args.profile_mode is None
 
     # 验证历史参数不被支持（报错退出）
     with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "batch", "case", "--tag", "test", "--extra-profile-run"])
+        parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--extra-profile-run"])
 
     # 2. 验证 run_case 执行逻辑
     model = build_tiny_model()

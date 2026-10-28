@@ -1,35 +1,35 @@
-"""serving_suites.py 配置与规格构建的单元测试（CPU 可运行）。"""
+"""bench.scheduler.suites 配置与规格构建的单元测试（CPU 可运行）。"""
 
 import json
 
 import pytest
 
-from mini_infra.bench.serving.suites import (
-    SERVING_SUITES,
+from mini_infra.bench.scheduler.suites import (
+    SCHEDULER_SUITES,
     FixedVsContinuousPrefillInterferenceSuite,
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
     FixedVsContinuousVariableOutputLengthSuite,
-    ServingSuiteCase,
-    get_all_serving_suites,
-    get_serving_suite,
+    SchedulerSuiteCase,
+    get_all_scheduler_suites,
+    get_scheduler_suite,
 )
 from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
 
 
-def test_serving_suites_registry():
-    assert set(SERVING_SUITES.keys()) == {
+def test_scheduler_suites_registry():
+    assert set(SCHEDULER_SUITES.keys()) == {
         "fixed-vs-continuous-variable-output-length",
         "fixed-vs-continuous-uniform-output-length",
         "fixed-vs-continuous-staggered-arrivals",
         "fixed-vs-continuous-prefill-interference",
     }
-    assert len(get_all_serving_suites()) == 4
-    for name in SERVING_SUITES:
-        assert get_serving_suite(name).name == name
+    assert len(get_all_scheduler_suites()) == 4
+    for name in SCHEDULER_SUITES:
+        assert get_scheduler_suite(name).name == name
 
-    with pytest.raises(ValueError, match="未知 serving suite"):
-        get_serving_suite("non-existent")
+    with pytest.raises(ValueError, match="未知 scheduler suite"):
+        get_scheduler_suite("non-existent")
 
 
 def test_variable_output_length_suite():
@@ -104,7 +104,7 @@ def test_prefill_interference_suite():
 
 
 def test_suite_cases_expansion():
-    for suite in get_all_serving_suites():
+    for suite in get_all_scheduler_suites():
         assert suite.interleave == (BatchingMethod,)
         modes = suite.modes()
         assert len(modes) == 2
@@ -113,7 +113,7 @@ def test_suite_cases_expansion():
 
         cases = suite.cases(vocab_size=500)
         assert len(cases) == 2
-        assert all(isinstance(c, ServingSuiteCase) for c in cases)
+        assert all(isinstance(c, SchedulerSuiteCase) for c in cases)
         assert all(isinstance(c.mode, Mode) for c in cases)
 
         methods = {c.mode.batching_method for c in cases}

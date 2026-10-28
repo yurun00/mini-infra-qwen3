@@ -2,8 +2,8 @@
 
 组织结构：
     mini-infra run [...]
-    mini-infra bench batch case / suite [...]
-    mini-infra bench serving case / suite [...]
+    mini-infra bench lockstep case / suite [...]
+    mini-infra bench scheduler case / suite [...]
     mini-infra bench plot history / compare [...]
     mini-infra bench check-regression [...]
     mini-infra verify smoke [...]

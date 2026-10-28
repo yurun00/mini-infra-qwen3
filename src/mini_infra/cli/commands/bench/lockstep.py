@@ -1,19 +1,11 @@
-"""CLI 子命令：mini-infra bench batch (case / suite)
+"""CLI 子命令：mini-infra bench lockstep (case / suite)
 
-批处理基准测试执行入口。
+齐步（Lockstep：所有请求同时开始，无调度器）基准测试执行入口。
 """
 
 import argparse
 import sys
 
-from mini_infra.bench.batch.display import (
-    build_benchmark_record,
-    print_case_summary,
-    print_table,
-)
-from mini_infra.bench.batch.run_case import resolve_case_specs, run_case
-from mini_infra.bench.batch.run_suite import run_suite
-from mini_infra.bench.batch.suites import SUITES, SuiteCase, get_suite
 from mini_infra.bench.common import (
     RESULT_HISTORY_DIR,
     SUITES_DIR,
@@ -27,13 +19,21 @@ from mini_infra.bench.common import (
     resolve_peak_specs,
     save_benchmark_record,
 )
+from mini_infra.bench.lockstep.display import (
+    build_benchmark_record,
+    print_case_summary,
+    print_table,
+)
+from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
+from mini_infra.bench.lockstep.run_suite import run_suite
+from mini_infra.bench.lockstep.suites import SUITES, SuiteCase, get_suite
 from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
 from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
 
 
-def add_batch_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 batch case 参数。"""
+def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """向 parser 添加 lockstep case 参数。"""
     add_common_args(p)
     p.add_argument(
         "--kv-cache",
@@ -68,8 +68,8 @@ def add_batch_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return p
 
 
-def add_batch_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 batch suite 参数。"""
+def add_lockstep_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """向 parser 添加 lockstep suite 参数。"""
     add_common_args(p)
     p.add_argument(
         "--suite",
@@ -81,30 +81,30 @@ def add_batch_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def build_case_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行单用例批处理基准测试")
-    add_batch_case_args(p)
+    p = argparse.ArgumentParser(description="运行单用例齐步（Lockstep）基准测试")
+    add_lockstep_case_args(p)
     return p
 
 
 def build_suite_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行预设批处理套件")
-    add_batch_suite_args(p)
+    p = argparse.ArgumentParser(description="运行预设齐步（Lockstep）套件")
+    add_lockstep_suite_args(p)
     return p
 
 
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 batch 组及 case/suite 子命令。"""
-    batch_parser = subparsers.add_parser("batch", help="批处理推理基准测试")
-    batch_subs = batch_parser.add_subparsers(dest="batch_subcommand", required=True)
+    """在 bench 下注册 lockstep 组及 case/suite 子命令。"""
+    lockstep_parser = subparsers.add_parser("lockstep", help="齐步（Lockstep：所有请求同时开始，无调度器）推理基准测试")
+    lockstep_subs = lockstep_parser.add_subparsers(dest="lockstep_subcommand", required=True)
 
-    case_parser = batch_subs.add_parser("case", help="运行单用例批处理基准测试")
-    add_batch_case_args(case_parser)
+    case_parser = lockstep_subs.add_parser("case", help="运行单用例齐步（Lockstep）基准测试")
+    add_lockstep_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
 
-    suite_parser = batch_subs.add_parser("suite", help="运行预设批处理套件")
-    add_batch_suite_args(suite_parser)
+    suite_parser = lockstep_subs.add_parser("suite", help="运行预设齐步（Lockstep）套件")
+    add_lockstep_suite_args(suite_parser)
     suite_parser.set_defaults(func=handle_suite)
-    return batch_parser
+    return lockstep_parser
 
 
 def handle_case(args: argparse.Namespace) -> int:

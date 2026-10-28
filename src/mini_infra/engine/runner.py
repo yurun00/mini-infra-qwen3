@@ -1,10 +1,10 @@
 """模型执行原语（ModelRunner 层）：只负责“喂入一步输入、跑一次前向、产出下一个 Token 与耗时”。
 
-不做任何调度决策（谁入场、谁退场见 core/scheduler.py），也不维护请求生命周期或逻辑时钟
-（见 engine/serving.py）。两类计时口径并存，调用方按场景选用：
+不做任何调度决策（谁入场、谁退场见 core/scheduler.py），也不维护请求生命周期、EOS/预算判定或逻辑时钟
+（见 engine/lockstep_loop.py 与 engine/scheduler_loop.py）。两类计时口径并存，调用方按场景选用：
 
-- step_forward：CUDA 下用 Event 硬件计时（不强制同步），供 generate 的自回归循环使用；
-- prefill_requests / decode_slots / step_batch：同步后用 CPU 墙钟计时，供 Serving 调度器推进逻辑时钟。
+- step_forward：底层单步张量前向与贪心采样，默认在 CUDA 下用 Event 异步打点（sync=False），供齐步（Lockstep）循环使用；
+- prefill_requests / decode_slots：面向请求槽位的输入组装与同步前向（sync=True），供调度循环推进逻辑时钟。
 """
 
 import time
@@ -15,7 +15,6 @@ import torch
 
 from mini_infra.core.request import RequestState
 from mini_infra.device import synchronize
-from mini_infra.engine.batch_state import BatchGenerationState
 from mini_infra.engine.preprocessing import left_pad_sequences
 from mini_infra.memory.kv_cache import KVCache
 from mini_infra.memory.slot_cache import DenseSlotCache
@@ -25,7 +24,7 @@ class StepForwardResult(NamedTuple):
     """单步前向计时输出对象（四字段 NamedTuple）：
 
     - 属性访问：.next_token, .elapsed_ms, .event_pair, .last_logits
-    - last_logits 仅在 return_logits=True 时填充；CUDA 下 event_pair 存放计时 Event，elapsed_ms 为 0。
+    - last_logits 仅在 return_logits=True 时填充；CUDA 下 sync=False 时 event_pair 存放计时 Event，elapsed_ms 为 0。
     """
 
     next_token: torch.Tensor
@@ -43,13 +42,11 @@ class SlotDecodeResult(NamedTuple):
 
 
 class ModelRunner:
-    """模型执行器（ModelRunner 层）：负责管理模型前向与单步采样，隐藏硬件设备与输入组装细节。
+    """模型执行器（ModelRunner 数据面）：负责管理模型前向与单步贪心采样，隐藏硬件计时与输入组装细节。
 
-    不做任何调度决策（谁入场、谁退场见 core/scheduler.py），也不维护请求生命周期或逻辑时钟
-    （见 engine/scheduler_loop.py）。支持两类执行模式：
-    - step_forward：单步张量前向与贪心采样（CUDA 下用 Event 硬件计时），供自回归生成循环使用；
-    - prefill_requests / decode_slots / step_batch：接收业务状态对象（RequestState / Slot / Batch），
-      组装输入并执行前后同步的墙钟测时前向。
+    对请求生命周期（max_new_tokens、eos_token_id、finish_reason）完全无感知：
+    - step_forward：单步张量前向与采样原语（支持 sync=False 异步 Event 打点与 sync=True 同步测时）；
+    - prefill_requests / decode_slots：接收活跃请求或 DenseSlotCache，完成张量组装并调用 step_forward(sync=True)。
     """
 
     def __init__(self, model: torch.nn.Module, device: torch.device, pad_token_id: int = 0):
@@ -68,7 +65,7 @@ class ModelRunner:
     ) -> StepForwardResult:
         """单步张量前向推理与贪心采样。
 
-        - sync=False（默认）：CUDA 下通过 Event 异步打点，供自回归循环避免频繁同步；
+        - sync=False（默认）：CUDA 下通过 Event 异步打点，供静态自回归循环避免每步 CPU-GPU 同步；
         - sync=True：执行前后硬件同步，直接计算耗时 ms，供调度器推进逻辑时钟。
         """
         if sync:
@@ -126,10 +123,9 @@ class ModelRunner:
         next_tokens = step_out.next_token.squeeze(-1).tolist()
         return SlotDecodeResult(next_tokens, step_out.elapsed_ms, prepare_ms)
 
-    def step_batch(self, batch: BatchGenerationState, cache: KVCache) -> tuple[torch.Tensor, float]:
-        """对批状态机（BatchGenerationState）执行单步前向，返回 (各行下一个 Token, 模型耗时 ms)。"""
-        model_input, attention_mask, position_ids = batch.get_model_inputs(use_cache=True)
-        step_out = self.step_forward(
-            model_input, kv_cache=cache, attention_mask=attention_mask, position_ids=position_ids, sync=True
-        )
-        return step_out.next_token.squeeze(-1), step_out.elapsed_ms
+
+__all__ = [
+    "ModelRunner",
+    "SlotDecodeResult",
+    "StepForwardResult",
+]

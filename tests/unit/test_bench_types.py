@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from mini_infra.bench.batch.types import (
+from mini_infra.bench.lockstep.types import (
     BatchPackingProfile,
     CaseBenchmarkResult,
     CaseMemoryProfile,
@@ -81,8 +81,8 @@ def test_case_benchmark_result_structure_and_dot_access():
     packing = BatchPackingProfile(
         padding_efficiency=0.85,
         slot_utilization=0.90,
-        prompt_tokens=48,
-        padded_prompt_tokens=64,
+        num_prompt_tokens=48,
+        num_padded_prompt_tokens=64,
         prompt_lengths_per_req=[16, 32],
         completion_steps_per_req=[16, 16],
     )

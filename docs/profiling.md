@@ -6,11 +6,11 @@
 
 ## 一、运行性能剖析与导出 Trace
 
-使用 `mini-infra bench batch case` 附带 `--profile-mode full-profile`（或 `extra-profile`）进行采样分析，可同时生成结构化性能 JSON 并导出底层的 Chrome / TensorBoard Trace：
+使用 `mini-infra bench lockstep case` 附带 `--profile-mode full-profile`（或 `extra-profile`）进行采样分析，可同时生成结构化性能 JSON 并导出底层的 Chrome / TensorBoard Trace：
 
 ```bash
 # 运行轻量压测进行算子耗时诊断，落盘诊断 JSON 并导出 Trace 日志
-mini-infra bench batch case \
+mini-infra bench lockstep case \
   --tag debug \
   --prompt-lens 512 \
   --max-new-tokens 32 \
@@ -70,7 +70,7 @@ TensorBoard 提供了算子层面的统计表格、显存占用折线图以及 G
 
 ## 三、关键诊断指标与优化思路
 
-在分析 `mini-infra bench batch case` 的 Profiling 报告或可视化视图时，重点关注以下四大维度：
+在分析 `mini-infra bench lockstep case` 的 Profiling 报告或可视化视图时，重点关注以下四大维度：
 
 | 诊断维度 | 核心观察指标 | 优化指引 |
 | :--- | :--- | :--- |

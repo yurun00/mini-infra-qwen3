@@ -56,3 +56,51 @@ def normalize_token_sequences(input_ids: Sequence[Any]) -> list[torch.Tensor]:
     if len(input_ids) > 0 and isinstance(input_ids[0], int):
         return [torch.as_tensor(input_ids, dtype=torch.long)]
     return [torch.as_tensor(s, dtype=torch.long) for s in input_ids]
+
+
+def prepare_prompt_sequences(
+    input_ids: torch.Tensor | Sequence[Any],
+    device: torch.device | None,
+) -> tuple[list[torch.Tensor], torch.device, bool]:
+    """解析多样化的 Prompt 输入形态，规约为一维序列列表并推断目标设备。
+
+    Returns:
+        tuple[list[torch.Tensor], torch.device, bool]:
+            - token_sequences (list[torch.Tensor]): 规约后的各请求一维 Token ID 张量列表。
+            - device (torch.device): 推断或确认后的计算设备（CUDA 或 CPU）。
+            - has_uniform_prompt_len (bool): 输入各 Prompt 长度是否天然等长（True 则后续可跳过左 Padding）。
+    """
+    has_uniform_prompt_len = isinstance(input_ids, torch.Tensor)
+    if has_uniform_prompt_len:
+        tensor = input_ids if input_ids.ndim == 2 else input_ids.unsqueeze(0)
+        token_sequences = list(tensor)
+        if device is None:
+            device = tensor.device
+    else:
+        token_sequences = normalize_token_sequences(input_ids)
+        if device is None:
+            device = token_sequences[0].device
+    return token_sequences, device, has_uniform_prompt_len
+
+
+def prepare_prefill_inputs(
+    input_ids: torch.Tensor | Sequence[Any],
+    token_sequences: list[torch.Tensor],
+    has_uniform_prompt_len: bool,
+    pad_token_id: int,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """构建 Prefill 阶段直接喂给模型的初始输入张量（天然等长跳过 padding，不等长采用左 Padding）。"""
+    if has_uniform_prompt_len:
+        input_ids_tensor = (input_ids if input_ids.ndim == 2 else input_ids.unsqueeze(0)).to(
+            device=device, dtype=torch.long
+        )
+        batch_size, padded_prompt_length = input_ids_tensor.shape
+        history_mask = torch.ones((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
+        position_ids = (
+            torch.arange(padded_prompt_length, device=device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
+        )
+        prompt_lengths = torch.full((batch_size,), padded_prompt_length, dtype=torch.long, device=device)
+        return input_ids_tensor, history_mask, position_ids, prompt_lengths
+
+    return left_pad_sequences(token_sequences, pad_token_id, device)

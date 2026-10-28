@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from mini_infra.core.types import BatchScheduleInfo, MemoryProfile
 from mini_infra.profiling import OpLatencyBreakdown
 from mini_infra.utils import percentile
 
@@ -106,10 +107,35 @@ class CaseMemoryProfile:
 
     weights_mb: float | None
     baseline_allocated_mb: float
-    prefill_allocated_mb: float
+    prefill_allocated_mb: float | None
     peak_allocated_mb: float
     peak_reserved_mb: float
     kv_cache_mb: float
+
+    @classmethod
+    def from_memory_profile(
+        cls,
+        memory: MemoryProfile | None,
+        weights_mb: float | None = None,
+    ) -> "CaseMemoryProfile":
+        """从共享的引擎级 MemoryProfile 构建用例显存画像。"""
+        if memory is None:
+            return cls(
+                weights_mb=weights_mb,
+                baseline_allocated_mb=0.0,
+                prefill_allocated_mb=0.0,
+                peak_allocated_mb=0.0,
+                peak_reserved_mb=0.0,
+                kv_cache_mb=0.0,
+            )
+        return cls(
+            weights_mb=weights_mb,
+            baseline_allocated_mb=memory.baseline_mb,
+            prefill_allocated_mb=memory.prefill_mb,
+            peak_allocated_mb=memory.peak_allocated_mb,
+            peak_reserved_mb=memory.peak_reserved_mb,
+            kv_cache_mb=memory.kv_cache_mb,
+        )
 
     @property
     def dynamic_peak_mb(self) -> float:
@@ -158,20 +184,39 @@ class BatchPackingProfile:
 
     padding_efficiency: float
     slot_utilization: float
-    prompt_tokens: int
-    padded_prompt_tokens: int
+    num_prompt_tokens: int
+    num_padded_prompt_tokens: int
     prompt_lengths_per_req: list[int]
     completion_steps_per_req: list[int]
     effective_prompt_throughput: DistributionStats | None = None
     padded_prompt_throughput: DistributionStats | None = None
+
+    @classmethod
+    def from_batch_info(
+        cls,
+        info: BatchScheduleInfo,
+        effective_prompt_throughput: DistributionStats | None = None,
+        padded_prompt_throughput: DistributionStats | None = None,
+    ) -> "BatchPackingProfile":
+        """从共享的 BatchScheduleInfo 构建批处理打包特征画像。"""
+        return cls(
+            padding_efficiency=info.padding_efficiency,
+            slot_utilization=info.slot_utilization,
+            num_prompt_tokens=info.num_prompt_tokens,
+            num_padded_prompt_tokens=info.num_padded_prompt_tokens,
+            prompt_lengths_per_req=info.prompt_lengths_per_req,
+            completion_steps_per_req=info.completion_steps_per_req,
+            effective_prompt_throughput=effective_prompt_throughput,
+            padded_prompt_throughput=padded_prompt_throughput,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """导出为批处理打包特征字典结构。"""
         d: dict[str, Any] = {
             "padding_efficiency": self.padding_efficiency,
             "slot_utilization": self.slot_utilization,
-            "prompt_tokens": self.prompt_tokens,
-            "padded_prompt_tokens": self.padded_prompt_tokens,
+            "num_prompt_tokens": self.num_prompt_tokens,
+            "num_padded_prompt_tokens": self.num_padded_prompt_tokens,
             "prompt_lengths_per_req": self.prompt_lengths_per_req,
             "completion_steps_per_req": self.completion_steps_per_req,
         }

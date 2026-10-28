@@ -6,7 +6,13 @@ from typing import Any
 
 import torch
 
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, generate
+from mini_infra.engine import (
+    BatchingMethod,
+    FeatureFlag,
+    Mode,
+    OfflineGenerationOptions,
+    generate,
+)
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -121,6 +127,12 @@ def run_compare_batch(
     ]
 
     fixed_batch_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    gen_opts = OfflineGenerationOptions(
+        eos_token_id=eos_token_id,
+        device=device,
+        stop_on_eos=False,
+        capture_logits=True,
+    )
 
     # 1. 运行 reference (单请求 batch baseline)
     reference = generate(
@@ -128,10 +140,7 @@ def run_compare_batch(
         model,
         [target],
         max_new_tokens,
-        eos_token_id=eos_token_id,
-        device=device,
-        stop_on_eos=False,
-        capture_logits=True,
+        options=gen_opts,
     )
 
     rows: list[dict[str, Any]] = []
@@ -147,10 +156,7 @@ def run_compare_batch(
                 model,
                 sequences,
                 max_new_tokens,
-                eos_token_id=eos_token_id,
-                device=device,
-                stop_on_eos=False,
-                capture_logits=True,
+                options=gen_opts,
             )
         )
         variant_runs[name] = candidate

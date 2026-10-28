@@ -3,8 +3,8 @@
 import pytest
 import torch
 
-from mini_infra.bench.batch.run_case import run_case
-from mini_infra.bench.batch.suites import (
+from mini_infra.bench.lockstep.run_case import run_case
+from mini_infra.bench.lockstep.suites import (
     SUITES,
     SerialVsFixedBatchThroughputSuite,
     Suite,
@@ -71,19 +71,21 @@ def test_parse_args_suite():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
-    args = parser.parse_args(["bench", "batch", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"])
+    args = parser.parse_args(
+        ["bench", "lockstep", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"]
+    )
     assert args.suite == "serial-vs-fixed-batch-throughput"
 
     # 无法识别的参数直接报错
     for invalid in (["--prompt-lens", "32"], ["--batch-size", "2"], ["--no-kv-cache"]):
         with pytest.raises(SystemExit):
             parser.parse_args(
-                ["bench", "batch", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput", *invalid]
+                ["bench", "lockstep", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput", *invalid]
             )
 
     # 未知 suite 报错
     with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "batch", "suite", "--tag", "t", "--suite", "unknown"])
+        parser.parse_args(["bench", "lockstep", "suite", "--tag", "t", "--suite", "unknown"])
 
 
 def test_parse_args_requires_suite():
@@ -92,7 +94,7 @@ def test_parse_args_requires_suite():
 
     parser = build_parser()
     with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "batch", "suite", "--tag", "t"])
+        parser.parse_args(["bench", "lockstep", "suite", "--tag", "t"])
 
 
 def test_registered_suites_run_end_to_end_on_cpu():
