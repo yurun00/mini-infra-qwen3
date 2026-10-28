@@ -5,13 +5,16 @@
 
 import torch
 
+from mini_infra.core import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     GenerationOptions,
     Mode,
+    SchedulePhase,
     generate,
     left_pad_sequences,
+    run_scheduler,
 )
 from mini_infra.memory import KVCache, cache_size_bytes
 from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
@@ -157,31 +160,63 @@ def check_fixed_batching(model):
 
 
 def check_continuous_batching(model):
-    """验证 Continuous Batching 动态组批调度与串行 baseline 输出完全一致。"""
+    """验证 Continuous Batching 动态加入退出、FCFS 队列调度与串行 baseline 输出完全一致。"""
     device = torch.device("cpu")
-    request_a = [3, 5, 7, 9]
-    request_b = [11, 13]
-    requests = [request_a, request_b]
-    budgets = [4, 3]
+    sequences = [
+        [3, 5, 7, 9],
+        [11, 13],
+        [17, 19, 23],
+        [29, 31, 37, 41, 43],
+    ]
+    budgets = [2, 4, 3, 2]
 
+    # 1. 统一 generate 接口分发验证（多请求异构预算）
     continuous_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
     serial_mode = Mode({FeatureFlag.KV_CACHE})
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
 
-    # 1. 统一 generate 接口分发
-    cont_gen = generate(continuous_mode, model, requests, budgets, options=base_opts)
-    serial_gen = generate(serial_mode, model, requests, budgets, options=base_opts)
+    cont_gen = generate(continuous_mode, model, sequences, budgets, options=base_opts)
+    serial_gen = generate(serial_mode, model, sequences, budgets, options=base_opts)
     assert [s.token_ids for s in cont_gen.sequences] == [s.token_ids for s in serial_gen.sequences]
 
-    from mini_infra.core import make_request_specs
-    from mini_infra.engine import run_scheduler
+    # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
+    specs = make_request_specs(sequences, budgets)
+    fixed = run_scheduler(BatchingMethod.FIXED, model, specs, 2, -1, device, stop_on_eos=False)
+    continuous = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, -1, device, stop_on_eos=False)
+    serialized = run_scheduler(BatchingMethod.NONE, model, specs, 1, -1, device, stop_on_eos=False)
 
-    specs = make_request_specs(requests, budgets, arrival_times_ms=[0.0, 5.0])
-    res = run_scheduler(
-        "continuous", model, specs, max_running_requests=1, eos_token_id=-1, device=device, stop_on_eos=False
+    assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
+    assert [s.token_ids for s in continuous.sequences] == [s.token_ids for s in serialized.sequences]
+
+    # 3. 动态退场与槽位插队轨迹 (Dynamic Admission Trace)：Req 0 完成后 Req 2 动态插队，随后 Req 3 插队
+    prefill_admissions = [list(e.admitted) for e in continuous.events if e.phase == SchedulePhase.PREFILL]
+    assert prefill_admissions[0] == [0, 1]
+    assert prefill_admissions[1] == [2]
+    assert prefill_admissions[2] == [3]
+
+    # 4. 槽位有效利用率优势对比
+    assert continuous.batch_info.slot_utilization > fixed.batch_info.slot_utilization
+
+    # 5. 请求时序指标逻辑自洽性校验 (queue_ms >= 0, ttft_ms >= queue_ms, end_to_end_ms >= ttft_ms)
+    assert all(
+        rm.queue_ms >= 0 and rm.ttft_ms >= rm.queue_ms and rm.end_to_end_ms >= rm.ttft_ms
+        for rm in continuous.request_metrics
     )
-    assert [s.token_ids for s in res.sequences] == [s.token_ids for s in serial_gen.sequences]
-    print("Continuous Batching 动态调度与串行输出一致性检查通过")
+
+    # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)
+    staggered_specs = make_request_specs(sequences[:2], [4, 2], arrival_times_ms=[0.0, 5.0])
+    staggered = run_scheduler(BatchingMethod.CONTINUOUS, model, staggered_specs, 2, -1, device, stop_on_eos=False)
+    assert [len(s.token_ids) for s in staggered.sequences] == [4, 2]
+    assert staggered.request_metrics[1].admitted_ms >= 5.0
+
+    # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
+    same_arrival_specs = make_request_specs([sequences[0]] * 12, 1)
+    same_arrival = run_scheduler(BatchingMethod.CONTINUOUS, model, same_arrival_specs, 3, -1, device, stop_on_eos=False)
+    flattened_admissions = [req_idx for event in same_arrival.events for req_idx in event.admitted]
+    assert flattened_admissions == list(range(12))
+
+    print("Continuous Batching 动态加入退出、FCFS 与输出一致性检查通过")
+    print("固定批次、Continuous Batching 与串行单请求输出一致")
 
 
 def run_smoke_test():
@@ -195,5 +230,14 @@ def run_smoke_test():
 
 __all__ = [
     "build_tiny_model",
+    "check_causal_mask",
+    "check_continuous_batching",
+    "check_fixed_batching",
+    "check_kv_cache_correctness",
+    "check_output_shape_and_tied_weights",
     "run_smoke_test",
 ]
+
+
+if __name__ == "__main__":
+    run_smoke_test()

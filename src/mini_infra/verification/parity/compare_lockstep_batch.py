@@ -1,4 +1,7 @@
-"""检查 Batch Size、排列、同批内容和 Padding 对 Decode 输出的影响。入口： mini-infra verify batch。"""
+"""检查 Lockstep 齐步批处理中 Batch Size、排列、同批内容和 Padding 对输出的影响。
+
+入口：mini-infra verify lockstep-batch。
+"""
 
 import json
 from pathlib import Path
@@ -96,7 +99,7 @@ def compare_trace(
 
 
 @torch.inference_mode()
-def run_compare_batch(
+def run_compare_lockstep_batch(
     model: torch.nn.Module,
     target: list[int],
     vocab_size: int,
@@ -230,7 +233,7 @@ def run_compare_batch(
     return rows, failures
 
 
-def execute_compare_batch(
+def execute_compare_lockstep_batch(
     model: str = DEFAULT_MODEL_ID,
     revision: str = DEFAULT_MODEL_REVISION,
     prompt: str = "用一句话解释固定批处理。",
@@ -239,7 +242,7 @@ def execute_compare_batch(
     logits_atol: float = 1e-4,
     output: str | None = None,
 ) -> int:
-    """运行固定批处理数值与请求隔离对齐验证，返回退出码（0 成功，1 失败）。"""
+    """运行齐步批处理数值与请求隔离对齐验证，返回退出码（0 成功，1 失败）。"""
     if max_new_tokens < 1:
         raise ValueError("输出长度必须大于 0")
     if logits_atol < 0:
@@ -276,7 +279,7 @@ def execute_compare_batch(
     print("Prompt Token 数: %d" % len(target))
     print("对比 dtype: %s, 最大允许 Logits 绝对误差: %.6f" % (dtype, logits_atol))
 
-    rows, failures = run_compare_batch(
+    rows, failures = run_compare_lockstep_batch(
         model=model_instance,
         target=target,
         vocab_size=vocab_size,
@@ -295,9 +298,15 @@ def execute_compare_batch(
     return 0
 
 
+# 保持向后兼容别名
+run_compare_batch = run_compare_lockstep_batch
+execute_compare_batch = execute_compare_lockstep_batch
+
 __all__ = [
     "compare_trace",
     "execute_compare_batch",
+    "execute_compare_lockstep_batch",
     "run_compare_batch",
+    "run_compare_lockstep_batch",
     "synthetic_sequence",
 ]

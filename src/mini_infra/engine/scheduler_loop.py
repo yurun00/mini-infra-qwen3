@@ -175,13 +175,13 @@ def run_scheduler(
     pad_token_id: int = 0,
     stop_on_eos: bool = True,
 ) -> ScheduleResult:
-    """校验批处理策略并执行统一的队列调度循环（CONTINUOUS 或 FIXED）。
+    """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
     Args:
-        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED 或字符串 "continuous" / "fixed"）。
+        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED / NONE 或对应字符串）。
         model: 因果语言模型。
         request_specs: 待调度的请求规格列表。
-        max_running_requests: 调度队列最大并发数。
+        max_running_requests: 调度队列最大并发数（NONE 模式下自动约束为 1）。
         eos_token_id: 结束 Token ID。
         device: 执行目标设备。
         pad_token_id: 填充 Token ID。
@@ -196,20 +196,21 @@ def run_scheduler(
             method = BatchingMethod.FIXED
         elif normalized == "continuous":
             method = BatchingMethod.CONTINUOUS
+        elif normalized == "none":
+            method = BatchingMethod.NONE
         else:
             method = BatchingMethod.from_str(normalized)
     else:
-        method = batching_method
+        method = BatchingMethod.from_str(batching_method)
 
-    if method in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
-        return _run_schedule(
-            method=method,
-            model=model,
-            request_specs=request_specs,
-            max_running_requests=max_running_requests,
-            eos_token_id=eos_token_id,
-            device=device,
-            pad_token_id=pad_token_id,
-            stop_on_eos=stop_on_eos,
-        )
-    raise ValueError(f"不支持的调度批处理策略: {method}，仅支持 CONTINUOUS 或 FIXED")
+    concurrency = 1 if (method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
+    return _run_schedule(
+        method=method,
+        model=model,
+        request_specs=request_specs,
+        max_running_requests=concurrency,
+        eos_token_id=eos_token_id,
+        device=device,
+        pad_token_id=pad_token_id,
+        stop_on_eos=stop_on_eos,
+    )

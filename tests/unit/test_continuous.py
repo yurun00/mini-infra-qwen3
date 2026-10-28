@@ -315,8 +315,15 @@ def test_run_scheduler_dispatch(model):
     res_fixed_str = run_scheduler("fixed", model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
     assert res_fixed_str.batching_method == BatchingMethod.FIXED
 
-    # 5. 验证非法策略抛出异常
-    with pytest.raises(ValueError, match="不支持的调度批处理策略"):
-        run_scheduler(BatchingMethod.NONE, model, specs, 2, eos_token_id=-1, device=CPU)
+    # 5. 验证枚举与字符串分发 NONE（自动约束并发为 1，逐请求串行调度）
+    res_none = run_scheduler(BatchingMethod.NONE, model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
+    assert res_none.batching_method == BatchingMethod.NONE
+    assert res_none.schedule_metrics.max_running_requests == 1
+    assert [s.token_ids for s in res_none.sequences] == [s.token_ids for s in res_cont.sequences]
+
+    res_none_str = run_scheduler("none", model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
+    assert res_none_str.batching_method == BatchingMethod.NONE
+
+    # 6. 验证非法策略抛出异常
     with pytest.raises(ValueError, match="未知批处理策略"):
         run_scheduler("unknown-strategy", model, specs, 2, eos_token_id=-1, device=CPU)

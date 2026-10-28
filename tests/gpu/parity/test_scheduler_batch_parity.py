@@ -103,3 +103,10 @@ def test_continuous_batching_gpu_parity() -> None:
         assert rm.num_output_tokens > 0
         assert rm.ttft_ms > 0
         assert rm.end_to_end_ms >= rm.ttft_ms
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
+def test_compare_scheduler_batch_cli():
+    from mini_infra.cli import main
+
+    assert main(["verify", "scheduler-batch", "--max-new-tokens", "4"]) == 0

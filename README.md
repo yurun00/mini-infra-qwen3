@@ -62,14 +62,15 @@ mini-infra-qwen3/
 │       │   ├── main.py                # 根命令 mini-infra 注册与分发
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
-│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch)
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch)
 │       │       └── bench/             # mini-infra bench (lockstep / scheduler / plot / check-regression)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
 │       │   └── parity/                # 精度与等价性对齐核心库
 │       │       ├── compare_cache.py   # KV Cache 前后逐步 Logits 对齐
-│       │       ├── compare_batch.py   # 固定批处理请求隔离与数值对齐
-│       │       └── compare_transformers.py # 与 Transformers 对齐
+│       │       ├── compare_transformers.py # 与 Transformers 对齐
+│       │       ├── compare_lockstep_batch.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
+│       │       └── compare_scheduler_batch.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
@@ -198,7 +199,16 @@ mini-infra run \
   --compare-feature none fixed-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
+
+# 4. 对比 Fixed 与 Continuous Batching（逐请求输出预算 + 并发上限）
+mini-infra run \
+  --compare-feature fixed-batching continuous-batching \
+  --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
+  --max-new-tokens 8 24 8 24 \
+  --max-running-requests 2
 ```
+
+`--max-new-tokens` 可传 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算。只要 `--batching-method` 或 `--compare-feature` 中出现 continuous-batching，所有 fixed/continuous 结果统一由 `run_scheduler` 产出（受 `--max-running-requests` 约束），并额外输出 Makespan、排队/TTFT/ITL 分位数与 Cache 管理耗时占比；该路径暂不支持 `--profile`。
 
 输出包含生成 Token IDs、生成文本、Prefill 延迟、平均 Decode 延迟、P50/P95 步延迟、Prefill 后已分配显存、峰值显存与最终 KV Cache 数据量；在 `--compare-feature` 模式下自动给出两组生成的逐 Token 一致性校验及加速比分析。
 

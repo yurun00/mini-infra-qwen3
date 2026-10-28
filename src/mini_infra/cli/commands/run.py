@@ -9,12 +9,16 @@ from pathlib import Path
 
 import torch
 
+from mini_infra.core import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     GenerationOptions,
+    GenerationResult,
     Mode,
+    ScheduleResult,
     generate,
+    run_scheduler,
     synchronize,
 )
 from mini_infra.model import (
@@ -37,7 +41,20 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default=["用一句话解释 Prefill。", "用一句话解释 Decode。"],
         help="输入提示词列表（默认包含 Prefill 与 Decode 两条提示词）",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=32)
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        nargs="+",
+        default=[32],
+        metavar="N",
+        help="输出 Token 预算：提供 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算（默认: 32）",
+    )
+    parser.add_argument(
+        "--max-running-requests",
+        type=int,
+        default=None,
+        help="调度器最大并发请求数，仅对 fixed/continuous 调度路径生效（默认: 不限，即 prompt 数量）",
+    )
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument(
         "--kv-cache",
@@ -126,6 +143,76 @@ def resolve_compare_features_string(mode: Mode, compare_features: Sequence[str] 
     return "_".join(features)
 
 
+def resolve_budgets(max_new_tokens: Sequence[int], num_prompts: int) -> int | list[int]:
+    """将 --max-new-tokens 归一化：1 个值广播为 int，与 prompts 等长则逐请求预算，否则报错。"""
+    budgets = list(max_new_tokens)
+    if any(b < 1 for b in budgets):
+        raise ValueError("--max-new-tokens 必须大于 0")
+    if len(budgets) == 1:
+        return budgets[0]
+    if len(budgets) == num_prompts:
+        return budgets
+    raise ValueError(
+        f"--max-new-tokens 应提供 1 个值或与 prompts 数量一致（{num_prompts}），当前传入 {len(budgets)} 个"
+    )
+
+
+def shrink_budgets(budgets: int | list[int], limit: int) -> int | list[int]:
+    """将预算截断到不超过 limit（用于 warmup）。"""
+    if isinstance(budgets, int):
+        return min(budgets, limit)
+    return [min(b, limit) for b in budgets]
+
+
+def uses_scheduler(modes: Sequence[Mode]) -> bool:
+    """只要任一 mode 使用 continuous batching，所有结果都统一由 run_scheduler 产出（指标可比）。"""
+    return any(m.batching_method is BatchingMethod.CONTINUOUS for m in modes)
+
+
+def run_mode(
+    mode: Mode,
+    model: torch.nn.Module,
+    input_ids,
+    sequences: Sequence[Sequence[int]],
+    budgets: int | list[int],
+    options: GenerationOptions,
+    via_scheduler: bool,
+) -> GenerationResult:
+    """执行单个 mode：via_scheduler 为 True 时统一由 run_scheduler 产出；否则沿用 generate。"""
+    if via_scheduler:
+        if not mode.is_enabled(FeatureFlag.KV_CACHE):
+            raise ValueError("调度路径依赖 KV Cache，请启用 --kv-cache")
+        if options.capture_logits or options.profile:
+            raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
+        specs = make_request_specs(sequences, budgets)
+        concurrency = options.max_running_requests if options.max_running_requests is not None else len(specs)
+        if concurrency < 1:
+            raise ValueError("max_running_requests 必须大于 0")
+        return run_scheduler(
+            mode.batching_method,
+            model,
+            specs,
+            concurrency,
+            options.eos_token_id,
+            options.device or torch.device("cuda"),
+            pad_token_id=options.pad_token_id,
+            stop_on_eos=options.stop_on_eos,
+        )
+    return generate(mode, model, input_ids, budgets, options=options)
+
+
+def print_schedule_metrics(result: ScheduleResult) -> None:
+    sm = result.schedule_metrics
+    print("Makespan: %.2f ms" % sm.makespan_ms)
+    print("排队延迟 p50/p95: %.2f / %.2f ms" % (sm.queue_ms_p50, sm.queue_ms_p95))
+    print("TTFT p50/p95: %.2f / %.2f ms" % (sm.ttft_ms_p50, sm.ttft_ms_p95))
+    print("ITL p50/p95/max: %.2f / %.2f / %.2f ms" % (sm.itl_ms_p50, sm.itl_ms_p95, sm.itl_ms_max))
+    print("Cache 管理耗时占比: %.2f%%" % (sm.cache_management_fraction * 100))
+    info = result.batch_info
+    if info is not None and info.running_capacity_utilization is not None:
+        print("并发容量利用率: %.2f%%" % (info.running_capacity_utilization * 100))
+
+
 def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
     print("\n[%s]" % mode)
     for seq in result.sequences:
@@ -149,6 +236,8 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
     if mode.is_batch and result.batch_info is not None:
         print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
         print("槽位利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
+    if isinstance(result, ScheduleResult):
+        print_schedule_metrics(result)
     print("峰值显存: %.2f MiB" % result.memory.peak_allocated_mb)
     print("最终 KV Cache: %.2f MiB" % result.memory.kv_cache_mb)
     decode_times = result.trace.step_latencies_ms[1:]
@@ -179,8 +268,8 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
 
 def handle_run(args: argparse.Namespace) -> int:
     """执行 run 命令。"""
-    if args.max_new_tokens < 1:
-        raise ValueError("--max-new-tokens 必须大于 0")
+    if args.max_running_requests is not None and args.max_running_requests < 1:
+        raise ValueError("--max-running-requests 必须大于 0")
     if args.warmup < 0:
         raise ValueError("--warmup 不能小于 0")
     if not torch.cuda.is_available():
@@ -197,6 +286,7 @@ def handle_run(args: argparse.Namespace) -> int:
     else:
         input_ids = sequences
 
+    budgets = resolve_budgets(args.max_new_tokens, len(sequences))
     model = load_model(model_directory, device)
 
     flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
@@ -239,19 +329,18 @@ def handle_run(args: argparse.Namespace) -> int:
     else:
         modes = (base_mode,)
 
+    via_scheduler = uses_scheduler(modes)
+    if args.max_running_requests is not None and not via_scheduler:
+        print("[warn] --max-running-requests 仅对调度路径（含 continuous-batching）生效，当前对比未启用，将被忽略。")
+
     warmup_opts = GenerationOptions(
         eos_token_id=tokenizer.eos_token_id,
         device=device,
+        max_running_requests=args.max_running_requests,
     )
     for mode in modes:
         for _ in range(args.warmup):
-            generate(
-                mode,
-                model,
-                input_ids,
-                min(args.max_new_tokens, 2),
-                options=warmup_opts,
-            )
+            run_mode(mode, model, input_ids, sequences, shrink_budgets(budgets, 2), warmup_opts, via_scheduler)
         synchronize(device)
 
     if isinstance(input_ids, torch.Tensor):
@@ -280,14 +369,9 @@ def handle_run(args: argparse.Namespace) -> int:
             profile=do_profile,
             top_kernels=args.top_kernels,
             tensorboard_options=tb_options,
+            max_running_requests=args.max_running_requests,
         )
-        results[mode] = generate(
-            mode,
-            model,
-            input_ids,
-            args.max_new_tokens,
-            options=run_opts,
-        )
+        results[mode] = run_mode(mode, model, input_ids, sequences, budgets, run_opts, via_scheduler)
         print_result(mode, results[mode], tokenizer, tensorboard_dir=tb_dir)
 
     if len(modes) == 2:
@@ -306,5 +390,13 @@ def handle_run(args: argparse.Namespace) -> int:
                 % (baseline.metrics.e2e_wall_ms, optimized.metrics.e2e_wall_ms)
             )
             print("Batch makespan 加速比: %.3fx" % (baseline.metrics.e2e_wall_ms / optimized.metrics.e2e_wall_ms))
-    print("说明: 计时不包含 tokenizer、模型下载和模型加载；默认 greedy decoding。")
+        if isinstance(baseline, ScheduleResult) and isinstance(optimized, ScheduleResult):
+            bm, om = baseline.schedule_metrics, optimized.schedule_metrics
+            if bm.makespan_ms > 0 and om.makespan_ms > 0:
+                print(
+                    "调度 Makespan: %.2f ms -> %.2f ms（加速比 %.3fx）"
+                    % (bm.makespan_ms, om.makespan_ms, bm.makespan_ms / om.makespan_ms)
+                )
+            print("TTFT p95: %.2f ms -> %.2f ms" % (bm.ttft_ms_p95, om.ttft_ms_p95))
+    print("说明: 计时不包含 tokenizer、模型下载、模型加载和真实睡眠；默认 greedy decoding。")
     return 0

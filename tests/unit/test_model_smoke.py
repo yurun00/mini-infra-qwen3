@@ -3,6 +3,7 @@
 from mini_infra.verification.smoke import (
     build_tiny_model,
     check_causal_mask,
+    check_continuous_batching,
     check_fixed_batching,
     check_kv_cache_correctness,
     check_output_shape_and_tied_weights,
@@ -23,3 +24,7 @@ def test_kv_cache_correctness():
 
 def test_fixed_batching():
     check_fixed_batching(build_tiny_model())
+
+
+def test_continuous_batching():
+    check_continuous_batching(build_tiny_model())
