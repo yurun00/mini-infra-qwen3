@@ -37,13 +37,13 @@ def resolve_label(rec: dict[str, Any], custom: str | None = None) -> str:
     return mode or tag or "unknown"
 
 
-def index_cases(rec: dict[str, Any]) -> dict[tuple[int, int, int], dict[str, Any]]:
+def index_cases(rec: dict[str, Any]) -> dict[tuple[int, Any, Any], dict[str, Any]]:
     """按 (batch_size, prompt_len, max_new_tokens) 建立索引。"""
     res = {}
-    cases = rec.get("cases") or rec.get("workloads") or []
-    for w in cases:
+    for w in rec.get("cases", []):
         pl = tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"]
-        key = (w["batch_size"], pl, w.get("max_new_tokens", w.get("output_len")))
+        mnt = tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"]
+        key = (w["batch_size"], pl, mnt)
         res[key] = w
     return res
 

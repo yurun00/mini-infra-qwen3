@@ -48,8 +48,32 @@ REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
 GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "data" / "golden_output_tokens.json"
 
 
+class _DictCompatibleMixin:
+    """为数据类提供字典兼容读取接口（[]、get、keys、values、items、== dict）。"""
+
+    def to_dict(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def __getitem__(self, item: str) -> Any:
+        if hasattr(self, item):
+            return getattr(self, item)
+        raise KeyError(item)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def keys(self):
+        return self.to_dict().keys()
+
+    def values(self):
+        return self.to_dict().values()
+
+    def items(self):
+        return self.to_dict().items()
+
+
 @dataclass(frozen=True)
-class HardwarePeakSpecs:
+class HardwarePeakSpecs(_DictCompatibleMixin):
     """GPU 峰值显存带宽 (GB/s) 与 FP16 峰值算力 (TFLOPS)。"""
 
     bandwidth_gbs: float | None
@@ -57,11 +81,6 @@ class HardwarePeakSpecs:
 
     def to_dict(self) -> dict[str, float | None]:
         return {"bandwidth_gbs": self.bandwidth_gbs, "tflops": self.tflops}
-
-    def __getitem__(self, item: str) -> float | None:
-        if hasattr(self, item):
-            return getattr(self, item)
-        raise KeyError(item)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, dict):
@@ -72,7 +91,7 @@ class HardwarePeakSpecs:
 
 
 @dataclass(frozen=True)
-class ModelCostProfile:
+class ModelCostProfile(_DictCompatibleMixin):
     """理想工作量模型（与引擎实现无关）：用于计算 MBU/MFU。"""
 
     n_params: int
@@ -88,11 +107,6 @@ class ModelCostProfile:
             "attn_flop_coeff": self.attn_flop_coeff,
         }
 
-    def __getitem__(self, item: str) -> Any:
-        if hasattr(self, item):
-            return getattr(self, item)
-        raise KeyError(item)
-
     def __eq__(self, other: object) -> bool:
         if isinstance(other, dict):
             return self.to_dict() == other
@@ -107,7 +121,7 @@ class ModelCostProfile:
 
 
 @dataclass(frozen=True)
-class EfficiencyMetrics:
+class EfficiencyMetrics(_DictCompatibleMixin):
     """基于理想工作量与实测延迟计算的 prefill/decode 算力 (MFU) 与带宽利用率 (MBU)。"""
 
     prefill_mfu: float | None = None
@@ -120,11 +134,6 @@ class EfficiencyMetrics:
             "decode_mfu": self.decode_mfu,
             "decode_mbu": self.decode_mbu,
         }
-
-    def __getitem__(self, item: str) -> float | None:
-        if hasattr(self, item):
-            return getattr(self, item)
-        raise KeyError(item)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, dict):
@@ -139,7 +148,7 @@ class EfficiencyMetrics:
 
 
 @dataclass(frozen=True)
-class CorrectnessReport:
+class CorrectnessReport(_DictCompatibleMixin):
     """正确性门禁检查报告。"""
 
     checked: bool
@@ -154,11 +163,6 @@ class CorrectnessReport:
             "match_ratio": self.match_ratio,
             "updated_golden": self.updated_golden,
         }
-
-    def __getitem__(self, item: str) -> Any:
-        if hasattr(self, item):
-            return getattr(self, item)
-        raise KeyError(item)
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, dict):

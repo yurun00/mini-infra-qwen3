@@ -30,7 +30,7 @@ def index(record):
         (
             w["batch_size"],
             tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
-            w.get("max_new_tokens", w.get("output_len")),
+            tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"],
         ): w
         for w in record["cases"]
     }
@@ -39,7 +39,7 @@ def index(record):
 def label(record):
     tag = record["tag"]
     dirty = "*" if record.get("git", {}).get("dirty") else ""
-    feat = record.get("release_feature") or record.get("release-feature") or record.get("feature")
+    feat = record.get("release_feature")
     if feat:
         return f"{tag} ({feat}){dirty}"
     return f"{tag}{dirty}"

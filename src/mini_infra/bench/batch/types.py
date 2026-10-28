@@ -197,7 +197,7 @@ class CaseBenchmarkResult:
     raw_samples: dict[str, list[float]] = field(default_factory=dict)
 
     def to_record_dict(self) -> dict[str, Any]:
-        """导出为标准评测记录字典格式。"""
+        """导出为标准评测记录字典格式（批处理打包与槽位利用率统一序列化至 'packing' 字段）。"""
         rec: dict[str, Any] = {
             "mode": self.workload.mode,
             "prompt_len": (

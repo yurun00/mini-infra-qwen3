@@ -36,6 +36,12 @@ def add_batch_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向 parser 添加 batch case 参数。"""
     add_common_args(p)
     p.add_argument(
+        "--kv-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="是否启用 KV Cache 特性（默认: True）",
+    )
+    p.add_argument(
         "--batching-method",
         default=BatchingMethod.NONE.value,
         choices=[m.value for m in BatchingMethod],
@@ -189,10 +195,9 @@ def handle_suite(args: argparse.Namespace) -> int:
     model = load_model(model_dir, device)
     vocab = model.config.vocab_size
 
-    for mode in modes:
-        correctness = check_correctness(model, tokenizer, mode, device, args.update_golden)
-        if correctness["passed"] is False and not args.allow_mismatch:
-            sys.exit(f"正确性检查失败（{mode}）：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
+    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
+    if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
+        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     env = gpu_info()
     peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
@@ -241,6 +246,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         git=git,
         warmup=warmup,
         repeats=repeats,
+        suite_info=suite.to_dict(),
     )
 
     suite_dir = SUITES_DIR / args.suite

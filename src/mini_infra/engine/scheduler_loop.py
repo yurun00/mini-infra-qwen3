@@ -169,32 +169,32 @@ def _run_fixed_batching(
             continue
 
         wave = waiting_queue.pop_batch(max_running_requests)
-        for state in wave:
-            state.status = RequestStatus.RUNNING
-            state.admitted_ms = clock_ms
+        for s in wave:
+            s.status = RequestStatus.RUNNING
+            s.admitted_ms = clock_ms
 
         input_ids, history_mask, position_ids, prompt_lengths = left_pad_sequences(
-            [state.spec.token_ids for state in wave], pad_token_id, device
+            [s.spec.token_ids for s in wave], pad_token_id, device
         )
         budgets = torch.tensor([s.spec.max_new_tokens for s in wave], dtype=torch.long, device=device)
-        batch = BatchGenerationState.create(
+        state = BatchGenerationState.create(
             input_ids, history_mask, position_ids, prompt_lengths, budgets, device, pad_token_id, use_cache=True
         )
         cache = KVCache()
-        for step in range(batch.max_steps):
-            counts_before = [len(output) for output in batch.outputs]
-            next_tokens, total_ms = runner.step_batch(batch, cache)
+        for step in range(state.max_steps):
+            counts_before = [len(output) for output in state.outputs]
+            next_tokens, total_ms = runner.step_batch(state, cache)
             clock_ms += total_ms
 
-            all_finished = batch.update_step(next_tokens, step, eos_token_id, stop_on_eos)
-            stepped = [i for i, output in enumerate(batch.outputs) if len(output) > counts_before[i]]
+            all_finished = state.update_step(next_tokens, step, eos_token_id, stop_on_eos)
+            stepped = [i for i, output in enumerate(state.outputs) if len(output) > counts_before[i]]
             finished = [
                 wave[i]
                 for i in stepped
-                if wave[i].append_token(batch.outputs[i][-1], clock_ms, eos_token_id, stop_on_eos)
+                if wave[i].append_token(state.outputs[i][-1], clock_ms, eos_token_id, stop_on_eos)
             ]
-            for state in finished:
-                state.status = RequestStatus.FINISHED
+            for s in finished:
+                s.status = RequestStatus.FINISHED
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.PREFILL if step == 0 else SchedulePhase.DECODE,
@@ -211,7 +211,7 @@ def _run_fixed_batching(
             )
             if all_finished:
                 break
-            batch.prepare_next_step(next_tokens, use_cache=True)
+            state.prepare_next_step(next_tokens, use_cache=True)
         del cache
 
     return summarize_schedule(BatchingMethod.FIXED, states, events, max_running_requests, *peak_memory_mb(device))

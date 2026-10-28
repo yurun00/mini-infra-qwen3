@@ -71,6 +71,7 @@ def test_parse_args_run_case():
         ["bench", "batch", "case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]
     )
     assert args.tag == "dev"
+    assert args.kv_cache is True
     assert args.prompt_lens == [32]
     assert args.max_new_tokens == [16]
     assert args.batch_size is None

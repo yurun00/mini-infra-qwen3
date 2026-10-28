@@ -43,7 +43,7 @@ def index(record: dict[str, Any]) -> dict[tuple[int, Any, Any], dict[str, Any]]:
         (
             w["batch_size"],
             tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
-            w.get("max_new_tokens", w.get("output_len")),
+            tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"],
         ): w
         for w in record["cases"]
     }
