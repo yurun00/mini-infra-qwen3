@@ -4,17 +4,14 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from mini_infra.bench.common import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
-    BatchPackingProfile,
     CaseBenchmarkResult,
-    CaseMemoryProfile,
     DistributionStats,
-    HardwareEfficiency,
-    LatencyDistributions,
-    ThroughputDistributions,
     WorkloadSpec,
     summarize_samples,
 )
+from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
 
@@ -60,25 +57,24 @@ def test_case_benchmark_result_structure_and_dot_access():
     )
 
     dummy_stat = DistributionStats(10.0, 10.0, 0.5, 9.0, 10.5, 10.8, 11.0, 11.0)
-    latency = LatencyDistributions(
+    metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
         ttft_ms=dummy_stat,
-        tpot_ms=dummy_stat,
+        mean_tpot_ms=dummy_stat,
         e2e_wall_ms=dummy_stat,
         e2e_model_ms=dummy_stat,
-    )
-    throughput = ThroughputDistributions(
         throughput_tok_s=dummy_stat,
         throughput_req_s=dummy_stat,
+        gpu_time_ratio=dummy_stat,
     )
-    memory = CaseMemoryProfile(
+    memory = MemoryProfile(
         weights_mb=500.0,
-        baseline_allocated_mb=600.0,
-        prefill_allocated_mb=650.0,
+        baseline_mb=600.0,
+        prefill_mb=650.0,
         peak_allocated_mb=700.0,
         peak_reserved_mb=800.0,
         kv_cache_mb=12.0,
     )
-    packing = BatchPackingProfile(
+    packing = BatchScheduleInfo(
         padding_efficiency=0.85,
         slot_utilization=0.90,
         num_prompt_tokens=48,
@@ -86,7 +82,7 @@ def test_case_benchmark_result_structure_and_dot_access():
         prompt_lengths_per_req=[16, 32],
         completion_steps_per_req=[16, 16],
     )
-    efficiency = HardwareEfficiency(
+    efficiency = EfficiencyMetrics(
         prefill_mfu=0.15,
         decode_mfu=0.25,
         decode_mbu=0.45,
@@ -100,12 +96,10 @@ def test_case_benchmark_result_structure_and_dot_access():
 
     case_result = CaseBenchmarkResult(
         workload=workload,
-        latency=latency,
-        throughput=throughput,
+        metrics=metrics,
         memory=memory,
         packing=packing,
         efficiency=efficiency,
-        gpu_time_ratio=dummy_stat,
         op_breakdown=op_breakdown,
         raw_samples={"tpot_ms": [10.0, 10.5]},
     )
@@ -113,14 +107,14 @@ def test_case_benchmark_result_structure_and_dot_access():
     # 1. 验证强类型属性点号访问
     assert case_result.workload.batch_size == 2
     assert case_result.workload.prompt_len == (16, 32)
-    assert case_result.latency.ttft_ms.median == 10.0
-    assert case_result.throughput.throughput_tok_s.mean == 10.0
+    assert case_result.metrics.ttft_ms is not None and case_result.metrics.ttft_ms.median == 10.0
+    assert case_result.metrics.throughput_tok_s.mean == 10.0
     assert case_result.memory.peak_allocated_mb == 700.0
     assert case_result.memory.dynamic_peak_mb == 100.0
     assert case_result.memory.fragmentation_mb == 100.0
     assert case_result.packing is not None and case_result.packing.padding_efficiency == 0.85
     assert case_result.efficiency is not None and case_result.efficiency.decode_mbu == 0.45
-    assert case_result.gpu_time_ratio is not None and case_result.gpu_time_ratio.median == 10.0
+    assert case_result.metrics.gpu_time_ratio is not None and case_result.metrics.gpu_time_ratio.median == 10.0
     assert case_result.op_breakdown is not None and case_result.op_breakdown.total_ms == 100.0
 
     # 2. 验证不可变性

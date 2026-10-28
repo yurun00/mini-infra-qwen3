@@ -12,8 +12,8 @@ import torch
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
+    GenerationOptions,
     Mode,
-    OfflineGenerationOptions,
     generate,
     synchronize,
 )
@@ -239,7 +239,7 @@ def handle_run(args: argparse.Namespace) -> int:
     else:
         modes = (base_mode,)
 
-    warmup_opts = OfflineGenerationOptions(
+    warmup_opts = GenerationOptions(
         eos_token_id=tokenizer.eos_token_id,
         device=device,
     )
@@ -274,7 +274,7 @@ def handle_run(args: argparse.Namespace) -> int:
             tb_dir = None
             tb_options = None
 
-        run_opts = OfflineGenerationOptions(
+        run_opts = GenerationOptions(
             eos_token_id=tokenizer.eos_token_id,
             device=device,
             profile=do_profile,

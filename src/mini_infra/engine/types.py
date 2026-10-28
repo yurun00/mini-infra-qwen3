@@ -1,8 +1,9 @@
-"""引擎层执行结果与调度领域模型（LockstepResult、ScheduleResult、ScheduleEvent、ScheduleMetrics）。"""
+"""引擎层执行结果与调度领域模型（GenerationResult、LockstepResult、ScheduleResult、ScheduleEvent、ScheduleMetrics）。"""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Generic, TypeVar
 
 import torch
 
@@ -10,6 +11,7 @@ from mini_infra.core.request import RequestState
 from mini_infra.core.types import (
     BatchingMethod,
     BatchScheduleInfo,
+    GenerationTrace,
     MemoryProfile,
     RequestMetrics,
     SequenceOutput,
@@ -18,7 +20,10 @@ from mini_infra.core.types import (
     compute_step_aggregated_metrics,
     pad_output_tokens,
 )
+from mini_infra.profiling import OpLatencyBreakdown
 from mini_infra.utils import percentile
+
+_MetricT = TypeVar("_MetricT")
 
 
 class SchedulePhase(str, Enum):
@@ -48,61 +53,65 @@ class ScheduleEvent:
 
 
 @dataclass(frozen=True)
-class ScheduleMetrics:
-    """一次调度运行的调度器专属聚合指标（并发规模、Cache 管理开销与请求级排队/延迟分位数）。"""
+class ScheduleMetrics(Generic[_MetricT]):
+    """一次或多次调度运行的调度器专属聚合指标（支持单次标量 float 或多轮评测统计分布 DistributionStats）。"""
 
     request_count: int
     max_running_requests: int
-    busy_ms: float
-    cache_management_ms: float
-    cache_management_fraction: float
-    queue_ms_p50: float
-    queue_ms_p95: float
-    ttft_ms_p50: float
-    ttft_ms_p95: float
-    end_to_end_ms_p50: float
-    end_to_end_ms_p95: float
-    itl_ms_p50: float
-    itl_ms_p95: float
-    itl_ms_max: float
+    makespan_ms: _MetricT
+    busy_ms: _MetricT
+    cache_management_ms: _MetricT
+    cache_management_fraction: _MetricT
+    queue_ms_p50: _MetricT
+    queue_ms_p95: _MetricT
+    ttft_ms_p50: _MetricT
+    ttft_ms_p95: _MetricT
+    end_to_end_ms_p50: _MetricT
+    end_to_end_ms_p95: _MetricT
+    itl_ms_p50: _MetricT
+    itl_ms_p95: _MetricT
+    itl_ms_max: _MetricT
 
 
 @dataclass(frozen=True)
-class LockstepResult:
-    """齐步（Lockstep）执行循环结果：所有请求同时入场、齐步 Prefill + Decode 的产出与测时。"""
+class GenerationResult:
+    """所有文本生成模式的公共结果基类契约（彻底属性化，不可变强类型容器）。"""
 
     sequences: list[SequenceOutput]
-    batch_info: BatchScheduleInfo
-    step_latencies_ms: list[float]
-    num_active_tokens_per_step: list[int]
-    logits_trace: list[torch.Tensor] | None
-    e2e_wall_ms: float
-    e2e_model_ms: float
-    total_tokens: int
-    memory_after_prefill_bytes: int
-    cache_bytes: int
-
-
-@dataclass(frozen=True)
-class ScheduleResult:
-    """批调度运行的顶层不可变结果容器（字段顺序与 OfflineGenerationResult 对齐）。"""
-
-    sequences: list[SequenceOutput]
-    step_agg_metrics: StepAggregatedMetrics
-    schedule_metrics: ScheduleMetrics
+    metrics: StepAggregatedMetrics[float]
     memory: MemoryProfile
-    events: list[ScheduleEvent]
-    request_metrics: list[RequestMetrics]
+    trace: GenerationTrace
+    batch_size: int
+    op_breakdown: OpLatencyBreakdown | None = None
     batch_info: BatchScheduleInfo | None = None
-    batching_method: BatchingMethod = BatchingMethod.CONTINUOUS
 
     def padded_output_tokens(
         self,
         request_idx: int | Sequence[int] | None = None,
         pad_token_id: int = 0,
     ) -> torch.Tensor:
-        """从 sequences 动态计算并返回对齐输出张量（与 OfflineGenerationResult 接口一致）。"""
+        """从 sequences 动态计算并返回对齐输出张量。"""
         return pad_output_tokens(self.sequences, request_idx=request_idx, pad_token_id=pad_token_id)
+
+
+@dataclass(frozen=True)
+class LockstepResult(GenerationResult):
+    """齐步（Lockstep）执行循环结果：继承 GenerationResult 公共契约。"""
+
+
+@dataclass(frozen=True)
+class ScheduleResult(GenerationResult):
+    """批调度运行的顶层不可变结果容器（继承公共 GenerationResult 并扩展非空调度专属字段）。"""
+
+    schedule_metrics: ScheduleMetrics[float] = field(kw_only=True)
+    events: list[ScheduleEvent] = field(kw_only=True)
+    request_metrics: list[RequestMetrics] = field(kw_only=True)
+    batching_method: BatchingMethod = BatchingMethod.CONTINUOUS
+
+    @property
+    def step_agg_metrics(self) -> StepAggregatedMetrics[float]:
+        """调度器视角下的步级聚合指标别名（与基类 metrics 指向同一对象，用以同 schedule_metrics 区分）。"""
+        return self.metrics
 
 
 def summarize_schedule(
@@ -113,6 +122,8 @@ def summarize_schedule(
     peak_allocated_mb: float,
     peak_reserved_mb: float,
     baseline_mb: float = 0.0,
+    e2e_wall_ms: float | None = None,
+    is_cuda: bool = False,
 ) -> ScheduleResult:
     """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
     requests = [state.to_request_metrics() for state in states]
@@ -122,6 +133,8 @@ def summarize_schedule(
     busy_ms = sum(e.total_ms for e in events)
     model_ms = sum(e.model_ms for e in events)
     cache_ms = sum(e.cache_management_ms for e in events)
+    prefill_ms = sum(e.total_ms for e in events if e.phase is SchedulePhase.PREFILL)
+    wall_ms = e2e_wall_ms if e2e_wall_ms is not None else busy_ms
     num_output_tokens = sum(r.num_output_tokens for r in requests)
     executed_rows = sum(e.executed_batch_size for e in events)
     capacity_area = sum(e.num_active_requests * e.total_ms for e in events)
@@ -143,12 +156,19 @@ def summarize_schedule(
         num_padded_prompt_tokens = num_prompt_tokens
     padding_efficiency = num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0
 
-    # 宏观步级指标：仅填写在调度器全局良好定义的吞吐与时延，未良好定义的 ttft/tpot 留空 None
-    step_agg_metrics = StepAggregatedMetrics(
-        e2e_wall_ms=makespan_ms,
+    # 宏观步级指标：
+    # - e2e_wall_ms 使用真实墙钟耗时（含 Python 队列调度、Cache 搬移与模型前向，不含虚拟跳钟空档）
+    # - throughput 使用引擎非空闲活跃期耗时 busy_ms 为分母，避免稀疏到达空档期扭曲引擎吞吐
+    # - gpu_time_ratio 反映纯模型前向耗时占真实墙钟总耗时的比例
+    gpu_time_ratio = (min(1.0, model_ms / wall_ms) if wall_ms > 0 else 0.0) if is_cuda else None
+    step_agg_metrics: StepAggregatedMetrics[float] = StepAggregatedMetrics(
+        e2e_wall_ms=wall_ms,
         e2e_model_ms=model_ms,
-        throughput_tok_s=num_output_tokens * 1000 / makespan_ms if makespan_ms else 0.0,
-        throughput_req_s=len(requests) * 1000 / makespan_ms if makespan_ms else 0.0,
+        throughput_tok_s=num_output_tokens * 1000 / busy_ms if busy_ms else 0.0,
+        throughput_req_s=len(requests) * 1000 / busy_ms if busy_ms else 0.0,
+        gpu_time_ratio=gpu_time_ratio,
+        effective_prompt_tok_s=num_prompt_tokens * 1000 / prefill_ms if prefill_ms else 0.0,
+        padded_prompt_tok_s=num_padded_prompt_tokens * 1000 / prefill_ms if prefill_ms else 0.0,
         ttft_ms=None,
         mean_tpot_ms=None,
         p50_tpot_ms=None,
@@ -176,9 +196,10 @@ def summarize_schedule(
         ttft_ms=None,
         running_capacity_utilization=running_capacity_util,
     )
-    schedule_metrics = ScheduleMetrics(
+    schedule_metrics: ScheduleMetrics[float] = ScheduleMetrics(
         request_count=len(requests),
         max_running_requests=max_running_requests,
+        makespan_ms=makespan_ms,
         busy_ms=busy_ms,
         cache_management_ms=cache_ms,
         cache_management_fraction=cache_ms / busy_ms if busy_ms else 0.0,
@@ -192,14 +213,21 @@ def summarize_schedule(
         itl_ms_p95=percentile(itls, 95),
         itl_ms_max=max(itls, default=0.0),
     )
+    trace = GenerationTrace(
+        step_latencies_ms=[event.total_ms for event in events],
+        num_active_tokens_per_step=[event.num_generated_tokens for event in events],
+        logits_trace=None,
+    )
     return ScheduleResult(
         sequences=sequences,
-        step_agg_metrics=step_agg_metrics,
-        schedule_metrics=schedule_metrics,
+        metrics=step_agg_metrics,
         memory=memory,
+        trace=trace,
+        batch_size=len(requests),
+        batch_info=batch_info,
+        schedule_metrics=schedule_metrics,
         events=list(events),
         request_metrics=requests,
-        batch_info=batch_info,
         batching_method=batching_method,
     )
 
@@ -207,6 +235,8 @@ def summarize_schedule(
 __all__ = [
     "BatchScheduleInfo",
     "BatchingMethod",
+    "GenerationResult",
+    "GenerationTrace",
     "LockstepResult",
     "MemoryProfile",
     "RequestMetrics",

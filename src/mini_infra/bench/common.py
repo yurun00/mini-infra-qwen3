@@ -16,7 +16,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.engine import OfflineGenerationOptions, generate
+from mini_infra.engine import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -364,7 +364,7 @@ def check_correctness(
         model,
         ids,
         GOLDEN_MAX_OUTPUT_TOKENS,
-        options=OfflineGenerationOptions(device=device),
+        options=GenerationOptions(device=device),
     )
     tokens = res.padded_output_tokens(0).tolist()
 

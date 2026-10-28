@@ -53,13 +53,13 @@ def print_single_case_table(case_name: str, res: SchedulerCaseResult) -> None:
         % (
             case_name,
             res.case_id,
-            res.makespan_ms.mean,
-            res.throughput_tok_s.mean,
-            res.throughput_req_s.mean,
+            res.schedule_metrics.makespan_ms.mean,
+            res.step_agg_metrics.throughput_tok_s.mean,
+            res.step_agg_metrics.throughput_req_s.mean,
             res.execution_slot_utilization.mean * 100,
-            res.ttft_ms_p95.mean,
-            res.itl_ms_p95.mean,
-            res.cache_management_fraction.mean * 100,
+            res.schedule_metrics.ttft_ms_p95.mean,
+            res.schedule_metrics.itl_ms_p95.mean,
+            res.schedule_metrics.cache_management_fraction.mean * 100,
         )
     )
 

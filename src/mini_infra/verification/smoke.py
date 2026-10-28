@@ -8,8 +8,8 @@ import torch
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
+    GenerationOptions,
     Mode,
-    OfflineGenerationOptions,
     generate,
     left_pad_sequences,
 )
@@ -111,7 +111,7 @@ def check_fixed_batching(model):
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
     fixed_batching_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
-    logits_opts = OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
+    logits_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
     single = generate(fixed_batching_mode, model, [request_a], 4, options=logits_opts)
     paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], options=logits_opts)
     replaced = generate(fixed_batching_mode, model, [request_c, request_a], [4, 4], options=logits_opts)
@@ -121,7 +121,7 @@ def check_fixed_batching(model):
         assert torch.allclose(single.trace.logits_trace[step][0], paired.trace.logits_trace[step][1], atol=1e-5)
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
-    base_opts = OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
+    base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
     slots = generate(
         fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts
     )
@@ -166,7 +166,7 @@ def check_continuous_batching(model):
 
     continuous_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
     serial_mode = Mode({FeatureFlag.KV_CACHE})
-    base_opts = OfflineGenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
+    base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
 
     # 1. 统一 generate 接口分发
     cont_gen = generate(continuous_mode, model, requests, budgets, options=base_opts)

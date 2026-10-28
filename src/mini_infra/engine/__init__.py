@@ -26,6 +26,7 @@ from mini_infra.engine.runner import (
 from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.engine.types import (
     BatchScheduleInfo,
+    GenerationResult,
     LockstepResult,
     MemoryProfile,
     RequestMetrics,
@@ -42,13 +43,11 @@ from mini_infra.engine.types import (
 from mini_infra.entrypoints.offline import generate
 from mini_infra.entrypoints.types import (
     AggregationOptions,
+    GenerationOptions,
     GenerationTrace,
-    OfflineGenerationOptions,
-    OfflineGenerationResult,
     StepAggregatedMetrics,
-    aggregate_offline_generation_results,
+    aggregate_generation_results,
     compute_step_aggregated_metrics,
-    to_offline_generation_result,
 )
 
 __all__ = [
@@ -57,14 +56,14 @@ __all__ = [
     "BatchingMethod",
     "FeatureDimension",
     "FeatureFlag",
+    "GenerationOptions",
+    "GenerationResult",
     "GenerationTrace",
     "LockstepResult",
     "LockstepState",
     "MemoryProfile",
     "Mode",
     "ModelRunner",
-    "OfflineGenerationOptions",
-    "OfflineGenerationResult",
     "RequestMetrics",
     "ScheduleEvent",
     "ScheduleMetrics",
@@ -74,7 +73,7 @@ __all__ = [
     "SlotDecodeResult",
     "StepAggregatedMetrics",
     "StepForwardResult",
-    "aggregate_offline_generation_results",
+    "aggregate_generation_results",
     "build_memory_profile",
     "compute_step_aggregated_metrics",
     "generate",
@@ -89,5 +88,4 @@ __all__ = [
     "run_scheduler",
     "summarize_schedule",
     "synchronize",
-    "to_offline_generation_result",
 ]

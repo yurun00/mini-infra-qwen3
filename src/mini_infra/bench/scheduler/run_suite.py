@@ -72,8 +72,8 @@ def run_suite(
     # 计算加速比：若存在 fixed 与 continuous 对比，计算 makespan 加速比
     speedup = 1.0
     if "fixed" in case_results and "continuous" in case_results:
-        f_mean = case_results["fixed"].makespan_ms.mean
-        c_mean = case_results["continuous"].makespan_ms.mean
+        f_mean = case_results["fixed"].schedule_metrics.makespan_ms.mean
+        c_mean = case_results["continuous"].schedule_metrics.makespan_ms.mean
         speedup = f_mean / c_mean if c_mean > 0 else 1.0
 
     return SchedulerSuiteResult(
@@ -106,13 +106,13 @@ def print_scheduler_table(suite_results: Sequence[SchedulerSuiteResult]) -> None
                 suite_res.suite_name,
                 cid,
                 res.mode,
-                f"{res.makespan_ms.mean:.3f}",
-                f"{res.throughput_req_s.mean:.3f}",
-                f"{res.throughput_tok_s.mean:.3f}",
+                f"{res.schedule_metrics.makespan_ms.mean:.3f}",
+                f"{res.step_agg_metrics.throughput_req_s.mean:.3f}",
+                f"{res.step_agg_metrics.throughput_tok_s.mean:.3f}",
                 f"{res.execution_slot_utilization.mean * 100:.2f}%",
-                f"{res.ttft_ms_p95.mean:.3f}",
-                f"{res.itl_ms_p95.mean:.3f}",
-                f"{res.cache_management_fraction.mean * 100:.2f}%",
+                f"{res.schedule_metrics.ttft_ms_p95.mean:.3f}",
+                f"{res.schedule_metrics.itl_ms_p95.mean:.3f}",
+                f"{res.schedule_metrics.cache_management_fraction.mean * 100:.2f}%",
                 speedup_str,
             ]
             print(",".join(row))

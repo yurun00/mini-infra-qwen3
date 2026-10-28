@@ -9,8 +9,8 @@ import torch
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
+    GenerationOptions,
     Mode,
-    OfflineGenerationOptions,
     generate,
 )
 from mini_infra.model import (
@@ -127,7 +127,7 @@ def run_compare_batch(
     ]
 
     fixed_batch_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
-    gen_opts = OfflineGenerationOptions(
+    gen_opts = GenerationOptions(
         eos_token_id=eos_token_id,
         device=device,
         stop_on_eos=False,

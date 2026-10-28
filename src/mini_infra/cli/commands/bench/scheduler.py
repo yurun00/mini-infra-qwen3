@@ -239,16 +239,18 @@ def handle_suite(args: argparse.Namespace) -> int:
 
     for case_id, res in suite_res.cases.items():
         cache_info = (
-            f" | cache {res.cache_management_fraction.mean * 100:.1f}%"
-            if res.cache_management_fraction.mean > 0
+            f" | cache {res.schedule_metrics.cache_management_fraction.mean * 100:.1f}%"
+            if res.schedule_metrics.cache_management_fraction.mean > 0
             else ""
         )
         speedup_info = f" | speedup {suite_res.continuous_makespan_speedup:.2f}x" if "continuous" in case_id else ""
         print(
-            f"  {case_id:<12}: makespan {res.makespan_ms.mean:.2f} ms | "
-            f"{res.throughput_tok_s.mean:.1f} tok/s | {res.throughput_req_s.mean:.2f} req/s | "
+            f"  {case_id:<12}: makespan {res.schedule_metrics.makespan_ms.mean:.2f} ms | "
+            f"{res.step_agg_metrics.throughput_tok_s.mean:.1f} tok/s | "
+            f"{res.step_agg_metrics.throughput_req_s.mean:.2f} req/s | "
             f"slot_util {res.execution_slot_utilization.mean * 100:.1f}% | "
-            f"ttft_p95 {res.ttft_ms_p95.mean:.2f} ms | itl_p95 {res.itl_ms_p95.mean:.2f} ms"
+            f"ttft_p95 {res.schedule_metrics.ttft_ms_p95.mean:.2f} ms | "
+            f"itl_p95 {res.schedule_metrics.itl_ms_p95.mean:.2f} ms"
             f"{cache_info}{speedup_info}"
         )
 

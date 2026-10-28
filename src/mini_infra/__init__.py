@@ -21,11 +21,11 @@ from mini_infra.engine import (
     BatchingMethod,
     FeatureDimension,
     FeatureFlag,
+    GenerationResult,
     GenerationTrace,
     LockstepResult,
     LockstepState,
     Mode,
-    OfflineGenerationResult,
     ScheduleEvent,
     ScheduleMetrics,
     SchedulePhase,
@@ -35,7 +35,7 @@ from mini_infra.engine import (
     run_scheduler,
     summarize_schedule,
 )
-from mini_infra.entrypoints import OfflineGenerationOptions, generate
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.memory import (
     DenseSlotCache,
     KVCache,
@@ -73,6 +73,8 @@ __all__ = [
     "DenseSlotCache",
     "FeatureDimension",
     "FeatureFlag",
+    "GenerationOptions",
+    "GenerationResult",
     "GenerationTrace",
     "KERNEL_CATEGORIES",
     "KVCache",
@@ -82,8 +84,6 @@ __all__ = [
     "MODULE_SCOPES",
     "MemoryProfile",
     "Mode",
-    "OfflineGenerationOptions",
-    "OfflineGenerationResult",
     "OpLatencyBreakdown",
     "Qwen3Config",
     "Qwen3ForCausalLM",

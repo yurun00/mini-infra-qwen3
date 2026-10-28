@@ -99,8 +99,8 @@ def test_run_case_on_cpu():
     assert res_scalar.workload.batch_size == 1
     assert res_scalar.workload.prompt_len == 4
     assert res_scalar.workload.max_new_tokens == 2
-    assert res_scalar.throughput.throughput_tok_s.median > 0
-    assert res_scalar.throughput.throughput_req_s.median > 0
+    assert res_scalar.metrics.throughput_tok_s.median > 0
+    assert res_scalar.metrics.throughput_req_s.median > 0
     assert res_scalar.to_record_dict()["batch_size"] == 1
 
     # 2. 变长 prompt 执行

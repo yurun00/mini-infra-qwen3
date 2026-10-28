@@ -126,8 +126,8 @@ def test_registered_suites_run_end_to_end_on_cpu():
     ]
     for r in results:
         assert r.workload.prompt_len == 4 and r.workload.max_new_tokens == 2
-        assert r.throughput.throughput_req_s.median > 0
-        assert r.throughput.throughput_tok_s.median > 0
+        assert r.metrics.throughput_req_s.median > 0
+        assert r.metrics.throughput_tok_s.median > 0
 
 
 def test_registry_contains_serial_vs_fixed_batch_throughput():

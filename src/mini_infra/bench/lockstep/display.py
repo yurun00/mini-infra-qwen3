@@ -19,24 +19,26 @@ from mini_infra.bench.lockstep.types import CaseBenchmarkResult
 
 def _format_case_row(w: CaseBenchmarkResult, mode: str | None, has_packing: bool) -> list[str]:
     """渲染单个用例的一行 CSV 字段（列顺序与 print_table 表头一致）。"""
+    ttft = w.metrics.ttft_ms
+    tpot = w.metrics.mean_tpot_ms
     row = [
         str(w.workload.mode or mode or ""),
         format_lengths(w.workload.prompt_len),
         format_lengths(w.workload.max_new_tokens),
-        f"{w.latency.ttft_ms.mean:.3f}",
-        f"{w.latency.tpot_ms.mean:.3f}",
-        f"{w.latency.tpot_ms.median:.3f}",
-        f"{w.latency.tpot_ms.p95:.3f}",
-        f"{w.latency.e2e_wall_ms.mean:.3f}",
-        f"{w.latency.e2e_model_ms.mean:.3f}",
-        f"{w.memory.prefill_allocated_mb:.2f}",
+        f"{(ttft.mean if ttft else 0.0):.3f}",
+        f"{(tpot.mean if tpot else 0.0):.3f}",
+        f"{(tpot.median if tpot else 0.0):.3f}",
+        f"{(tpot.p95 if tpot else 0.0):.3f}",
+        f"{w.metrics.e2e_wall_ms.mean:.3f}",
+        f"{w.metrics.e2e_model_ms.mean:.3f}",
+        f"{(w.memory.prefill_mb or 0.0):.2f}",
         f"{w.memory.peak_allocated_mb:.2f}",
         f"{w.memory.kv_cache_mb:.2f}",
     ]
     pack = w.packing
     if has_packing:
         if pack:
-            eff_p = f"{pack.effective_prompt_throughput.mean:.1f}" if pack.effective_prompt_throughput else ""
+            eff_p = f"{w.metrics.effective_prompt_tok_s.mean:.1f}" if w.metrics.effective_prompt_tok_s else ""
             row.extend([f"{pack.padding_efficiency * 100:.2f}%", f"{pack.slot_utilization * 100:.2f}%", eff_p])
         else:
             row.extend(["", "", ""])
@@ -71,19 +73,25 @@ def print_table(case_results: Sequence[CaseBenchmarkResult], mode: str | None = 
 
 def print_case_summary(result: CaseBenchmarkResult) -> None:
     """打印单用例的延迟/吞吐/显存摘要与 MBU/MFU 行（run_case 与 run_suite 共用）。"""
+    ttft = result.metrics.ttft_ms
+    tpot = result.metrics.mean_tpot_ms
     print(
         "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
         % (
-            result.latency.ttft_ms.median,
-            result.latency.tpot_ms.median,
-            result.latency.tpot_ms.std,
-            result.throughput.throughput_tok_s.median,
-            result.throughput.throughput_req_s.median,
+            ttft.median if ttft else 0.0,
+            tpot.median if tpot else 0.0,
+            tpot.std if tpot else 0.0,
+            result.metrics.throughput_tok_s.median,
+            result.metrics.throughput_req_s.median,
             result.memory.peak_allocated_mb,
         )
     )
     if result.efficiency and result.efficiency.decode_mbu is not None:
-        gpu_busy_str = "%.0f%%" % (100 * result.gpu_time_ratio.median) if result.gpu_time_ratio is not None else "N/A"
+        gpu_busy_str = (
+            "%.0f%%" % (100 * result.metrics.gpu_time_ratio.median)
+            if result.metrics.gpu_time_ratio is not None
+            else "N/A"
+        )
         print(
             "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
             % (

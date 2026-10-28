@@ -111,9 +111,14 @@ def test_run_scheduler_case_and_step_on_cpu():
 
     assert case_res.case_id == "continuous"
     assert case_res.mode == str(mode)
-    assert case_res.makespan_ms.mean > 0
-    assert case_res.throughput_req_s.mean > 0
+    assert case_res.step_agg_metrics.e2e_wall_ms.mean > 0
+    assert case_res.step_agg_metrics.throughput_req_s.mean > 0
+    assert case_res.schedule_metrics.ttft_ms_p95.mean > 0
     assert case_res.execution_slot_utilization.mean > 0
+    assert case_res.memory.kv_cache_mb > 0
+    assert case_res.batch_info is not None
+    assert case_res.batch_info.num_prompt_tokens == 5
+    assert len(case_res.sample_events) > 0
 
 
 def test_run_scheduler_suite_on_cpu():

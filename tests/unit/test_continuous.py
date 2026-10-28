@@ -13,9 +13,12 @@ from mini_infra.core import (
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
+    GenerationOptions,
+    GenerationResult,
+    LockstepResult,
     Mode,
-    OfflineGenerationOptions,
     SchedulePhase,
+    ScheduleResult,
     generate,
     run_scheduler,
 )
@@ -35,7 +38,7 @@ def model(diverse_model):
 
 def test_fixture_outputs_are_diverse(model):
     """守卫：若输出退化为重复 Token，下面所有 parity 测试都会失去检出能力。"""
-    opts = OfflineGenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
+    opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
     tokens = generate(KV_MODE, model, [make_prompts([6])[0]], 10, options=opts)
     assert len(set(tokens.sequences[0].token_ids)) >= 5
 
@@ -45,7 +48,7 @@ def make_prompts(lengths: list[int]) -> list[list[int]]:
 
 
 def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
-    opts = OfflineGenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
+    opts = GenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
     return [
         generate(KV_MODE, model, [prompt], budget, options=opts)
         .sequences[0]
@@ -118,9 +121,12 @@ def test_timeline_and_metric_invariants(model, method, case):
         assert list(request.token_times_ms) == sorted(request.token_times_ms)
 
     assert metrics.request_count == len(specs) and metrics.max_running_requests == capacity
-    assert result.step_agg_metrics.e2e_wall_ms == max(r.completion_ms for r in result.request_metrics) - min(arrivals)
+    assert metrics.makespan_ms == max(r.completion_ms for r in result.request_metrics) - min(arrivals)
+    assert result.step_agg_metrics.e2e_wall_ms >= result.step_agg_metrics.e2e_model_ms
     assert result.step_agg_metrics.throughput_req_s > 0
     assert result.step_agg_metrics.throughput_tok_s > 0
+    assert (result.step_agg_metrics.effective_prompt_tok_s or 0) > 0
+    assert (result.step_agg_metrics.padded_prompt_tok_s or 0) > 0
     assert result.step_agg_metrics.ttft_ms is None
     assert result.step_agg_metrics.mean_tpot_ms is None
     assert result.memory.prefill_mb is None
@@ -182,6 +188,9 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     assert result.request_metrics[0].admitted_ms == 10.0  # 初始时钟取最早到达时间
     assert result.request_metrics[1].admitted_ms == 90000.0  # 空档期时钟直接跳转，没有真实 sleep
     assert result.request_metrics[1].queue_ms == 0.0
+    assert result.schedule_metrics.makespan_ms > 89990.0  # 逻辑跨度包含空档期
+    assert result.step_agg_metrics.e2e_wall_ms < 5000.0  # 真实墙钟耗时不包含虚拟跳钟空档
+    assert result.step_agg_metrics.throughput_tok_s == pytest.approx(4 * 1000 / result.schedule_metrics.busy_ms)
 
 
 @pytest.mark.parametrize("runner", list(RUNNERS.values()))
@@ -214,7 +223,7 @@ class TestGenerateDispatch:
         continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
         fixed = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
 
-        opts = OfflineGenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
+        opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
         result = generate(continuous, model, prompts, budgets, options=opts)
         fixed_result = generate(fixed, model, prompts, budgets, options=opts)
 
@@ -228,6 +237,14 @@ class TestGenerateDispatch:
         assert result.batch_info.running_capacity_utilization is not None
         assert fixed_result.batch_info is not None
         assert fixed_result.batch_info.running_capacity_utilization is None
+        assert isinstance(result, GenerationResult)
+        assert isinstance(result, ScheduleResult)
+        assert isinstance(fixed_result, GenerationResult)
+        assert isinstance(fixed_result, LockstepResult)
+        assert not isinstance(fixed_result, ScheduleResult)
+        assert result.schedule_metrics.request_count == 3
+        assert len(result.request_metrics) == 3
+        assert len(result.events) > 0
         assert result.trace.num_active_tokens_per_step[0] == 3  # 首个 Prefill 事件产出 3 个 Token
         assert sum(result.trace.num_active_tokens_per_step) == sum(budgets)
         assert result.metrics.throughput_tok_s > 0
@@ -236,13 +253,13 @@ class TestGenerateDispatch:
     def test_continuous_mode_requires_kv_cache(self, model):
         mode = Mode(batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="KV Cache"):
-            generate(mode, model, make_prompts([3, 4]), 2, options=OfflineGenerationOptions(device=CPU))
+            generate(mode, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU))
 
     @pytest.mark.parametrize("kwargs", [{"capture_logits": True}, {"profile": True}])
     def test_continuous_mode_rejects_unsupported_options(self, model, kwargs):
         mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="暂不支持"):
-            generate(mode, model, make_prompts([3, 4]), 2, options=OfflineGenerationOptions(device=CPU, **kwargs))
+            generate(mode, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU, **kwargs))
 
     def test_continuous_mode_respects_max_running_requests(self, model):
         prompts = make_prompts([3, 5, 4, 6])
@@ -254,7 +271,7 @@ class TestGenerateDispatch:
             model,
             prompts,
             budgets,
-            options=OfflineGenerationOptions(
+            options=GenerationOptions(
                 eos_token_id=-1,
                 device=CPU,
                 stop_on_eos=False,
@@ -273,7 +290,7 @@ class TestGenerateDispatch:
                 model,
                 make_prompts([3]),
                 2,
-                options=OfflineGenerationOptions(device=CPU, max_running_requests=0),
+                options=GenerationOptions(device=CPU, max_running_requests=0),
             )
 
 

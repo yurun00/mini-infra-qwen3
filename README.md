@@ -30,7 +30,7 @@
 mini-infra-qwen3/
 ├── src/
 │   └── mini_infra/
-│       ├── __init__.py                # 统一导出核心 API：generate, OfflineGenerationResult, Mode, load_model 等
+│       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, Mode, load_model 等
 │       ├── device.py                  # 通用硬件设备同步与显存统计工具
 │       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
 │       ├── model/                     # 统一模型与 Tokenizer 域
@@ -46,7 +46,7 @@ mini-infra-qwen3/
 │       │   └── types.py               # SequenceOutput, RequestMetrics, MemoryProfile, BatchScheduleInfo 跨层共享基础类型
 │       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）
 │       │   ├── offline.py             # 离线文本生成薄入口（Offline Entrypoint）：generate
-│       │   └── types.py               # OfflineGenerationOptions, OfflineGenerationResult, to_offline_generation_result
+│       │   └── types.py               # GenerationOptions, GenerationResult, aggregate_generation_results
 │       ├── engine/                    # 推理与调度执行引擎域
 │       │   ├── runner.py              # 模型执行器 ModelRunner（step_forward / prefill_requests / decode_slots）
 │       │   ├── lockstep_loop.py       # 齐步自回归生成主循环（run_lockstep：所有请求同时开始，无调度器）与状态机 LockstepState
@@ -75,7 +75,7 @@ mini-infra-qwen3/
 │           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
 │           ├── regression.py          # 性能回归质量门禁核心逻辑
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
-│           │   ├── types.py           # CaseBenchmarkResult, BatchPackingProfile 等领域模型
+│           │   ├── types.py           # CaseBenchmarkResult, DistributionStats 等领域模型
 │           │   ├── suites.py          # 齐步批处理套件定义
 │           │   ├── display.py         # 终端表格格式化与基准记录封装
 │           │   ├── run_case.py        # 单 case 基准测试执行引擎

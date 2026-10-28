@@ -25,17 +25,14 @@ import torch
 
 from mini_infra.bench.common import ProfileMode, efficiency
 from mini_infra.bench.lockstep.types import (
-    BatchPackingProfile,
     CaseBenchmarkResult,
-    CaseMemoryProfile,
-    HardwareEfficiency,
-    LatencyDistributions,
-    ThroughputDistributions,
+    DistributionStats,
     WorkloadSpec,
     summarize_samples,
 )
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.engine import Mode, OfflineGenerationOptions, generate
+from mini_infra.core.types import MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine import GenerationOptions, Mode, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
@@ -102,7 +99,7 @@ def run_case(
     effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
     input_ids = make_prompt(vocab, prompt_len, effective_batch_size, device)
 
-    warmup_opts = OfflineGenerationOptions(
+    warmup_opts = GenerationOptions(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
@@ -117,7 +114,7 @@ def run_case(
         )
 
     is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
-    run_opts = OfflineGenerationOptions(
+    run_opts = GenerationOptions(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
@@ -161,13 +158,6 @@ def run_case(
         warmup=warmup,
     )
 
-    latency = LatencyDistributions(
-        ttft_ms=summarize_samples(raw["ttft_ms"]),
-        tpot_ms=summarize_samples(raw["tpot_ms"]),
-        e2e_wall_ms=summarize_samples(raw["e2e_wall_ms"]),
-        e2e_model_ms=summarize_samples(raw["e2e_model_ms"]),
-    )
-
     eff_p_stat = (
         summarize_samples(raw["effective_prompt_token_throughput_per_second"])
         if "effective_prompt_token_throughput_per_second" in raw
@@ -178,54 +168,55 @@ def run_case(
         if "padded_prompt_token_throughput_per_second" in raw
         else None
     )
+    gpu_ratio_stat = (
+        summarize_samples(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
+    )
 
-    throughput = ThroughputDistributions(
+    metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
+        ttft_ms=summarize_samples(raw["ttft_ms"]),
+        mean_tpot_ms=summarize_samples(raw["tpot_ms"]),
+        e2e_wall_ms=summarize_samples(raw["e2e_wall_ms"]),
+        e2e_model_ms=summarize_samples(raw["e2e_model_ms"]),
         throughput_tok_s=summarize_samples(raw["throughput_tok_s"]),
         throughput_req_s=summarize_samples(raw["throughput_req_s"]),
+        gpu_time_ratio=gpu_ratio_stat,
         effective_prompt_tok_s=eff_p_stat,
         padded_prompt_tok_s=pad_p_stat,
     )
 
     mib = 1024**2
-    worst_run = max(runs, key=lambda r: r.memory.peak_allocated_mb) if runs else None
-    case_memory = CaseMemoryProfile.from_memory_profile(
-        worst_run.memory if worst_run else None,
-        weights_mb=cost["weight_bytes"] / mib if cost else None,
+    weights_mb = cost["weight_bytes"] / mib if cost else None
+    case_memory = MemoryProfile(
+        weights_mb=weights_mb,
+        baseline_mb=max((r.memory.baseline_mb for r in runs), default=0.0),
+        prefill_mb=max((r.memory.prefill_mb or 0.0 for r in runs), default=0.0),
+        peak_allocated_mb=max((r.memory.peak_allocated_mb for r in runs), default=0.0),
+        peak_reserved_mb=max((r.memory.peak_reserved_mb for r in runs), default=0.0),
+        kv_cache_mb=max((r.memory.kv_cache_mb for r in runs), default=0.0),
     )
 
-    packing = (
-        BatchPackingProfile.from_batch_info(
-            runs[0].batch_info,
-            effective_prompt_throughput=eff_p_stat,
-            padded_prompt_throughput=pad_p_stat,
-        )
-        if runs and runs[0].batch_info is not None
-        else None
-    )
+    packing = runs[0].batch_info if runs else None
 
-    eff_obj = None
-    if cost and peaks:
-        eff_dict = efficiency(
+    eff_obj = (
+        efficiency(
             cost,
             peaks,
             batch_size,
             prompt_len,
             max_new_tokens,
-            latency.ttft_ms.median,
-            latency.tpot_ms.median,
+            metrics.ttft_ms.median if metrics.ttft_ms is not None else 0.0,
+            metrics.mean_tpot_ms.median if metrics.mean_tpot_ms is not None else 0.0,
         )
-        eff_obj = HardwareEfficiency(
-            prefill_mfu=eff_dict.get("prefill_mfu"),
-            decode_mfu=eff_dict.get("decode_mfu"),
-            decode_mbu=eff_dict.get("decode_mbu"),
-        )
+        if cost and peaks
+        else None
+    )
 
     op_breakdown = None
     if is_full_profile and runs:
         breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
         op_breakdown = merge_op_latency_breakdowns(breakdowns)
     elif profile_mode == ProfileMode.EXTRA_PROFILE:
-        prof_opts = OfflineGenerationOptions(
+        prof_opts = GenerationOptions(
             eos_token_id=-1,
             device=device,
             stop_on_eos=False,
@@ -241,18 +232,12 @@ def run_case(
         )
         op_breakdown = prof_res.op_breakdown
 
-    gpu_ratio_stat = (
-        summarize_samples(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
-    )
-
     return CaseBenchmarkResult(
         workload=workload,
-        latency=latency,
-        throughput=throughput,
+        metrics=metrics,
         memory=case_memory,
         packing=packing,
         efficiency=eff_obj,
-        gpu_time_ratio=gpu_ratio_stat,
         op_breakdown=op_breakdown,
         raw_samples=raw,
     )

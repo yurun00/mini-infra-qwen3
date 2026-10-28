@@ -20,11 +20,11 @@ from mini_infra.core.types import (
 )
 from mini_infra.entrypoints.types import (
     AggregationOptions,
+    GenerationOptions,
+    GenerationResult,
     GenerationTrace,
-    OfflineGenerationOptions,
-    OfflineGenerationResult,
     StepAggregatedMetrics,
-    aggregate_offline_generation_results,
+    aggregate_generation_results,
     compute_step_aggregated_metrics,
 )
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
@@ -35,12 +35,12 @@ def test_frozen_dataclass_contract():
     """验证所有核心数据类均为 frozen dataclass，且支持不可变性保护。"""
     classes = [
         SequenceOutput,
-        OfflineGenerationOptions,
+        GenerationOptions,
         MemoryProfile,
         StepAggregatedMetrics,
         GenerationTrace,
         BatchScheduleInfo,
-        OfflineGenerationResult,
+        GenerationResult,
         AggregationOptions,
         KernelInfo,
         OpLatencyBreakdown,
@@ -100,7 +100,7 @@ def test_no_subscript_or_dynamic_attr_proxy():
         step_latencies_ms=[10.0, 5.0, 5.0],
         num_active_tokens_per_step=[1, 1, 1],
     )
-    result = OfflineGenerationResult(
+    result = GenerationResult(
         sequences=[seq],
         metrics=metrics,
         memory=mem,
@@ -109,7 +109,7 @@ def test_no_subscript_or_dynamic_attr_proxy():
     )
     assert torch.equal(result.padded_output_tokens(), torch.tensor([[10, 20]]))
 
-    # 1. 方括号访问引发 TypeError（'OfflineGenerationResult' object is not subscriptable）
+    # 1. 方括号访问引发 TypeError（'GenerationResult' object is not subscriptable）
     with pytest.raises(TypeError):
         _ = result["metrics"]  # type: ignore[index]
     with pytest.raises(TypeError):
@@ -199,9 +199,9 @@ def test_compute_step_aggregated_metrics():
     assert metrics.gpu_time_ratio == pytest.approx(30.0 / 35.0)
 
 
-def test_aggregate_offline_generation_results():
+def test_aggregate_generation_results():
     """验证多 Run 结果聚合逻辑。"""
-    res1 = OfflineGenerationResult(
+    res1 = GenerationResult(
         sequences=[SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=3, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
@@ -228,7 +228,7 @@ def test_aggregate_offline_generation_results():
         batch_size=1,
     )
 
-    res2 = OfflineGenerationResult(
+    res2 = GenerationResult(
         sequences=[
             SequenceOutput(request_index=0, token_ids=[3, 4, 5], prompt_len=4, output_len=3, finish_reason="max_tokens")
         ],
@@ -257,7 +257,7 @@ def test_aggregate_offline_generation_results():
         batch_size=1,
     )
 
-    merged = aggregate_offline_generation_results([res1, res2])
+    merged = aggregate_generation_results([res1, res2])
 
     # 1. 验证 Sequences 与 Padded Tokens
     assert merged.batch_size == 2
@@ -292,9 +292,9 @@ def test_aggregate_offline_generation_results():
     assert merged.trace.num_active_tokens_per_step == [1, 1, 1, 1, 1, 1, 1]
 
 
-def test_aggregate_offline_generation_results_with_options():
-    """验证 aggregate_offline_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
-    res1 = OfflineGenerationResult(
+def test_aggregate_generation_results_with_options():
+    """验证 aggregate_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
+    res1 = GenerationResult(
         sequences=[SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
@@ -317,7 +317,7 @@ def test_aggregate_offline_generation_results_with_options():
         trace=GenerationTrace(step_latencies_ms=[10.0, 4.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
     )
-    res2 = OfflineGenerationResult(
+    res2 = GenerationResult(
         sequences=[SequenceOutput(request_index=0, token_ids=[3, 4], prompt_len=2, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=20.0,
@@ -343,7 +343,7 @@ def test_aggregate_offline_generation_results_with_options():
 
     # 1. 域级别配置：metrics="mean", memory="min"
     opt_mean = AggregationOptions(metrics="mean", memory="min")
-    merged_mean = aggregate_offline_generation_results([res1, res2], options=opt_mean)
+    merged_mean = aggregate_generation_results([res1, res2], options=opt_mean)
     assert merged_mean.metrics.e2e_wall_ms == 30.0  # (20 + 40) / 2
     assert merged_mean.metrics.e2e_model_ms == 27.0  # (18 + 36) / 2
     assert merged_mean.metrics.ttft_ms == 15.0  # (10 + 20) / 2
@@ -357,7 +357,7 @@ def test_aggregate_offline_generation_results_with_options():
 
     # 2. 字段级精确覆盖：metrics 默认为 sum，但 ttft_ms="min", peak_allocated_mb="mean"
     opt_field = AggregationOptions(metrics="sum", ttft_ms="min", peak_allocated_mb="mean")
-    merged_field = aggregate_offline_generation_results([res1, res2], options=opt_field)
+    merged_field = aggregate_generation_results([res1, res2], options=opt_field)
     assert merged_field.metrics.e2e_wall_ms == 60.0  # sum: 20 + 40
     assert merged_field.metrics.e2e_model_ms == 54.0  # sum: 18 + 36
     assert merged_field.metrics.gpu_time_ratio == pytest.approx(54.0 / 60.0)  # 派生自 e2e_model_ms / e2e_wall_ms
@@ -367,7 +367,7 @@ def test_aggregate_offline_generation_results_with_options():
 
     # 3. 验证 gpu_time_ratio 完全不受 e2e 时间聚合函数影响
     opt_diff = AggregationOptions(e2e_wall_ms="max", e2e_model_ms="min")
-    merged_diff = aggregate_offline_generation_results([res1, res2], options=opt_diff)
+    merged_diff = aggregate_generation_results([res1, res2], options=opt_diff)
     assert merged_diff.metrics.e2e_wall_ms == 40.0  # max(20, 40)
     assert merged_diff.metrics.e2e_model_ms == 18.0  # min(18, 36)
     # 虽然聚合后的 model/wall 是 18/40=0.45，但 gpu_time_ratio 客观反映总耗时之比 (18+36)/(20+40)=0.9
@@ -375,12 +375,12 @@ def test_aggregate_offline_generation_results_with_options():
 
     # 4. 自定义 Callable 聚合函数
     opt_custom = AggregationOptions(ttft_ms=lambda vals: max(vals) * 2.0)
-    merged_custom = aggregate_offline_generation_results([res1, res2], options=opt_custom)
+    merged_custom = aggregate_generation_results([res1, res2], options=opt_custom)
     assert merged_custom.metrics.ttft_ms == 40.0  # max(10, 20) * 2.0
 
     # 5. 非法聚合函数字符串引发 ValueError
     with pytest.raises(ValueError, match="Unsupported aggregate function"):
-        _ = aggregate_offline_generation_results([res1, res2], options=AggregationOptions(metrics="unknown_fn"))  # type: ignore[arg-type]
+        _ = aggregate_generation_results([res1, res2], options=AggregationOptions(metrics="unknown_fn"))  # type: ignore[arg-type]
 
 
 def test_padded_output_tokens_method():
@@ -391,7 +391,7 @@ def test_padded_output_tokens_method():
         SequenceOutput(request_index=1, token_ids=[3, 4, 5, 6], prompt_len=4, output_len=4, finish_reason="max_tokens"),
         SequenceOutput(request_index=2, token_ids=[7], prompt_len=1, output_len=1, finish_reason="stop"),
     ]
-    res = OfflineGenerationResult(
+    res = GenerationResult(
         sequences=seqs,
         metrics=StepAggregatedMetrics(0, 0, 0, 0, 0, 0, 0, 0),
         memory=MemoryProfile(0, 0, 0, 0, 0),
@@ -440,7 +440,7 @@ def test_padded_output_tokens_method():
         res.padded_output_tokens([0, 100])
 
     # 4. 空 sequences
-    empty_res = OfflineGenerationResult(
+    empty_res = GenerationResult(
         sequences=[],
         metrics=StepAggregatedMetrics(0, 0, 0, 0, 0, 0, 0, 0),
         memory=MemoryProfile(0, 0, 0, 0, 0),
@@ -480,7 +480,7 @@ def test_generation_result_prompt_throughput_properties():
     assert zero_ttft_info.effective_prompt_tok_s == 0.0
     assert zero_ttft_info.padded_prompt_tok_s == 0.0
 
-    # 验证 OfflineGenerationResult 顶层无伪穿透属性，保持六大正交领域纯粹性
+    # 验证 GenerationResult 顶层无伪穿透属性，保持六大正交领域纯粹性
     metrics = StepAggregatedMetrics(
         ttft_ms=50.0,
         mean_tpot_ms=5.0,
@@ -491,7 +491,7 @@ def test_generation_result_prompt_throughput_properties():
         throughput_tok_s=200.0,
         throughput_req_s=20.0,
     )
-    res = OfflineGenerationResult(
+    res = GenerationResult(
         sequences=[],
         metrics=metrics,
         memory=MemoryProfile(0, 0, 0, 0, 0),
@@ -504,15 +504,15 @@ def test_generation_result_prompt_throughput_properties():
     assert res.batch_info.effective_prompt_tok_s == 2000.0
 
 
-def test_offline_generation_options_immutability_and_defaults(diverse_model):
-    from mini_infra import Mode, OfflineGenerationOptions, generate
+def test_generation_options_immutability_and_defaults(diverse_model):
+    from mini_infra import GenerationOptions, Mode, generate
 
     CPU = torch.device("cpu")
     mode = Mode()
     prompt = [[1, 2, 3]]
 
     # 1. 不可变性测试
-    opts = OfflineGenerationOptions(device=CPU, stop_on_eos=False, pad_token_id=0)
+    opts = GenerationOptions(device=CPU, stop_on_eos=False, pad_token_id=0)
     with pytest.raises(FrozenInstanceError):
         opts.stop_on_eos = True  # type: ignore[misc]
 

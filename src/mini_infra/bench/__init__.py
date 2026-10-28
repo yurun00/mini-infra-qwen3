@@ -1,8 +1,8 @@
 """Benchmark 评测模块与领域类型。
 
-结构组织（按执行循环划分）：
-- mini_infra.bench.lockstep: 齐步（Lockstep）循环评测（所有请求同时开始，无调度器）
-- mini_infra.bench.scheduler: 队列调度器（Scheduler）循环评测（Fixed vs Continuous Batching）
+结构组织（按执行循环场景划分）：
+- mini_infra.bench.lockstep: 齐步（Lockstep）基准评测（run_case, run_suite, suites, types）
+- mini_infra.bench.scheduler: 队列调度（Scheduler: Fixed vs Continuous）基准评测（run_case, run_suite, suites, types）
 - mini_infra.bench.common: 共享基础设施（环境探测、CLI 参数、基准记录构建）
 """
 
@@ -26,16 +26,11 @@ from mini_infra.bench.common import (
 )
 from mini_infra.bench.lockstep import (
     SUITES,
-    BatchPackingProfile,
     CaseBenchmarkResult,
-    CaseMemoryProfile,
     DistributionStats,
-    HardwareEfficiency,
-    LatencyDistributions,
     SerialVsFixedBatchThroughputSuite,
     Suite,
     SuiteCase,
-    ThroughputDistributions,
     UniformVsVariableBudgetSlotsSuite,
     UniformVsVariablePromptPaddingSuite,
     WorkloadSpec,
@@ -77,9 +72,7 @@ __all__ = [
     "REPO_ROOT",
     "SCHEDULER_SUITES",
     "SUITES",
-    "BatchPackingProfile",
     "CaseBenchmarkResult",
-    "CaseMemoryProfile",
     "CorrectnessReport",
     "DistributionStats",
     "EfficiencyMetrics",
@@ -87,9 +80,7 @@ __all__ = [
     "FixedVsContinuousStaggeredArrivalsSuite",
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
-    "HardwareEfficiency",
     "HardwarePeakSpecs",
-    "LatencyDistributions",
     "ModelCostProfile",
     "SchedulerCaseResult",
     "SchedulerSuite",
@@ -98,7 +89,6 @@ __all__ = [
     "SerialVsFixedBatchThroughputSuite",
     "Suite",
     "SuiteCase",
-    "ThroughputDistributions",
     "UniformVsVariableBudgetSlotsSuite",
     "UniformVsVariablePromptPaddingSuite",
     "WorkloadSpec",

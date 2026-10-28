@@ -13,7 +13,13 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.types import BatchScheduleInfo, SequenceOutput
+from mini_infra.core.types import (
+    BatchScheduleInfo,
+    GenerationTrace,
+    SequenceOutput,
+    build_memory_profile,
+    compute_step_aggregated_metrics,
+)
 from mini_infra.device import synchronize
 from mini_infra.engine.preprocessing import prepare_prefill_inputs
 from mini_infra.engine.runner import ModelRunner
@@ -191,11 +197,12 @@ def run_lockstep(
     eos_token_id: int | None = None,
     stop_on_eos: bool = True,
     capture_logits: bool = False,
+    baseline_allocated_bytes: int = 0,
 ) -> LockstepResult:
     """执行齐步（Lockstep）自回归生成迭代循环（所有请求同时开始，含 step 0 Prefill 与后续 Decode 步）。
 
     内部完成 Prefill 输入组装与 LockstepState 状态机驱动，每步调用 ModelRunner.step_forward，
-    返回封装好的 LockstepResult。
+    直接构建并返回由 5 大核心共享值对象组成的 LockstepResult。
     """
     is_cuda = device.type == "cuda"
     input_tensor, history_mask, pos_ids, prompt_lens = prepare_prefill_inputs(
@@ -268,15 +275,32 @@ def run_lockstep(
     ]
     cache_bytes = cache_size_bytes(kv_cache) if kv_cache is not None else 0
 
-    return LockstepResult(
-        sequences=sequences,
-        batch_info=batch_info,
+    metrics = compute_step_aggregated_metrics(
         step_latencies_ms=step_latencies_ms,
-        num_active_tokens_per_step=state.active_counts_per_step,
-        logits_trace=logits_trace,
         e2e_wall_ms=e2e_wall_ms,
         e2e_model_ms=e2e_model_ms,
         total_tokens=valid_tokens,
+        batch_size=state.batch_size,
+        is_cuda=is_cuda,
+    )
+    memory = build_memory_profile(
+        baseline_allocated_bytes=baseline_allocated_bytes,
         memory_after_prefill_bytes=memory_after_prefill_bytes,
+        peak_allocated_bytes=torch.cuda.max_memory_allocated(device) if is_cuda else 0,
+        peak_reserved_bytes=torch.cuda.max_memory_reserved(device) if is_cuda else 0,
         cache_bytes=cache_bytes,
+    )
+    trace = GenerationTrace(
+        step_latencies_ms=step_latencies_ms,
+        num_active_tokens_per_step=state.active_counts_per_step,
+        logits_trace=logits_trace,
+    )
+
+    return LockstepResult(
+        sequences=sequences,
+        metrics=metrics,
+        memory=memory,
+        trace=trace,
+        batch_size=state.batch_size,
+        batch_info=batch_info,
     )

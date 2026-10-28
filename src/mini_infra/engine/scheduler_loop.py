@@ -12,6 +12,7 @@
 在逻辑时间线上精确追踪模型与搬移耗时，输出 ScheduleResult（含 TTFT/TPOT/makespan 等事件流）。
 """
 
+import time
 from collections.abc import Sequence
 
 import torch
@@ -74,6 +75,7 @@ def _run_schedule(
     running_queue = RunningQueue(max_running_requests)
     slots_cache = DenseSlotCache(max_running_requests, device)
     events: list[ScheduleEvent] = []
+    wall_start = time.perf_counter()
 
     while arrival_queue or waiting_queue or running_queue:
         # 1. 外部到达：把当前时刻已到达的请求从 arrival_queue 移入 waiting_queue
@@ -147,6 +149,9 @@ def _run_schedule(
         # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）。
         clock_ms = arrival_queue.next_arrival_ms()
 
+    synchronize(device)
+    e2e_wall_ms = (time.perf_counter() - wall_start) * 1000.0
+
     return summarize_schedule(
         method,
         states,
@@ -154,6 +159,8 @@ def _run_schedule(
         max_running_requests,
         *peak_memory_mb(device),
         baseline_mb=baseline_mb,
+        e2e_wall_ms=e2e_wall_ms,
+        is_cuda=device.type == "cuda",
     )
 
 

@@ -7,7 +7,7 @@ import torch
 
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.engine import BatchingMethod, Mode, OfflineGenerationOptions, generate
+from mini_infra.engine import BatchingMethod, GenerationOptions, Mode, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
     MODULE_SCOPES,
@@ -58,7 +58,7 @@ def test_generate_without_profile():
     mode = Mode()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(mode, model, ids, max_new_tokens=2, options=OfflineGenerationOptions(profile=False))
+    res = generate(mode, model, ids, max_new_tokens=2, options=GenerationOptions(profile=False))
     assert res.op_breakdown is None
     assert res.padded_output_tokens().shape == (1, 2)
 
@@ -68,9 +68,9 @@ def test_generate_with_profile():
     mode = Mode()
     ids = torch.tensor([[1, 2, 3]])
 
-    res_no_prof = generate(mode, model, ids, max_new_tokens=3, options=OfflineGenerationOptions(profile=False))
+    res_no_prof = generate(mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=False))
     res_prof = generate(
-        mode, model, ids, max_new_tokens=3, options=OfflineGenerationOptions(profile=True, top_kernels=5)
+        mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=True, top_kernels=5)
     )
 
     # 1. 验证生成 Token 结果一致
@@ -104,7 +104,7 @@ def test_generate_profile_breakdown():
     mode = Mode()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(mode, model, ids, max_new_tokens=2, options=OfflineGenerationOptions(profile=True, top_kernels=3))
+    res = generate(mode, model, ids, max_new_tokens=2, options=GenerationOptions(profile=True, top_kernels=3))
     breakdown = res.op_breakdown
     assert breakdown is not None
     assert is_dataclass(breakdown)
@@ -120,7 +120,7 @@ def test_generate_with_batching_and_profile():
     mode = Mode(batching_method=BatchingMethod.FIXED)
     prompts = torch.tensor([[1, 2, 3], [4, 5, 0]])
 
-    res = generate(mode, model, prompts, max_new_tokens=2, options=OfflineGenerationOptions(profile=True))
+    res = generate(mode, model, prompts, max_new_tokens=2, options=GenerationOptions(profile=True))
     assert res.op_breakdown is not None
     assert res.batch_size == 2
     assert res.padded_output_tokens().shape == (2, 2)
@@ -153,7 +153,7 @@ def test_profile_with_tensorboard_option(tmp_path):
         model,
         ids,
         max_new_tokens=2,
-        options=OfflineGenerationOptions(profile=True, tensorboard_options=tb_opt),
+        options=GenerationOptions(profile=True, tensorboard_options=tb_opt),
     )
 
     assert res.op_breakdown is not None
@@ -169,7 +169,7 @@ def test_profile_with_tensorboard_option(tmp_path):
         model,
         ids,
         max_new_tokens=2,
-        options=OfflineGenerationOptions(profile=False, tensorboard_options=tb_opt),
+        options=GenerationOptions(profile=False, tensorboard_options=tb_opt),
     )
     assert res_no_profile.op_breakdown is None
 

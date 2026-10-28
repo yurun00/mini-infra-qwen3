@@ -16,6 +16,7 @@ from mini_infra.core.scheduler import (
 from mini_infra.core.types import (
     BatchingMethod,
     BatchScheduleInfo,
+    GenerationTrace,
     MemoryProfile,
     RequestMetrics,
     SequenceOutput,
@@ -29,6 +30,7 @@ __all__ = [
     "ArrivalQueue",
     "BatchScheduleInfo",
     "BatchingMethod",
+    "GenerationTrace",
     "MemoryProfile",
     "RequestMetrics",
     "RequestSpec",
