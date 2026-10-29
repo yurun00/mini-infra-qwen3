@@ -50,9 +50,7 @@ def make_prompts(lengths: list[int]) -> list[list[int]]:
 def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
     opts = GenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
     return [
-        generate(KV_MODE, model, [prompt], budget, options=opts)
-        .sequences[0]
-        .token_ids
+        generate(KV_MODE, model, [prompt], budget, options=opts).sequences[0].token_ids
         for prompt, budget in zip(prompts, budgets)
     ]
 
@@ -134,19 +132,18 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert result.batch_info is not None
     assert result.batch_info.slot_utilization == result.batch_info.execution_slot_utilization
     assert result.batch_info.running_capacity_utilization is not None
-    assert result.batch_info.ttft_ms is None
-    assert max(result.batch_info.completion_steps_per_req) == len(result.events)
+    assert max(s.completion_step for s in result.sequences if s.completion_step is not None) == len(result.events)
     assert result.padded_output_tokens(0).tolist() == result.sequences[0].token_ids
-    assert metrics.busy_ms == pytest.approx(sum(e.total_ms for e in result.events))
+    assert metrics.busy_ms == pytest.approx(sum(e.step_ms for e in result.events))
     assert metrics.busy_ms == pytest.approx(result.step_agg_metrics.e2e_model_ms + metrics.cache_management_ms)
     assert 0 < result.batch_info.execution_slot_utilization <= 1
     assert 0 < result.batch_info.running_capacity_utilization <= 1
     assert 0 <= metrics.cache_management_fraction < 1
     assert metrics.ttft_ms_p50 <= metrics.ttft_ms_p95
     assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
-    assert sorted(i for e in result.events for i in e.admitted) == list(range(len(specs)))
-    assert sorted(i for e in result.events for i in e.completed) == list(range(len(specs)))
-    assert all(e.executed_batch_size <= capacity for e in result.events)
+    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(specs)))
+    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(specs)))
+    assert all(e.physical_batch_size <= capacity for e in result.events)
 
 
 def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(model):
@@ -155,11 +152,11 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
     result = run_scheduler(BatchingMethod.FIXED, model, specs, 2, -1, CPU, stop_on_eos=False)
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
-    assert [e.admitted for e in prefill_events] == [(0, 1), (2,)]
+    assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
     # 第二波只在第一波（预算最大的请求 1，共 6 步）全部结束后才开始
     assert result.request_metrics[2].admitted_ms >= result.request_metrics[1].completion_ms
     # 已结束的短请求槽位空转：第一波 6 步均以 2 行执行
-    assert [e.executed_batch_size for e in result.events[:6]] == [2] * 6
+    assert [e.physical_batch_size for e in result.events[:6]] == [2] * 6
     assert [e.num_active_requests for e in result.events[:6]] == [2, 2, 1, 1, 1, 1]
     assert result.schedule_metrics.cache_management_ms == 0.0
 
@@ -170,12 +167,12 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     result = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, stop_on_eos=False)
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
-    assert [e.admitted for e in prefill_events] == [(0, 1), (2,)]
+    assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
     # 请求 2 在请求 0 结束后立即补位，早于请求 1 完成
     assert result.request_metrics[2].admitted_ms >= result.request_metrics[0].completion_ms
     assert result.request_metrics[2].admitted_ms < result.request_metrics[1].completion_ms
     # Decode 总是以 capacity 行执行
-    assert all(e.executed_batch_size == 2 for e in result.events if e.phase is SchedulePhase.DECODE)
+    assert all(e.physical_batch_size == 2 for e in result.events if e.phase is SchedulePhase.DECODE)
     assert result.schedule_metrics.cache_management_ms > 0
     assert result.memory.peak_live_cache_mb > 0
 
@@ -232,8 +229,6 @@ class TestGenerateDispatch:
         assert [s.token_ids for s in fixed_result.sequences] == expected
         assert result.batch_size == 3
         assert result.batch_info is not None
-        assert result.batch_info.num_prompt_tokens == 13
-        assert result.batch_info.num_padded_prompt_tokens == 18
         assert result.batch_info.running_capacity_utilization is not None
         assert fixed_result.batch_info is not None
         assert fixed_result.batch_info.running_capacity_utilization is None

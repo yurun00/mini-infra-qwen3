@@ -319,6 +319,10 @@ def get_scheduler_suite(name: str) -> SchedulerSuite:
         raise ValueError(f"未知 scheduler suite: {name}，可选: {sorted(SCHEDULER_SUITES)}") from err
 
 
+get_suite = get_scheduler_suite
+SUITES = SCHEDULER_SUITES
+
+
 def get_all_scheduler_suites() -> Sequence[SchedulerSuite]:
     return list(SCHEDULER_SUITES.values())
 
@@ -329,8 +333,10 @@ __all__ = [
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
     "SCHEDULER_SUITES",
+    "SUITES",
     "SchedulerSuite",
     "SchedulerSuiteCase",
     "get_all_scheduler_suites",
     "get_scheduler_suite",
+    "get_suite",
 ]

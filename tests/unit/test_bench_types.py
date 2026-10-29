@@ -12,6 +12,7 @@ from mini_infra.bench.lockstep.types import (
     summarize_samples,
 )
 from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine import FeatureFlag, Mode
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
 
@@ -48,7 +49,7 @@ def test_distribution_stats_computation_and_immutability():
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
     workload = WorkloadSpec(
-        mode="kv-cache",
+        mode=Mode({FeatureFlag.KV_CACHE}),
         batch_size=2,
         prompt_len=(16, 32),
         max_new_tokens=16,
@@ -74,13 +75,11 @@ def test_lockstep_case_result_structure_and_dot_access():
         peak_reserved_mb=800.0,
         kv_cache_mb=12.0,
     )
-    packing = BatchScheduleInfo(
-        padding_efficiency=0.85,
-        slot_utilization=0.90,
-        num_prompt_tokens=48,
-        num_padded_prompt_tokens=64,
-        prompt_lengths_per_req=[16, 32],
-        completion_steps_per_req=[16, 16],
+    pad_stat = summarize_samples([0.85, 0.85])
+    slot_stat = summarize_samples([0.90, 0.90])
+    packing: BatchScheduleInfo[DistributionStats] = BatchScheduleInfo(
+        padding_efficiency=pad_stat,
+        slot_utilization=slot_stat,
     )
     efficiency = EfficiencyMetrics(
         prefill_mfu=0.15,
@@ -101,7 +100,6 @@ def test_lockstep_case_result_structure_and_dot_access():
         packing=packing,
         efficiency=efficiency,
         op_breakdown=op_breakdown,
-        raw_samples={"tpot_ms": [10.0, 10.5]},
     )
 
     # 1. 验证强类型属性点号访问
@@ -112,7 +110,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert case_result.memory.peak_allocated_mb == 700.0
     assert case_result.memory.dynamic_peak_mb == 100.0
     assert case_result.memory.fragmentation_mb == 100.0
-    assert case_result.packing is not None and case_result.packing.padding_efficiency == 0.85
+    assert case_result.packing is not None and case_result.packing.padding_efficiency.median == 0.85
     assert case_result.efficiency is not None and case_result.efficiency.decode_mbu == 0.45
     assert case_result.metrics.gpu_time_ratio is not None and case_result.metrics.gpu_time_ratio.median == 10.0
     assert case_result.op_breakdown is not None and case_result.op_breakdown.total_ms == 100.0
@@ -136,8 +134,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert rec["memory"]["peak_allocated_mb"] == 700.0
     assert rec["memory"]["dynamic_peak_mb"] == 100.0
     assert rec["memory"]["fragmentation_mb"] == 100.0
-    assert rec["packing"]["padding_efficiency"] == 0.85
-    assert rec["packing"]["slot_utilization"] == 0.90
+    assert rec["packing"]["padding_efficiency"]["median"] == 0.85
+    assert rec["packing"]["slot_utilization"]["median"] == 0.90
     assert rec["efficiency"]["decode_mbu"] == 0.45
     assert rec["op_latency_breakdown"]["total_ms"] == 100.0
-    assert rec["raw"]["tpot_ms"] == [10.0, 10.5]

@@ -120,6 +120,7 @@ def aggregate_generation_results(
                     prompt_len=seq.prompt_len,
                     output_len=seq.output_len,
                     finish_reason=seq.finish_reason,
+                    completion_step=seq.completion_step,
                 )
             )
             req_counter += 1

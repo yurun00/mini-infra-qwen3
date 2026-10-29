@@ -52,25 +52,31 @@ mini-infra verify scheduler-batch
 ---
 
 ### 步骤 3：全量基准测量与演进图表生成
-在固定的 GPU 测试机（如 GCP L4 实例）上运行基准测试，沉淀该版本的性能数据并绘制时间线图：
+在固定的 GPU 测试机（如 GCP L4 实例）上运行基准测试，沉淀该版本的单标杆性能数据并绘制演进图：
 
 ```bash
 # 安装绘图与基准依赖
 pip install -e ".[bench]"
 
-# 1. 运行核心标杆用例并记录新版本特性（以 v0.4.0 Continuous Batching 为例，结果落盘至 benchmarks/result-history/）
+# 1a. 若为齐步推理特性（如 v0.2.0 KV Cache / v0.3.0 Fixed Batching），运行 lockstep case：
 mini-infra bench lockstep case \
-  --tag "v0.4.0" \
-  --release-feature "continuous batching" \
-  --batching-method continuous-batching \
+  --tag "v0.3.0" \
+  --release-feature "fixed batching" \
+  --batching-method fixed-batching \
   --profile-mode extra-profile
 
-# 2. （可选）针对服务化调度器运行专属长短请求对比套件
+# 1b. 若为队列调度器特性（如 v0.4.0 Continuous Batching），运行 scheduler case（结果同样默认落盘至 benchmarks/result-history/）：
+mini-infra bench scheduler case \
+  --tag "v0.4.0" \
+  --release-feature "continuous batching" \
+  --batching-method continuous-batching
+
+# 2. （可选）针对服务化调度器运行专属长短请求对比套件（落盘至 benchmarks/suites/scheduler/）
 mini-infra bench scheduler suite \
   --tag "v0.4.0" \
   --suite fixed-vs-continuous-variable-output-length
 
-# 3. 读取所有历史版本数据，重新生成多版本演化表与对比图
+# 3. 读取所有历史版本单 Case 数据，重新生成多版本演化表与对比图（自动感知是否跨越 lockstep <-> scheduler 边界）
 mini-infra bench plot history
 
 # 4. 将新性能固化为后续日常开发的零退化底线（更新 benchmarks/data/reference.json）
@@ -78,12 +84,13 @@ mini-infra bench check-regression --update-reference
 ```
 
 > ⚠️ **数据流与绘图约定**：
-> * **`mini-infra bench plot history` 消费 `benchmarks/result-history/*.json`**：只有归档至 `benchmarks/result-history/` 的标准记录才会被自动读入并绘制成趋势图与演进时间线；
+> * **`benchmarks/result-history/*.json` 严格遵循单 Case 约束（`require_single_case=True`）**：每个归档文件只包含 1 个标杆 Case，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多 Case 套件评测结果统一存放在 `benchmarks/suites/` 下。
+> * **`mini-infra bench plot history` 具备跨边界感知能力**：当历史记录同时包含 `lockstep` 与 `scheduler` 时，自动仅绘制跨边界共享指标面板（并将 Lockstep 的 `ttft_ms` 与 Scheduler 的 `schedule.ttft_ms_p50` 自动对齐）；
 > * **`mini-infra bench check-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 > 🏷️ **版本号与特性（Feature）标注约定**：
 > * **Git Tag、pyproject.toml 与 `--tag`** 统一采用纯版本号（如 `v0.4.0`），严格遵循 SemVer 与 PEP 440 规范，保证 CI/CD 自动化构建一致性；
-> * **`mini-infra bench lockstep case` 接收 `--release-feature` 参数**（如 `"continuous batching"` 或 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra bench plot history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.4.0 (continuous batching)`。
+> * **`mini-infra bench lockstep case` 与 `mini-infra bench scheduler case` 均接收 `--release-feature` 参数**（如 `"continuous batching"` 或 `"KV cache"`），在生成的 JSON 结果中作为 `release_feature` 独立属性存储；`mini-infra bench plot history` 会自动在 Markdown 报表与演进趋势图中将其渲染为 `v0.4.0 (continuous batching)`。
 
 ---
 
@@ -117,9 +124,9 @@ git push origin main --tags
 
 每次发布版本后，版本库中的以下文件将得到更新或沉淀：
 
-* **`benchmarks/result-history/<commit>_<tag>.json`**：该版本全矩阵测试的原始性能数据（版本库持久化存储）。
+* **`benchmarks/result-history/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，版本库持久化存储）。
 * **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
 * **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
 * **`benchmarks/reports/SUMMARY.md`**：记录所有历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
-* **`benchmarks/reports/evolution_and_scaling.png`**：跨版本演化与扩展趋势大图（包含 Decode 延迟下降、吞吐提升、加速比曲线及长 Prompt 扩展规律）。
+* **`benchmarks/reports/evolution_and_scaling.png`**：跨版本演化趋势大图（基于边界感知 `MetricPlotSpec` 自动绘制各版本延迟、吞吐、显存与槽位利用率演进曲线）。
 * **`benchmarks/reports/profiling_and_optimization.png`**：当前版本深度剖析与优化指引大图（包含 MBU/MFU 硬件天花板差距、Attention vs MLP 耗时归因、算子分布及显存碎片剖析）。

@@ -12,7 +12,7 @@ from mini_infra.bench.lockstep.suites import (
     UniformVsVariablePromptPaddingSuite,
     get_suite,
 )
-from mini_infra.engine import BatchingMethod
+from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -119,10 +119,10 @@ def test_registered_suites_run_end_to_end_on_cpu():
     ]
 
     assert [(r.workload.mode, r.workload.batch_size) for r in results] == [
-        ("kv-cache", 1),
-        ("kv-cache+fixed-batching", 1),
-        ("kv-cache", 2),
-        ("kv-cache+fixed-batching", 2),
+        (Mode({FeatureFlag.KV_CACHE}), 1),
+        (Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED), 1),
+        (Mode({FeatureFlag.KV_CACHE}), 2),
+        (Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED), 2),
     ]
     for r in results:
         assert r.workload.prompt_len == 4 and r.workload.max_new_tokens == 2
@@ -230,13 +230,13 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu():
     # uniform: [4, 4, 4, 4]，padding efficiency 应该为 100%
     assert res_homo.workload.batch_size == 4
     assert res_homo.workload.prompt_len == (4, 4, 4, 4)
-    assert res_homo.packing is not None and res_homo.packing.padding_efficiency == 1.0
+    assert res_homo.packing is not None and res_homo.packing.padding_efficiency.mean == 1.0
 
     # variable: [max(1, 4//8), max(1, 4//4), max(1, 4//2), 4] = [1, 1, 2, 4]
     assert res_mixed.workload.batch_size == 4
     assert res_mixed.workload.prompt_len == (1, 1, 2, 4)
-    assert res_mixed.packing is not None and res_mixed.packing.padding_efficiency == (1 + 1 + 2 + 4) / 16
-    assert res_mixed.packing.padding_efficiency < 1.0
+    assert res_mixed.packing is not None and res_mixed.packing.padding_efficiency.mean == (1 + 1 + 2 + 4) / 16
+    assert res_mixed.packing.padding_efficiency.mean < 1.0
 
 
 def test_uniform_vs_variable_budget_slots_defaults():
@@ -332,12 +332,12 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu():
     assert res_uniform.workload.batch_size == 4
     assert res_uniform.workload.prompt_len == (4, 4, 4, 4)
     assert res_uniform.workload.max_new_tokens == (4, 4, 4, 4)
-    assert res_uniform.packing is not None and res_uniform.packing.slot_utilization == 1.0
+    assert res_uniform.packing is not None and res_uniform.packing.slot_utilization.mean == 1.0
 
     # variable: [max(2, 4//8), max(2, 4//4), max(2, 4//2), 4] = [2, 2, 2, 4]
     # slot utilization = (2 + 2 + 2 + 4) / 16 = 0.625
     assert res_variable.workload.batch_size == 4
     assert res_variable.workload.prompt_len == (4, 4, 4, 4)
     assert res_variable.workload.max_new_tokens == (2, 2, 2, 4)
-    assert res_variable.packing is not None and res_variable.packing.slot_utilization == (2 + 2 + 2 + 4) / 16
-    assert res_variable.packing.slot_utilization < 1.0
+    assert res_variable.packing is not None and res_variable.packing.slot_utilization.mean == (2 + 2 + 2 + 4) / 16
+    assert res_variable.packing.slot_utilization.mean < 1.0

@@ -14,7 +14,7 @@
 | | `mini-infra bench scheduler suite` | `run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰） | `benchmarks/suites/scheduler/<name>/` |
 | **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/` |
 | | `mini-infra bench plot compare` | `plotting/compare.py` | 对比任意两个独立 JSON 实验结果，绘制柱状对比图与 Markdown 差异表 | `./benchmark_comparison.png` |
-| **Regression 守门** | `mini-infra bench check-regression` | `regression.py` | 1 分钟轻量级冒烟比对，拦截 TTFT/TPOT 劣化超过 5% 的代码变更 | `benchmarks/candidate.local.json` |
+| **Regression 守门** | `mini-infra bench check-regression` | `check_regression.py` | 1 分钟轻量级冒烟比对，拦截 TTFT/TPOT 劣化超过 5% 的代码变更 | `benchmarks/candidate.local.json` |
 
 ---
 

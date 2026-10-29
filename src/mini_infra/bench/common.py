@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import statistics
 import subprocess
 import warnings
 from collections.abc import Sequence
@@ -15,12 +16,15 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from pydantic import BaseModel
 
 from mini_infra.engine import GenerationOptions, generate
+from mini_infra.engine.types import WorkloadSpec
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )
+from mini_infra.utils import percentile
 
 DEFAULT_WARMUP = 3
 DEFAULT_REPEATS = 10
@@ -175,6 +179,58 @@ class CorrectnessReport(_DictCompatibleMixin):
                 other.updated_golden,
             )
         return False
+
+
+@dataclass(frozen=True)
+class DistributionStats:
+    """一组测量样本的统计分布（均值、中位数、标准差及关键分位数）。"""
+
+    median: float
+    mean: float
+    std: float
+    min: float
+    p90: float
+    p95: float
+    p99: float
+    max: float
+
+    def to_dict(self) -> dict[str, float]:
+        """导出为与下游工具完全兼容的统计字典。"""
+        return {
+            "median": self.median,
+            "mean": self.mean,
+            "std": self.std,
+            "min": self.min,
+            "p90": self.p90,
+            "p95": self.p95,
+            "p99": self.p99,
+            "max": self.max,
+        }
+
+
+def summarize_samples(values: Sequence[float]) -> DistributionStats:
+    """计算样本序列的分位数与均值方差指标，返回 DistributionStats 结构体。"""
+    if not values:
+        return DistributionStats(
+            median=0.0,
+            mean=0.0,
+            std=0.0,
+            min=0.0,
+            p90=0.0,
+            p95=0.0,
+            p99=0.0,
+            max=0.0,
+        )
+    return DistributionStats(
+        median=statistics.median(values),
+        mean=statistics.fmean(values),
+        std=statistics.pstdev(values) if len(values) > 1 else 0.0,
+        min=min(values),
+        p90=percentile(values, 90),
+        p95=percentile(values, 95),
+        p99=percentile(values, 99),
+        max=max(values),
+    )
 
 
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
@@ -415,16 +471,11 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--output", type=Path, help="自定义输出路径")
 
 
-def save_benchmark_record(output: Path, record: dict[str, Any], dirty: bool = False) -> None:
+def save_benchmark_record(output: Path, record: BaseModel, dirty: bool = False) -> None:
     """将评测结果保存至指定 JSON 文件路径。"""
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    def _default(obj: Any) -> Any:
-        if hasattr(obj, "to_dict"):
-            return obj.to_dict()
-        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
-
-    output.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=_default), encoding="utf-8")
+    payload = record.model_dump(mode="json", exclude_none=True)
+    output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if dirty else ""))
 
 
@@ -433,6 +484,7 @@ __all__ = [
     "CorrectnessReport",
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",
+    "DistributionStats",
     "EfficiencyMetrics",
     "GOLDEN_MAX_OUTPUT_TOKENS",
     "GOLDEN_OUTPUT_PATH",
@@ -446,6 +498,7 @@ __all__ = [
     "RESULT_HISTORY_DIR",
     "SCHEMA_VERSION",
     "SUITES_DIR",
+    "WorkloadSpec",
     "add_common_args",
     "check_correctness",
     "efficiency",
@@ -456,4 +509,5 @@ __all__ = [
     "require_cuda",
     "resolve_peak_specs",
     "save_benchmark_record",
+    "summarize_samples",
 ]

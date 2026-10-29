@@ -125,11 +125,9 @@ def check_fixed_batching(model):
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
-    slots = generate(
-        fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts
-    )
+    slots = generate(fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts)
     assert slots.trace.num_active_tokens_per_step == [2, 2, 1, 1]
-    assert slots.batch_info.completion_steps_per_req == [2, 4]
+    assert [s.completion_step for s in slots.sequences] == [2, 4]
     assert abs(slots.batch_info.slot_utilization - 0.75) < 1e-12
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
     assert abs(slots.memory.kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
@@ -189,7 +187,7 @@ def check_continuous_batching(model):
     assert [s.token_ids for s in continuous.sequences] == [s.token_ids for s in serialized.sequences]
 
     # 3. 动态退场与槽位插队轨迹 (Dynamic Admission Trace)：Req 0 完成后 Req 2 动态插队，随后 Req 3 插队
-    prefill_admissions = [list(e.admitted) for e in continuous.events if e.phase == SchedulePhase.PREFILL]
+    prefill_admissions = [list(e.admitted_request_ids) for e in continuous.events if e.phase == SchedulePhase.PREFILL]
     assert prefill_admissions[0] == [0, 1]
     assert prefill_admissions[1] == [2]
     assert prefill_admissions[2] == [3]
@@ -212,7 +210,7 @@ def check_continuous_batching(model):
     # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
     same_arrival_specs = make_request_specs([sequences[0]] * 12, 1)
     same_arrival = run_scheduler(BatchingMethod.CONTINUOUS, model, same_arrival_specs, 3, -1, device, stop_on_eos=False)
-    flattened_admissions = [req_idx for event in same_arrival.events for req_idx in event.admitted]
+    flattened_admissions = [req_idx for event in same_arrival.events for req_idx in event.admitted_request_ids]
     assert flattened_admissions == list(range(12))
 
     print("Continuous Batching 动态加入退出、FCFS 与输出一致性检查通过")

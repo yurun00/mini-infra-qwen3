@@ -1,9 +1,11 @@
 """Benchmark 评测模块与领域类型。
 
 结构组织（按执行循环场景划分）：
-- mini_infra.bench.lockstep: 齐步（Lockstep）基准评测（run_case, run_suite, suites, types）
-- mini_infra.bench.scheduler: 队列调度（Scheduler: Fixed vs Continuous）基准评测（run_case, run_suite, suites, types）
-- mini_infra.bench.common: 共享基础设施（环境探测、CLI 参数、基准记录构建）
+- mini_infra.bench.lockstep: 齐步（Lockstep）基准评测（run_case, run_suite, suites, types, format）
+- mini_infra.bench.scheduler: 队列调度（Fixed vs Continuous）基准评测（run_case, run_suite, suites, types, format）
+- mini_infra.bench.check_regression: 性能回归质量门禁守门（run_light_benchmark, compare, index）
+- mini_infra.bench.schema: 统一 Pydantic v2 Schema 与多态信封（LockstepBenchmarkRecord, SchedulerBenchmarkRecord）
+- mini_infra.bench.common: 共享基础设施（环境探测、CLI 参数、结果持久化）
 """
 
 from mini_infra.bench.common import (
@@ -11,9 +13,11 @@ from mini_infra.bench.common import (
     DEFAULT_WARMUP,
     REPO_ROOT,
     CorrectnessReport,
+    DistributionStats,
     EfficiencyMetrics,
     HardwarePeakSpecs,
     ModelCostProfile,
+    WorkloadSpec,
     add_common_args,
     check_correctness,
     format_lengths,
@@ -23,23 +27,20 @@ from mini_infra.bench.common import (
     require_cuda,
     resolve_peak_specs,
     save_benchmark_record,
+    summarize_samples,
 )
 from mini_infra.bench.lockstep import (
     SUITES,
-    DistributionStats,
     LockstepCaseResult,
     SerialVsFixedBatchThroughputSuite,
     Suite,
     SuiteCase,
     UniformVsVariableBudgetSlotsSuite,
     UniformVsVariablePromptPaddingSuite,
-    WorkloadSpec,
-    build_benchmark_record,
+    format_case_summary,
+    format_table,
     get_suite,
-    print_case_summary,
-    print_table,
     run_case,
-    summarize_samples,
 )
 from mini_infra.bench.scheduler import (
     SCHEDULER_SUITES,
@@ -50,11 +51,17 @@ from mini_infra.bench.scheduler import (
     SchedulerCaseResult,
     SchedulerSuite,
     SchedulerSuiteCase,
-    SchedulerSuiteResult,
     get_all_scheduler_suites,
     get_scheduler_suite,
-    print_scheduler_table,
-    summarize_scheduler_runs,
+    summarize_same_workload_runs,
+)
+from mini_infra.bench.schema import (
+    AnyBenchmarkRecord,
+    LockstepBenchmarkRecord,
+    SchedulerBenchmarkRecord,
+    build_benchmark_record,
+    load_benchmark_record,
+    validate_benchmark_record,
 )
 from mini_infra.bench.workloads import (
     make_alternating_budgets,
@@ -67,6 +74,7 @@ from mini_infra.bench.workloads import (
 )
 
 __all__ = [
+    "AnyBenchmarkRecord",
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",
     "REPO_ROOT",
@@ -80,12 +88,13 @@ __all__ = [
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
     "HardwarePeakSpecs",
+    "LockstepBenchmarkRecord",
     "LockstepCaseResult",
     "ModelCostProfile",
+    "SchedulerBenchmarkRecord",
     "SchedulerCaseResult",
     "SchedulerSuite",
     "SchedulerSuiteCase",
-    "SchedulerSuiteResult",
     "SerialVsFixedBatchThroughputSuite",
     "Suite",
     "SuiteCase",
@@ -95,12 +104,15 @@ __all__ = [
     "add_common_args",
     "build_benchmark_record",
     "check_correctness",
+    "format_case_summary",
     "format_lengths",
+    "format_table",
     "get_all_scheduler_suites",
     "get_scheduler_suite",
     "get_suite",
     "git_info",
     "gpu_info",
+    "load_benchmark_record",
     "make_alternating_budgets",
     "make_arrival_times",
     "make_prompt",
@@ -109,13 +121,11 @@ __all__ = [
     "make_variable_output_budgets",
     "make_variable_prompt_lengths",
     "model_cost",
-    "print_case_summary",
-    "print_scheduler_table",
-    "print_table",
     "require_cuda",
     "resolve_peak_specs",
     "run_case",
     "save_benchmark_record",
+    "summarize_same_workload_runs",
     "summarize_samples",
-    "summarize_scheduler_runs",
+    "validate_benchmark_record",
 ]

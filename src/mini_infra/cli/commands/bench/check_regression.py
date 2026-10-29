@@ -1,4 +1,4 @@
-"""CLI 子命令：mini-infra bench check-regression (alias: regression)
+"""CLI 子命令：mini-infra bench check-regression
 
 性能回归与质量门禁检查入口。
 """
@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from mini_infra.bench.regression import (
+from mini_infra.bench.check_regression import (
     DEFAULT_CANDIDATE,
     DEFAULT_REFERENCE,
     compare,
@@ -25,10 +25,9 @@ def add_regression_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 check-regression (及别名 regression)。"""
+    """在 bench 下注册 check-regression。"""
     p = subparsers.add_parser(
         "check-regression",
-        aliases=["regression"],
         help="运行轻量 benchmark 检查性能回归与质量门禁（退出码: 0通过/跳过, 1回归, 2错误）",
     )
     add_regression_args(p)

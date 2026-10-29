@@ -19,14 +19,14 @@ from mini_infra.bench.common import (
     resolve_peak_specs,
     save_benchmark_record,
 )
-from mini_infra.bench.lockstep.display import (
-    build_benchmark_record,
-    print_case_summary,
-    print_table,
+from mini_infra.bench.lockstep.format import (
+    format_case_summary,
+    format_table,
 )
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import SUITES, SuiteCase, get_suite
+from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
 from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -44,8 +44,8 @@ def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParse
     p.add_argument(
         "--batching-method",
         default=BatchingMethod.NONE.value,
-        choices=[m.value for m in BatchingMethod],
-        help="指定批处理策略（默认: none）",
+        choices=[BatchingMethod.NONE.value, BatchingMethod.FIXED.value],
+        help="指定齐步批处理策略（默认: none）",
     )
     p.add_argument(
         "--batch-size", type=int, default=None, help="批处理大小；未指定时自动由 prompt_lens/max_new_tokens 推断"
@@ -156,7 +156,7 @@ def handle_case(args: argparse.Namespace) -> int:
         tensorboard_options=tb_options,
     )
 
-    print_case_summary(result)
+    print(format_case_summary(result))
 
     git = git_info()
     record = build_benchmark_record(
@@ -176,7 +176,7 @@ def handle_case(args: argparse.Namespace) -> int:
     output = args.output or RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
     save_benchmark_record(output, record, dirty=git["dirty"])
     print()
-    print_table([result], mode=str(case.mode))
+    print(format_table([result]))
     return 0
 
 
@@ -230,7 +230,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         profile_mode=args.profile_mode,
         tensorboard_options=tb_options,
         on_case_progress=on_progress,
-        on_case_result=print_case_summary,
+        on_case_result=lambda r: print(format_case_summary(r)),
     )
 
     git = git_info()
@@ -254,5 +254,5 @@ def handle_suite(args: argparse.Namespace) -> int:
     output = args.output or suite_dir / f"{git['commit']}_{args.tag}.json"
     save_benchmark_record(output, record, dirty=git["dirty"])
     print()
-    print_table(results, mode=mode_label)
+    print(format_table(results))
     return 0

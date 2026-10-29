@@ -1,293 +1,223 @@
-"""对比两个独立 benchmark JSON 结果（例如比较不同的 mode），并生成对比图表与数据报表。
+"""对比两个独立单用例 benchmark JSON 结果，并生成对比图表与数据报表。
 
-适用场景：
-    日常调优时使用 mini-infra bench lockstep case --output 输出的独立 JSON 文件，
-    通过本脚本直接对比两个结果（例如 no-cache vs kv-cache），画出性能对比图，
-    而无需沉淀到 benchmarks/result-history/ 污染正式发版时间线。
-
-用法示例：
-    # 命令行直接运行
-    mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
-
-    # 或者作为模块调用
-    python -m mini_infra.cli bench plot compare tmp/test_nocache.json tmp/test_kvcache.json
+通过 Pydantic 统一信封校验单 Case 约束（require_single_case=True），
+利用 Pandas 宽表/长表转换与 Seaborn 声明式绘图，自动感知是否跨越 Lockstep <-> Scheduler 边界：
+- 纯 Lockstep 对比：绘制共享指标 + Lockstep 专属指标（如 tpot_ms）
+- 纯 Scheduler 对比：绘制共享指标 + Scheduler 专属指标（如 makespan_ms, queue_ms_p95, itl_ms_p95 等）
+- 跨边界对比（Lockstep vs Scheduler）：仅绘制跨边界共享指标（ttft_ms 自动对齐至 schedule.ttft_ms_p50）
 """
 
-import json
+import math
 from pathlib import Path
 from typing import Any
 
+from mini_infra.bench.plotting.tidy import (
+    records_to_wide_df,
+    resolve_plot_specs,
+    resolve_record_label,
+    wide_to_tidy_df,
+)
+from mini_infra.bench.schema import (
+    LockstepBenchmarkRecord,
+    SchedulerBenchmarkRecord,
+    load_benchmark_record,
+)
 
-def load_record(path: Path) -> dict[str, Any]:
-    """读取单份 benchmark JSON 结果。"""
-    if not path.exists():
-        raise FileNotFoundError(f"文件不存在: {path}")
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+# 耗时类指标（越小越好，变化比计算为 base / target 加速比）
+_LATENCY_KEYS = {
+    "ttft_ms",
+    "tpot_ms",
+    "e2e_wall_ms",
+    "makespan_ms",
+    "queue_ms_p95",
+    "ttft_ms_p95",
+    "itl_ms_p95",
+}
+# 吞吐/利用率类指标（越大越好，变化比计算为 target / base 提升比）
+_THROUGHPUT_KEYS = {
+    "throughput_tok_s",
+    "throughput_req_s",
+    "slot_utilization",
+    "running_capacity_utilization",
+}
 
 
-def resolve_label(rec: dict[str, Any], custom: str | None = None) -> str:
+def load_record(path: Path) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
+    """读取并校验单 Case benchmark JSON 结果（若包含多个 case 则报错）。"""
+    return load_benchmark_record(path, require_single_case=True)
+
+
+def resolve_label(rec: Any, custom: str | None = None) -> str:
     """提取对齐显示的模式/版本标签。"""
-    if custom:
-        return custom
-    mode = rec.get("mode")
-    tag = rec.get("tag")
-    if mode and tag and mode != tag:
-        return f"{mode} ({tag})"
-    return mode or tag or "unknown"
+    return resolve_record_label(rec, custom)
 
 
-def index_cases(rec: dict[str, Any]) -> dict[tuple[int, Any, Any], dict[str, Any]]:
-    """按 (batch_size, prompt_len, max_new_tokens) 建立索引。"""
-    res = {}
-    for w in rec.get("cases", []):
-        pl = tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"]
-        mnt = tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"]
-        key = (w["batch_size"], pl, mnt)
-        res[key] = w
-    return res
+def _format_delta(metric_key: str, val_a: float, val_b: float) -> str:
+    """根据指标物理性质格式化 A -> B 的相对变化（加速比或显存增量）。"""
+    if metric_key == "peak_allocated_mb":
+        return f"{val_b - val_a:+.1f} MiB"
+    if metric_key in _LATENCY_KEYS:
+        ratio = val_a / val_b if val_b > 0 else 1.0
+        return f"**{ratio:.2f}x**"
+    if metric_key in _THROUGHPUT_KEYS:
+        ratio = val_b / val_a if val_a > 0 else 1.0
+        return f"**{ratio:.2f}x**"
+    return f"{val_b - val_a:+.2f}"
 
 
 def generate_comparison_table(
-    rec1: dict[str, Any],
-    rec2: dict[str, Any],
+    rec1: Any,
+    rec2: Any,
     label1: str,
     label2: str,
 ) -> str:
-    """生成 Markdown 对比表格与文字总结。"""
-    idx1 = index_cases(rec1)
-    idx2 = index_cases(rec2)
-    common_keys = sorted(set(idx1.keys()) & set(idx2.keys()))
+    """基于 Pandas 宽表与边界感知规格生成 Markdown 对比表格。"""
+    wide_df = records_to_wide_df([rec1, rec2], labels=[label1, label2])
+    specs = resolve_plot_specs([rec1, rec2])
+    tidy_df = wide_to_tidy_df(wide_df, specs)
 
-    gpu1 = rec1.get("env", {}).get("gpu", "Unknown GPU")
-    gpu2 = rec2.get("env", {}).get("gpu", "Unknown GPU")
-    gpu_info = gpu1 if gpu1 == gpu2 else f"{gpu1} vs {gpu2}"
+    row_a = wide_df.iloc[0]
+    row_b = wide_df.iloc[1]
+    gpu_info = row_a["gpu"] if row_a["gpu"] == row_b["gpu"] else f"{row_a['gpu']} vs {row_b['gpu']}"
+    btypes = {row_a["benchmark_type"], row_b["benchmark_type"]}
+    boundary_note = (
+        "跨边界对比 (`lockstep` vs `scheduler`，已仅保留跨边界共享指标)"
+        if len(btypes) > 1
+        else f"同域对比 (`{next(iter(btypes))}`)"
+    )
 
     lines = [
         f"### 引擎性能对比：`{label1}` vs `{label2}`",
+        f"- **对比类型**：{boundary_note}",
         f"- **测试设备**：{gpu_info}",
-        f"- **基准 (A)**：`{label1}` (commit: `{rec1.get('git', {}).get('commit', 'n/a')}`)",
-        f"- **对比 (B)**：`{label2}` (commit: `{rec2.get('git', {}).get('commit', 'n/a')}`)",
+        f"- **基准 (A)**：`{label1}` (commit: `{row_a['commit']}`, {row_a['workload_desc']})",
+        f"- **对比 (B)**：`{label2}` (commit: `{row_b['commit']}`, {row_b['workload_desc']})",
         "",
-        "| Batch | Prompt | Max New Tokens | TTFT A (ms) | TTFT B (ms) | TTFT 加速比 | "
-        "TPOT A (ms) | TPOT B (ms) | TPOT 加速比 | "
-        "吞吐 A (tok/s) | 吞吐 B (tok/s) | 吞吐加速比 | 显存 A (MiB) | 显存 B (MiB) | 显存增量 (MiB) |",
-        "| :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+        f"| 评测指标 | 基准 A (`{label1}`) | 对比 B (`{label2}`) | 相对变化 (B vs A) |",
+        "| :--- | :-: | :-: | :-: |",
     ]
 
-    tpot_speedups = []
-    thr_speedups = []
-
-    for k in common_keys:
-        bs, pl, max_new_tokens = k
-        w1 = idx1[k]
-        w2 = idx2[k]
-
-        ttft1 = w1["ttft_ms"]["median"]
-        ttft2 = w2["ttft_ms"]["median"]
-        s_ttft = ttft1 / ttft2 if ttft2 > 0 else 1.0
-
-        tpot1 = w1["tpot_ms"]["median"]
-        tpot2 = w2["tpot_ms"]["median"]
-        s_tpot = tpot1 / tpot2 if tpot2 > 0 else 1.0
-        tpot_speedups.append(s_tpot)
-
-        thr1 = w1["throughput_tok_s"]["median"]
-        thr2 = w2["throughput_tok_s"]["median"]
-        s_thr = thr2 / thr1 if thr1 > 0 else 1.0
-        thr_speedups.append(s_thr)
-
-        mem1 = w1.get("memory", {}).get("peak_allocated_mb", 0.0)
-        mem2 = w2.get("memory", {}).get("peak_allocated_mb", 0.0)
-        d_mem = mem2 - mem1
-
-        lines.append(
-            f"| {bs} | {pl} | {max_new_tokens} | "
-            f"{ttft1:.2f} | {ttft2:.2f} | **{s_ttft:.2f}x** | "
-            f"{tpot1:.2f} | {tpot2:.2f} | **{s_tpot:.2f}x** | "
-            f"{thr1:.1f} | {thr2:.1f} | **{s_thr:.2f}x** | "
-            f"{mem1:.0f} | {mem2:.0f} | {d_mem:+.0f} |"
-        )
-
-    if tpot_speedups:
-        max_tpot_s = max(tpot_speedups)
-        avg_thr_s = sum(thr_speedups) / len(thr_speedups)
-        lines.append("")
-        lines.append(
-            f"> 💡 **核心结论**：相比 `{label1}`，`{label2}` 的 Decode 最高加速比达 **{max_tpot_s:.2f}x**，"
-            f"平均吞吐加速达 **{avg_thr_s:.2f}x**。"
-        )
+    for spec in specs:
+        sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
+        if len(sub) < 2:
+            continue
+        val_a = float(sub.iloc[0]["median"])
+        val_b = float(sub.iloc[1]["median"])
+        delta_str = _format_delta(spec.metric_key, val_a, val_b)
+        lines.append(f"| {spec.title} | {val_a:.2f} | {val_b:.2f} | {delta_str} |")
 
     return "\n".join(lines)
 
 
 def plot_mode_comparison(
-    rec1: dict[str, Any],
-    rec2: dict[str, Any],
+    rec1: Any,
+    rec2: Any,
     label1: str,
     label2: str,
     out_path: Path,
     title: str | None = None,
 ) -> None:
-    """绘制两份结果的详细多维度性能对比图（2行3列）。"""
+    """使用 Seaborn 与边界感知 MetricPlotSpec 绘制两份单 Case 结果的多维对比图。"""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import seaborn as sns
 
-    idx1 = index_cases(rec1)
-    idx2 = index_cases(rec2)
-    common_keys = sorted(set(idx1.keys()) & set(idx2.keys()), key=lambda k: (k[0], k[2], k[1]))
+    wide_df = records_to_wide_df([rec1, rec2], labels=[label1, label2])
+    specs = resolve_plot_specs([rec1, rec2])
+    tidy_df = wide_to_tidy_df(wide_df, specs)
 
-    if not common_keys:
-        raise ValueError("两份结果中没有找到匹配的 case (batch_size, prompt_len, max_new_tokens)，无法绘图。")
+    ncols = 3
+    nrows = math.ceil(len(specs) / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 4.2 * nrows), squeeze=False)
+    flat_axes = axes.flatten()
+    palette = ["#e74c3c", "#2ecc71"]
 
-    # 优先筛选 batch_size == 1 且 max_new_tokens 最常见的子集画趋势曲线
-    primary_bs = 1 if any(k[0] == 1 for k in common_keys) else common_keys[0][0]
-    tokens_list = [k[2] for k in common_keys if k[0] == primary_bs]
-    primary_tokens = max(set(tokens_list), key=tokens_list.count) if tokens_list else common_keys[0][2]
+    for idx, spec in enumerate(specs):
+        ax = flat_axes[idx]
+        sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
+        if sub.empty:
+            ax.set_axis_off()
+            continue
 
-    plot_keys = [k for k in common_keys if k[0] == primary_bs and k[2] == primary_tokens]
-    if not plot_keys:
-        plot_keys = common_keys
-
-    prompt_lens = [k[1] for k in plot_keys]
-    x_indices = list(range(len(prompt_lens)))
-
-    fig, axes = plt.subplots(2, 3, figsize=(16, 9.5))
-    (ax_tpot, ax_thr, ax_spd), (ax_ttft, ax_mem, ax_e2e) = axes
-
-    c1 = "#e74c3c"  # Red for Base / No-Cache
-    c2 = "#2ecc71"  # Green for Optimized / KV-Cache
-    c_spd = "#3498db"  # Blue for Speedup
-    c_mem1 = "#9b59b6"  # Purple
-    c_mem2 = "#1abc9c"  # Teal
-
-    # 1. TPOT / Decode Latency (ms/token)
-    tpot1 = [idx1[k]["tpot_ms"]["median"] for k in plot_keys]
-    tpot2 = [idx2[k]["tpot_ms"]["median"] for k in plot_keys]
-    err1 = [idx1[k]["tpot_ms"].get("std", 0.0) for k in plot_keys]
-    err2 = [idx2[k]["tpot_ms"].get("std", 0.0) for k in plot_keys]
-
-    ax_tpot.errorbar(x_indices, tpot1, yerr=err1, marker="o", linewidth=2, color=c1, capsize=3, label=label1)
-    ax_tpot.errorbar(x_indices, tpot2, yerr=err2, marker="s", linewidth=2, color=c2, capsize=3, label=label2)
-    ax_tpot.set_xticks(x_indices)
-    ax_tpot.set_xticklabels(prompt_lens)
-    ax_tpot.set_xlabel("Prompt Length (tokens)")
-    ax_tpot.set_ylabel("TPOT / Decode (ms/token)")
-    ax_tpot.set_title("1. Decode Latency (Lower is Better)")
-    ax_tpot.grid(True, linestyle="--", alpha=0.5)
-    ax_tpot.legend(fontsize=9)
-
-    # 2. Throughput (tokens/s)
-    thr1 = [idx1[k]["throughput_tok_s"]["median"] for k in plot_keys]
-    thr2 = [idx2[k]["throughput_tok_s"]["median"] for k in plot_keys]
-    ax_thr.plot(x_indices, thr1, marker="o", linewidth=2, color=c1, label=label1)
-    ax_thr.plot(x_indices, thr2, marker="s", linewidth=2, color=c2, label=label2)
-    ax_thr.set_xticks(x_indices)
-    ax_thr.set_xticklabels(prompt_lens)
-    ax_thr.set_xlabel("Prompt Length (tokens)")
-    ax_thr.set_ylabel("Throughput (tokens/s)")
-    ax_thr.set_title("2. Generation Throughput (Higher is Better)")
-    ax_thr.grid(True, linestyle="--", alpha=0.5)
-    ax_thr.legend(fontsize=9)
-
-    # 3. Speedup (x)
-    speedups = [(t1 / t2 if t2 > 0 else 1.0) for t1, t2 in zip(tpot1, tpot2)]
-    bars = ax_spd.bar(x_indices, speedups, width=0.5, color=c_spd, alpha=0.85, label=f"{label2} vs {label1}")
-    ax_spd.axhline(1.0, color="gray", linestyle="--", linewidth=1.2)
-    for bar in bars:
-        h = bar.get_height()
-        ax_spd.annotate(
-            f"{h:.2f}x",
-            xy=(bar.get_x() + bar.get_width() / 2, h),
-            xytext=(0, 3),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=9,
-            fontweight="bold",
-        )
-    ax_spd.set_xticks(x_indices)
-    ax_spd.set_xticklabels(prompt_lens)
-    ax_spd.set_xlabel("Prompt Length (tokens)")
-    ax_spd.set_ylabel("Speedup Ratio (x)")
-    ax_spd.set_title("3. Decode Speedup Ratio")
-    ax_spd.grid(True, linestyle="--", alpha=0.5)
-    ax_spd.legend(fontsize=9)
-
-    # 4. TTFT / Prefill Latency (ms)
-    ttft1 = [idx1[k]["ttft_ms"]["median"] for k in plot_keys]
-    ttft2 = [idx2[k]["ttft_ms"]["median"] for k in plot_keys]
-    ax_ttft.plot(x_indices, ttft1, marker="o", linewidth=2, color=c1, label=label1)
-    ax_ttft.plot(x_indices, ttft2, marker="s", linewidth=2, color=c2, label=label2)
-    ax_ttft.set_xticks(x_indices)
-    ax_ttft.set_xticklabels(prompt_lens)
-    ax_ttft.set_xlabel("Prompt Length (tokens)")
-    ax_ttft.set_ylabel("TTFT / Prefill (ms)")
-    ax_ttft.set_title("4. Prefill Latency (Lower is Better)")
-    ax_ttft.grid(True, linestyle="--", alpha=0.5)
-    ax_ttft.legend(fontsize=9)
-
-    # 5. Peak GPU Memory (MiB) - Grouped Bar Chart
-    bar_w = 0.35
-    x_left = [x - bar_w / 2 for x in x_indices]
-    x_right = [x + bar_w / 2 for x in x_indices]
-    mem1 = [idx1[k].get("memory", {}).get("peak_allocated_mb", 0.0) for k in plot_keys]
-    mem2 = [idx2[k].get("memory", {}).get("peak_allocated_mb", 0.0) for k in plot_keys]
-
-    b1 = ax_mem.bar(x_left, mem1, width=bar_w, color=c_mem1, alpha=0.85, label=label1)
-    b2 = ax_mem.bar(x_right, mem2, width=bar_w, color=c_mem2, alpha=0.85, label=label2)
-
-    for bar in list(b1) + list(b2):
-        h = bar.get_height()
-        if h > 0:
-            ax_mem.annotate(
-                f"{h:.0f}M",
-                xy=(bar.get_x() + bar.get_width() / 2, h),
-                xytext=(0, 2),
-                textcoords="offset points",
-                ha="center",
-                va="bottom",
-                fontsize=7.5,
+        if spec.chart_kind == "bar":
+            sns.barplot(
+                data=sub,
+                x="label",
+                y="median",
+                hue="label",
+                palette=palette[: len(sub)],
+                legend=False,
+                ax=ax,
+                alpha=0.85,
+                width=0.5,
             )
-    ax_mem.set_xticks(x_indices)
-    ax_mem.set_xticklabels(prompt_lens)
-    ax_mem.set_xlabel("Prompt Length (tokens)")
-    ax_mem.set_ylabel("Peak Allocated (MiB)")
-    ax_mem.set_title("5. Peak GPU Memory Comparison")
-    ax_mem.grid(True, linestyle="--", alpha=0.5)
-    ax_mem.legend(fontsize=9)
+            for bar in ax.patches:
+                h = bar.get_height()
+                if h > 0:
+                    ax.annotate(
+                        f"{h:.1f}",
+                        xy=(bar.get_x() + bar.get_width() / 2, h),
+                        xytext=(0, 3),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                        fontsize=8.5,
+                    )
+        else:
+            sns.lineplot(
+                data=sub,
+                x="label",
+                y="median",
+                marker="o",
+                markersize=8,
+                linewidth=2.2,
+                color="#2980b9",
+                ax=ax,
+            )
+            if sub["std"].gt(0).any():
+                ax.errorbar(
+                    range(len(sub)),
+                    sub["median"],
+                    yerr=sub["std"],
+                    fmt="none",
+                    ecolor="#2980b9",
+                    capsize=4,
+                    alpha=0.7,
+                )
+            for x_i, (_, row) in enumerate(sub.iterrows()):
+                ax.annotate(
+                    f"{row['median']:.2f}",
+                    xy=(x_i, row["median"]),
+                    xytext=(0, 6),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8.5,
+                )
 
-    # 6. End-to-End Latency (ms)
-    e2e1 = [idx1[k].get("e2e_wall_ms", {}).get("median", 0.0) for k in plot_keys]
-    e2e2 = [idx2[k].get("e2e_wall_ms", {}).get("median", 0.0) for k in plot_keys]
-    ax_e2e.plot(x_indices, e2e1, marker="o", linewidth=2, color=c1, label=label1)
-    ax_e2e.plot(x_indices, e2e2, marker="s", linewidth=2, color=c2, label=label2)
-    ax_e2e.set_xticks(x_indices)
-    ax_e2e.set_xticklabels(prompt_lens)
-    ax_e2e.set_xlabel("Prompt Length (tokens)")
-    ax_e2e.set_ylabel("E2E Wall Latency (ms)")
-    ax_e2e.set_title("6. End-to-End Wall Latency (Lower is Better)")
-    ax_e2e.grid(True, linestyle="--", alpha=0.5)
-    ax_e2e.legend(fontsize=9)
+        ax.set_title(f"{idx + 1}. {spec.title}", fontsize=10.5)
+        ax.set_xlabel("")
+        ax.set_ylabel(spec.ylabel)
+        ax.grid(True, linestyle="--", alpha=0.45)
 
-    gpu_name = rec1.get("env", {}).get("gpu") or rec2.get("env", {}).get("gpu") or "GPU"
-    default_title = (
-        f"Benchmark Comparison: {label1} vs {label2}\n"
-        f"[{gpu_name} | batch={primary_bs}, max_new_tokens={primary_tokens}]"
-    )
+    for extra_ax in flat_axes[len(specs) :]:
+        extra_ax.set_axis_off()
+
+    gpu_name = wide_df.iloc[0]["gpu"]
+    default_title = f"Benchmark Comparison: {label1} vs {label2} [{gpu_name}]"
     fig.suptitle(title or default_title, fontsize=13, y=0.995)
     fig.tight_layout()
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
     print(f"对比图已保存至: {out_path}")
 
 
 __all__ = [
     "generate_comparison_table",
-    "index_cases",
     "load_record",
     "plot_mode_comparison",
     "resolve_label",

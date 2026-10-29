@@ -2,13 +2,12 @@
 
 import torch
 
-from mini_infra.bench.scheduler.run_case import (
+from mini_infra.bench.scheduler import (
+    build_benchmark_record,
+    format_case_summary,
+    format_table,
     run_case,
     run_case_once,
-)
-from mini_infra.bench.scheduler.run_suite import (
-    build_scheduler_record,
-    print_scheduler_table,
     run_suite,
 )
 from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite, SchedulerSuiteCase
@@ -95,34 +94,40 @@ def test_run_scheduler_case_and_step_on_cpu():
         specs=specs,
     )
 
-    # 1. 验证原子 run_case_once
+    # 1. 验证原子 run_case_once 与 ScheduleResult.workload 属性
     single_res = run_case_once(model, device, case)
     assert single_res.step_agg_metrics.e2e_wall_ms > 0
     assert len(single_res.sequences) == 2
+    assert single_res.workload.repeats == 1
+    assert single_res.workload.warmup == 0
 
-    # 2. 验证多轮 run_case
+    # 2. 验证多轮 run_case（WorkloadSpec 相等比较忽略 repeats 与 warmup）
     case_res = run_case(
         model=model,
         device=device,
         case=case,
-        warmup=0,
+        warmup=1,
         repeats=2,
     )
 
     assert case_res.case_id == "continuous"
-    assert case_res.mode == str(mode)
-    assert case_res.step_agg_metrics.e2e_wall_ms.mean > 0
-    assert case_res.step_agg_metrics.throughput_req_s.mean > 0
+    assert case_res.workload.mode == mode
+    assert case_res.workload.repeats == 2
+    assert single_res.workload == case_res.workload
+    assert case_res.metrics.e2e_wall_ms.mean > 0
+    assert case_res.metrics.throughput_req_s.mean > 0
     assert case_res.schedule_metrics.ttft_ms_p95.mean > 0
-    assert case_res.execution_slot_utilization.mean > 0
     assert case_res.memory.kv_cache_mb > 0
-    assert case_res.batch_info is not None
-    assert case_res.batch_info.num_prompt_tokens == 5
+    assert case_res.packing is not None
+    assert case_res.packing.slot_utilization.mean > 0
+    assert case_res.packing.running_capacity_utilization is not None
+    assert case_res.packing.running_capacity_utilization.mean > 0
     assert len(case_res.sample_events) > 0
+    print(format_case_summary(case_res))
 
 
 def test_run_scheduler_suite_on_cpu():
-    """验证套件执行器 run_suite 支持 plan 驱动并汇总结算加速比。"""
+    """验证套件执行器 run_suite 支持 plan 驱动并导出统一 SchedulerBenchmarkRecord。"""
     model = build_tiny_model()
     device = torch.device("cpu")
     suite = FixedVsContinuousVariableOutputLengthSuite(
@@ -134,7 +139,7 @@ def test_run_scheduler_suite_on_cpu():
         repeats=2,
     )
 
-    suite_res = run_suite(
+    cases = run_suite(
         model=model,
         device=device,
         suite=suite,
@@ -144,16 +149,11 @@ def test_run_scheduler_suite_on_cpu():
         interleave=(BatchingMethod,),
     )
 
-    assert suite_res.suite_name == "fixed-vs-continuous-variable-output-length"
-    assert set(suite_res.cases.keys()) == {"fixed", "continuous"}
-    assert suite_res.continuous_makespan_speedup > 0
-
-    record_dict = suite_res.to_record_dict()
-    assert record_dict["suite"] == "fixed-vs-continuous-variable-output-length"
-    assert len(record_dict["cases"]) == 2
+    assert len(cases) == 2
+    assert {c.case_id for c in cases} == {"fixed", "continuous"}
 
     # 验证控制台表格打印无异常
-    print_scheduler_table([suite_res])
+    print(format_table(cases, suite_name=suite.name))
 
     # 验证完整结果构建
     class DummyArgs:
@@ -162,19 +162,23 @@ def test_run_scheduler_suite_on_cpu():
         model = "dummy-model"
         revision = "main"
 
-    record = build_scheduler_record(
+    record = build_benchmark_record(
         args=DummyArgs(),
         model=model,
-        suite=suite,
-        suite_result=suite_res,
+        mode_label="suite(kv-cache+fixed-batching,kv-cache+continuous-batching)",
+        cases=cases,
         correctness={"check": True},
         env={"gpu": "CPU"},
         peaks={"bandwidth_gbs": None, "tflops": None},
         cost=None,
         git={"commit": "abc", "dirty": False},
+        warmup=0,
+        repeats=2,
+        suite_info=suite.to_dict(),
+        benchmark_type="scheduler",
     )
     assert record["benchmark_type"] == "scheduler"
-    assert record["suite_config"]["request_count"] == 2
+    assert record["suite"]["request_count"] == 2
     assert len(record["cases"]) == 2
 
 

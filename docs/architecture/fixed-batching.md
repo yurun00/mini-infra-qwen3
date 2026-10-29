@@ -103,7 +103,7 @@ $$M_{i, j, k} = \begin{cases} 0, & \text{if } j \ge k \text{ 且 } \text{mask}_{
 ### 1. 动态退出与槽位空转
 每个请求拥有独立的输出预算（`budgets: torch.Tensor`）：
 * 某请求生成结束时，`curr_active[req_idx]` 被置为 `False`；
-* 记录该请求的实际完成步数（`completion_steps_per_req`）；
+* 记录该请求的实际完成步数（`SequenceOutput.completion_step`）；
 * 已完成的请求在后续 Decode 步中将以 Dummy Token 占位，其槽位进入**空转（Idle）状态**，直到批内所有请求全部完成。
 
 ### 2. 核心效率指标

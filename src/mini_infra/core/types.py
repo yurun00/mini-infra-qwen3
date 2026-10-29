@@ -43,6 +43,7 @@ class SequenceOutput:
     prompt_len: int
     output_len: int
     finish_reason: str  # 结束原因: "stop"（命中 EOS）或 "max_tokens"（达到 Token 预算上限）
+    completion_step: int | None = None
 
 
 @dataclass(frozen=True)
@@ -184,47 +185,37 @@ def build_memory_profile(
 
 
 @dataclass(frozen=True)
-class BatchScheduleInfo:
-    """批处理打包（Padding 效率）与槽位利用率明细（Offline、Serving 与 Benchmark 共享）。"""
+class BatchScheduleInfo(Generic[_MetricT]):
+    """批处理打包（Padding 效率）与槽位利用率明细（支持单次运行标量 float 或多轮评测统计分布 DistributionStats）。"""
 
-    padding_efficiency: float
-    slot_utilization: float
-    num_prompt_tokens: int
-    num_padded_prompt_tokens: int
-    prompt_lengths_per_req: list[int]
-    completion_steps_per_req: list[int]
-    ttft_ms: float | None = None
-    running_capacity_utilization: float | None = None
+    padding_efficiency: _MetricT
+    slot_utilization: _MetricT
+    running_capacity_utilization: _MetricT | None = None
 
     @property
-    def execution_slot_utilization(self) -> float:
+    def execution_slot_utilization(self) -> _MetricT:
         """Serving 口径下的执行槽位利用率别名（与 slot_utilization 等价）。"""
         return self.slot_utilization
 
-    @property
-    def effective_prompt_tok_s(self) -> float:
-        """Prefill 阶段有效 Prompt 吞吐率 (tokens/s)。"""
-        if self.ttft_ms is not None and self.ttft_ms > 0:
-            return self.num_prompt_tokens * 1000.0 / self.ttft_ms
-        return 0.0
-
-    @property
-    def padded_prompt_tok_s(self) -> float:
-        """Prefill 阶段包含 Padding 的物理计算吞吐率 (tokens/s)。"""
-        if self.ttft_ms is not None and self.ttft_ms > 0:
-            return self.num_padded_prompt_tokens * 1000.0 / self.ttft_ms
-        return 0.0
-
     def to_dict(self) -> dict[str, Any]:
         """导出为批处理打包特征字典结构。"""
-        return {
-            "padding_efficiency": self.padding_efficiency,
-            "slot_utilization": self.slot_utilization,
-            "num_prompt_tokens": self.num_prompt_tokens,
-            "num_padded_prompt_tokens": self.num_padded_prompt_tokens,
-            "prompt_lengths_per_req": self.prompt_lengths_per_req,
-            "completion_steps_per_req": self.completion_steps_per_req,
+        data: dict[str, Any] = {
+            "padding_efficiency": (
+                self.padding_efficiency.to_dict()
+                if hasattr(self.padding_efficiency, "to_dict")
+                else self.padding_efficiency
+            ),
+            "slot_utilization": (
+                self.slot_utilization.to_dict() if hasattr(self.slot_utilization, "to_dict") else self.slot_utilization
+            ),
         }
+        if self.running_capacity_utilization is not None:
+            data["running_capacity_utilization"] = (
+                self.running_capacity_utilization.to_dict()
+                if hasattr(self.running_capacity_utilization, "to_dict")
+                else self.running_capacity_utilization
+            )
+        return data
 
 
 @dataclass(frozen=True)
@@ -252,6 +243,8 @@ def compute_step_aggregated_metrics(
     total_tokens: int,
     batch_size: int,
     is_cuda: bool = False,
+    num_prompt_tokens: int | None = None,
+    num_padded_prompt_tokens: int | None = None,
 ) -> StepAggregatedMetrics:
     """计算时延分位数、吞吐率与 GPU 利用率纯标量指标（由各 step 统计聚合而成）。"""
     decode_latencies = step_latencies_ms[1:] if len(step_latencies_ms) > 1 else []
@@ -264,6 +257,14 @@ def compute_step_aggregated_metrics(
     throughput_tok_s = total_tokens / (e2e_model_ms / 1000) if e2e_model_ms > 0 else 0.0
     throughput_req_s = batch_size * 1000 / e2e_model_ms if e2e_model_ms > 0 else 0.0
     gpu_time_ratio = (min(1.0, e2e_model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0) if is_cuda else None
+    effective_prompt_tok_s = (
+        (num_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0) if num_prompt_tokens is not None else None
+    )
+    padded_prompt_tok_s = (
+        (num_padded_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0)
+        if num_padded_prompt_tokens is not None
+        else None
+    )
 
     return StepAggregatedMetrics(
         ttft_ms=ttft_ms,
@@ -275,7 +276,19 @@ def compute_step_aggregated_metrics(
         throughput_tok_s=throughput_tok_s,
         throughput_req_s=throughput_req_s,
         gpu_time_ratio=gpu_time_ratio,
+        effective_prompt_tok_s=effective_prompt_tok_s,
+        padded_prompt_tok_s=padded_prompt_tok_s,
     )
+
+
+def collapse_uniform(values: Sequence[Any]) -> Any:
+    """若序列所有元素相等则折叠为标量，否则返回元组（与 WorkloadSpec 表达对齐）。"""
+    if not values:
+        return ()
+    first = values[0]
+    if all(v == first for v in values):
+        return first
+    return tuple(values)
 
 
 __all__ = [
@@ -287,6 +300,7 @@ __all__ = [
     "SequenceOutput",
     "StepAggregatedMetrics",
     "build_memory_profile",
+    "collapse_uniform",
     "compute_step_aggregated_metrics",
     "pad_output_tokens",
 ]

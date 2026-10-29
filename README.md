@@ -74,7 +74,7 @@ mini-infra-qwen3/
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
-│           ├── regression.py          # 性能回归质量门禁核心逻辑
+│           ├── check_regression.py    # 性能回归质量门禁核心逻辑
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
 │           │   ├── types.py           # LockstepCaseResult, DistributionStats 等领域模型
 │           │   ├── suites.py          # 齐步批处理套件定义

@@ -5,13 +5,12 @@
 
 import argparse
 import sys
-import time
-from typing import Any
 
 import torch
 
 from mini_infra.bench.common import (
     BENCH_ARTIFACTS_DIR,
+    RESULT_HISTORY_DIR,
     add_common_args,
     check_correctness,
     git_info,
@@ -21,22 +20,23 @@ from mini_infra.bench.common import (
     resolve_peak_specs,
     save_benchmark_record,
 )
-from mini_infra.bench.scheduler.plan import build_scheduler_run_plan, format_scheduler_run_plan
-from mini_infra.bench.scheduler.run_case import print_single_case_table
-from mini_infra.bench.scheduler.run_case import run_case as run_scheduler_case
-from mini_infra.bench.scheduler.run_suite import (
-    build_scheduler_record,
-    parse_interleave_args,
-    print_scheduler_table,
+from mini_infra.bench.scheduler.format import (
+    compute_continuous_makespan_speedup,
+    format_case_summary,
+    format_table,
 )
+from mini_infra.bench.scheduler.plan import build_scheduler_run_plan, format_scheduler_run_plan
+from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.scheduler.run_suite import (
-    run_suite as run_scheduler_suite,
+    parse_interleave_args,
+    run_suite,
 )
 from mini_infra.bench.scheduler.suites import (
     SCHEDULER_SUITES,
     SchedulerSuiteCase,
-    get_scheduler_suite,
+    get_suite,
 )
+from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import make_arrival_times, make_sequences
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
@@ -155,36 +155,43 @@ def handle_case(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    res = run_scheduler_case(
+    result = run_case(
         model=model,
         device=device,
         case=case,
         warmup=warmup,
         repeats=repeats,
     )
-    print_single_case_table(case_name, res)
+    print(format_case_summary(result))
 
-    if args.output:
-        record: dict[str, Any] = {
-            "schema_version": "1.0",
-            "tag": args.tag,
-            "benchmark_type": "scheduler-case",
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "git": git_info(),
-            "env": gpu_info(device),
-            "peak_specs": resolve_peak_specs(gpu_info(device)["gpu"], args.peak_bandwidth_gbs, args.peak_tflops),
-            "model_cost": model_cost(model),
-            "case": case.to_spec_dict(),
-            "warmup": warmup,
-            "repeats": repeats,
-            "result": res.to_record_dict(),
-        }
-        save_benchmark_record(args.output, record, dirty=git_info()["dirty"])
+    env = gpu_info(device)
+    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    cost = model_cost(model)
+    git = git_info()
+    record = build_benchmark_record(
+        args=args,
+        model=model,
+        mode_label=str(target_mode),
+        cases=[result],
+        correctness=correctness,
+        env=env,
+        peaks=peaks,
+        cost=cost,
+        git=git,
+        warmup=warmup,
+        repeats=repeats,
+        benchmark_type="scheduler",
+    )
+    output = args.output or RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
+    save_benchmark_record(output, record, dirty=git["dirty"])
+
+    print()
+    print(format_table([result], suite_name=case_name))
     return 0
 
 
 def handle_suite(args: argparse.Namespace) -> int:
-    suite = get_scheduler_suite(args.suite)
+    suite = get_suite(args.suite)
 
     if args.dry_run:
         warmup = args.warmup if args.warmup is not None else suite.warmup
@@ -203,12 +210,9 @@ def handle_suite(args: argparse.Namespace) -> int:
     model = load_model(model_dir, device)
     vocab = model.config.vocab_size
 
-    # 正确性门禁：分别对 fixed 与 continuous 验证 golden 输出
-    check_modes = [
-        Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED),
-        Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS),
-    ]
-    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in check_modes}
+    modes = suite.modes()
+    mode_label = ",".join(str(m) for m in modes)
+    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
     if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
@@ -227,7 +231,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    suite_res = run_scheduler_suite(
+    results = run_suite(
         model=model,
         device=device,
         suite=suite,
@@ -237,33 +241,24 @@ def handle_suite(args: argparse.Namespace) -> int:
         interleave=interleave_features,
     )
 
-    for case_id, res in suite_res.cases.items():
-        cache_info = (
-            f" | cache {res.schedule_metrics.cache_management_fraction.mean * 100:.1f}%"
-            if res.schedule_metrics.cache_management_fraction.mean > 0
-            else ""
-        )
-        speedup_info = f" | speedup {suite_res.continuous_makespan_speedup:.2f}x" if "continuous" in case_id else ""
-        print(
-            f"  {case_id:<12}: makespan {res.schedule_metrics.makespan_ms.mean:.2f} ms | "
-            f"{res.step_agg_metrics.throughput_tok_s.mean:.1f} tok/s | "
-            f"{res.step_agg_metrics.throughput_req_s.mean:.2f} req/s | "
-            f"slot_util {res.execution_slot_utilization.mean * 100:.1f}% | "
-            f"ttft_p95 {res.schedule_metrics.ttft_ms_p95.mean:.2f} ms | "
-            f"itl_p95 {res.schedule_metrics.itl_ms_p95.mean:.2f} ms"
-            f"{cache_info}{speedup_info}"
-        )
+    speedup = compute_continuous_makespan_speedup(results)
+    for res in results:
+        print(format_case_summary(res, speedup=speedup))
 
-    record = build_scheduler_record(
+    record = build_benchmark_record(
         args=args,
         model=model,
-        suite=suite,
-        suite_result=suite_res,
+        mode_label=mode_label,
+        cases=results,
         correctness=correctness,
         env=env,
         peaks=peaks,
         cost=cost,
         git=git,
+        warmup=warmup,
+        repeats=repeats,
+        suite_info=suite.to_dict(),
+        benchmark_type="scheduler",
     )
 
     scheduler_dir = BENCH_ARTIFACTS_DIR / "suites" / "scheduler"
@@ -271,5 +266,5 @@ def handle_suite(args: argparse.Namespace) -> int:
     save_benchmark_record(output_path, record, dirty=git["dirty"])
 
     print()
-    print_scheduler_table([suite_res])
+    print(format_table(results, suite_name=suite.name))
     return 0
