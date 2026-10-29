@@ -1,4 +1,4 @@
-"""单元测试：验证 bench/types.py 中 CaseBenchmarkResult 强类型领域模型与功能。"""
+"""单元测试：验证 bench/types.py 中 LockstepCaseResult 强类型领域模型与功能。"""
 
 from dataclasses import FrozenInstanceError
 
@@ -6,8 +6,8 @@ import pytest
 
 from mini_infra.bench.common import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
-    CaseBenchmarkResult,
     DistributionStats,
+    LockstepCaseResult,
     WorkloadSpec,
     summarize_samples,
 )
@@ -45,8 +45,8 @@ def test_distribution_stats_computation_and_immutability():
     assert empty_stats.max == 0.0
 
 
-def test_case_benchmark_result_structure_and_dot_access():
-    """验证 CaseBenchmarkResult 强类型点号访问与各领域对象。"""
+def test_lockstep_case_result_structure_and_dot_access():
+    """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
     workload = WorkloadSpec(
         mode="kv-cache",
         batch_size=2,
@@ -94,7 +94,7 @@ def test_case_benchmark_result_structure_and_dot_access():
         time_share_by_module={"layers": 0.9},
     )
 
-    case_result = CaseBenchmarkResult(
+    case_result = LockstepCaseResult(
         workload=workload,
         metrics=metrics,
         memory=memory,

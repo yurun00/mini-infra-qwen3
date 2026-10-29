@@ -40,7 +40,7 @@ class SchedulerCaseResult:
             "cache_management_ms": sm.cache_management_ms.to_dict(),
             "cache_management_fraction": sm.cache_management_fraction.to_dict(),
             "request_throughput_per_second": self.step_agg_metrics.throughput_req_s.to_dict(),
-            "output_token_throughput_per_second": self.step_agg_metrics.throughput_tok_s.to_dict(),
+            "throughput_tok_s": self.step_agg_metrics.throughput_tok_s.to_dict(),
             "execution_slot_utilization": self.execution_slot_utilization.to_dict(),
             "running_capacity_utilization": self.running_capacity_utilization.to_dict(),
             "queue_ms_p50": sm.queue_ms_p50.to_dict(),
@@ -73,7 +73,7 @@ def summarize_scheduler_runs(
         {
             "makespan_ms": r.schedule_metrics.makespan_ms,
             "request_throughput_per_second": r.step_agg_metrics.throughput_req_s,
-            "output_token_throughput_per_second": r.step_agg_metrics.throughput_tok_s,
+            "throughput_tok_s": r.step_agg_metrics.throughput_tok_s,
             "execution_slot_utilization": r.batch_info.execution_slot_utilization if r.batch_info is not None else 0.0,
             "ttft_ms_p95": r.schedule_metrics.ttft_ms_p95,
             "itl_ms_p95": r.schedule_metrics.itl_ms_p95,

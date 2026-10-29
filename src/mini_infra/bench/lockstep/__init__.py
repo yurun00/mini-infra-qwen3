@@ -17,16 +17,16 @@ from mini_infra.bench.lockstep.suites import (
     get_suite,
 )
 from mini_infra.bench.lockstep.types import (
-    CaseBenchmarkResult,
     DistributionStats,
+    LockstepCaseResult,
     WorkloadSpec,
     summarize_samples,
 )
 
 __all__ = [
     "SUITES",
-    "CaseBenchmarkResult",
     "DistributionStats",
+    "LockstepCaseResult",
     "SerialVsFixedBatchThroughputSuite",
     "Suite",
     "SuiteCase",

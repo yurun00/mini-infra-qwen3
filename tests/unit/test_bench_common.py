@@ -121,8 +121,8 @@ def test_common_strictly_decoupled_from_lockstep():
         print_table,
     )
 
-    # 1. common.py 自身不直接反向引入 CaseBenchmarkResult，解除分层倒置
-    assert "CaseBenchmarkResult" not in bench_common.__dict__
+    # 1. common.py 自身不直接反向引入 LockstepCaseResult，解除分层倒置
+    assert "LockstepCaseResult" not in bench_common.__dict__
 
     # 2. common.py 没有任何批处理专属展示/记录函数与兼容钩子
     assert not hasattr(bench_common, "print_table")

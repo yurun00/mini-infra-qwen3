@@ -1,4 +1,4 @@
-"""基准评测用例级强类型领域模型（CaseBenchmarkResult）。
+"""基准评测用例级强类型领域模型（LockstepCaseResult）。
 
 遵循标准三层正交领域模型：
 1. 负载与配置层：WorkloadSpec
@@ -83,7 +83,7 @@ class WorkloadSpec:
 
 
 @dataclass(frozen=True)
-class CaseBenchmarkResult:
+class LockstepCaseResult:
     """单评测用例（多轮 Repeats 聚合）的标准性能与资源分析结果。
 
     直接组合复用 core.types.StepAggregatedMetrics[DistributionStats]、MemoryProfile、

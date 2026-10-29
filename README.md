@@ -76,7 +76,7 @@ mini-infra-qwen3/
 │           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
 │           ├── regression.py          # 性能回归质量门禁核心逻辑
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
-│           │   ├── types.py           # CaseBenchmarkResult, DistributionStats 等领域模型
+│           │   ├── types.py           # LockstepCaseResult, DistributionStats 等领域模型
 │           │   ├── suites.py          # 齐步批处理套件定义
 │           │   ├── display.py         # 终端表格格式化与基准记录封装
 │           │   ├── run_case.py        # 单 case 基准测试执行引擎

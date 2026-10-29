@@ -14,10 +14,10 @@ from mini_infra.bench.common import (
     ModelCostProfile,
     format_lengths,
 )
-from mini_infra.bench.lockstep.types import CaseBenchmarkResult
+from mini_infra.bench.lockstep.types import LockstepCaseResult
 
 
-def _format_case_row(w: CaseBenchmarkResult, mode: str | None, has_packing: bool) -> list[str]:
+def _format_case_row(w: LockstepCaseResult, mode: str | None, has_packing: bool) -> list[str]:
     """渲染单个用例的一行 CSV 字段（列顺序与 print_table 表头一致）。"""
     ttft = w.metrics.ttft_ms
     tpot = w.metrics.mean_tpot_ms
@@ -45,7 +45,7 @@ def _format_case_row(w: CaseBenchmarkResult, mode: str | None, has_packing: bool
     return row
 
 
-def print_table(case_results: Sequence[CaseBenchmarkResult], mode: str | None = None) -> None:
+def print_table(case_results: Sequence[LockstepCaseResult], mode: str | None = None) -> None:
     """控制台标准 CSV 格式输出。"""
     header = [
         "mode",
@@ -71,7 +71,7 @@ def print_table(case_results: Sequence[CaseBenchmarkResult], mode: str | None = 
         print(",".join(_format_case_row(w, mode, has_packing)))
 
 
-def print_case_summary(result: CaseBenchmarkResult) -> None:
+def print_case_summary(result: LockstepCaseResult) -> None:
     """打印单用例的延迟/吞吐/显存摘要与 MBU/MFU 行（run_case 与 run_suite 共用）。"""
     ttft = result.metrics.ttft_ms
     tpot = result.metrics.mean_tpot_ms
@@ -107,7 +107,7 @@ def build_benchmark_record(
     args: argparse.Namespace,
     model: torch.nn.Module,
     mode_label: str,
-    cases: Sequence[CaseBenchmarkResult],
+    cases: Sequence[LockstepCaseResult],
     correctness: CorrectnessReport | dict[str, Any],
     env: dict[str, Any],
     peaks: HardwarePeakSpecs | dict[str, float | None],

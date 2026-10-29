@@ -11,7 +11,7 @@ import torch
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.bench.lockstep.suites import Suite, SuiteCase
-from mini_infra.bench.lockstep.types import CaseBenchmarkResult
+from mini_infra.bench.lockstep.types import LockstepCaseResult
 from mini_infra.profiling import TensorBoardOptions
 
 
@@ -27,14 +27,14 @@ def run_suite(
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
     on_case_progress: Callable[[int, int, SuiteCase], None] | None = None,
-    on_case_result: Callable[[CaseBenchmarkResult], None] | None = None,
-) -> list[CaseBenchmarkResult]:
+    on_case_result: Callable[[LockstepCaseResult], None] | None = None,
+) -> list[LockstepCaseResult]:
     """按序执行 Suite 中的所有用例，返回评测结果列表。"""
     cases = suite.cases()
     warmup_val = warmup if warmup is not None else suite.warmup
     repeats_val = repeats if repeats is not None else suite.repeats
 
-    case_results: list[CaseBenchmarkResult] = []
+    case_results: list[LockstepCaseResult] = []
     for idx, case in enumerate(cases, 1):
         if on_case_progress is not None:
             on_case_progress(idx, len(cases), case)

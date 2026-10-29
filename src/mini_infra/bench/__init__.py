@@ -26,8 +26,8 @@ from mini_infra.bench.common import (
 )
 from mini_infra.bench.lockstep import (
     SUITES,
-    CaseBenchmarkResult,
     DistributionStats,
+    LockstepCaseResult,
     SerialVsFixedBatchThroughputSuite,
     Suite,
     SuiteCase,
@@ -72,7 +72,6 @@ __all__ = [
     "REPO_ROOT",
     "SCHEDULER_SUITES",
     "SUITES",
-    "CaseBenchmarkResult",
     "CorrectnessReport",
     "DistributionStats",
     "EfficiencyMetrics",
@@ -81,6 +80,7 @@ __all__ = [
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
     "HardwarePeakSpecs",
+    "LockstepCaseResult",
     "ModelCostProfile",
     "SchedulerCaseResult",
     "SchedulerSuite",

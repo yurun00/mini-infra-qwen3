@@ -25,8 +25,8 @@ import torch
 
 from mini_infra.bench.common import ProfileMode, efficiency
 from mini_infra.bench.lockstep.types import (
-    CaseBenchmarkResult,
     DistributionStats,
+    LockstepCaseResult,
     WorkloadSpec,
     summarize_samples,
 )
@@ -89,8 +89,8 @@ def run_case(
     peaks: dict | None = None,
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
-) -> CaseBenchmarkResult:
-    """运行单一用例基准测试并返回 CaseBenchmarkResult 强类型结果。"""
+) -> LockstepCaseResult:
+    """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
     min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
@@ -232,7 +232,7 @@ def run_case(
         )
         op_breakdown = prof_res.op_breakdown
 
-    return CaseBenchmarkResult(
+    return LockstepCaseResult(
         workload=workload,
         metrics=metrics,
         memory=case_memory,

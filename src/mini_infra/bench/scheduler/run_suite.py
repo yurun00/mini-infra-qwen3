@@ -91,7 +91,7 @@ def print_scheduler_table(suite_results: Sequence[SchedulerSuiteResult]) -> None
         "mode",
         "makespan_ms_mean",
         "request_throughput_per_second_mean",
-        "output_token_throughput_per_second_mean",
+        "throughput_tok_s_mean",
         "execution_slot_utilization_mean",
         "ttft_ms_p95_mean",
         "itl_ms_p95_mean",
