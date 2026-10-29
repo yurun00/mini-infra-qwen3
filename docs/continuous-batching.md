@@ -115,6 +115,6 @@ mini-infra bench scheduler suite --tag v0.3.0 --suite fixed-vs-continuous-variab
    * `pytest tests/unit/test_slot_cache.py`：验证槽位分配、右对齐扩展、掩码更新与释放。
    * `pytest tests/unit/test_continuous.py`：在随机小模型上验证与串行 `generate` 逐位一致，覆盖变长 Prompt、EOS 提前截断、容量溢出排队等边缘场景。
 2. **GPU 真实权重等价性测试**：
-   * `pytest tests/gpu/parity/test_continuous_parity.py`：在真实的 Qwen3-0.6B 权重上，验证 Continuous Batching 和 Fixed Batching 的生成结果与单请求串行生成 100% 逐 Token 严格对齐。
+   * `pytest tests/gpu/parity/test_scheduler_batch_parity.py` 或 `mini-infra verify scheduler-batch`：在真实的 Qwen3-0.6B 权重上，验证 Continuous Batching 和 Fixed Batching 的生成结果与单请求串行生成 100% 逐 Token 严格对齐（详见 [docs/parity-verification.md](parity-verification.md)）。
 3. **Smoke 快速冒烟**：
    * `mini-infra verify smoke` 已集成 `check_continuous_batching`，数秒内完成 CPU 端全链路自检。

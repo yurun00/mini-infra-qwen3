@@ -50,14 +50,23 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 ---
 
 ### 2. 端到端精度对齐测试 (GPU)
-*需要 GPU 环境，下载固定版本 `Qwen/Qwen3-0.6B`（若受限可配置 `export HF_ENDPOINT=https://hf-mirror.com`）：*
+*需要 GPU 环境，下载固定版本 `Qwen/Qwen3-0.6B`（若受限可配置 `export HF_ENDPOINT=https://hf-mirror.com`）。更详尽的指令与参数说明见 **[docs/parity-verification.md](docs/parity-verification.md)**：*
+
+* **Scheduler 批调度（Fixed 与 Continuous）动态对齐**：
+  ```bash
+  mini-infra verify scheduler-batch \
+    --max-new-tokens 8 \
+    --max-running-requests 2
+  # 或使用 pytest：pytest tests/gpu/parity/test_scheduler_batch_parity.py
+  ```
+  在 float32 下验证 Continuous Batching、Fixed Batching 与串行单请求生成 100% 逐 Token 严格对齐，覆盖动态槽位绑定、历史 Mask 管理与长短请求动态进出。
 
 * **固定批处理请求隔离与数值对齐**：
   ```bash
-  mini-infra verify batch \
+  mini-infra verify lockstep-batch \
     --prompt "用一句话解释固定批处理。" \
     --max-new-tokens 8
-  # 或使用 pytest：pytest tests/gpu/parity/test_batch_parity.py
+  # 或使用 pytest：pytest tests/gpu/parity/test_lockstep_batch_parity.py
   ```
   验证不同 Batch Size、排列顺序、同批伴随内容和不同 Padding 长度下各个请求的生成 Token 与 Logits，严格保障请求隔离（Request Isolation）与数值不变性。
 
@@ -93,6 +102,8 @@ mini-infra bench check-regression
 ---
 
 ## 三、独立全量基准测量（不污染发版历史）
+
+> 💡 更多 Lockstep、Scheduler 与各预设实验套件的详细命令样例见 **[docs/benchmarks.md](docs/benchmarks.md)**。
 
 在日常性能调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**：
 
