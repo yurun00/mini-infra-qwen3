@@ -41,7 +41,7 @@ jobs:
 
           # 2. 若为空且已有同 TAG 的历史归档，优先提取其 release_feature 保持同构
           if [[ -z "$FEATURE" ]]; then
-            FEATURE=$(python3 -c "import glob, json; files=glob.glob('benchmarks/result-history/*_${TAG}.json'); print(json.load(open(files[0])).get('release_feature', '') if files else '')" 2>/dev/null || true)
+            FEATURE=$(python3 -c "import glob, json; files=glob.glob('benchmarks/result-history/**/*_${TAG}.json', recursive=True); print(json.load(open(files[0])).get('release_feature', '') if files else '')" 2>/dev/null || true)
           fi
 
           # 3. 若仍为空，尝试从 Git annotated tag 的注释中提取（如 'Release v0.4.0: Continuous batching' -> 'Continuous batching'）

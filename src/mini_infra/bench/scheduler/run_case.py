@@ -3,6 +3,9 @@
 提供 SchedulerSuiteCase 的原子单次执行与多次评测汇总纯函数接口，供 CLI 或上层评测套件调用。
 """
 
+from collections.abc import Callable
+from dataclasses import replace
+
 import torch
 
 from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
@@ -36,13 +39,21 @@ def run_case(
     case: SchedulerSuiteCase,
     warmup: int = 1,
     repeats: int = 3,
+    on_step_progress: Callable[[str, int, int], None] | None = None,
 ) -> SchedulerCaseResult:
     """连续执行单个 Case（warmup + repeats），汇总并返回 SchedulerCaseResult。"""
-    for _ in range(warmup):
+    for i in range(1, warmup + 1):
+        if on_step_progress is not None:
+            on_step_progress("warmup", i, warmup)
         run_case_once(model, device, case)
 
-    runs = [run_case_once(model, device, case) for _ in range(repeats)]
-    return summarize_same_workload_runs(case.id, runs)
+    runs: list[ScheduleResult] = []
+    for i in range(1, repeats + 1):
+        if on_step_progress is not None:
+            on_step_progress("measure", i, repeats)
+        runs.append(run_case_once(model, device, case))
+    res = summarize_same_workload_runs(case.id, runs)
+    return replace(res, workload=replace(res.workload, warmup=warmup))
 
 
 __all__ = [

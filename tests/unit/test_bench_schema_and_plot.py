@@ -55,7 +55,7 @@ def _make_single_case_scheduler_dict(tag: str, case_id: str, mode: str, makespan
         "tag": tag,
         "release_feature": f"Scheduler {mode}",
         "mode": mode,
-        "timestamp": "2026-10-29T08:00:00+0000",
+        "timestamp": "2099-12-31T23:59:59+0000",
         "git": {"commit": f"commit_{tag}", "branch": "main", "dirty": False, "message": "test"},
         "env": {"gpu": "NVIDIA L4", "torch": "2.14.1"},
         "peak_specs": {"bandwidth_gbs": 300.0, "tflops": 121.0},
@@ -120,17 +120,22 @@ def _make_single_case_scheduler_dict(tag: str, case_id: str, mode: str, makespan
 
 def test_existing_benchmark_json_files_validate():
     """验证仓库内所有基准 JSON 文件均通过 Pydantic Schema 校验，且 result-history 满足单 Case 约束。"""
-    history_dir = Path("benchmarks/result-history")
-    history_files = sorted(history_dir.glob("*.json"))
-    assert len(history_files) >= 4
-    for p in history_files:
+    lockstep_history_dir = Path("benchmarks/result-history/lockstep")
+    lockstep_files = sorted(lockstep_history_dir.glob("*.json"))
+    assert len(lockstep_files) >= 4
+    for p in lockstep_files:
         rec = load_benchmark_record(p, require_single_case=True)
         assert isinstance(rec, LockstepBenchmarkRecord)
         assert len(rec.cases) == 1
-        assert rec.cases[0].prompt_len == 128
+
+    scheduler_history_dir = Path("benchmarks/result-history/scheduler")
+    for p in sorted(scheduler_history_dir.glob("*.json")):
+        rec = load_benchmark_record(p, require_single_case=True)
+        assert isinstance(rec, SchedulerBenchmarkRecord)
+        assert len(rec.cases) == 1
 
     ref = load_benchmark_record(Path("benchmarks/data/reference.json"), require_single_case=True)
-    assert isinstance(ref, LockstepBenchmarkRecord)
+    assert isinstance(ref, LockstepBenchmarkRecord | SchedulerBenchmarkRecord)
 
     eval_rec = load_benchmark_record(Path("benchmarks/suites/serial-vs-fixed-batch-throughput/eval.json"))
     assert isinstance(eval_rec, LockstepBenchmarkRecord)
@@ -145,7 +150,7 @@ def test_existing_benchmark_json_files_validate():
 def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     """验证 resolve_plot_specs 在纯 Lockstep、纯 Scheduler 与跨越边界时的动态图表规格解析与字段对齐。"""
     lockstep_rec = load_benchmark_record(
-        Path("benchmarks/result-history/1c21386_v0.3.0.json"), require_single_case=True
+        Path("benchmarks/result-history/lockstep/1c21386_v0.3.0.json"), require_single_case=True
     )
     sched_rec_1 = validate_benchmark_record(
         _make_single_case_scheduler_dict("v0.4.0", "fixed", "kv-cache+fixed-batching", 2800.0, 46.0),
@@ -163,17 +168,17 @@ def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     assert any(s.metric_key == "tpot_ms" for s in lockstep_specs)
     assert all(s.chart_kind == "line" for s in lockstep_specs)
 
-    # 2. 纯 Scheduler：包含 SHARED + SCHEDULER_ONLY (不含 tpot_ms，含 itl_ms_p95 / makespan_ms 等)
+    # 2. 纯 Scheduler：包含 SHARED + SCHEDULER_ONLY (含对齐后的 tpot_ms，以及 itl_ms_p95 / makespan_ms 等)
     sched_specs = resolve_plot_specs([sched_rec_1, sched_rec_2])
     assert sched_specs == [*SHARED_PLOT_SPECS, *SCHEDULER_ONLY_PLOT_SPECS]
-    assert not any(s.metric_key == "tpot_ms" for s in sched_specs)
+    assert any(s.metric_key == "tpot_ms" for s in sched_specs)
     assert any(s.metric_key == "itl_ms_p95" for s in sched_specs)
     assert any(s.metric_key == "makespan_ms" for s in sched_specs)
 
-    # 3. 跨越 Lockstep <-> Scheduler 边界：仅保留 SHARED_PLOT_SPECS，且 ttft_ms 与 schedule.ttft_ms_p50 对齐
+    # 3. 跨越 Lockstep <-> Scheduler 边界：保留 SHARED_PLOT_SPECS（ttft_ms <-> ttft_ms_p50，tpot_ms <-> itl_ms_p50）
     cross_specs = resolve_plot_specs([lockstep_rec, sched_rec_2])
     assert cross_specs == list(SHARED_PLOT_SPECS)
-    assert not any(s.metric_key == "tpot_ms" for s in cross_specs)
+    assert any(s.metric_key == "tpot_ms" for s in cross_specs)
     assert not any(s.metric_key == "itl_ms_p95" for s in cross_specs)
 
     wide_df = records_to_wide_df([lockstep_rec, sched_rec_2])
@@ -181,6 +186,9 @@ def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     # 验证 Lockstep 的 ttft_ms 与 Scheduler 的 schedule.ttft_ms_p50 对齐在同一列 ttft_ms.median
     assert wide_df["ttft_ms.median"].notna().all()
     assert wide_df.loc[wide_df["benchmark_type"] == "scheduler", "ttft_ms.median"].iloc[0] == pytest.approx(44.0)
+    # 验证 Lockstep 的 tpot_ms 与 Scheduler 的 schedule.itl_ms_p50 对齐在同一列 tpot_ms.median
+    assert wide_df["tpot_ms.median"].notna().all()
+    assert wide_df.loc[wide_df["benchmark_type"] == "scheduler", "tpot_ms.median"].iloc[0] == pytest.approx(42.0)
     # 验证 slot_utilization 对齐
     assert wide_df["slot_utilization.median"].notna().all()
 
@@ -216,12 +224,12 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     assert out_compare_png.exists()
 
     # 2. 跨边界 (Lockstep vs Scheduler) 双文件单 Case 对比
-    lockstep_path = Path("benchmarks/result-history/1c21386_v0.3.0.json")
+    lockstep_path = Path("benchmarks/result-history/lockstep/1c21386_v0.3.0.json")
     rec_lock = load_record(lockstep_path)
     lbl_lock = resolve_label(rec_lock)
     cross_md = generate_comparison_table(rec_lock, rec_cont, lbl_lock, lbl_cont)
     assert "TTFT / Prefill Latency (ms)" in cross_md
-    assert "TPOT / Decode Latency (ms/token)" not in cross_md
+    assert "TPOT / ITL P50 Latency (ms/token)" in cross_md
     assert "ITL P95 Latency (ms/token)" not in cross_md
     out_cross_png = tmp_path / "cross_compare.png"
     plot_mode_comparison(rec_lock, rec_cont, lbl_lock, lbl_cont, out_cross_png)
@@ -230,14 +238,15 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     # 3. History 跨边界演进图与表格
     hist_dir = tmp_path / "history_input"
     hist_dir.mkdir()
-    for p in sorted(Path("benchmarks/result-history").glob("*.json")):
+    for p in sorted(Path("benchmarks/result-history/lockstep").glob("*.json")):
         (hist_dir / p.name).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
-    (hist_dir / "2025a8e_v0.4.0.json").write_text(sched_cont_path.read_text(encoding="utf-8"), encoding="utf-8")
+    (hist_dir / "zzzz_v0.4.0-cont.json").write_text(sched_cont_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     records = load_results(hist_dir)
-    assert len(records) == 5
+    assert len(records) >= 5
     hist_md = markdown_table(records, records[0])
     assert "v0.4.0-cont" in hist_md
+    assert "TPOT / ITL P50 (ms)" in hist_md
     guidance = generate_optimization_guidance(records[-1])
     assert "v0.4.0-cont" in guidance
 

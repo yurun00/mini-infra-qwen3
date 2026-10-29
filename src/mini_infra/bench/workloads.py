@@ -1,8 +1,49 @@
-"""基准测试工作负载配置与序列生成辅助工具。"""
+"""基准测试工作负载配置（WorkloadSpec、标准 Lockstep/Scheduler 负载实例）与序列生成辅助工具。"""
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 import torch
+
+from mini_infra.core.request import RequestSpec, make_request_specs
+from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
+
+
+@dataclass(frozen=True)
+class WorkloadSpec:
+    """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats 与 warmup）。"""
+
+    mode: Mode
+    batch_size: int
+    prompt_len: int | tuple[int, ...]
+    max_new_tokens: int | tuple[int, ...]
+    repeats: int = field(default=1, compare=False)
+    warmup: int = field(default=0, compare=False)
+    max_running_requests: int | None = None
+    arrival_times_ms: float | tuple[float, ...] | None = None
+
+
+# 标准齐步（Lockstep）基准工作负载：4 条阶梯变长 Prompt 与阶梯变长输出预算请求
+LOCKSTEP_WORKLOAD = WorkloadSpec(
+    mode=Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED),
+    batch_size=4,
+    prompt_len=(64, 128, 256, 512),
+    max_new_tokens=(16, 32, 64, 128),
+    repeats=10,
+    warmup=3,
+)
+
+# 标准调度器（Scheduler）基准工作负载：16 条请求（4 个波次 × 并发槽位 4），变长 Prompt、交错长短输出预算与流式错峰到达
+SCHEDULER_WORKLOAD = WorkloadSpec(
+    mode=Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS),
+    batch_size=16,
+    prompt_len=(64, 128, 256, 512) * 4,
+    max_new_tokens=(16, 64, 32, 128) * 4,
+    repeats=10,
+    warmup=3,
+    max_running_requests=4,
+    arrival_times_ms=(0.0, 0.0, 0.0, 0.0) + tuple(80.0 * i for i in range(1, 13)),
+)
 
 
 def make_sequence(
@@ -128,7 +169,38 @@ def make_alternating_budgets(count: int, short_budget: int, long_budget: int) ->
     return [short_budget if i % 2 == 0 else long_budget for i in range(count)]
 
 
+def build_scheduler_request_specs(
+    workload: WorkloadSpec,
+    vocab_size: int,
+    device: torch.device | str | None = None,
+) -> list[RequestSpec]:
+    """根据 WorkloadSpec 构建 Scheduler 评测所需的 RequestSpec 列表。"""
+    n = workload.batch_size
+    lengths = [workload.prompt_len] * n if isinstance(workload.prompt_len, int) else list(workload.prompt_len)
+    budgets = (
+        [workload.max_new_tokens] * n if isinstance(workload.max_new_tokens, int) else list(workload.max_new_tokens)
+    )
+    if workload.arrival_times_ms is None:
+        arrivals = [0.0] * n
+    elif isinstance(workload.arrival_times_ms, int | float):
+        arrivals = [float(workload.arrival_times_ms)] * n
+    else:
+        arrivals = [float(a) for a in workload.arrival_times_ms]
+
+    if len(lengths) != n or len(budgets) != n or len(arrivals) != n:
+        raise ValueError(
+            f"WorkloadSpec 长度不匹配: batch_size={n}, len(prompt_len)={len(lengths)}, "
+            f"len(max_new_tokens)={len(budgets)}, len(arrival_times_ms)={len(arrivals)}"
+        )
+    sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+    return make_request_specs(sequences, budgets, arrivals)
+
+
 __all__ = [
+    "LOCKSTEP_WORKLOAD",
+    "SCHEDULER_WORKLOAD",
+    "WorkloadSpec",
+    "build_scheduler_request_specs",
     "make_alternating_budgets",
     "make_arrival_times",
     "make_prompt",

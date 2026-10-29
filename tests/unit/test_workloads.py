@@ -4,6 +4,10 @@ import torch
 
 from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
 from mini_infra.bench.workloads import (
+    LOCKSTEP_WORKLOAD,
+    SCHEDULER_WORKLOAD,
+    WorkloadSpec,
+    build_scheduler_request_specs,
     make_alternating_budgets,
     make_arrival_times,
     make_prompt,
@@ -156,3 +160,63 @@ def test_make_alternating_budgets():
         make_alternating_budgets(2, 0, 32)
     with pytest.raises(ValueError):
         make_alternating_budgets(2, 8, 0)
+
+
+def test_canonical_workloads_and_build_scheduler_specs():
+    assert isinstance(LOCKSTEP_WORKLOAD, WorkloadSpec)
+    assert LOCKSTEP_WORKLOAD.batch_size == 4
+    assert LOCKSTEP_WORKLOAD.prompt_len == (64, 128, 256, 512)
+    assert LOCKSTEP_WORKLOAD.max_new_tokens == (16, 32, 64, 128)
+    assert LOCKSTEP_WORKLOAD.warmup >= 1
+
+    assert isinstance(SCHEDULER_WORKLOAD, WorkloadSpec)
+    assert SCHEDULER_WORKLOAD.batch_size == 16
+    assert SCHEDULER_WORKLOAD.max_running_requests == 4
+    assert len(SCHEDULER_WORKLOAD.prompt_len) == 16  # type: ignore[arg-type]
+    assert len(SCHEDULER_WORKLOAD.max_new_tokens) == 16  # type: ignore[arg-type]
+    assert len(SCHEDULER_WORKLOAD.arrival_times_ms) == 16  # type: ignore[arg-type]
+    assert SCHEDULER_WORKLOAD.warmup >= 1
+
+    specs = build_scheduler_request_specs(SCHEDULER_WORKLOAD, vocab_size=32000)
+    assert len(specs) == 16
+    assert tuple(s.prompt_len for s in specs) == SCHEDULER_WORKLOAD.prompt_len
+    assert tuple(s.max_new_tokens for s in specs) == SCHEDULER_WORKLOAD.max_new_tokens
+    assert tuple(s.arrival_ms for s in specs) == SCHEDULER_WORKLOAD.arrival_times_ms
+
+
+def test_release_benchmark_script_dry_run(capsys):
+    from mini_infra.cli.commands.bench import release
+
+    # Test lockstep dry-run
+    rc_lockstep = release.main(
+        [
+            "--type",
+            "lockstep",
+            "--tag",
+            "v0.3.0",
+            "--release-feature",
+            "fixed batching",
+            "--dry-run",
+        ]
+    )
+    assert rc_lockstep == 0
+    out_lockstep = capsys.readouterr().out
+    assert "[1/3] 开始执行: 运行 Lockstep 单标杆基准" in out_lockstep
+    assert "-> 目标产物: benchmarks/result-history/lockstep/<commit>_v0.3.0.json" in out_lockstep
+
+    # Test scheduler dry-run
+    rc_scheduler = release.main(
+        [
+            "--type",
+            "scheduler",
+            "--tag",
+            "v0.4.0",
+            "--release-feature",
+            "continuous batching",
+            "--dry-run",
+        ]
+    )
+    assert rc_scheduler == 0
+    out_scheduler = capsys.readouterr().out
+    assert "[1/4] 开始执行: 运行 Scheduler 单标杆基准" in out_scheduler
+    assert "-> 目标产物: benchmarks/result-history/scheduler/<commit>_v0.4.0.json" in out_scheduler

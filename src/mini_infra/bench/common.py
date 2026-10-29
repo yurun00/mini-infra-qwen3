@@ -18,8 +18,8 @@ from typing import Any
 import torch
 from pydantic import BaseModel
 
+from mini_infra.bench.workloads import WorkloadSpec
 from mini_infra.engine import GenerationOptions, generate
-from mini_infra.engine.types import WorkloadSpec
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -47,8 +47,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_BENCH_DIR = REPO_ROOT / "benchmarks"
 BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_BENCH_DIR))).resolve()
 RESULT_HISTORY_DIR = BENCH_ARTIFACTS_DIR / "result-history"
+LOCKSTEP_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "lockstep"
+SCHEDULER_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "scheduler"
 SUITES_DIR = BENCH_ARTIFACTS_DIR / "suites"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
+LOCKSTEP_REPORTS_DIR = REPORTS_DIR / "lockstep"
+SCHEDULER_REPORTS_DIR = REPORTS_DIR / "scheduler"
 GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "data" / "golden_output_tokens.json"
 
 
@@ -278,9 +282,16 @@ def require_cuda() -> torch.device:
 
 
 def format_lengths(value: int | Sequence[int]) -> str:
-    """将标量或逐请求长度序列格式化为 `16/32/64` 形式的展示串。"""
+    """将标量或逐请求长度序列格式化为 `16/32/64`（长周期重复序列折叠为 `(64/128/256/512)x4`）形式的展示串。"""
     if isinstance(value, Sequence) and not isinstance(value, str):
-        return "/".join(map(str, value))
+        items = list(value)
+        n = len(items)
+        if n > 4:
+            for period in range(1, n // 2 + 1):
+                if n % period == 0 and items == items[:period] * (n // period):
+                    pattern = "/".join(map(str, items[:period]))
+                    return f"({pattern})x{n // period}" if period > 1 else f"{pattern}x{n}"
+        return "/".join(map(str, items))
     return str(value)
 
 
@@ -491,11 +502,15 @@ __all__ = [
     "GOLDEN_PROMPT",
     "GPU_PEAK_SPECS",
     "HardwarePeakSpecs",
+    "LOCKSTEP_REPORTS_DIR",
+    "LOCKSTEP_RESULT_HISTORY_DIR",
     "ModelCostProfile",
     "ProfileMode",
     "REPORTS_DIR",
     "REPO_ROOT",
     "RESULT_HISTORY_DIR",
+    "SCHEDULER_REPORTS_DIR",
+    "SCHEDULER_RESULT_HISTORY_DIR",
     "SCHEMA_VERSION",
     "SUITES_DIR",
     "WorkloadSpec",

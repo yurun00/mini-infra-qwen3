@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import torch
 
@@ -25,21 +25,10 @@ from mini_infra.engine.mode import FeatureFlag, Mode
 from mini_infra.profiling import OpLatencyBreakdown
 from mini_infra.utils import percentile
 
+if TYPE_CHECKING:
+    from mini_infra.bench.workloads import WorkloadSpec
+
 _MetricT = TypeVar("_MetricT")
-
-
-@dataclass(frozen=True)
-class WorkloadSpec:
-    """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats 与 warmup）。"""
-
-    mode: Mode
-    batch_size: int
-    prompt_len: int | tuple[int, ...]
-    max_new_tokens: int | tuple[int, ...]
-    repeats: int = field(default=1, compare=False)
-    warmup: int = field(default=0, compare=False)
-    max_running_requests: int | None = None
-    arrival_times_ms: float | tuple[float, ...] | None = None
 
 
 class SchedulePhase(str, Enum):
@@ -130,8 +119,10 @@ class ScheduleResult(GenerationResult):
         return self.metrics
 
     @property
-    def workload(self) -> WorkloadSpec:
+    def workload(self) -> "WorkloadSpec":
         """从单次调度结果提取负载规格 WorkloadSpec（相等比较时忽略 repeats 与 warmup）。"""
+        from mini_infra.bench.workloads import WorkloadSpec
+
         prompt_lens = [s.prompt_len for s in self.sequences]
         output_budgets = [r.num_output_tokens for r in self.request_metrics]
         arrivals = [r.arrival_ms for r in self.request_metrics]
@@ -273,7 +264,6 @@ __all__ = [
     "ScheduleResult",
     "SequenceOutput",
     "StepAggregatedMetrics",
-    "WorkloadSpec",
     "build_memory_profile",
     "compute_step_aggregated_metrics",
     "pad_output_tokens",

@@ -3,8 +3,9 @@
 第一大类：跨版本演化趋势 (Evolution Across Releases)
     自动通过 resolve_plot_specs(records) 感知历史记录是否跨越 lockstep <-> scheduler 边界：
     - 未跨边界（纯 Lockstep 或纯 Scheduler）：绘制共享指标 + 当前域专属指标
-      （如 Lockstep 的 tpot_ms，或 Scheduler 的 itl_ms_p95 / queue_ms_p95 / makespan_ms）
-    - 跨越边界（含 Lockstep 与 Scheduler）：仅绘制跨边界共享指标（ttft_ms 自动对齐至 schedule.ttft_ms_p50）
+      （如 Scheduler 的 itl_ms_p95 / queue_ms_p95 / makespan_ms）
+    - 跨越边界（含 Lockstep 与 Scheduler）：绘制跨边界共享指标
+      （ttft_ms 对齐至 schedule.ttft_ms_p50，tpot_ms 对齐至 schedule.itl_ms_p50）
 
 第二大类：当前模型深度剖析与优化指引 (Profiling & Optimization Guidance)
     基于 target 版本的单 Case 数据展示 MBU/MFU、模块归因、算子类别与显存足迹。
@@ -14,7 +15,10 @@ import math
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.common import RESULT_HISTORY_DIR
+from mini_infra.bench.common import (
+    LOCKSTEP_RESULT_HISTORY_DIR,
+    RESULT_HISTORY_DIR,
+)
 from mini_infra.bench.plotting.tidy import (
     records_to_wide_df,
     resolve_plot_specs,
@@ -30,9 +34,12 @@ from mini_infra.bench.schema import (
 
 
 def load_results(history_dir: Path | None = None) -> list[LockstepBenchmarkRecord | SchedulerBenchmarkRecord]:
-    """加载 result-history/*.json 并强制校验每个文件只包含 1 个 Case (require_single_case=True)。"""
-    target_dir = history_dir or RESULT_HISTORY_DIR
-    records = [load_benchmark_record(p, require_single_case=True) for p in target_dir.glob("*.json")]
+    """加载指定历史目录中的 *.json 并强制校验每个文件只包含 1 个 Case (require_single_case=True)。"""
+    target_dir = history_dir or LOCKSTEP_RESULT_HISTORY_DIR
+    json_files = list(target_dir.glob("*.json")) if target_dir.exists() else []
+    if not json_files and history_dir is None and RESULT_HISTORY_DIR.exists():
+        json_files = list(RESULT_HISTORY_DIR.glob("*.json"))
+    records = [load_benchmark_record(p, require_single_case=True) for p in json_files]
     records.sort(key=lambda r: r.timestamp)
     return records
 
@@ -78,8 +85,8 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | 类型 | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
-                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
 
@@ -117,12 +124,14 @@ def markdown_table(records: list[Any], base: Any) -> str:
                 f"{thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
             )
         else:
+            tpot = float(row.get("tpot_ms.median", 0.0))
+            s_tpot = f" ({b_tpot / tpot:.2f}x)" if b_tpot > 0 and tpot > 0 else ""
             e2e = float(row.get("e2e_wall_ms.median", 0.0))
             s_e2e = f" ({b_e2e / e2e:.2f}x)" if b_e2e > 0 and e2e > 0 else ""
             lines.append(
                 f"| {row['label']} | `{row['benchmark_type']}` | {row['commit']} | {row['batch_size']} | "
                 f"{row['prompt_len_str']} | {row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | "
-                f"{e2e:.2f}{s_e2e} | {thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
+                f"{tpot:.2f}{s_tpot} | {e2e:.2f}{s_e2e} | {thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
             )
 
     return "\n".join(lines)
@@ -281,7 +290,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
 
 
 def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_path: Path) -> None:
-    """绘制第二大类图表：当前模型深度剖析与优化指引（2行2列面板）。"""
+    """绘制第二大类图表：当前模型深度剖析与优化指引（2行2列面板，支持 Lockstep 与 Scheduler 双域）。"""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -289,42 +298,54 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
 
     validated_target = validate_benchmark_record(target_rec, require_single_case=True)
     w = validated_target.cases[0].to_dict()
+    is_scheduler = isinstance(validated_target, SchedulerBenchmarkRecord)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
     (ax_ceil, ax_mem), (ax_mod, ax_cat) = axes
 
-    # 2.1 硬件物理天花板差距（MBU / MFU / GPU Busy）
-    eff = w.get("efficiency") or {}
+    # 2.1 硬件物理天花板与调度容量利用率
     gpu_busy = (w.get("gpu_time_ratio") or {}).get("median")
-    ceil_items = [
-        ("Prefill MFU", 100.0 * (eff.get("prefill_mfu") or 0.0), "#e67e22"),
-        ("Decode MFU", 100.0 * (eff.get("decode_mfu") or 0.0), "#e74c3c"),
-        ("Decode MBU", 100.0 * (eff.get("decode_mbu") or 0.0), "#2980b9"),
-        ("GPU Busy", 100.0 * (gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
-    ]
-    if eff or gpu_busy is not None:
-        names = [k for k, _, _ in ceil_items]
-        vals = [v for _, v, _ in ceil_items]
-        cols = [c for _, _, c in ceil_items]
-        bars = ax_ceil.bar(names, vals, color=cols, alpha=0.85, width=0.5)
-        for bar in bars:
-            h = bar.get_height()
-            ax_ceil.annotate(
-                f"{h:.1f}%",
-                xy=(bar.get_x() + bar.get_width() / 2, h),
-                xytext=(0, 3),
-                textcoords="offset points",
-                ha="center",
-                va="bottom",
-                fontsize=8.5,
-            )
-        ax_ceil.set_ylim(0, 108)
-        ax_ceil.set_ylabel("Utilization (%)")
-        ax_ceil.set_title("2.1 Hardware Ceiling Utilization (MFU / MBU / Busy)")
-        ax_ceil.grid(True, linestyle="--", alpha=0.45)
+    if is_scheduler:
+        pack = w.get("packing") or {}
+        slot_u = (pack.get("slot_utilization") or {}).get("median", 0.0)
+        cap_u = (pack.get("running_capacity_utilization") or {}).get("median", 0.0)
+        pad_e = (pack.get("padding_efficiency") or {}).get("median", 0.0)
+        ceil_items = [
+            ("Slot Util", 100.0 * float(slot_u), "#2980b9"),
+            ("Capacity Util", 100.0 * float(cap_u), "#8e44ad"),
+            ("Padding Eff", 100.0 * float(pad_e), "#e67e22"),
+            ("GPU Busy", 100.0 * float(gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
+        ]
+        title_21 = "2.1 Scheduler & GPU Utilization (Slot / Capacity / Padding / Busy)"
     else:
-        ax_ceil.text(0.5, 0.5, "No efficiency metrics", ha="center", va="center", transform=ax_ceil.transAxes)
-        ax_ceil.set_axis_off()
+        eff = w.get("efficiency") or {}
+        ceil_items = [
+            ("Prefill MFU", 100.0 * (eff.get("prefill_mfu") or 0.0), "#e67e22"),
+            ("Decode MFU", 100.0 * (eff.get("decode_mfu") or 0.0), "#e74c3c"),
+            ("Decode MBU", 100.0 * (eff.get("decode_mbu") or 0.0), "#2980b9"),
+            ("GPU Busy", 100.0 * (gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
+        ]
+        title_21 = "2.1 Hardware Ceiling Utilization (MFU / MBU / Busy)"
+
+    names = [k for k, _, _ in ceil_items]
+    vals = [v for _, v, _ in ceil_items]
+    cols = [c for _, _, c in ceil_items]
+    bars = ax_ceil.bar(names, vals, color=cols, alpha=0.85, width=0.5)
+    for bar in bars:
+        h = bar.get_height()
+        ax_ceil.annotate(
+            f"{h:.1f}%",
+            xy=(bar.get_x() + bar.get_width() / 2, h),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+        )
+    ax_ceil.set_ylim(0, 108)
+    ax_ceil.set_ylabel("Utilization (%)")
+    ax_ceil.set_title(title_21)
+    ax_ceil.grid(True, linestyle="--", alpha=0.45)
 
     # 2.2 显存足迹剖析（跨版本或当前版本堆叠图）
     wide_df = records_to_wide_df(records) if records else records_to_wide_df([validated_target])
@@ -346,51 +367,113 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     ax_mem.legend(fontsize=8)
     ax_mem.grid(True, linestyle="--", alpha=0.45)
 
-    # 2.3 & 2.4 模块与算子类型透视
-    ob = w.get("op_latency_breakdown")
-    if isinstance(ob, dict) and ob.get("time_share_by_module"):
-        mod_items = list(ob.get("time_share_by_module", {}).items())[::-1]
-        bars_m = ax_mod.barh([k for k, _ in mod_items], [100 * v for _, v in mod_items], color="tab:cyan", alpha=0.85)
-        for bar in bars_m:
-            w_val = bar.get_width()
-            ax_mod.annotate(
-                f"{w_val:.1f}%",
-                (w_val, bar.get_y() + bar.get_height() / 2),
-                xytext=(3, 0),
-                textcoords="offset points",
-                va="center",
-                fontsize=8,
-            )
-        ax_mod.set_xlabel("Share of GPU Time (%)")
-        ax_mod.set_title(f"2.3 Module Attribution (prompt={w['prompt_len']})")
-        ax_mod.grid(alpha=0.3)
+    # 2.3 & 2.4：Scheduler 迭代轨迹与分位数剖析 vs Lockstep 算子剖析
+    if is_scheduler:
+        events = w.get("sample_event_trace") or []
+        if events:
+            step_ids = list(range(1, len(events) + 1))
+            step_ms = [float(e.get("step_ms", 0.0)) for e in events]
+            active_reqs = [int(e.get("num_active_requests", 0)) for e in events]
+            step_colors = ["#e67e22" if e.get("phase") == "prefill" else "#2980b9" for e in events]
+            ax_mod.bar(step_ids, step_ms, color=step_colors, alpha=0.8, width=0.8, label="Step Latency (ms)")
+            ax_mod.set_xlabel("Scheduler Iteration Step (Orange=Prefill, Blue=Decode)")
+            ax_mod.set_ylabel("Step Latency (ms)", color="#2980b9")
+            ax_mod.set_title(f"2.3 Iteration Step Latency & Active Slots ({len(events)} steps)")
+            ax_mod.grid(True, linestyle="--", alpha=0.35)
 
-        cat_items = list(ob.get("time_share_by_kernel_category", {}).items())[::-1]
-        bars_c = ax_cat.barh([k for k, _ in cat_items], [100 * v for _, v in cat_items], color="tab:olive", alpha=0.85)
-        for bar in bars_c:
-            w_val = bar.get_width()
+            ax_mod_r = ax_mod.twinx()
+            ax_mod_r.plot(step_ids, active_reqs, color="#27ae60", linewidth=1.8, label="Active Slots")
+            ax_mod_r.set_ylabel("Active Running Requests", color="#27ae60")
+            max_cap = int((w.get("schedule") or {}).get("max_running_requests", max(active_reqs, default=4)))
+            ax_mod_r.set_ylim(0, max(max_cap + 1, 5))
+        else:
+            ax_mod.text(0.5, 0.5, "No sample event trace", ha="center", va="center", transform=ax_mod.transAxes)
+            ax_mod.set_axis_off()
+
+        sched = w.get("schedule") or {}
+        lat_categories = ["Queue Delay", "TTFT", "ITL (per tok)", "End-to-End"]
+        p50_vals = [
+            float((sched.get("queue_ms_p50") or {}).get("median", 0.0)),
+            float((sched.get("ttft_ms_p50") or {}).get("median", 0.0)),
+            float((sched.get("itl_ms_p50") or {}).get("median", 0.0)),
+            float((sched.get("end_to_end_ms_p50") or {}).get("median", 0.0)),
+        ]
+        p95_vals = [
+            float((sched.get("queue_ms_p95") or {}).get("median", 0.0)),
+            float((sched.get("ttft_ms_p95") or {}).get("median", 0.0)),
+            float((sched.get("itl_ms_p95") or {}).get("median", 0.0)),
+            float((sched.get("end_to_end_ms_p95") or {}).get("median", 0.0)),
+        ]
+        x_idx = list(range(len(lat_categories)))
+        bar_w = 0.36
+        bars_50 = ax_cat.bar([x - bar_w / 2 for x in x_idx], p50_vals, width=bar_w, label="P50", color="#3498db")
+        bars_95 = ax_cat.bar([x + bar_w / 2 for x in x_idx], p95_vals, width=bar_w, label="P95", color="#e74c3c")
+        for bar in (*bars_50, *bars_95):
+            h = bar.get_height()
             ax_cat.annotate(
-                f"{w_val:.1f}%",
-                (w_val, bar.get_y() + bar.get_height() / 2),
-                xytext=(3, 0),
+                f"{h:.1f}",
+                xy=(bar.get_x() + bar.get_width() / 2, h),
+                xytext=(0, 2),
                 textcoords="offset points",
-                va="center",
-                fontsize=8,
-            )
-        ax_cat.set_xlabel("Share of GPU Time (%)")
-        ax_cat.set_title(f"2.4 Kernel Category (prompt={w['prompt_len']})")
-        ax_cat.grid(alpha=0.3)
-    else:
-        for ax in (ax_mod, ax_cat):
-            ax.text(
-                0.5,
-                0.5,
-                "No op latency breakdown profile\n(rerun with --profile-mode extra-profile)",
                 ha="center",
-                va="center",
-                transform=ax.transAxes,
+                va="bottom",
+                fontsize=7.5,
             )
-            ax.set_axis_off()
+        ax_cat.set_xticks(x_idx)
+        ax_cat.set_xticklabels(lat_categories)
+        ax_cat.set_ylabel("Latency (ms)")
+        ax_cat.set_title("2.4 Request Latency Percentiles (P50 vs P95)")
+        ax_cat.legend(fontsize=8.5)
+        ax_cat.grid(True, linestyle="--", alpha=0.45)
+    else:
+        ob = w.get("op_latency_breakdown")
+        if isinstance(ob, dict) and ob.get("time_share_by_module"):
+            mod_items = list(ob.get("time_share_by_module", {}).items())[::-1]
+            bars_m = ax_mod.barh(
+                [k for k, _ in mod_items], [100 * v for _, v in mod_items], color="tab:cyan", alpha=0.85
+            )
+            for bar in bars_m:
+                w_val = bar.get_width()
+                ax_mod.annotate(
+                    f"{w_val:.1f}%",
+                    (w_val, bar.get_y() + bar.get_height() / 2),
+                    xytext=(3, 0),
+                    textcoords="offset points",
+                    va="center",
+                    fontsize=8,
+                )
+            ax_mod.set_xlabel("Share of GPU Time (%)")
+            ax_mod.set_title(f"2.3 Module Attribution (prompt={w['prompt_len']})")
+            ax_mod.grid(alpha=0.3)
+
+            cat_items = list(ob.get("time_share_by_kernel_category", {}).items())[::-1]
+            bars_c = ax_cat.barh(
+                [k for k, _ in cat_items], [100 * v for _, v in cat_items], color="tab:olive", alpha=0.85
+            )
+            for bar in bars_c:
+                w_val = bar.get_width()
+                ax_cat.annotate(
+                    f"{w_val:.1f}%",
+                    (w_val, bar.get_y() + bar.get_height() / 2),
+                    xytext=(3, 0),
+                    textcoords="offset points",
+                    va="center",
+                    fontsize=8,
+                )
+            ax_cat.set_xlabel("Share of GPU Time (%)")
+            ax_cat.set_title(f"2.4 Kernel Category (prompt={w['prompt_len']})")
+            ax_cat.grid(alpha=0.3)
+        else:
+            for ax in (ax_mod, ax_cat):
+                ax.text(
+                    0.5,
+                    0.5,
+                    "No op latency breakdown profile\n(rerun with --profile-mode extra-profile)",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+                ax.set_axis_off()
 
     fig.suptitle(
         f"mini-infra-qwen3 Category 2: Current Model Profiling & Optimization Guidance ({label(validated_target)})",
@@ -405,7 +488,7 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
 
 
 def generate_optimization_guidance(target_rec: Any) -> str:
-    """根据当前版本的单 Case profiling 数据，自动提炼诊断结论与下一步优化建议。"""
+    """根据当前版本的单 Case profiling 数据，自动提炼诊断结论与下一步优化建议（支持 Lockstep 与 Scheduler）。"""
     validated_target = validate_benchmark_record(target_rec, require_single_case=True)
     w = validated_target.cases[0].to_dict()
 
@@ -415,6 +498,71 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         "![Profiling](./profiling_and_optimization.png)",
         "",
     ]
+
+    if isinstance(validated_target, SchedulerBenchmarkRecord):
+        sched = w.get("schedule") or {}
+        pack = w.get("packing") or {}
+        mem = w.get("memory") or {}
+        slot_u = float((pack.get("slot_utilization") or {}).get("median", 0.0))
+        cap_u = float((pack.get("running_capacity_utilization") or {}).get("median", 0.0))
+        pad_e = float((pack.get("padding_efficiency") or {}).get("median", 0.0))
+        q_p50 = float((sched.get("queue_ms_p50") or {}).get("median", 0.0))
+        q_p95 = float((sched.get("queue_ms_p95") or {}).get("median", 0.0))
+        ttft_p50 = float((sched.get("ttft_ms_p50") or {}).get("median", 0.0))
+        ttft_p95 = float((sched.get("ttft_ms_p95") or {}).get("median", 0.0))
+        itl_p50 = float((sched.get("itl_ms_p50") or {}).get("median", 0.0))
+        itl_p95 = float((sched.get("itl_ms_p95") or {}).get("median", 0.0))
+        itl_max = float((sched.get("itl_ms_max") or {}).get("median", 0.0))
+        cache_frac = float((sched.get("cache_management_fraction") or {}).get("median", 0.0))
+        kv_mb = float(mem.get("kv_cache_mb") or 0.0)
+        dyn_mb = float(mem.get("dynamic_peak_mb") or 0.0)
+        frag_mb = float(mem.get("fragmentation_mb") or 0.0)
+
+        lines.append(
+            f"基于当前调度器版本 `{label(validated_target)}`（`requests={w['batch_size']}, "
+            f"max_running={sched.get('max_running_requests', 4)}`）下的基准测量与轨迹剖析，诊断如下：\n"
+        )
+        lines.append("### 1. 槽位与并发容量利用率诊断（调度效率）")
+        lines.append(
+            f"- 🔹 **执行槽位有效率（Slot Utilization）为 {slot_u * 100:.1f}%**，"
+            f"**并发容量利用率（Running Capacity Utilization）为 {cap_u * 100:.1f}%**，"
+            f"**Prompt Padding 有效率为 {pad_e * 100:.1f}%**。"
+        )
+        if pad_e < 0.75:
+            lines.append(
+                "- 🟡 **变长 Prompt 左填充浪费明显**：建议后续演进引入 "
+                "**FlashAttention-Varlen / Ragged Prefill** 消除无效 Padding 计算。"
+            )
+        lines.append("")
+
+        lines.append("### 2. 请求排队与尾延迟诊断（P50 vs P95）")
+        lines.append(
+            f"- 🔹 **排队延迟**：P50 = `{q_p50:.1f} ms`，P95 = `{q_p95:.1f} ms`；"
+            f"**TTFT**：P50 = `{ttft_p50:.1f} ms`，P95 = `{ttft_p95:.1f} ms`。"
+        )
+        lines.append(
+            f"- 🔹 **Decode 步间延迟（ITL）**：P50 = `{itl_p50:.2f} ms`，"
+            f"P95 = `{itl_p95:.2f} ms`，Max = `{itl_max:.2f} ms`。"
+        )
+        if itl_max > itl_p50 * 1.4:
+            lines.append(
+                "- 🟡 **观测到新请求 Prefill 插队导致的 Decode 尾延迟毛刺（ITL Max > 1.4x P50）**："
+                "建议下一步演进引入 **Token Budget 调度器与 Chunked Prefill**，"
+                "将长 Prompt 拆分为小块与 Decode 交织执行。"
+            )
+        lines.append("")
+
+        lines.append("### 3. 显存足迹与 KV Cache 管理诊断")
+        lines.append(
+            f"- 🔹 **峰值活跃 KV Cache 为 {kv_mb:.1f} MiB**，动态显存峰值增量为 **{dyn_mb:.1f} MiB**，"
+            f"Allocator 预留碎片为 **{frag_mb:.1f} MiB**，Cache 搬移开销占比为 **{cache_frac * 100:.2f}%**。"
+        )
+        lines.append(
+            "- 👉 **下一步核心演进方向**：引入 **Paged KV Cache（分页键值缓存）** 与 **Prefix Cache**，"
+            "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密槽位搬移。"
+        )
+        lines.append("")
+        return "\n".join(lines)
 
     ob = w.get("op_latency_breakdown")
     if not (isinstance(ob, dict) and ob.get("time_share_by_module")):

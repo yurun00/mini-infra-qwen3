@@ -63,7 +63,9 @@ $$\text{Shape: } [B, H_{\text{kv}}, S, D]$$
 ### 2. Prefill 与 Decode 的双模更新
 在 [`KVCache.update()`](../../src/mini_infra/memory/kv_cache.py#L20) 中显式区分两阶段：
 ```python
-def update(self, key_states: torch.Tensor, value_states: torch.Tensor, layer_index: int) -> tuple[torch.Tensor, torch.Tensor]:
+def update(
+    self, key_states: torch.Tensor, value_states: torch.Tensor, layer_index: int
+) -> tuple[torch.Tensor, torch.Tensor]:
     if len(self.key_cache) <= layer_index:
         # 1. Prefill 阶段：首次前向，将整段 Prompt 的全量 Key/Value 保存入池
         self.key_cache.append(key_states)
@@ -102,8 +104,7 @@ $$\text{KV Cache Bytes} = 2 \times L \times B \times H_{\text{kv}} \times D \tim
 ```python
 def total_bytes(self) -> int:
     return sum(
-        k.numel() * k.element_size() + v.numel() * v.element_size()
-        for k, v in zip(self.key_cache, self.value_cache)
+        k.numel() * k.element_size() + v.numel() * v.element_size() for k, v in zip(self.key_cache, self.value_cache)
     )
 ```
 

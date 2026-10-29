@@ -28,6 +28,7 @@ class MetricPlotSpec:
 # 1. 跨边界共享指标（Lockstep 与 Scheduler 均可提取并对齐）
 SHARED_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
     MetricPlotSpec("ttft_ms", "TTFT / Prefill Latency (ms)", "TTFT (ms)"),
+    MetricPlotSpec("tpot_ms", "TPOT / ITL P50 Latency (ms/token)", "Latency (ms/token)"),
     MetricPlotSpec("throughput_tok_s", "Output Throughput (tokens/s)", "Throughput (tokens/s)"),
     MetricPlotSpec("throughput_req_s", "Request Throughput (req/s)", "Throughput (req/s)"),
     MetricPlotSpec("e2e_wall_ms", "End-to-End Wall Latency (ms)", "E2E Latency (ms)"),
@@ -41,9 +42,7 @@ SHARED_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
 )
 
 # 2. Lockstep 专属指标（仅当待比较记录全部为 lockstep 时显示）
-LOCKSTEP_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
-    MetricPlotSpec("tpot_ms", "TPOT / Decode Latency (ms/token)", "TPOT (ms/token)"),
-)
+LOCKSTEP_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = ()
 
 # 3. Scheduler 专属指标（仅当待比较记录全部为 scheduler 时显示）
 SCHEDULER_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
@@ -145,14 +144,20 @@ def records_to_wide_df(
     wide_df = pd.json_normalize(case_dicts)
     extra_cols: dict[str, Any] = {}
 
-    # 1. 跨边界对齐：Lockstep 的 ttft_ms 与 Scheduler 的 schedule.ttft_ms_p50 对齐
-    for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
-        target_col = f"ttft_ms.{stat}"
-        sched_col = f"schedule.ttft_ms_p50.{stat}"
-        if target_col not in wide_df.columns and sched_col in wide_df.columns:
-            extra_cols[target_col] = wide_df[sched_col]
-        elif target_col in wide_df.columns and sched_col in wide_df.columns:
-            wide_df[target_col] = wide_df[target_col].fillna(wide_df[sched_col])
+    # 1. 跨边界对齐：
+    #    - Lockstep 的 ttft_ms <-> Scheduler 的 schedule.ttft_ms_p50
+    #    - Lockstep 的 tpot_ms <-> Scheduler 的 schedule.itl_ms_p50
+    for target_prefix, sched_prefix in (
+        ("ttft_ms", "schedule.ttft_ms_p50"),
+        ("tpot_ms", "schedule.itl_ms_p50"),
+    ):
+        for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
+            target_col = f"{target_prefix}.{stat}"
+            sched_col = f"{sched_prefix}.{stat}"
+            if target_col not in wide_df.columns and sched_col in wide_df.columns:
+                extra_cols[target_col] = wide_df[sched_col]
+            elif target_col in wide_df.columns and sched_col in wide_df.columns:
+                wide_df[target_col] = wide_df[target_col].fillna(wide_df[sched_col])
 
     # 2. 将 Scheduler 专属 schedule.<metric>.* 提升至顶层 <metric>.* 供 MetricPlotSpec 统一索引
     sched_exclusive_keys = (

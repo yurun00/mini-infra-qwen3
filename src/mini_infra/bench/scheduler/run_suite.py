@@ -4,11 +4,13 @@
 逐项调用 run_case 模块的原子 step 执行，返回用例结果列表 list[SchedulerCaseResult]。
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 
 import torch
 
 from mini_infra.bench.scheduler.plan import (
+    PlannedRun,
     RunPhase,
     build_scheduler_run_plan,
     parse_interleave_dimension,
@@ -41,6 +43,7 @@ def run_suite(
     warmup: int | None = None,
     repeats: int | None = None,
     interleave: Sequence[FeatureDimension] | None = None,
+    on_step_progress: Callable[[int, int, PlannedRun], None] | None = None,
 ) -> list[SchedulerCaseResult]:
     """运行一个 Scheduler 评测套件：根据计划驱动执行，返回有序的 list[SchedulerCaseResult]。"""
     warmup_val = warmup if warmup is not None else suite.warmup
@@ -54,12 +57,19 @@ def run_suite(
 
     # 驱动执行计划，按用例 ID 归集测量结果
     runs_by_case_id: dict[str, list[ScheduleResult]] = {case.id: [] for case in cases}
-    for planned_run in plan:
+    total_steps = len(plan)
+    for idx, planned_run in enumerate(plan, 1):
+        if on_step_progress is not None:
+            on_step_progress(idx, total_steps, planned_run)
         res = run_case_once(model, device, planned_run.case)
         if planned_run.phase == RunPhase.MEASURE:
             runs_by_case_id[planned_run.case.id].append(res)
 
-    return [summarize_same_workload_runs(case.id, runs_by_case_id[case.id]) for case in cases]
+    results: list[SchedulerCaseResult] = []
+    for case in cases:
+        res = summarize_same_workload_runs(case.id, runs_by_case_id[case.id])
+        results.append(replace(res, workload=replace(res.workload, warmup=warmup_val)))
+    return results
 
 
 __all__ = [

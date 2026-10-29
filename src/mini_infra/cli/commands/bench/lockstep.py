@@ -7,7 +7,7 @@ import argparse
 import sys
 
 from mini_infra.bench.common import (
-    RESULT_HISTORY_DIR,
+    LOCKSTEP_RESULT_HISTORY_DIR,
     SUITES_DIR,
     add_common_args,
     check_correctness,
@@ -173,7 +173,7 @@ def handle_case(args: argparse.Namespace) -> int:
         repeats=args.repeats,
     )
 
-    output = args.output or RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
+    output = args.output or LOCKSTEP_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
     save_benchmark_record(output, record, dirty=git["dirty"])
     print()
     print(format_table([result]))
