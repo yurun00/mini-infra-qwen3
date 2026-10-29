@@ -2,7 +2,7 @@
 
 import pytest
 
-from mini_infra.generation.mode import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
 
 
 def test_feature_flag():
@@ -76,3 +76,25 @@ def test_mode_contains():
     assert BatchingMethod.FIXED in mode
     assert "fixed-batching" in mode
     assert BatchingMethod.CONTINUOUS not in mode
+
+
+def test_mode_feature_dimensions_and_value():
+    assert Mode.FEATURE_DIMENSIONS == (FeatureFlag.KV_CACHE, BatchingMethod)
+
+    mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    assert mode.feature_dimensions == Mode.FEATURE_DIMENSIONS
+    assert mode.feature_value(FeatureFlag.KV_CACHE) is True
+    assert mode.feature_value(BatchingMethod) == BatchingMethod.CONTINUOUS
+
+    mode_no_kv = Mode(batching_method=BatchingMethod.FIXED)
+    assert mode_no_kv.feature_value(FeatureFlag.KV_CACHE) is False
+    assert mode_no_kv.feature_value(BatchingMethod) == BatchingMethod.FIXED
+
+    with pytest.raises(TypeError, match="未知的特征维度类型"):
+        mode.feature_value("unknown_feature")
+
+    with pytest.raises(TypeError, match="未知的特征维度类型"):
+        mode.feature_value("batching_method")
+
+    with pytest.raises(TypeError, match="未知的特征维度类型"):
+        mode.feature_value("kv-cache")

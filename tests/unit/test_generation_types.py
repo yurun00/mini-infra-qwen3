@@ -4,7 +4,7 @@
 1. 全面属性化（Dot-attribute Access）与不可变数据类（frozen dataclass）
 2. 彻底消除方括号字典访问与 __getattr__ 穿透
 3. 六大正交领域分离（Outputs, Metrics, Memory, Trace, Profiling, BatchInfo）
-4. 计算逻辑与容器分离纯函数（build_memory_profile, compute_step_aggregated_metrics, aggregate_generation_results）
+4. 计算逻辑与容器分离纯函数（build_memory_profile, compute_step_aggregated_metrics 等）
 """
 
 from dataclasses import FrozenInstanceError, is_dataclass
@@ -12,26 +12,30 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.generation.types import (
-    AggregationOptions,
+from mini_infra.core.types import (
     BatchScheduleInfo,
-    GenerationResult,
-    GenerationTrace,
     MemoryProfile,
     SequenceOutput,
+    build_memory_profile,
+)
+from mini_infra.entrypoints.types import (
+    AggregationOptions,
+    GenerationOptions,
+    GenerationResult,
+    GenerationTrace,
     StepAggregatedMetrics,
     aggregate_generation_results,
-    build_memory_profile,
     compute_step_aggregated_metrics,
-    percentile,
 )
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
+from mini_infra.utils import percentile
 
 
 def test_frozen_dataclass_contract():
     """验证所有核心数据类均为 frozen dataclass，且支持不可变性保护。"""
     classes = [
         SequenceOutput,
+        GenerationOptions,
         MemoryProfile,
         StepAggregatedMetrics,
         GenerationTrace,
@@ -94,7 +98,7 @@ def test_no_subscript_or_dynamic_attr_proxy():
     )
     trace = GenerationTrace(
         step_latencies_ms=[10.0, 5.0, 5.0],
-        active_tokens_per_step=[1, 1, 1],
+        num_active_tokens_per_step=[1, 1, 1],
     )
     result = GenerationResult(
         sequences=[seq],
@@ -219,7 +223,7 @@ def test_aggregate_generation_results():
         ),
         trace=GenerationTrace(
             step_latencies_ms=[10.0, 4.0, 4.0],
-            active_tokens_per_step=[1, 1, 1],
+            num_active_tokens_per_step=[1, 1, 1],
         ),
         batch_size=1,
     )
@@ -248,7 +252,7 @@ def test_aggregate_generation_results():
         ),
         trace=GenerationTrace(
             step_latencies_ms=[12.0, 6.0, 6.0, 4.0],
-            active_tokens_per_step=[1, 1, 1, 1],
+            num_active_tokens_per_step=[1, 1, 1, 1],
         ),
         batch_size=1,
     )
@@ -285,7 +289,7 @@ def test_aggregate_generation_results():
 
     # 4. 验证 Trace
     assert len(merged.trace.step_latencies_ms) == 7
-    assert merged.trace.active_tokens_per_step == [1, 1, 1, 1, 1, 1, 1]
+    assert merged.trace.num_active_tokens_per_step == [1, 1, 1, 1, 1, 1, 1]
 
 
 def test_aggregate_generation_results_with_options():
@@ -310,7 +314,7 @@ def test_aggregate_generation_results_with_options():
             peak_reserved_mb=200.0,
             kv_cache_mb=10.0,
         ),
-        trace=GenerationTrace(step_latencies_ms=[10.0, 4.0], active_tokens_per_step=[1, 1]),
+        trace=GenerationTrace(step_latencies_ms=[10.0, 4.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
     )
     res2 = GenerationResult(
@@ -333,7 +337,7 @@ def test_aggregate_generation_results_with_options():
             peak_reserved_mb=250.0,
             kv_cache_mb=20.0,
         ),
-        trace=GenerationTrace(step_latencies_ms=[20.0, 8.0], active_tokens_per_step=[1, 1]),
+        trace=GenerationTrace(step_latencies_ms=[20.0, 8.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
     )
 
@@ -452,8 +456,8 @@ def test_generation_result_prompt_throughput_properties():
     batch_info = BatchScheduleInfo(
         padding_efficiency=0.5,
         slot_utilization=1.0,
-        prompt_tokens=100,
-        padded_prompt_tokens=200,
+        num_prompt_tokens=100,
+        num_padded_prompt_tokens=200,
         prompt_lengths_per_req=[50, 50],
         completion_steps_per_req=[10, 10],
         ttft_ms=50.0,  # 50 ms
@@ -467,8 +471,8 @@ def test_generation_result_prompt_throughput_properties():
     zero_ttft_info = BatchScheduleInfo(
         padding_efficiency=0.5,
         slot_utilization=1.0,
-        prompt_tokens=100,
-        padded_prompt_tokens=200,
+        num_prompt_tokens=100,
+        num_padded_prompt_tokens=200,
         prompt_lengths_per_req=[50, 50],
         completion_steps_per_req=[10, 10],
         ttft_ms=0.0,
@@ -498,3 +502,28 @@ def test_generation_result_prompt_throughput_properties():
     assert not hasattr(res, "effective_prompt_tok_s")
     assert not hasattr(res, "padded_prompt_tok_s")
     assert res.batch_info.effective_prompt_tok_s == 2000.0
+
+
+def test_generation_options_immutability_and_defaults(diverse_model):
+    from mini_infra import GenerationOptions, Mode, generate
+
+    CPU = torch.device("cpu")
+    mode = Mode()
+    prompt = [[1, 2, 3]]
+
+    # 1. 不可变性测试
+    opts = GenerationOptions(device=CPU, stop_on_eos=False, pad_token_id=0)
+    with pytest.raises(FrozenInstanceError):
+        opts.stop_on_eos = True  # type: ignore[misc]
+
+    # 2. options 结构体传参
+    res_opts = generate(mode, diverse_model, prompt, 3, options=opts)
+    assert len(res_opts.sequences[0].token_ids) == 3
+
+    # 3. 默认 options=None 传参
+    res_default = generate(mode, diverse_model, prompt, 3)
+    assert len(res_default.sequences[0].token_ids) == 3
+
+    # 4. 不再支持平铺多余关键字参数（严格单一 options 结构体入口）
+    with pytest.raises(TypeError):
+        generate(mode, diverse_model, prompt, 3, device=CPU)  # type: ignore[call-arg]

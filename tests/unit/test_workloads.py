@@ -4,31 +4,34 @@ import torch
 
 from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
 from mini_infra.bench.workloads import (
-    get_mixed_output_budgets,
-    get_mixed_prompt_lengths,
+    make_alternating_budgets,
+    make_arrival_times,
     make_prompt,
     make_sequence,
     make_sequences,
+    make_variable_output_budgets,
+    make_variable_prompt_lengths,
 )
-from mini_infra.generation import (
+from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
+    GenerationOptions,
     Mode,
     generate,
 )
 from mini_infra.verification.smoke import build_tiny_model
 
 
-def test_get_mixed_prompt_lengths():
-    assert get_mixed_prompt_lengths(128) == [16, 32, 64, 128]
-    assert get_mixed_prompt_lengths(4) == [1, 1, 2, 4]
-    assert get_mixed_prompt_lengths(1) == [1, 1, 1, 1]
+def test_make_variable_prompt_lengths():
+    assert make_variable_prompt_lengths(128) == [16, 32, 64, 128]
+    assert make_variable_prompt_lengths(4) == [1, 1, 2, 4]
+    assert make_variable_prompt_lengths(1) == [1, 1, 1, 1]
 
 
-def test_get_mixed_output_budgets():
-    assert get_mixed_output_budgets(64) == [8, 16, 32, 64]
-    assert get_mixed_output_budgets(8) == [2, 2, 4, 8]
-    assert get_mixed_output_budgets(2) == [2, 2, 2, 2]
+def test_make_variable_output_budgets():
+    assert make_variable_output_budgets(64) == [8, 16, 32, 64]
+    assert make_variable_output_budgets(8) == [2, 2, 4, 8]
+    assert make_variable_output_budgets(2) == [2, 2, 2, 2]
 
 
 def test_make_sequence_shape_and_range():
@@ -76,7 +79,7 @@ def test_make_sequences_variable_lengths():
     assert not torch.equal(seqs[0], seqs[1][:16])
 
 
-def test_make_prompt_int_compatibility_with_run_py():
+def test_make_prompt_int_tensor():
     vocab_size = 151936
     length = 128
     batch_size = 3
@@ -121,9 +124,7 @@ def test_variable_length_prompt_generation_smoke():
         model=model,
         input_ids=prompts,
         max_new_tokens=4,
-        eos_token_id=-1,
-        device=device,
-        stop_on_eos=False,
+        options=GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False),
     )
     assert res.padded_output_tokens().shape == (2, 4)
     assert len(res.sequences) == 2
@@ -131,3 +132,27 @@ def test_variable_length_prompt_generation_smoke():
     assert res.sequences[1].request_index == 1
     assert len(res.sequences[0].token_ids) == 4
     assert len(res.sequences[1].token_ids) == 4
+
+
+def test_make_arrival_times():
+    import pytest
+
+    assert make_arrival_times(4, 150.0) == [0.0, 150.0, 300.0, 450.0]
+    assert make_arrival_times(1, 0.0) == [0.0]
+    with pytest.raises(ValueError):
+        make_arrival_times(0, 10.0)
+    with pytest.raises(ValueError):
+        make_arrival_times(3, -5.0)
+
+
+def test_make_alternating_budgets():
+    import pytest
+
+    assert make_alternating_budgets(4, 8, 32) == [8, 32, 8, 32]
+    assert make_alternating_budgets(3, 10, 20) == [10, 20, 10]
+    with pytest.raises(ValueError):
+        make_alternating_budgets(0, 8, 32)
+    with pytest.raises(ValueError):
+        make_alternating_budgets(2, 0, 32)
+    with pytest.raises(ValueError):
+        make_alternating_budgets(2, 8, 0)

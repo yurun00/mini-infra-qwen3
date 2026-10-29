@@ -12,12 +12,9 @@
     2.4 显存足迹剖析 (Weights 常驻 vs 动态峰值 vs 碎片预留) -> 如果显存紧张该砍哪里
 """
 
-import argparse
 import json
-from pathlib import Path
 
 from mini_infra.bench.common import (
-    REPORTS_DIR,
     RESULT_HISTORY_DIR,
 )
 
@@ -33,7 +30,7 @@ def index(record):
         (
             w["batch_size"],
             tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
-            w.get("max_new_tokens", w.get("output_len")),
+            tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"],
         ): w
         for w in record["cases"]
     }
@@ -42,7 +39,7 @@ def index(record):
 def label(record):
     tag = record["tag"]
     dirty = "*" if record.get("git", {}).get("dirty") else ""
-    feat = record.get("release_feature") or record.get("release-feature") or record.get("feature")
+    feat = record.get("release_feature")
     if feat:
         return f"{tag} ({feat}){dirty}"
     return f"{tag}{dirty}"
@@ -455,7 +452,7 @@ def generate_optimization_guidance(target_rec):
     if not prof_ws:
         lines.append(
             "> 提示：当前记录中未包含详细的算子剖析采样数据。"
-            "使用 `mini-infra-bench-case --profile-mode extra-profile` 重跑可获取完整算子诊断。"
+            "使用 `mini-infra bench lockstep case --profile-mode extra-profile` 重跑可获取完整算子诊断。"
         )
         return "\n".join(lines)
 
@@ -560,52 +557,11 @@ def generate_optimization_guidance(target_rec):
     return "\n".join(lines)
 
 
-# ==============================================================================
-# CLI 入口
-# ==============================================================================
-def main():
-    parser = argparse.ArgumentParser(description="mini-infra-qwen3 benchmark visualizer")
-    parser.add_argument("--baseline", help="作为基准的 tag，默认最早的结果")
-    parser.add_argument("--target", help="作为当前深度剖析对象的 tag，默认最新的结果")
-    # 新规范参数
-    parser.add_argument("--evolution-figure", type=Path, default=REPORTS_DIR / "evolution_and_scaling.png")
-    parser.add_argument("--profiling-figure", type=Path, default=REPORTS_DIR / "profiling_and_optimization.png")
-    parser.add_argument("--summary-path", type=Path, default=REPORTS_DIR / "SUMMARY.md")
-    args = parser.parse_args()
-
-    records = load_results()
-    if not records:
-        raise SystemExit(f"{RESULT_HISTORY_DIR} 中没有结果，请先运行 mini-infra-bench-case")
-
-    base = next((r for r in records if r["tag"] == args.baseline), records[0]) if args.baseline else records[0]
-    target = next((r for r in records if r["tag"] == args.target), records[-1]) if args.target else records[-1]
-
-    table = markdown_table(records, base)
-    guidance = generate_optimization_guidance(target)
-
-    content = [
-        "# Benchmark 性能评估与演进分析报告",
-        "",
-        table,
-        "",
-        "## 一、跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)",
-        "",
-        "![Evolution & Scaling](./evolution_and_scaling.png)",
-        "",
-        guidance,
-        "",
-    ]
-    args.summary_path.parent.mkdir(parents=True, exist_ok=True)
-    args.summary_path.write_text("\n".join(content) + "\n")
-    print(table)
-    print(f"\n汇总报告已保存：{args.summary_path}")
-
-    try:
-        plot_evolution_and_scaling(records, base, args.evolution_figure)
-        plot_profiling_and_optimization(records, target, args.profiling_figure)
-    except ImportError:
-        print("未安装 matplotlib，跳过绘图（pip install -e '.[bench]'）")
-
-
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "generate_optimization_guidance",
+    "index",
+    "load_results",
+    "markdown_table",
+    "plot_evolution_and_scaling",
+    "plot_profiling_and_optimization",
+]

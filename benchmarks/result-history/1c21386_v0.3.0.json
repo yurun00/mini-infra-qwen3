@@ -243,7 +243,7 @@
           719.7646536739744
         ]
       },
-      "extra": {
+      "packing": {
         "padding_efficiency": 1.0,
         "slot_utilization": 1.0,
         "prompt_tokens": 32,
@@ -1152,7 +1152,7 @@
           2230.4736853825557
         ]
       },
-      "extra": {
+      "packing": {
         "padding_efficiency": 1.0,
         "slot_utilization": 1.0,
         "prompt_tokens": 128,
@@ -2075,7 +2075,7 @@
           8911.93640028565
         ]
       },
-      "extra": {
+      "packing": {
         "padding_efficiency": 1.0,
         "slot_utilization": 1.0,
         "prompt_tokens": 512,
@@ -2984,7 +2984,7 @@
           10664.23175034374
         ]
       },
-      "extra": {
+      "packing": {
         "padding_efficiency": 1.0,
         "slot_utilization": 1.0,
         "prompt_tokens": 1024,

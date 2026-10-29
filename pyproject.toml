@@ -38,16 +38,8 @@ dev = [
 ]
 
 [project.scripts]
-mini-infra-smoke = "mini_infra.verification.smoke:main"
-mini-infra-run = "mini_infra.cli.run_inference:main"
-mini-infra-compare = "mini_infra.verification.parity.compare_transformers:main"
-mini-infra-compare-cache = "mini_infra.verification.parity.compare_cache:main"
-mini-infra-compare-batch = "mini_infra.verification.parity.compare_batch:main"
-mini-infra-bench-case = "mini_infra.bench.run_case:main"
-mini-infra-bench-suite = "mini_infra.bench.run_suite:main"
-mini-infra-bench-plot-history = "mini_infra.bench.plotting.history:main"
-mini-infra-bench-plot-compare = "mini_infra.bench.plotting.compare:main"
-mini-infra-bench-regression = "mini_infra.bench.check_regression:main"
+mini-infra = "mini_infra.cli.main:main"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

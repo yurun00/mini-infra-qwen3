@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release Tag (例如 v0.2.0)'
+        description: 'Release Tag (例如 v0.4.0)'
         required: false
         default: 'manual-release'
       release_feature:
-        description: 'Release Feature (例如 "KV cache")'
+        description: 'Release Feature (例如 "continuous batching")'
         required: false
         default: ''
 
@@ -44,7 +44,7 @@ jobs:
             FEATURE=$(python3 -c "import glob, json; files=glob.glob('benchmarks/result-history/*_${TAG}.json'); print(json.load(open(files[0])).get('release_feature', '') if files else '')" 2>/dev/null || true)
           fi
 
-          # 3. 若仍为空，尝试从 Git annotated tag 的注释中提取（如 'Release v0.2.0: KV cache' -> 'KV cache'）
+          # 3. 若仍为空，尝试从 Git annotated tag 的注释中提取（如 'Release v0.4.0: Continuous batching' -> 'Continuous batching'）
           if [[ -z "$FEATURE" ]]; then
             RAW_MSG=$(git tag -l --format='%(contents:subject)' "$TAG" 2>/dev/null || true)
             if [[ -n "$RAW_MSG" ]]; then
@@ -54,18 +54,18 @@ jobs:
 
           echo "Running benchmark for tag: $TAG (release_feature: ${FEATURE:-none})"
           if [[ -n "$FEATURE" ]]; then
-            .venv/bin/mini-infra-bench-case --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
+            .venv/bin/mini-infra bench lockstep case --tag "$TAG" --release-feature "$FEATURE" --profile-mode extra-profile
           else
-            .venv/bin/mini-infra-bench-case --tag "$TAG" --profile-mode extra-profile
+            .venv/bin/mini-infra bench lockstep case --tag "$TAG" --profile-mode extra-profile
           fi
 
       - name: Generate Reports and Evolution Plots
         run: |
-          .venv/bin/mini-infra-bench-plot-history
+          .venv/bin/mini-infra bench plot history
 
       - name: Update Regression Reference for Future Commits
         run: |
-          .venv/bin/mini-infra-bench-regression --update-reference
+          .venv/bin/mini-infra bench check-regression --update-reference
 
       - name: Upload Benchmark Reports & Data
         if: always()

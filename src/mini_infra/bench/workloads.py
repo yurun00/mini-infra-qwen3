@@ -84,8 +84,8 @@ def make_prompt(
     return make_sequences(length, vocab_size, device=device)
 
 
-def get_mixed_prompt_lengths(max_prompt_length: int) -> list[int]:
-    """获取一组不等长（阶梯稀疏）Prompt 长度列表。
+def make_variable_prompt_lengths(max_prompt_length: int) -> list[int]:
+    """生成一组变长不等长（阶梯稀疏）Prompt 长度列表。
 
     规则为：[max(1, L//8), max(1, L//4), max(1, L//2), L]。
     """
@@ -97,8 +97,8 @@ def get_mixed_prompt_lengths(max_prompt_length: int) -> list[int]:
     ]
 
 
-def get_mixed_output_budgets(max_new_tokens: int) -> list[int]:
-    """获取一组不等长（阶梯稀疏）生成 Token 预算列表（用于 Slots 变长预算对照实验）。
+def make_variable_output_budgets(max_new_tokens: int) -> list[int]:
+    """生成一组变长不等长（阶梯稀疏）Token 预算列表（用于 Slots 变长预算对照实验）。
 
     规则为：[max(2, B//8), max(2, B//4), max(2, B//2), B]。
     """
@@ -110,10 +110,30 @@ def get_mixed_output_budgets(max_new_tokens: int) -> list[int]:
     ]
 
 
+def make_arrival_times(count: int, interval_ms: float) -> list[float]:
+    """生成等间隔到达时间列表（单位 ms）。"""
+    if count < 1:
+        raise ValueError("count 必须大于 0")
+    if interval_ms < 0:
+        raise ValueError("interval_ms 不能小于 0")
+    return [i * float(interval_ms) for i in range(count)]
+
+
+def make_alternating_budgets(count: int, short_budget: int, long_budget: int) -> list[int]:
+    """生成交替（短/长）输出预算列表。"""
+    if count < 1:
+        raise ValueError("count 必须大于 0")
+    if short_budget < 1 or long_budget < 1:
+        raise ValueError("输出预算必须大于 0")
+    return [short_budget if i % 2 == 0 else long_budget for i in range(count)]
+
+
 __all__ = [
-    "get_mixed_output_budgets",
-    "get_mixed_prompt_lengths",
+    "make_alternating_budgets",
+    "make_arrival_times",
     "make_prompt",
     "make_sequence",
     "make_sequences",
+    "make_variable_output_budgets",
+    "make_variable_prompt_lengths",
 ]

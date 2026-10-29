@@ -1,12 +1,10 @@
 """run_case.py 广播规则与单用例执行测试（CPU 可运行）。"""
 
-from unittest.mock import patch
-
 import pytest
 import torch
 
-from mini_infra.bench.run_case import parse_args, resolve_case_specs, run_case
-from mini_infra.generation import Mode
+from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
+from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -66,12 +64,19 @@ def test_resolve_case_specs_shape_mismatches():
 
 
 def test_parse_args_run_case():
-    with patch("sys.argv", ["mini-infra-bench-case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]):
-        args = parse_args()
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        ["bench", "lockstep", "case", "--tag", "dev", "--prompt-lens", "32", "--max-new-tokens", "16"]
+    )
     assert args.tag == "dev"
+    assert args.kv_cache is True
     assert args.prompt_lens == [32]
     assert args.max_new_tokens == [16]
     assert args.batch_size is None
+    assert args.warmup == 3
+    assert args.repeats == 10
 
 
 def test_run_case_on_cpu():
@@ -94,8 +99,8 @@ def test_run_case_on_cpu():
     assert res_scalar.workload.batch_size == 1
     assert res_scalar.workload.prompt_len == 4
     assert res_scalar.workload.max_new_tokens == 2
-    assert res_scalar.throughput.throughput_tok_s.median > 0
-    assert res_scalar.throughput.throughput_req_s.median > 0
+    assert res_scalar.metrics.throughput_tok_s.median > 0
+    assert res_scalar.metrics.throughput_req_s.median > 0
     assert res_scalar.to_record_dict()["batch_size"] == 1
 
     # 2. 变长 prompt 执行

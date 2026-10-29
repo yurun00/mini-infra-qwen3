@@ -1,6 +1,6 @@
 """回归判定逻辑的单元测试（纯 CPU，不依赖 GPU）。"""
 
-from mini_infra.bench.check_regression import compare
+from mini_infra.bench.regression import compare
 
 
 def make_record(ttft, tpot, std=0.1):

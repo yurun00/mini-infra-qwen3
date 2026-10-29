@@ -1,24 +1,29 @@
 """基准测试共享基础设施模块：环境探测、算力利用率计算、正确性门禁、CLI公共参数与结果落盘。"""
 
 import argparse
+import functools
 import json
 import os
 import platform
+import re
 import subprocess
-import time
+import warnings
 from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from mini_infra.bench.types import CaseBenchmarkResult
-from mini_infra.generation import generate
+from mini_infra.engine import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )
+
+DEFAULT_WARMUP = 3
+DEFAULT_REPEATS = 10
 
 
 class ProfileMode(str, Enum):
@@ -31,12 +36,147 @@ class ProfileMode(str, Enum):
         return self.value
 
 
-# 评测产物与数据根目录（纯数据/结果/报告资产，不包含任何 Python 源码）
-BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", "benchmarks")).resolve()
+# 项目物理仓库根目录
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# 评测产物与数据根目录（默认锚定至仓库根目录 benchmarks/，支持环境变量覆盖）
+_DEFAULT_BENCH_DIR = REPO_ROOT / "benchmarks"
+BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_BENCH_DIR))).resolve()
 RESULT_HISTORY_DIR = BENCH_ARTIFACTS_DIR / "result-history"
 SUITES_DIR = BENCH_ARTIFACTS_DIR / "suites"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
 GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "data" / "golden_output_tokens.json"
+
+
+class _DictCompatibleMixin:
+    """为数据类提供字典兼容读取接口（[]、get、keys、values、items、== dict）。"""
+
+    def to_dict(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def __getitem__(self, item: str) -> Any:
+        if hasattr(self, item):
+            return getattr(self, item)
+        raise KeyError(item)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def keys(self):
+        return self.to_dict().keys()
+
+    def values(self):
+        return self.to_dict().values()
+
+    def items(self):
+        return self.to_dict().items()
+
+
+@dataclass(frozen=True)
+class HardwarePeakSpecs(_DictCompatibleMixin):
+    """GPU 峰值显存带宽 (GB/s) 与 FP16 峰值算力 (TFLOPS)。"""
+
+    bandwidth_gbs: float | None
+    tflops: float | None
+
+    def to_dict(self) -> dict[str, float | None]:
+        return {"bandwidth_gbs": self.bandwidth_gbs, "tflops": self.tflops}
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self.to_dict() == other
+        if isinstance(other, HardwarePeakSpecs):
+            return (self.bandwidth_gbs, self.tflops) == (other.bandwidth_gbs, other.tflops)
+        return False
+
+
+@dataclass(frozen=True)
+class ModelCostProfile(_DictCompatibleMixin):
+    """理想工作量模型（与引擎实现无关）：用于计算 MBU/MFU。"""
+
+    n_params: int
+    weight_bytes: int
+    kv_bytes_per_token: int
+    attn_flop_coeff: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n_params": self.n_params,
+            "weight_bytes": self.weight_bytes,
+            "kv_bytes_per_token": self.kv_bytes_per_token,
+            "attn_flop_coeff": self.attn_flop_coeff,
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self.to_dict() == other
+        if isinstance(other, ModelCostProfile):
+            return (self.n_params, self.weight_bytes, self.kv_bytes_per_token, self.attn_flop_coeff) == (
+                other.n_params,
+                other.weight_bytes,
+                other.kv_bytes_per_token,
+                other.attn_flop_coeff,
+            )
+        return False
+
+
+@dataclass(frozen=True)
+class EfficiencyMetrics(_DictCompatibleMixin):
+    """基于理想工作量与实测延迟计算的 prefill/decode 算力 (MFU) 与带宽利用率 (MBU)。"""
+
+    prefill_mfu: float | None = None
+    decode_mfu: float | None = None
+    decode_mbu: float | None = None
+
+    def to_dict(self) -> dict[str, float | None]:
+        return {
+            "prefill_mfu": self.prefill_mfu,
+            "decode_mfu": self.decode_mfu,
+            "decode_mbu": self.decode_mbu,
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self.to_dict() == other
+        if isinstance(other, EfficiencyMetrics):
+            return (self.prefill_mfu, self.decode_mfu, self.decode_mbu) == (
+                other.prefill_mfu,
+                other.decode_mfu,
+                other.decode_mbu,
+            )
+        return False
+
+
+@dataclass(frozen=True)
+class CorrectnessReport(_DictCompatibleMixin):
+    """正确性门禁检查报告。"""
+
+    checked: bool
+    passed: bool | None
+    match_ratio: float | None
+    updated_golden: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "checked": self.checked,
+            "passed": self.passed,
+            "match_ratio": self.match_ratio,
+            "updated_golden": self.updated_golden,
+        }
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, dict):
+            return self.to_dict() == other
+        if isinstance(other, CorrectnessReport):
+            return (self.checked, self.passed, self.match_ratio, self.updated_golden) == (
+                other.checked,
+                other.passed,
+                other.match_ratio,
+                other.updated_golden,
+            )
+        return False
+
+
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
 GOLDEN_MAX_OUTPUT_TOKENS = 32
 SCHEMA_VERSION = 1
@@ -48,22 +188,47 @@ GPU_PEAK_SPECS = {
     "A10": (600.0, 125.0),
     "A100": (1555.0, 312.0),
     "H100": (3350.0, 989.0),
+    "L40S": (864.0, 362.0),
     "4090": (1008.0, 165.0),
     "3090": (936.0, 71.0),
 }
+
+
+def _match_gpu_spec(gpu_name: str) -> tuple[float | None, float | None]:
+    """按词边界匹配 GPU 型号，优先最长 key：避免 `A10` 命中 `A100`、`L4` 命中 `L40S`。"""
+    best_key: str | None = None
+    for key in GPU_PEAK_SPECS:
+        if re.search(rf"(?<![0-9A-Za-z]){re.escape(key)}(?![0-9])", gpu_name):
+            if best_key is None or len(key) > len(best_key):
+                best_key = key
+    return GPU_PEAK_SPECS[best_key] if best_key else (None, None)
 
 
 def resolve_peak_specs(
     gpu_name: str,
     bandwidth_gbs: float | None = None,
     tflops: float | None = None,
-) -> dict[str, float | None]:
+) -> HardwarePeakSpecs:
     """推断或覆盖 GPU 峰值显存带宽 (GB/s) 与 FP16 峰值算力 (TFLOPS)。"""
-    spec = next((v for k, v in GPU_PEAK_SPECS.items() if k in gpu_name), (None, None))
-    return {"bandwidth_gbs": bandwidth_gbs or spec[0], "tflops": tflops or spec[1]}
+    spec = _match_gpu_spec(gpu_name)
+    return HardwarePeakSpecs(bandwidth_gbs=bandwidth_gbs or spec[0], tflops=tflops or spec[1])
 
 
-def model_cost(model: torch.nn.Module) -> dict[str, Any]:
+def require_cuda() -> torch.device:
+    """要求存在可用 NVIDIA GPU，返回 CUDA 设备；各基准入口共用。"""
+    if not torch.cuda.is_available():
+        raise RuntimeError("需要可用的 NVIDIA GPU")
+    return torch.device("cuda")
+
+
+def format_lengths(value: int | Sequence[int]) -> str:
+    """将标量或逐请求长度序列格式化为 `16/32/64` 形式的展示串。"""
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return "/".join(map(str, value))
+    return str(value)
+
+
+def model_cost(model: torch.nn.Module) -> ModelCostProfile:
     """理想工作量模型（与引擎实现无关）：用于计算 MBU/MFU。
 
     weight_bytes：每个 decode step 至少读取一遍全部权重（tied embedding 只算一份，lm_head 会读它）。
@@ -73,57 +238,72 @@ def model_cost(model: torch.nn.Module) -> dict[str, Any]:
     params = list(model.parameters())
     elem = params[0].element_size()
     n_params = sum(p.numel() for p in params)
-    return {
-        "n_params": n_params,
-        "weight_bytes": n_params * elem,
-        "kv_bytes_per_token": 2 * cfg.num_hidden_layers * cfg.num_key_value_heads * cfg.head_dim * elem,
-        "attn_flop_coeff": cfg.num_hidden_layers * cfg.num_attention_heads * cfg.head_dim,
-    }
+    return ModelCostProfile(
+        n_params=n_params,
+        weight_bytes=n_params * elem,
+        kv_bytes_per_token=2 * cfg.num_hidden_layers * cfg.num_key_value_heads * cfg.head_dim * elem,
+        attn_flop_coeff=cfg.num_hidden_layers * cfg.num_attention_heads * cfg.head_dim,
+    )
 
 
 def efficiency(
-    cost: dict[str, Any],
-    peaks: dict[str, float | None],
+    cost: ModelCostProfile | dict[str, Any],
+    peaks: HardwarePeakSpecs | dict[str, float | None],
     batch: int,
     prompt_len: int | Sequence[int],
     max_new_tokens: int | Sequence[int],
     ttft_ms: float,
     tpot_ms: float,
-) -> dict[str, float | None]:
+) -> EfficiencyMetrics:
     """基于理想工作量与实测延迟，计算 prefill/decode 的 MFU 与 decode 的 MBU（带宽利用率）。"""
-    out: dict[str, float | None] = {"prefill_mfu": None, "decode_mfu": None, "decode_mbu": None}
     avg_out_len = (
         sum(max_new_tokens) / len(max_new_tokens)
         if isinstance(max_new_tokens, Sequence) and not isinstance(max_new_tokens, str)
         else max_new_tokens
     )
 
+    n_params = cost.n_params if isinstance(cost, ModelCostProfile) else cost["n_params"]
+    attn_flop_coeff = cost.attn_flop_coeff if isinstance(cost, ModelCostProfile) else cost["attn_flop_coeff"]
+    weight_bytes = cost.weight_bytes if isinstance(cost, ModelCostProfile) else cost["weight_bytes"]
+    kv_bytes_per_token = cost.kv_bytes_per_token if isinstance(cost, ModelCostProfile) else cost["kv_bytes_per_token"]
+
+    tflops = peaks.tflops if isinstance(peaks, HardwarePeakSpecs) else peaks["tflops"]
+    bandwidth_gbs = peaks.bandwidth_gbs if isinstance(peaks, HardwarePeakSpecs) else peaks["bandwidth_gbs"]
+
     if isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str):
         avg_prompt_len = sum(prompt_len) / len(prompt_len)
         ctx = avg_prompt_len + avg_out_len / 2
-        sum_prefill_flops = sum(2 * cost["n_params"] * pl + 2 * cost["attn_flop_coeff"] * pl**2 for pl in prompt_len)
+        sum_prefill_flops = sum(2 * n_params * pl + 2 * attn_flop_coeff * pl**2 for pl in prompt_len)
     else:
         ctx = prompt_len + avg_out_len / 2
-        sum_prefill_flops = batch * (2 * cost["n_params"] * prompt_len + 2 * cost["attn_flop_coeff"] * prompt_len**2)
+        sum_prefill_flops = batch * (2 * n_params * prompt_len + 2 * attn_flop_coeff * prompt_len**2)
 
-    if peaks["tflops"]:
-        peak_flops = peaks["tflops"] * 1e12
-        out["prefill_mfu"] = sum_prefill_flops / (ttft_ms / 1000) / peak_flops if ttft_ms else None
-        dec = batch * (2 * cost["n_params"] + 4 * cost["attn_flop_coeff"] * ctx)
-        out["decode_mfu"] = dec / (tpot_ms / 1000) / peak_flops if tpot_ms else None
-    if peaks["bandwidth_gbs"] and tpot_ms:
-        moved = cost["weight_bytes"] + batch * ctx * cost["kv_bytes_per_token"]
-        out["decode_mbu"] = moved / (tpot_ms / 1000) / (peaks["bandwidth_gbs"] * 1e9)
-    return out
+    prefill_mfu = None
+    decode_mfu = None
+    decode_mbu = None
+
+    if tflops:
+        peak_flops = tflops * 1e12
+        prefill_mfu = sum_prefill_flops / (ttft_ms / 1000) / peak_flops if ttft_ms else None
+        dec = batch * (2 * n_params + 4 * attn_flop_coeff * ctx)
+        decode_mfu = dec / (tpot_ms / 1000) / peak_flops if tpot_ms else None
+    if bandwidth_gbs and tpot_ms:
+        moved = weight_bytes + batch * ctx * kv_bytes_per_token
+        decode_mbu = moved / (tpot_ms / 1000) / (bandwidth_gbs * 1e9)
+    return EfficiencyMetrics(prefill_mfu=prefill_mfu, decode_mfu=decode_mfu, decode_mbu=decode_mbu)
 
 
+@functools.cache
 def git_info() -> dict[str, Any]:
-    """获取当前工作区 Git 提交摘要。"""
+    """获取当前工作区 Git 提交摘要（进程内缓存，并带超时保护）。"""
 
     def run(*args: str) -> str:
-        return subprocess.run(
-            ["git", *args], cwd=BENCH_ARTIFACTS_DIR.parent, capture_output=True, text=True
-        ).stdout.strip()
+        try:
+            return subprocess.run(
+                ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10
+            ).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
 
     return {
         "commit": run("rev-parse", "--short", "HEAD") or "unknown",
@@ -133,9 +313,9 @@ def git_info() -> dict[str, Any]:
     }
 
 
-def gpu_info() -> dict[str, Any]:
+def gpu_info(device: torch.device | int = 0) -> dict[str, Any]:
     """获取测试机 GPU 硬件环境参数。"""
-    props = torch.cuda.get_device_properties(0)
+    props = torch.cuda.get_device_properties(device)
     info: dict[str, Any] = {
         "gpu": props.name,
         "total_memory_mb": props.total_memory / 1024**2,
@@ -154,6 +334,7 @@ def gpu_info() -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 check=True,
+                timeout=10,
             )
             .stdout.strip()
             .split(",")
@@ -164,8 +345,8 @@ def gpu_info() -> dict[str, Any]:
             max_sm_clock_mhz=out[2].strip(),
             temperature_c=out[3].strip(),
         )
-    except (OSError, subprocess.CalledProcessError, IndexError):
-        pass
+    except (OSError, subprocess.SubprocessError, IndexError) as err:
+        warnings.warn(f"nvidia-smi 查询失败，跳过驱动/频率/温度信息: {err}", stacklevel=2)
     return info
 
 
@@ -175,116 +356,37 @@ def check_correctness(
     mode: Any,
     device: torch.device,
     update_golden: bool = False,
-) -> dict[str, Any]:
+) -> CorrectnessReport:
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    res = generate(mode, model, ids, GOLDEN_MAX_OUTPUT_TOKENS, device=device)
+    res = generate(
+        mode,
+        model,
+        ids,
+        GOLDEN_MAX_OUTPUT_TOKENS,
+        options=GenerationOptions(device=device),
+    )
     tokens = res.padded_output_tokens(0).tolist()
 
     if update_golden:
         GOLDEN_OUTPUT_PATH.write_text(
-            json.dumps({"prompt": GOLDEN_PROMPT, "tokens": tokens, "commit": git_info()["commit"]}, indent=2)
+            json.dumps({"prompt": GOLDEN_PROMPT, "tokens": tokens, "commit": git_info()["commit"]}, indent=2),
+            encoding="utf-8",
         )
         print(f"[golden] 已写入 {GOLDEN_OUTPUT_PATH.name}（{len(tokens)} tokens）")
-        return {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": True}
+        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=True)
 
     if not GOLDEN_OUTPUT_PATH.exists():
         print("[golden] 未找到 golden 文件，跳过正确性检查（先用 --update-golden 生成）")
-        return {"checked": False, "passed": None, "match_ratio": None}
+        return CorrectnessReport(checked=False, passed=None, match_ratio=None, updated_golden=False)
 
-    golden = json.loads(GOLDEN_OUTPUT_PATH.read_text())["tokens"]
+    golden = json.loads(GOLDEN_OUTPUT_PATH.read_text(encoding="utf-8"))["tokens"]
     n = min(len(golden), len(tokens))
     matched = sum(a == b for a, b in zip(golden[:n], tokens[:n]))
     ratio = matched / n if n else 0.0
     passed = tokens == golden
     print(f"[golden] 匹配 {matched}/{n}，{'通过' if passed else '失败'}")
-    return {"checked": True, "passed": passed, "match_ratio": ratio}
-
-
-def print_table(case_results: Sequence[CaseBenchmarkResult], mode: str | None = None) -> None:
-    """控制台标准 CSV 格式输出。"""
-    header = [
-        "mode",
-        "prompt_tokens",
-        "generated_tokens",
-        "prefill_ms_mean",
-        "decode_ms_mean",
-        "decode_ms_p50",
-        "decode_ms_p95",
-        "end_to_end_wall_ms_mean",
-        "end_to_end_model_ms_mean",
-        "memory_after_prefill_mib_max",
-        "peak_memory_mib_max",
-        "kv_cache_mb",
-    ]
-
-    has_padding = any(w.scheduling is not None for w in case_results)
-    has_eff_prompt = any(
-        w.scheduling is not None and w.scheduling.effective_prompt_throughput is not None for w in case_results
-    )
-    has_slots = any(w.scheduling is not None for w in case_results)
-
-    if has_padding:
-        header.append("padding_efficiency")
-    if has_eff_prompt:
-        header.append("effective_prompt_tok_s")
-    if has_slots:
-        header.append("slot_utilization")
-
-    print(",".join(header))
-    for w in case_results:
-        mode_str = w.workload.mode or mode or ""
-        prompt_tokens = w.workload.prompt_len
-        generated_tokens = w.workload.max_new_tokens
-        prefill_ms_mean = w.latency.ttft_ms.mean
-        decode_ms_mean = w.latency.tpot_ms.mean
-        decode_ms_p50 = w.latency.tpot_ms.median
-        decode_ms_p95 = w.latency.tpot_ms.p95
-        end_to_end_wall_ms_mean = w.latency.e2e_wall_ms.mean
-        end_to_end_model_ms_mean = w.latency.e2e_model_ms.mean
-        prefill_mem = w.memory.prefill_allocated_mb
-        peak_mem = w.memory.peak_allocated_mb
-        kv_cache_mb = w.memory.kv_cache_mb
-
-        prompt_str = (
-            "/".join(map(str, prompt_tokens)) if isinstance(prompt_tokens, list | tuple) else str(prompt_tokens)
-        )
-        gen_str = (
-            "/".join(map(str, generated_tokens))
-            if isinstance(generated_tokens, list | tuple)
-            else str(generated_tokens)
-        )
-
-        row = [
-            str(mode_str),
-            prompt_str,
-            gen_str,
-            f"{prefill_ms_mean:.3f}",
-            f"{decode_ms_mean:.3f}",
-            f"{decode_ms_p50:.3f}",
-            f"{decode_ms_p95:.3f}",
-            f"{end_to_end_wall_ms_mean:.3f}",
-            f"{end_to_end_model_ms_mean:.3f}",
-            f"{prefill_mem:.2f}",
-            f"{peak_mem:.2f}",
-            f"{kv_cache_mb:.2f}",
-        ]
-
-        if has_padding:
-            pad_eff = w.scheduling.padding_efficiency if w.scheduling else None
-            row.append(f"{pad_eff * 100:.2f}%" if pad_eff is not None else "")
-        if has_eff_prompt:
-            eff_p = (
-                w.scheduling.effective_prompt_throughput.mean
-                if (w.scheduling and w.scheduling.effective_prompt_throughput)
-                else None
-            )
-            row.append(f"{eff_p:.1f}" if eff_p is not None else "")
-        if has_slots:
-            slot_u = w.scheduling.slot_utilization if w.scheduling else None
-            row.append(f"{slot_u * 100:.2f}%" if slot_u is not None else "")
-
-        print(",".join(row))
+    return CorrectnessReport(checked=True, passed=passed, match_ratio=ratio, updated_golden=False)
 
 
 def add_common_args(p: argparse.ArgumentParser) -> None:
@@ -297,6 +399,8 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--model", default=DEFAULT_MODEL_ID)
     p.add_argument("--revision", default=DEFAULT_MODEL_REVISION)
+    p.add_argument("--warmup", type=int, default=DEFAULT_WARMUP, help=f"预热次数（默认: {DEFAULT_WARMUP}）")
+    p.add_argument("--repeats", type=int, default=DEFAULT_REPEATS, help=f"正式测量重复次数（默认: {DEFAULT_REPEATS}）")
     p.add_argument("--allow-mismatch", action="store_true", help="正确性不通过时仍记录结果（会标记）")
     p.add_argument("--peak-bandwidth-gbs", type=float, help="覆盖 GPU 峰值显存带宽（GB/s），用于 MBU")
     p.add_argument("--peak-tflops", type=float, help="覆盖 GPU 峰值 FP16/BF16 算力（TFLOPS），用于 MFU")
@@ -311,51 +415,45 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--output", type=Path, help="自定义输出路径")
 
 
-def build_benchmark_record(
-    args: argparse.Namespace,
-    model: torch.nn.Module,
-    mode_label: str,
-    cases: Sequence[CaseBenchmarkResult],
-    correctness: dict[str, Any],
-    env: dict[str, Any],
-    peaks: dict[str, float | None],
-    cost: dict[str, Any] | None,
-    git: dict[str, Any],
-    warmup: int,
-    repeats: int,
-    suite_info: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """构建标准评测结果 JSON 字典。"""
-    record_cases = [c.to_record_dict() for c in cases]
-    record: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "tag": args.tag,
-        "release_feature": args.release_feature,
-        "mode": mode_label,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "git": git,
-        "env": env,
-        "peak_specs": peaks,
-        "model_cost": cost,
-        "config": {
-            "warmup": warmup,
-            "repeats": repeats,
-            "model": args.model,
-            "revision": args.revision,
-            "dtype": str(next(model.parameters()).dtype),
-            "tokenizer_included": False,
-            "profile_mode": str(args.profile_mode) if args.profile_mode else None,
-        },
-        "correctness": correctness,
-        "cases": record_cases,
-    }
-    if suite_info is not None:
-        record["suite"] = suite_info
-    return record
-
-
 def save_benchmark_record(output: Path, record: dict[str, Any], dirty: bool = False) -> None:
     """将评测结果保存至指定 JSON 文件路径。"""
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+
+    def _default(obj: Any) -> Any:
+        if hasattr(obj, "to_dict"):
+            return obj.to_dict()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+    output.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=_default), encoding="utf-8")
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if dirty else ""))
+
+
+__all__ = [
+    "BENCH_ARTIFACTS_DIR",
+    "CorrectnessReport",
+    "DEFAULT_REPEATS",
+    "DEFAULT_WARMUP",
+    "EfficiencyMetrics",
+    "GOLDEN_MAX_OUTPUT_TOKENS",
+    "GOLDEN_OUTPUT_PATH",
+    "GOLDEN_PROMPT",
+    "GPU_PEAK_SPECS",
+    "HardwarePeakSpecs",
+    "ModelCostProfile",
+    "ProfileMode",
+    "REPORTS_DIR",
+    "REPO_ROOT",
+    "RESULT_HISTORY_DIR",
+    "SCHEMA_VERSION",
+    "SUITES_DIR",
+    "add_common_args",
+    "check_correctness",
+    "efficiency",
+    "format_lengths",
+    "git_info",
+    "gpu_info",
+    "model_cost",
+    "require_cuda",
+    "resolve_peak_specs",
+    "save_benchmark_record",
+]

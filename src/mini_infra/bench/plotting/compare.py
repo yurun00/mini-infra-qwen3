@@ -1,19 +1,18 @@
 """对比两个独立 benchmark JSON 结果（例如比较不同的 mode），并生成对比图表与数据报表。
 
 适用场景：
-    日常调优时使用 mini-infra-bench-case --output 输出的独立 JSON 文件，
+    日常调优时使用 mini-infra bench lockstep case --output 输出的独立 JSON 文件，
     通过本脚本直接对比两个结果（例如 no-cache vs kv-cache），画出性能对比图，
     而无需沉淀到 benchmarks/result-history/ 污染正式发版时间线。
 
 用法示例：
     # 命令行直接运行
-    mini-infra-bench-plot-compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
+    mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp/compare.png
 
     # 或者作为模块调用
-    python -m mini_infra.bench.plotting.compare tmp/test_nocache.json tmp/test_kvcache.json
+    python -m mini_infra.cli bench plot compare tmp/test_nocache.json tmp/test_kvcache.json
 """
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -38,13 +37,13 @@ def resolve_label(rec: dict[str, Any], custom: str | None = None) -> str:
     return mode or tag or "unknown"
 
 
-def index_cases(rec: dict[str, Any]) -> dict[tuple[int, int, int], dict[str, Any]]:
+def index_cases(rec: dict[str, Any]) -> dict[tuple[int, Any, Any], dict[str, Any]]:
     """按 (batch_size, prompt_len, max_new_tokens) 建立索引。"""
     res = {}
-    cases = rec.get("cases") or rec.get("workloads") or []
-    for w in cases:
+    for w in rec.get("cases", []):
         pl = tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"]
-        key = (w["batch_size"], pl, w.get("max_new_tokens", w.get("output_len")))
+        mnt = tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"]
+        key = (w["batch_size"], pl, mnt)
         res[key] = w
     return res
 
@@ -286,68 +285,10 @@ def plot_mode_comparison(
     print(f"对比图已保存至: {out_path}")
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        description="比较两个独立 benchmark 运行结果 JSON 文件，打印详细指标并绘制性能对比图。"
-    )
-    parser.add_argument("file_a", type=Path, help="基准结果 JSON 文件路径 (如 no-cache)")
-    parser.add_argument("file_b", type=Path, help="对比结果 JSON 文件路径 (如 kv-cache)")
-    parser.add_argument(
-        "-o",
-        "--output-figure",
-        type=Path,
-        default=Path("tmp/compare.png"),
-        help="对比图保存路径 (默认: tmp/compare.png)",
-    )
-    parser.add_argument(
-        "-m",
-        "--output-markdown",
-        type=Path,
-        default=None,
-        help="Markdown 汇总表格保存路径 (可选)",
-    )
-    parser.add_argument(
-        "--label-a",
-        type=str,
-        default=None,
-        help="文件 A 的图例标签 (默认根据 JSON 中的 mode 与 tag 自动推断)",
-    )
-    parser.add_argument(
-        "--label-b",
-        type=str,
-        default=None,
-        help="文件 B 的图例标签 (默认根据 JSON 中的 mode 与 tag 自动推断)",
-    )
-    parser.add_argument(
-        "--title",
-        type=str,
-        default=None,
-        help="图表顶部主标题 (可选)",
-    )
-
-    args = parser.parse_args(argv)
-
-    rec1 = load_record(args.file_a)
-    rec2 = load_record(args.file_b)
-
-    label1 = resolve_label(rec1, args.label_a)
-    label2 = resolve_label(rec2, args.label_b)
-
-    table_md = generate_comparison_table(rec1, rec2, label1, label2)
-    print()
-    print(table_md)
-    print()
-
-    if args.output_markdown:
-        args.output_markdown.parent.mkdir(parents=True, exist_ok=True)
-        args.output_markdown.write_text(table_md + "\n", encoding="utf-8")
-        print(f"Markdown 对比表格已保存至: {args.output_markdown}")
-
-    try:
-        plot_mode_comparison(rec1, rec2, label1, label2, args.output_figure, args.title)
-    except ImportError:
-        print("未安装 matplotlib，跳过生成对比图（请运行 pip install -e '.[bench]'）")
-
-
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "generate_comparison_table",
+    "index_cases",
+    "load_record",
+    "plot_mode_comparison",
+    "resolve_label",
+]

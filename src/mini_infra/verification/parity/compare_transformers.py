@@ -1,6 +1,4 @@
-"""逐步比较手写实现与 Transformers 参考实现。入口： mini-infra-compare（需安装 .[compare]）。"""
-
-import argparse
+"""逐步比较手写实现与 Transformers 参考实现。"""
 
 import torch
 
@@ -15,21 +13,6 @@ from mini_infra.model import (
 )
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="与 Transformers 对比逐 Token 输出")
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
-    parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
-    parser.add_argument("--max-new-tokens", type=int, default=32)
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=0.25,
-        help="Logits 最大绝对误差阈值",
-    )
-    return parser.parse_args(argv)
-
-
 @torch.inference_mode()
 def compare_step_by_step(
     handwritten_model,
@@ -38,36 +21,51 @@ def compare_step_by_step(
     max_new_tokens,
     eos_token_id,
 ):
-    """使用相同上下文逐步比较 Logits 和 greedy Token。"""
-
-    generated_ids = input_ids
+    current_input_ids = input_ids
     generated_token_ids = []
     largest_error = 0.0
     error_sum = 0.0
 
     for step in range(max_new_tokens):
-        handwritten_logits = handwritten_model(generated_ids)[:, -1, :]
-        reference_output = reference_model(generated_ids, use_cache=False)
-        reference_logits = reference_output.logits[:, -1, :]
+        # 1. 手写模型单步前向：只取最后一个 Token 的 Logits 进行贪心选取。
+        handwritten_logits = handwritten_model(current_input_ids)[:, -1, :]
+        handwritten_token = torch.argmax(handwritten_logits, dim=-1, keepdim=True)
 
-        # 先转为 float32 再计算误差，避免低精度减法损失信息。
-        difference = (handwritten_logits.float() - reference_logits.float()).abs()
-        max_error = difference.max().item()
-        mean_error = difference.mean().item()
-        largest_error = max(largest_error, max_error)
-        error_sum += mean_error
+        # 2. Transformers 参考实现前向：同样关闭所有采样策略，执行确定性贪心解码。
+        reference_logits = reference_model(input_ids=current_input_ids).logits[:, -1, :]
+        reference_token = torch.argmax(reference_logits, dim=-1, keepdim=True)
 
-        handwritten_token = torch.argmax(handwritten_logits, dim=-1)
-        reference_token = torch.argmax(reference_logits, dim=-1)
-        handwritten_id = handwritten_token.item()
-        reference_id = reference_token.item()
+        absolute_error = torch.abs(handwritten_logits - reference_logits)
+        step_max_error = torch.max(absolute_error).item()
+        step_mean_error = torch.mean(absolute_error).item()
+
+        largest_error = max(largest_error, step_max_error)
+        error_sum += step_mean_error
 
         print(
-            "步骤 %02d: 手写=%d, Transformers=%d, max_error=%.6f, mean_error=%.6f"
-            % (step + 1, handwritten_id, reference_id, max_error, mean_error)
+            "步骤 %02d | 手写: %5d | 参考: %5d | 最大误差: %.6f | 平均误差: %.6f"
+            % (
+                step + 1,
+                handwritten_token.item(),
+                reference_token.item(),
+                step_max_error,
+                step_mean_error,
+            )
         )
 
-        if handwritten_id != reference_id:
+        # 步骤中只要出现预测 Token 分歧，说明自回归历史由此产生永久性分叉，必须立即停止。
+        if handwritten_token.item() != reference_token.item():
+            top3_hw_vals, top3_hw_ids = torch.topk(handwritten_logits[0], k=3)
+            top3_ref_vals, top3_ref_ids = torch.topk(reference_logits[0], k=3)
+
+            print("\n[Token 不一致] 步骤 %02d:" % (step + 1))
+            print("手写实现前 3 大 Logits:")
+            for rank, (tid, val) in enumerate(zip(top3_hw_ids.tolist(), top3_hw_vals.tolist()), 1):
+                print("  %d. token=%d, logit=%.6f" % (rank, tid, val))
+            print("参考实现前 3 大 Logits:")
+            for rank, (tid, val) in enumerate(zip(top3_ref_ids.tolist(), top3_ref_vals.tolist()), 1):
+                print("  %d. token=%d, logit=%.6f" % (rank, tid, val))
+
             return {
                 "tokens_match": False,
                 "first_mismatch_step": step + 1,
@@ -76,11 +74,11 @@ def compare_step_by_step(
                 "token_ids": generated_token_ids,
             }
 
-        generated_token_ids.append(handwritten_id)
-        next_token = handwritten_token.unsqueeze(1)
-        generated_ids = torch.cat((generated_ids, next_token), dim=1)
+        next_token_id = handwritten_token.item()
+        generated_token_ids.append(next_token_id)
+        current_input_ids = torch.cat((current_input_ids, handwritten_token), dim=1)
 
-        if handwritten_id == eos_token_id:
+        if next_token_id == eos_token_id:
             break
 
     return {
@@ -92,24 +90,30 @@ def compare_step_by_step(
     }
 
 
-def main(argv=None):
+def run_compare_transformers(
+    model: str = DEFAULT_MODEL_ID,
+    revision: str = DEFAULT_MODEL_REVISION,
+    prompt: str = "请用一句话介绍 KV Cache。",
+    max_new_tokens: int = 32,
+    logits_atol: float = 0.25,
+) -> int:
+    """与 Transformers 进行逐步对齐验证，返回退出码（0 成功，1 Token 不一致，2 误差超标，3 输入不一致）。"""
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    args = parse_args(argv)
-    if args.max_new_tokens < 1:
+    if max_new_tokens < 1:
         raise ValueError("--max-new-tokens 必须大于 0")
     if not torch.cuda.is_available():
         raise RuntimeError("本实验需要可用的 NVIDIA GPU")
 
     torch.manual_seed(0)
     device = torch.device("cuda")
-    model_directory = resolve_model_directory(args.model, args.revision)
+    model_directory = resolve_model_directory(model, revision)
     handwritten_tokenizer = Qwen3Tokenizer(model_directory)
     reference_tokenizer = AutoTokenizer.from_pretrained(model_directory)
 
     # 模型对照开始前，先证明手写 Tokenizer 构造了完全相同的输入。
-    handwritten_ids = handwritten_tokenizer.encode_chat_prompt(args.prompt)
-    messages = [{"role": "user", "content": args.prompt}]
+    handwritten_ids = handwritten_tokenizer.encode_chat_prompt(prompt)
+    messages = [{"role": "user", "content": prompt}]
     reference_text = reference_tokenizer.apply_chat_template(
         messages,
         tokenize=False,
@@ -124,7 +128,7 @@ def main(argv=None):
         print("手写 Tokenizer 与 Transformers 输入不一致")
         print("手写 Token IDs:", handwritten_ids)
         print("参考 Token IDs:", reference_ids)
-        raise SystemExit(3)
+        return 3
 
     print("Tokenizer 输入一致，共 %d 个 Token" % len(handwritten_ids))
     input_ids = torch.tensor([handwritten_ids], dtype=torch.long, device=device)
@@ -146,7 +150,7 @@ def main(argv=None):
         handwritten_model,
         reference_model,
         input_ids,
-        args.max_new_tokens,
+        max_new_tokens,
         handwritten_tokenizer.eos_token_id,
     )
 
@@ -159,11 +163,14 @@ def main(argv=None):
 
     if not result["tokens_match"]:
         print("首个不一致步骤:", result["first_mismatch_step"])
-        raise SystemExit(1)
-    if result["largest_error"] > args.logits_atol:
+        return 1
+    if result["largest_error"] > logits_atol:
         print("Token 一致，但 Logits 误差超过设定阈值。")
-        raise SystemExit(2)
+        return 2
+    return 0
 
 
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "compare_step_by_step",
+    "run_compare_transformers",
+]
