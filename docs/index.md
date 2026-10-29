@@ -8,6 +8,8 @@
 
 ### 1. 核心架构与原理 (Architecture)
 深入剖析推理引擎的设计理念、状态流转与核心调度算法。
+* [KV Cache 架构与显式状态管理 (KV Cache)](architecture/kv-cache.md)：详解自回归解码时间复杂度危机、显式 `KVCache` 容器设计、RoPE 位置偏置处理与显存带宽理论建模。
+* [固定批处理与左填充机制 (Fixed Batching)](architecture/fixed-batching.md)：详解解码器左填充原理、因果掩码隔离保证、`LockstepState` 向量化状态机与利用率度量模型。
 * [连续批处理架构与调度原理 (Continuous Batching)](architecture/continuous-batching.md)：详解 Iteration-level Scheduling、槽位动态管理、Prefill 插队与请求生命周期状态机。
 
 ### 2. 实践与操作指南 (Guides)

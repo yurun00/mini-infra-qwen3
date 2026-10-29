@@ -1,6 +1,6 @@
 # 连续批处理与 Serving 基准测试指南 (Continuous Batching & Serving Benchmark Guide)
 
-在多用户、动态并发的真实在线大模型服务（LLM Serving）场景中，传统的**固定批处理（Fixed Batching）**存在严重的效率瓶颈。本项目在保留原生 PyTorch 简洁性与显式语义的同时，实现了工业界核心的 **Continuous Batching（连续批处理 / 迭代级调度）**，并配套了针对在线并发场景的受控评测基准套件 `mini-infra-bench-serving`。
+在多用户、动态并发的真实在线大模型服务（LLM Serving）场景中，传统的[固定批处理 (Fixed Batching)](fixed-batching.md)存在严重的效率瓶颈。本项目在保留原生 PyTorch 简洁性与显式语义的同时，实现了工业界核心的 **Continuous Batching（连续批处理 / 迭代级调度）**，并配套了针对在线并发场景的受控评测基准套件 `mini-infra-bench-serving`。
 
 ---
 
@@ -25,7 +25,7 @@
 
 ### 1. 显存管理：`DenseSlotCache`
 
-与单次生成的单体 `KVCache` 不同，Continuous Batching 需要在一个固定的并发容量（`max_running_requests`）下管理多个动态进出的请求：
+与单次生成的单体 [`KVCache`](kv-cache.md) 不同，Continuous Batching 需要在一个固定的并发容量（`max_running_requests`）下管理多个动态进出的请求：
 
 * **静态槽位预分配**：在初始化时预分配 `[capacity, num_kv_heads, max_length, head_dim]` 的稠密 Key/Value 缓存张量，避免自回归过程中发生频繁的动态内存申请与显存碎片化。
 * **右对齐与历史掩码（Right-Aligned & History Mask）**：

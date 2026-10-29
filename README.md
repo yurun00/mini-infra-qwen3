@@ -101,7 +101,7 @@ mini-infra-qwen3/
 │   └── reports/                       # SUMMARY.md、evolution_and_scaling.png、profiling_and_optimization.png（生成物）
 ├── docs/                              # 技术文档中心
 │   ├── index.md                       # 文档导航主页
-│   ├── architecture/                  # 系统架构与核心算法原理（Continuous Batching 等）
+│   ├── architecture/                  # 系统架构原理（KV Cache、Fixed Batching、Continuous Batching）
 │   ├── guides/                        # 实践指南（数值对齐验证、算子 Profiling 与 Trace）
 │   └── benchmarks/                    # 性能基准与评测全景指南
 ├── .github/workflows/
