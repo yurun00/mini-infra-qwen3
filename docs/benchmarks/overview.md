@@ -1,6 +1,6 @@
 # 基准测试与性能评测指南 (Benchmarking Guide)
 
-本指南系统汇总了 [`src/mini_infra/bench/`](../src/mini_infra/bench/) 模块提供的全部基准测试、套件压测、图表绘制与性能回归守门指令，供日常性能调优与版本发版参考。
+本指南系统汇总了 [`src/mini_infra/bench/`](../../src/mini_infra/bench/) 模块提供的全部基准测试、套件压测、图表绘制与性能回归守门指令，供日常性能调优与版本发版参考。
 
 ---
 

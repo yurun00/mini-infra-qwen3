@@ -32,7 +32,7 @@ pytest -m "not gpu"
 # 3. GPU 端到端精度对齐（在 float32 精度下验证逐 Token 绝对 0 误差，排除硬件 bfloat16 GEMM 舍入抖动）
 pytest -m gpu
 
-# 或依次运行 4 项独立的数值对齐与请求隔离验证（详见 docs/parity-verification.md）
+# 或依次运行 4 项独立的数值对齐与请求隔离验证（详见 docs/guides/parity-verification.md）
 mini-infra verify transformers
 mini-infra verify cache
 mini-infra verify lockstep-batch

@@ -99,9 +99,11 @@ mini-infra-qwen3/
 │   ├── suites/                        # 预设基准测试套件配置（YAML 及 serving 结果）
 │   ├── result-history/                # 每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # SUMMARY.md、evolution_and_scaling.png、profiling_and_optimization.png（生成物）
-├── docs/
-│   ├── continuous-batching.md         # 连续批处理架构原理、槽位管理与 Serving 评测指南
-│   └── profiling.md                   # 算子耗时剖析、Trace 导出与可视化分析指南
+├── docs/                              # 技术文档中心
+│   ├── index.md                       # 文档导航主页
+│   ├── architecture/                  # 系统架构与核心算法原理（Continuous Batching 等）
+│   ├── guides/                        # 实践指南（数值对齐验证、算子 Profiling 与 Trace）
+│   └── benchmarks/                    # 性能基准与评测全景指南
 ├── .github/workflows/
 │   ├── cpu-ci.yml                     # CPU 上 ruff + pytest
 │   ├── pr-perf-regression.yml         # PR 提测：GPU runner 上的性能回归守门
@@ -235,13 +237,13 @@ mini-infra run \
 * 🛠️ **[贡献与日常开发指南 (CONTRIBUTING.md)](CONTRIBUTING.md)**
   * 本地开发环境配置与 Pre-commit 守护安装
   * 代码规范检查（Ruff）与 CPU 快速冒烟自检（`mini-infra verify smoke`、pytest）
-  * GPU 端到端精度对齐（[数值对齐与等价性验证指南 (docs/parity-verification.md)](docs/parity-verification.md)）
+  * GPU 端到端精度对齐（[数值对齐与等价性验证指南 (docs/guides/parity-verification.md)](docs/guides/parity-verification.md)）
   * 零性能倒退守护（Zero-Regression Guard：`mini-infra bench check-regression`）与独立全量基准对比测量
-* 📊 **[基准测试与性能评测指南 (docs/benchmarks.md)](docs/benchmarks.md)**
+* 📊 **[基准测试与性能评测指南 (docs/benchmarks/overview.md)](docs/benchmarks/overview.md)**
   * Lockstep 齐步基准（单用例与批处理吞吐/Padding/槽位扩展套件）
   * Scheduler 调度器基准（Continuous vs Fixed 动态准入与长短请求压测套件）
   * 跨版本演进时间线图（`bench plot history`）与独立对比分析（`bench plot compare`）
-* 🔍 **[算子性能剖析与 Trace 指南 (docs/profiling.md)](docs/profiling.md)**
+* 🔍 **[算子性能剖析与 Trace 指南 (docs/guides/profiling.md)](docs/guides/profiling.md)**
   * 使用 `mini-infra bench lockstep case` 采样生成详细性能诊断数据
   * 导出 Chrome / TensorBoard Trace（`*.pt.trace.json`）
   * 使用 **Perfetto Web UI** 秒级加载与 60fps 交互缩放查看 CUDA Stream 与 Kernel 耗时
