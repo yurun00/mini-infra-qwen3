@@ -13,7 +13,7 @@ jobs:
       - name: Install package
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install -e .
+          .venv/bin/pip install -e ".[bench]"
       - name: Performance regression check (threshold 5%)
         run: .venv/bin/mini-infra bench check-regression --strict-hardware
       - name: Upload candidate result
