@@ -117,20 +117,20 @@ def test_common_strictly_decoupled_from_lockstep():
     import mini_infra.bench.common as bench_common
     from mini_infra.bench.lockstep import (
         build_benchmark_record,
-        print_case_summary,
-        print_table,
+        format_case_summary,
+        format_table,
     )
 
-    # 1. common.py 自身不直接反向引入 CaseBenchmarkResult，解除分层倒置
-    assert "CaseBenchmarkResult" not in bench_common.__dict__
+    # 1. common.py 自身不直接反向引入 LockstepCaseResult，解除分层倒置
+    assert "LockstepCaseResult" not in bench_common.__dict__
 
     # 2. common.py 没有任何批处理专属展示/记录函数与兼容钩子
-    assert not hasattr(bench_common, "print_table")
-    assert not hasattr(bench_common, "print_case_summary")
+    assert not hasattr(bench_common, "format_table")
+    assert not hasattr(bench_common, "format_case_summary")
     assert not hasattr(bench_common, "build_benchmark_record")
     assert not hasattr(bench_common, "_format_case_row")
 
     # 3. 批处理展示与记录构建函数在 batch 域完整导出且可用
-    assert callable(print_table)
-    assert callable(print_case_summary)
+    assert callable(format_table)
+    assert callable(format_case_summary)
     assert callable(build_benchmark_record)

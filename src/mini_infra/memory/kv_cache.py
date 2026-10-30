@@ -40,6 +40,11 @@ class KVCache:
             self.value_cache[layer_index] = torch.cat([self.value_cache[layer_index], value_states], dim=2)
         return self.key_cache[layer_index], self.value_cache[layer_index]
 
+    @property
+    def length(self) -> int:
+        """当前已缓存的历史序列长度（尚未分配时为 0）。"""
+        return self.get_seq_length()
+
     def get_seq_length(self, layer_index: int = 0) -> int:
         """获取已缓存的历史序列长度。"""
         if not self.key_cache or len(self.key_cache) <= layer_index:

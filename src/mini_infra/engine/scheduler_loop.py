@@ -94,21 +94,21 @@ def _run_schedule(
                 slots_cache.bind_wave(admitted, prefill_cache)
                 cache_ms = 0.0
             del prefill_cache
-            total_ms = model_ms + cache_ms
-            clock_ms += total_ms
+            step_ms = model_ms + cache_ms
+            clock_ms += step_ms
             finished = running_queue.step(token_ids, clock_ms, eos_token_id, stop_on_eos, states=admitted)
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.PREFILL,
-                    admitted=tuple(s.spec.request_index for s in admitted),
-                    completed=tuple(s.spec.request_index for s in finished),
-                    executed_batch_size=len(admitted),
+                    admitted_request_ids=tuple(s.spec.request_index for s in admitted),
+                    finished_request_ids=tuple(s.spec.request_index for s in finished),
+                    physical_batch_size=len(admitted),
                     num_active_requests=len(running_queue),
                     num_generated_tokens=len(admitted),
-                    total_ms=total_ms,
+                    step_ms=step_ms,
                     model_ms=model_ms,
                     cache_management_ms=cache_ms,
-                    live_cache_bytes=slots_cache.total_bytes,
+                    live_kv_cache_bytes=slots_cache.total_bytes,
                 )
             )
             _retire(finished, running_queue, slots_cache)
@@ -121,8 +121,8 @@ def _run_schedule(
             for state in running_queue:
                 state.cache_length += 1
             cache_ms = decode_result.prepare_ms if is_continuous else 0.0
-            total_ms = decode_result.model_ms + cache_ms
-            clock_ms += total_ms
+            step_ms = decode_result.model_ms + cache_ms
+            clock_ms += step_ms
             finished = running_queue.step(
                 [decode_result.slot_tokens[s.slot_index] for s in running_queue],
                 clock_ms,
@@ -132,15 +132,15 @@ def _run_schedule(
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.DECODE,
-                    admitted=(),
-                    completed=tuple(s.spec.request_index for s in finished),
-                    executed_batch_size=slots_cache.capacity,
+                    admitted_request_ids=(),
+                    finished_request_ids=tuple(s.spec.request_index for s in finished),
+                    physical_batch_size=slots_cache.capacity,
                     num_active_requests=active_before,
                     num_generated_tokens=active_before,
-                    total_ms=total_ms,
+                    step_ms=step_ms,
                     model_ms=decode_result.model_ms,
                     cache_management_ms=cache_ms,
-                    live_cache_bytes=slots_cache.total_bytes,
+                    live_kv_cache_bytes=slots_cache.total_bytes,
                 )
             )
             _retire(finished, running_queue, slots_cache)

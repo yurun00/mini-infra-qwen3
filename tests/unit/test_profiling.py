@@ -69,9 +69,7 @@ def test_generate_with_profile():
     ids = torch.tensor([[1, 2, 3]])
 
     res_no_prof = generate(mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=False))
-    res_prof = generate(
-        mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=True, top_kernels=5)
-    )
+    res_prof = generate(mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=True, top_kernels=5))
 
     # 1. 验证生成 Token 结果一致
     assert torch.equal(res_no_prof.padded_output_tokens(), res_prof.padded_output_tokens())

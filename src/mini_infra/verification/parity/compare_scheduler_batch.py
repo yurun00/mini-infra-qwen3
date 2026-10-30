@@ -79,7 +79,7 @@ def run_compare_scheduler_batch(
     serialized_token_ids = [s.token_ids for s in serialized.sequences]
     fixed_token_ids = [s.token_ids for s in fixed.sequences]
     continuous_token_ids = [s.token_ids for s in continuous.sequences]
-    admission_trace = [list(event.admitted) for event in continuous.events if event.admitted]
+    admission_trace = [list(event.admitted_request_ids) for event in continuous.events if event.admitted_request_ids]
 
     result: dict[str, Any] = {
         "serialized_token_ids": serialized_token_ids,

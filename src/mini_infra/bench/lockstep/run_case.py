@@ -25,13 +25,13 @@ import torch
 
 from mini_infra.bench.common import ProfileMode, efficiency
 from mini_infra.bench.lockstep.types import (
-    CaseBenchmarkResult,
     DistributionStats,
+    LockstepCaseResult,
     WorkloadSpec,
     summarize_samples,
 )
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.core.types import MemoryProfile, StepAggregatedMetrics
+from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.engine import GenerationOptions, Mode, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
@@ -89,8 +89,8 @@ def run_case(
     peaks: dict | None = None,
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
-) -> CaseBenchmarkResult:
-    """运行单一用例基准测试并返回 CaseBenchmarkResult 强类型结果。"""
+) -> LockstepCaseResult:
+    """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
     min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
@@ -132,25 +132,8 @@ def run_case(
         for _ in range(repeats)
     ]
 
-    raw = {
-        "ttft_ms": [r.metrics.ttft_ms for r in runs],
-        "tpot_ms": [r.metrics.mean_tpot_ms for r in runs],
-        "e2e_wall_ms": [r.metrics.e2e_wall_ms for r in runs],
-        "e2e_model_ms": [r.metrics.e2e_model_ms for r in runs],
-        "throughput_tok_s": [r.metrics.throughput_tok_s for r in runs],
-        "throughput_req_s": [r.metrics.throughput_req_s for r in runs],
-        "gpu_time_ratio": [r.metrics.gpu_time_ratio for r in runs],
-    }
-    if runs and runs[0].batch_info is not None:
-        raw["effective_prompt_token_throughput_per_second"] = [
-            r.batch_info.effective_prompt_tok_s for r in runs if r.batch_info is not None
-        ]
-        raw["padded_prompt_token_throughput_per_second"] = [
-            r.batch_info.padded_prompt_tok_s for r in runs if r.batch_info is not None
-        ]
-
     workload = WorkloadSpec(
-        mode=str(mode),
+        mode=mode,
         batch_size=effective_batch_size,
         prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,
         max_new_tokens=tuple(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
@@ -158,30 +141,23 @@ def run_case(
         warmup=warmup,
     )
 
-    eff_p_stat = (
-        summarize_samples(raw["effective_prompt_token_throughput_per_second"])
-        if "effective_prompt_token_throughput_per_second" in raw
-        else None
-    )
-    pad_p_stat = (
-        summarize_samples(raw["padded_prompt_token_throughput_per_second"])
-        if "padded_prompt_token_throughput_per_second" in raw
-        else None
-    )
+    eff_prompt_vals = [r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None]
+    pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
+    gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
     gpu_ratio_stat = (
-        summarize_samples(raw["gpu_time_ratio"]) if all(v is not None for v in raw["gpu_time_ratio"]) else None
+        summarize_samples([v for v in gpu_ratios if v is not None]) if all(v is not None for v in gpu_ratios) else None
     )
 
     metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-        ttft_ms=summarize_samples(raw["ttft_ms"]),
-        mean_tpot_ms=summarize_samples(raw["tpot_ms"]),
-        e2e_wall_ms=summarize_samples(raw["e2e_wall_ms"]),
-        e2e_model_ms=summarize_samples(raw["e2e_model_ms"]),
-        throughput_tok_s=summarize_samples(raw["throughput_tok_s"]),
-        throughput_req_s=summarize_samples(raw["throughput_req_s"]),
+        ttft_ms=summarize_samples([r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]),
+        mean_tpot_ms=summarize_samples([r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]),
+        e2e_wall_ms=summarize_samples([r.metrics.e2e_wall_ms for r in runs]),
+        e2e_model_ms=summarize_samples([r.metrics.e2e_model_ms for r in runs]),
+        throughput_tok_s=summarize_samples([r.metrics.throughput_tok_s for r in runs]),
+        throughput_req_s=summarize_samples([r.metrics.throughput_req_s for r in runs]),
         gpu_time_ratio=gpu_ratio_stat,
-        effective_prompt_tok_s=eff_p_stat,
-        padded_prompt_tok_s=pad_p_stat,
+        effective_prompt_tok_s=summarize_samples(eff_prompt_vals) if eff_prompt_vals else None,
+        padded_prompt_tok_s=summarize_samples(pad_prompt_vals) if pad_prompt_vals else None,
     )
 
     mib = 1024**2
@@ -195,9 +171,15 @@ def run_case(
         kv_cache_mb=max((r.memory.kv_cache_mb for r in runs), default=0.0),
     )
 
-    packing = runs[0].batch_info if runs else None
+    batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
+    packing: BatchScheduleInfo[DistributionStats] | None = None
+    if batch_infos:
+        packing = BatchScheduleInfo(
+            padding_efficiency=summarize_samples([b.padding_efficiency for b in batch_infos]),
+            slot_utilization=summarize_samples([b.slot_utilization for b in batch_infos]),
+        )
 
-    eff_obj = (
+    eff = (
         efficiency(
             cost,
             peaks,
@@ -232,14 +214,13 @@ def run_case(
         )
         op_breakdown = prof_res.op_breakdown
 
-    return CaseBenchmarkResult(
+    return LockstepCaseResult(
         workload=workload,
         metrics=metrics,
         memory=case_memory,
         packing=packing,
-        efficiency=eff_obj,
+        efficiency=eff,
         op_breakdown=op_breakdown,
-        raw_samples=raw,
     )
 
 

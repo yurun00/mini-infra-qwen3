@@ -3,12 +3,15 @@
 提供 SchedulerSuiteCase 的原子单次执行与多次评测汇总纯函数接口，供 CLI 或上层评测套件调用。
 """
 
+from collections.abc import Callable
+from dataclasses import replace
+
 import torch
 
 from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
-    summarize_scheduler_runs,
+    summarize_same_workload_runs,
 )
 from mini_infra.engine import ScheduleResult, run_scheduler
 
@@ -36,36 +39,24 @@ def run_case(
     case: SchedulerSuiteCase,
     warmup: int = 1,
     repeats: int = 3,
+    on_step_progress: Callable[[str, int, int], None] | None = None,
 ) -> SchedulerCaseResult:
     """连续执行单个 Case（warmup + repeats），汇总并返回 SchedulerCaseResult。"""
-    for _ in range(warmup):
+    for i in range(1, warmup + 1):
+        if on_step_progress is not None:
+            on_step_progress("warmup", i, warmup)
         run_case_once(model, device, case)
 
-    runs = [run_case_once(model, device, case) for _ in range(repeats)]
-    return summarize_scheduler_runs(case.id, str(case.mode), runs)
-
-
-def print_single_case_table(case_name: str, res: SchedulerCaseResult) -> None:
-    """控制台打印单一 Scheduler 用例的指标结果。"""
-    print(
-        "  [%s | %s]: makespan %.2f ms | %.1f tok/s | %.2f req/s | "
-        "slot_util %.1f%% | ttft_p95 %.2f ms | itl_p95 %.2f ms | cache %.1f%%"
-        % (
-            case_name,
-            res.case_id,
-            res.schedule_metrics.makespan_ms.mean,
-            res.step_agg_metrics.throughput_tok_s.mean,
-            res.step_agg_metrics.throughput_req_s.mean,
-            res.execution_slot_utilization.mean * 100,
-            res.schedule_metrics.ttft_ms_p95.mean,
-            res.schedule_metrics.itl_ms_p95.mean,
-            res.schedule_metrics.cache_management_fraction.mean * 100,
-        )
-    )
+    runs: list[ScheduleResult] = []
+    for i in range(1, repeats + 1):
+        if on_step_progress is not None:
+            on_step_progress("measure", i, repeats)
+        runs.append(run_case_once(model, device, case))
+    res = summarize_same_workload_runs(case.id, runs)
+    return replace(res, workload=replace(res.workload, warmup=warmup))
 
 
 __all__ = [
-    "print_single_case_table",
     "run_case",
     "run_case_once",
 ]

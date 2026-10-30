@@ -1,6 +1,6 @@
 # 数值对齐与等价性验证指南 (Parity Verification Guide)
 
-本指南汇总了 [`src/mini_infra/verification/parity/`](../src/mini_infra/verification/parity) 目录下的全部精度对齐与正确性测试指令。
+本指南汇总了 [`src/mini_infra/verification/parity/`](../../src/mini_infra/verification/parity) 目录下的全部精度对齐与正确性测试指令。
 
 在推理底座的演进过程中，每一次引入新特性（如 KV Cache、固定批处理、连续批处理调度器）都必须经过严格的**数值等价性（Parity）**与**请求隔离（Request Isolation）**验证，确保性能优化不以牺牲模型输出精度为代价。
 

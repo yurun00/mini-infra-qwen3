@@ -113,4 +113,3 @@ def test_print_result_lockstep_has_no_schedule_metrics(diverse_model, capsys):
     print_result(fixed, res, FakeTokenizer())
     out = capsys.readouterr().out
     assert "Cache 管理耗时占比" not in out
-

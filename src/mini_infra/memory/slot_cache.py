@@ -37,7 +37,7 @@ class DenseSlotCache:
     @property
     def length(self) -> int:
         """当前底层批量 KVCache 的序列维长度（尚未分配时为 0）。"""
-        return 0 if self.cache is None else self.cache.get_seq_length()
+        return 0 if self.cache is None else self.cache.length
 
     @property
     def total_bytes(self) -> int:
@@ -52,7 +52,7 @@ class DenseSlotCache:
         """
         synchronize(self.device)
         start = time.perf_counter()
-        target_length = max([self.length, *(state.cache_length for state in states)])
+        target_length = max(self.length, prefill_cache.length)
         if self.cache is None:
             self._allocate(prefill_cache, target_length)
         elif target_length > self.length:
@@ -107,7 +107,7 @@ class DenseSlotCache:
         """直接绑定当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 零拷贝路径）。"""
         self.capacity = len(states)
         self.cache = prefill_cache
-        target_length = prefill_cache.get_seq_length()
+        target_length = prefill_cache.length
         self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
         for state in states:
             self.history_mask[state.slot_index, target_length - state.cache_length :] = True

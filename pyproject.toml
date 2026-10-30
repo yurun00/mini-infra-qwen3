@@ -20,6 +20,7 @@ dependencies = [
     "huggingface-hub>=0.20.0,<1.0",
     "safetensors>=0.4.0",
     "regex>=2023.0.0",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -30,11 +31,16 @@ compare = [
 # 性能趋势图
 bench = [
     "matplotlib",
+    "pandas>=2.0",
+    "seaborn>=0.13",
 ]
 dev = [
     "pytest>=7.0",
     "ruff>=0.5",
     "pre-commit",
+    "matplotlib",
+    "pandas>=2.0",
+    "seaborn>=0.13",
 ]
 
 [project.scripts]

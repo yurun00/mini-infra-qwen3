@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import statistics
 import subprocess
 import warnings
 from collections.abc import Sequence
@@ -15,12 +16,15 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from pydantic import BaseModel
 
+from mini_infra.bench.workloads import WorkloadSpec
 from mini_infra.engine import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )
+from mini_infra.utils import percentile
 
 DEFAULT_WARMUP = 3
 DEFAULT_REPEATS = 10
@@ -43,8 +47,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_BENCH_DIR = REPO_ROOT / "benchmarks"
 BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_BENCH_DIR))).resolve()
 RESULT_HISTORY_DIR = BENCH_ARTIFACTS_DIR / "result-history"
+LOCKSTEP_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "lockstep"
+SCHEDULER_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "scheduler"
 SUITES_DIR = BENCH_ARTIFACTS_DIR / "suites"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
+LOCKSTEP_REPORTS_DIR = REPORTS_DIR / "lockstep"
+SCHEDULER_REPORTS_DIR = REPORTS_DIR / "scheduler"
 GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "data" / "golden_output_tokens.json"
 
 
@@ -177,6 +185,58 @@ class CorrectnessReport(_DictCompatibleMixin):
         return False
 
 
+@dataclass(frozen=True)
+class DistributionStats:
+    """一组测量样本的统计分布（均值、中位数、标准差及关键分位数）。"""
+
+    median: float
+    mean: float
+    std: float
+    min: float
+    p90: float
+    p95: float
+    p99: float
+    max: float
+
+    def to_dict(self) -> dict[str, float]:
+        """导出为与下游工具完全兼容的统计字典。"""
+        return {
+            "median": self.median,
+            "mean": self.mean,
+            "std": self.std,
+            "min": self.min,
+            "p90": self.p90,
+            "p95": self.p95,
+            "p99": self.p99,
+            "max": self.max,
+        }
+
+
+def summarize_samples(values: Sequence[float]) -> DistributionStats:
+    """计算样本序列的分位数与均值方差指标，返回 DistributionStats 结构体。"""
+    if not values:
+        return DistributionStats(
+            median=0.0,
+            mean=0.0,
+            std=0.0,
+            min=0.0,
+            p90=0.0,
+            p95=0.0,
+            p99=0.0,
+            max=0.0,
+        )
+    return DistributionStats(
+        median=statistics.median(values),
+        mean=statistics.fmean(values),
+        std=statistics.pstdev(values) if len(values) > 1 else 0.0,
+        min=min(values),
+        p90=percentile(values, 90),
+        p95=percentile(values, 95),
+        p99=percentile(values, 99),
+        max=max(values),
+    )
+
+
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
 GOLDEN_MAX_OUTPUT_TOKENS = 32
 SCHEMA_VERSION = 1
@@ -222,9 +282,17 @@ def require_cuda() -> torch.device:
 
 
 def format_lengths(value: int | Sequence[int]) -> str:
-    """将标量或逐请求长度序列格式化为 `16/32/64` 形式的展示串。"""
+    """将标量或逐请求长度序列格式化为紧凑可读展示串。"""
     if isinstance(value, Sequence) and not isinstance(value, str):
-        return "/".join(map(str, value))
+        items = list(value)
+        n = len(items)
+        if n > 4:
+            for period in range(1, n // 2 + 1):
+                if n % period == 0 and items == items[:period] * (n // period):
+                    pattern = "/".join(map(str, items[:period]))
+                    return f"({pattern})x{n // period}" if period > 1 else f"{pattern}x{n}"
+            return f"{min(items)}..{max(items)}(μ={round(sum(items) / n)})"
+        return "/".join(map(str, items))
     return str(value)
 
 
@@ -412,19 +480,50 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         help="Profiler 性能剖析模式: extra-profile 或 full-profile",
     )
     p.add_argument("--tensorboard-dir", type=Path, default=None, help="导出 TensorBoard 格式性能剖析日志的目录（可选）")
+    p.add_argument(
+        "--scale",
+        choices=["small", "medium", "large"],
+        default=None,
+        help="工作负载规模标签（small / medium / large，可选；用于同版本多规模归档）",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="伪随机工作负载种子记录标签（可选）",
+    )
     p.add_argument("--output", type=Path, help="自定义输出路径")
 
 
-def save_benchmark_record(output: Path, record: dict[str, Any], dirty: bool = False) -> None:
-    """将评测结果保存至指定 JSON 文件路径。"""
+_SCALE_ORDER = {"small": 0, "medium": 1, "large": 2}
+
+
+def save_benchmark_record(output: Path, record: BaseModel, dirty: bool = False) -> None:
+    """将评测结果保存至指定 JSON 文件路径（若同 tag 下按 scale 分步运行，自动按 small/medium/large 归并）。"""
     output.parent.mkdir(parents=True, exist_ok=True)
+    payload = record.model_dump(mode="json", exclude_none=True)
+    new_cases = payload.get("cases", [])
 
-    def _default(obj: Any) -> Any:
-        if hasattr(obj, "to_dict"):
-            return obj.to_dict()
-        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+    if output.exists() and len(new_cases) == 1 and new_cases[0].get("scale") in _SCALE_ORDER:
+        try:
+            existing = json.loads(output.read_text(encoding="utf-8"))
+        except Exception:
+            existing = None
+        if (
+            isinstance(existing, dict)
+            and existing.get("tag") == payload.get("tag")
+            and existing.get("engine") == payload.get("engine")
+            and existing.get("mode") == payload.get("mode")
+        ):
+            new_scale = new_cases[0]["scale"]
+            merged_cases = [
+                c for c in existing.get("cases", []) if c.get("scale") in _SCALE_ORDER and c.get("scale") != new_scale
+            ]
+            merged_cases.append(new_cases[0])
+            merged_cases.sort(key=lambda c: _SCALE_ORDER.get(c.get("scale", ""), 99))
+            payload["cases"] = merged_cases
 
-    output.write_text(json.dumps(record, indent=2, ensure_ascii=False, default=_default), encoding="utf-8")
+    output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if dirty else ""))
 
 
@@ -433,19 +532,25 @@ __all__ = [
     "CorrectnessReport",
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",
+    "DistributionStats",
     "EfficiencyMetrics",
     "GOLDEN_MAX_OUTPUT_TOKENS",
     "GOLDEN_OUTPUT_PATH",
     "GOLDEN_PROMPT",
     "GPU_PEAK_SPECS",
     "HardwarePeakSpecs",
+    "LOCKSTEP_REPORTS_DIR",
+    "LOCKSTEP_RESULT_HISTORY_DIR",
     "ModelCostProfile",
     "ProfileMode",
     "REPORTS_DIR",
     "REPO_ROOT",
     "RESULT_HISTORY_DIR",
+    "SCHEDULER_REPORTS_DIR",
+    "SCHEDULER_RESULT_HISTORY_DIR",
     "SCHEMA_VERSION",
     "SUITES_DIR",
+    "WorkloadSpec",
     "add_common_args",
     "check_correctness",
     "efficiency",
@@ -456,4 +561,5 @@ __all__ = [
     "require_cuda",
     "resolve_peak_specs",
     "save_benchmark_record",
+    "summarize_samples",
 ]

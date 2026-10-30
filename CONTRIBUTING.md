@@ -50,7 +50,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 ---
 
 ### 2. 端到端精度对齐测试 (GPU)
-*需要 GPU 环境，下载固定版本 `Qwen/Qwen3-0.6B`（若受限可配置 `export HF_ENDPOINT=https://hf-mirror.com`）。更详尽的指令与参数说明见 **[docs/parity-verification.md](docs/parity-verification.md)**：*
+*需要 GPU 环境，下载固定版本 `Qwen/Qwen3-0.6B`（若受限可配置 `export HF_ENDPOINT=https://hf-mirror.com`）。更详尽的指令与参数说明见 **[docs/guides/parity-verification.md](docs/guides/parity-verification.md)**：*
 
 * **Scheduler 批调度（Fixed 与 Continuous）动态对齐**：
   ```bash
@@ -103,7 +103,7 @@ mini-infra bench check-regression
 
 ## 三、独立全量基准测量（不污染发版历史）
 
-> 💡 更多 Lockstep、Scheduler 与各预设实验套件的详细命令样例见 **[docs/benchmarks.md](docs/benchmarks.md)**。
+> 💡 更多 Lockstep、Scheduler 与各预设实验套件的详细命令样例见 **[docs/benchmarks/overview.md](docs/benchmarks/overview.md)**。
 
 在日常性能调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**：
 
@@ -129,5 +129,5 @@ mini-infra bench plot compare tmp/test_nocache.json tmp/test_kvcache.json -o tmp
 
 ## 四、深入指南与延伸
 
-* **算子性能诊断与 Trace 查看**：如需深入分析 CUDA Kernel 耗时或使用 TensorBoard / Perfetto，请参阅 [docs/profiling.md](docs/profiling.md)。
+* **算子性能诊断与 Trace 查看**：如需深入分析 CUDA Kernel 耗时或使用 TensorBoard / Perfetto，请参阅 [docs/guides/profiling.md](docs/guides/profiling.md)。
 * **版本发布 SOP**：核心特性演进完成后的发版流程（版本号管理、全量基准沉淀、Git Tag 打标），请参阅 [RELEASE.md](RELEASE.md)。

@@ -4,9 +4,16 @@ import torch
 
 from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
 from mini_infra.bench.workloads import (
+    BENCH_LOCKSTEP_WORKLOAD,
+    BENCH_SCHEDULER_WORKLOAD,
+    WORKLOAD_SCALES,
+    WorkloadSpec,
+    build_scheduler_request_specs,
     make_alternating_budgets,
     make_arrival_times,
+    make_lockstep_workload,
     make_prompt,
+    make_scheduler_workload,
     make_sequence,
     make_sequences,
     make_variable_output_budgets,
@@ -156,3 +163,90 @@ def test_make_alternating_budgets():
         make_alternating_budgets(2, 0, 32)
     with pytest.raises(ValueError):
         make_alternating_budgets(2, 8, 0)
+
+
+def test_canonical_workloads_and_build_scheduler_specs():
+    from dataclasses import replace
+
+    assert set(BENCH_LOCKSTEP_WORKLOAD.keys()) == set(WORKLOAD_SCALES)
+    assert set(BENCH_SCHEDULER_WORKLOAD.keys()) == set(WORKLOAD_SCALES)
+
+    for scale in WORKLOAD_SCALES:
+        lw = BENCH_LOCKSTEP_WORKLOAD[scale]
+        assert isinstance(lw, WorkloadSpec)
+        assert lw.scale == scale
+        assert lw.seed == 42
+        assert lw.warmup >= 1
+        assert isinstance(lw.prompt_len, tuple) and len(lw.prompt_len) == lw.batch_size
+        assert isinstance(lw.max_new_tokens, tuple) and len(lw.max_new_tokens) == lw.batch_size
+        # Verify seed is compare=False while scale participates in equality
+        assert replace(lw, seed=999) == lw
+        assert replace(lw, scale="custom") != lw
+
+        sw = BENCH_SCHEDULER_WORKLOAD[scale]
+        assert isinstance(sw, WorkloadSpec)
+        assert sw.scale == scale
+        assert sw.seed == 42
+        assert sw.warmup >= 1
+        assert isinstance(sw.prompt_len, tuple) and len(sw.prompt_len) == sw.batch_size
+        assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.batch_size
+        assert isinstance(sw.arrival_times_ms, tuple) and len(sw.arrival_times_ms) == sw.batch_size
+        assert replace(sw, seed=999) == sw
+        assert replace(sw, scale="custom") != sw
+
+        specs = build_scheduler_request_specs(sw, vocab_size=32000)
+        assert len(specs) == sw.batch_size
+        assert tuple(s.prompt_len for s in specs) == sw.prompt_len
+        assert tuple(s.max_new_tokens for s in specs) == sw.max_new_tokens
+        assert tuple(s.arrival_ms for s in specs) == sw.arrival_times_ms
+
+    # Different seeds produce different pseudo-random configurations
+    assert make_lockstep_workload("medium", seed=42).prompt_len != make_lockstep_workload("medium", seed=43).prompt_len
+    assert (
+        make_scheduler_workload("medium", seed=42).arrival_times_ms
+        != make_scheduler_workload("medium", seed=43).arrival_times_ms
+    )
+
+
+def test_release_benchmark_script_dry_run(capsys):
+    from mini_infra.cli.commands.bench import release
+
+    # Test lockstep dry-run
+    rc_lockstep = release.main(
+        [
+            "--engine",
+            "lockstep",
+            "--tag",
+            "v0.3.0",
+            "--release-feature",
+            "fixed batching",
+            "--dry-run",
+        ]
+    )
+    assert rc_lockstep == 0
+    out_lockstep = capsys.readouterr().out
+    assert "[1/5] 开始执行: 运行 Lockstep 基准 [small]" in out_lockstep
+    assert "[2/5] 开始执行: 运行 Lockstep 基准 [medium]" in out_lockstep
+    assert "[3/5] 开始执行: 运行 Lockstep 基准 [large]" in out_lockstep
+    assert out_lockstep.count("--profile-mode extra-profile") == 1
+    assert "--scale small --seed 42 --profile-mode extra-profile" in out_lockstep
+    assert "-> 目标产物: benchmarks/result-history/lockstep/<commit>_v0.3.0.json" in out_lockstep
+
+    # Test scheduler dry-run
+    rc_scheduler = release.main(
+        [
+            "--engine",
+            "scheduler",
+            "--tag",
+            "v0.4.0",
+            "--release-feature",
+            "continuous batching",
+            "--dry-run",
+        ]
+    )
+    assert rc_scheduler == 0
+    out_scheduler = capsys.readouterr().out
+    assert "[1/5] 开始执行: 运行 Scheduler 基准 [small]" in out_scheduler
+    assert "[2/5] 开始执行: 运行 Scheduler 基准 [medium]" in out_scheduler
+    assert "[3/5] 开始执行: 运行 Scheduler 基准 [large]" in out_scheduler
+    assert "-> 目标产物: benchmarks/result-history/scheduler/<commit>_v0.4.0.json" in out_scheduler

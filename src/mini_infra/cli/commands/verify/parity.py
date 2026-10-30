@@ -81,9 +81,7 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     add_cache_args(p_cache)
     p_cache.set_defaults(func=handle_cache)
 
-    p_batch = subparsers.add_parser(
-        "lockstep-batch", aliases=["batch"], help="Lockstep 齐步批处理数值与请求隔离对齐"
-    )
+    p_batch = subparsers.add_parser("lockstep-batch", aliases=["batch"], help="Lockstep 齐步批处理数值与请求隔离对齐")
     add_lockstep_batch_args(p_batch)
     p_batch.set_defaults(func=handle_lockstep_batch)
 

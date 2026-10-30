@@ -58,7 +58,7 @@ def test_cli_subcommand_helps():
         ["bench", "plot", "history", "--help"],
         ["bench", "plot", "compare", "--help"],
         ["bench", "check-regression", "--help"],
-        ["bench", "regression", "--help"],
+        ["bench", "release", "--help"],
     ]
 
     for path in subcommand_help_paths:

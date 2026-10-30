@@ -153,8 +153,8 @@ class LockstepState:
         self,
         step_latencies_ms: list[float],
         kv_cache: Any = None,
-    ) -> BatchScheduleInfo:
-        """统计批处理生成过程特有明细指标（利用率、Padding 效率、各请求完成时延等）。"""
+    ) -> BatchScheduleInfo[float]:
+        """统计批处理生成过程特有明细指标（利用率、Padding 效率等）。"""
         step_count = len(step_latencies_ms)
         valid_generated_tokens_count = sum(len(output) for output in self.outputs)
 
@@ -162,16 +162,9 @@ class LockstepState:
         num_padded_prompt_tokens = self.batch_size * self.padded_prompt_length
         capacity_tokens = self.batch_size * step_count
 
-        completion_steps_per_req: list[int] = [s if s is not None else step_count for s in self.completion_steps]
-        ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
         return BatchScheduleInfo(
             padding_efficiency=num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0,
             slot_utilization=valid_generated_tokens_count / capacity_tokens if capacity_tokens else 0.0,
-            num_prompt_tokens=num_prompt_tokens,
-            num_padded_prompt_tokens=num_padded_prompt_tokens,
-            prompt_lengths_per_req=[int(x) for x in self.prompt_lengths.cpu().tolist()],
-            completion_steps_per_req=completion_steps_per_req,
-            ttft_ms=ttft_ms,
         )
 
 
@@ -263,6 +256,7 @@ def run_lockstep(
     e2e_model_ms = sum(step_latencies_ms)
     batch_info = state.compute_batch_metrics(step_latencies_ms, kv_cache)
 
+    step_count = len(step_latencies_ms)
     sequences = [
         SequenceOutput(
             request_index=idx,
@@ -270,6 +264,7 @@ def run_lockstep(
             prompt_len=int(state.prompt_lengths[idx].item()),
             output_len=len(state.outputs[idx]),
             finish_reason=state.finish_reasons[idx],
+            completion_step=state.completion_steps[idx] if state.completion_steps[idx] is not None else step_count,
         )
         for idx in range(state.batch_size)
     ]
@@ -282,6 +277,8 @@ def run_lockstep(
         total_tokens=valid_tokens,
         batch_size=state.batch_size,
         is_cuda=is_cuda,
+        num_prompt_tokens=int(state.prompt_lengths.sum().item()),
+        num_padded_prompt_tokens=state.batch_size * state.padded_prompt_length,
     )
     memory = build_memory_profile(
         baseline_allocated_bytes=baseline_allocated_bytes,

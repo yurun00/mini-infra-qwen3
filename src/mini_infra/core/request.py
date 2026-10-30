@@ -86,7 +86,7 @@ class RequestState:
             return True
         return False
 
-    def to_sequence_output(self) -> SequenceOutput:
+    def to_sequence_output(self, completion_step: int | None = None) -> SequenceOutput:
         """导出为不可变的单请求序列输出 SequenceOutput。"""
         return SequenceOutput(
             request_index=self.spec.request_index,
@@ -94,6 +94,7 @@ class RequestState:
             prompt_len=self.spec.prompt_len,
             output_len=len(self.generated),
             finish_reason=self.finish_reason,
+            completion_step=completion_step,
         )
 
     def to_request_metrics(self) -> RequestMetrics:
