@@ -5,6 +5,7 @@
 
 import argparse
 import sys
+from dataclasses import replace
 
 import torch
 
@@ -185,6 +186,11 @@ def handle_case(args: argparse.Namespace) -> int:
         repeats=repeats,
         on_step_progress=on_case_step,
     )
+    if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
+        result = replace(
+            result,
+            workload=replace(result.workload, scale=getattr(args, "scale", None), seed=getattr(args, "seed", None)),
+        )
     print(format_case_summary(result))
 
     env = gpu_info(device)
@@ -203,7 +209,7 @@ def handle_case(args: argparse.Namespace) -> int:
         git=git,
         warmup=warmup,
         repeats=repeats,
-        benchmark_type="scheduler",
+        engine="scheduler",
     )
     output = args.output or SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
     save_benchmark_record(output, record, dirty=git["dirty"])
@@ -291,7 +297,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         warmup=warmup,
         repeats=repeats,
         suite_info=suite.to_dict(),
-        benchmark_type="scheduler",
+        engine="scheduler",
     )
 
     scheduler_dir = BENCH_ARTIFACTS_DIR / "suites" / "scheduler"

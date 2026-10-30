@@ -51,7 +51,7 @@ def _make_single_case_scheduler_dict(tag: str, case_id: str, mode: str, makespan
 
     return {
         "schema_version": 1,
-        "benchmark_type": "scheduler",
+        "engine": "scheduler",
         "tag": tag,
         "release_feature": f"Scheduler {mode}",
         "mode": mode,
@@ -126,13 +126,13 @@ def test_existing_benchmark_json_files_validate():
     for p in lockstep_files:
         rec = load_benchmark_record(p, require_single_case=True)
         assert isinstance(rec, LockstepBenchmarkRecord)
-        assert len(rec.cases) == 1
+        assert 1 <= len(rec.cases) <= 3
 
     scheduler_history_dir = Path("benchmarks/result-history/scheduler")
     for p in sorted(scheduler_history_dir.glob("*.json")):
         rec = load_benchmark_record(p, require_single_case=True)
         assert isinstance(rec, SchedulerBenchmarkRecord)
-        assert len(rec.cases) == 1
+        assert 1 <= len(rec.cases) <= 3
 
     ref = load_benchmark_record(Path("benchmarks/data/reference.json"), require_single_case=True)
     assert isinstance(ref, LockstepBenchmarkRecord | SchedulerBenchmarkRecord)
@@ -182,13 +182,13 @@ def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     assert not any(s.metric_key == "itl_ms_p95" for s in cross_specs)
 
     wide_df = records_to_wide_df([lockstep_rec, sched_rec_2])
-    assert len(wide_df) == 2
+    assert len(wide_df) == len(lockstep_rec.cases) + len(sched_rec_2.cases)
     # 验证 Lockstep 的 ttft_ms 与 Scheduler 的 schedule.ttft_ms_p50 对齐在同一列 ttft_ms.median
     assert wide_df["ttft_ms.median"].notna().all()
-    assert wide_df.loc[wide_df["benchmark_type"] == "scheduler", "ttft_ms.median"].iloc[0] == pytest.approx(44.0)
+    assert wide_df.loc[wide_df["engine"] == "scheduler", "ttft_ms.median"].iloc[0] == pytest.approx(44.0)
     # 验证 Lockstep 的 tpot_ms 与 Scheduler 的 schedule.itl_ms_p50 对齐在同一列 tpot_ms.median
     assert wide_df["tpot_ms.median"].notna().all()
-    assert wide_df.loc[wide_df["benchmark_type"] == "scheduler", "tpot_ms.median"].iloc[0] == pytest.approx(42.0)
+    assert wide_df.loc[wide_df["engine"] == "scheduler", "tpot_ms.median"].iloc[0] == pytest.approx(42.0)
     # 验证 slot_utilization 对齐
     assert wide_df["slot_utilization.median"].notna().all()
 

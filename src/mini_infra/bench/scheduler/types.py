@@ -110,6 +110,10 @@ class SchedulerCaseResult:
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
         }
+        if self.workload.scale is not None:
+            rec["scale"] = self.workload.scale
+        if self.workload.seed is not None:
+            rec["seed"] = self.workload.seed
         if self.packing is not None:
             rec["packing"] = self.packing.to_dict()
         if self.efficiency is not None:

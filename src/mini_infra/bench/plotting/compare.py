@@ -73,17 +73,19 @@ def generate_comparison_table(
 ) -> str:
     """基于 Pandas 宽表与边界感知规格生成 Markdown 对比表格。"""
     wide_df = records_to_wide_df([rec1, rec2], labels=[label1, label2])
+    if len(wide_df) > 2 and "medium" in set(wide_df["scale"]):
+        wide_df = wide_df[wide_df["scale"] == "medium"].reset_index(drop=True)
     specs = resolve_plot_specs([rec1, rec2])
     tidy_df = wide_to_tidy_df(wide_df, specs)
 
     row_a = wide_df.iloc[0]
     row_b = wide_df.iloc[1]
     gpu_info = row_a["gpu"] if row_a["gpu"] == row_b["gpu"] else f"{row_a['gpu']} vs {row_b['gpu']}"
-    btypes = {row_a["benchmark_type"], row_b["benchmark_type"]}
+    engines = {row_a["engine"], row_b["engine"]}
     boundary_note = (
         "跨边界对比 (`lockstep` vs `scheduler`，已仅保留跨边界共享指标)"
-        if len(btypes) > 1
-        else f"同域对比 (`{next(iter(btypes))}`)"
+        if len(engines) > 1
+        else f"同域对比 (`{next(iter(engines))}`)"
     )
 
     lines = [
@@ -125,6 +127,8 @@ def plot_mode_comparison(
     import seaborn as sns
 
     wide_df = records_to_wide_df([rec1, rec2], labels=[label1, label2])
+    if len(wide_df) > 2 and "medium" in set(wide_df["scale"]):
+        wide_df = wide_df[wide_df["scale"] == "medium"].reset_index(drop=True)
     specs = resolve_plot_specs([rec1, rec2])
     tidy_df = wide_to_tidy_df(wide_df, specs)
 

@@ -49,54 +49,68 @@ def label(record: Any) -> str:
     return resolve_record_label(record)
 
 
+def _select_primary_case_dict(rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord) -> dict[str, Any]:
+    """优先选取包含 op_latency_breakdown 的 case（如 small），否则优先选取 medium 规模作为代表性单点剖析对象。"""
+    for c in rec.cases:
+        if getattr(c, "op_latency_breakdown", None) is not None:
+            return c.to_dict()
+    for c in rec.cases:
+        if c.scale == "medium":
+            return c.to_dict()
+    return rec.cases[len(rec.cases) // 2].to_dict()
+
+
 def markdown_table(records: list[Any], base: Any) -> str:
-    """基于 Pandas 宽表与边界感知规则生成跨版本演进 Markdown 汇总表。"""
+    """基于 Pandas 宽表与边界感知规则生成跨版本多规模演进 Markdown 汇总表。"""
     wide_df = records_to_wide_df(records)
     base_df = records_to_wide_df([base])
-    b_row = base_df.iloc[0]
+    default_b_row = base_df.iloc[0]
+    base_by_scale = {str(r["scale"]): r for _, r in base_df.iterrows()}
 
-    btypes = set(wide_df["benchmark_type"].unique())
-    is_pure_lockstep = btypes == {"lockstep"}
-    is_pure_scheduler = btypes == {"scheduler"}
+    engines = set(wide_df["engine"].unique())
+    is_pure_lockstep = engines == {"lockstep"}
+    is_pure_scheduler = engines == {"scheduler"}
 
     lines = [
-        f"基准版本：`{b_row['label']}` (`{b_row['commit']}`)，GPU：{b_row['gpu']}，"
-        "数值为 median，括号内为相对基准的变化比（>1 表示更快/更高）。",
+        f"基准版本：`{default_b_row['label']}` (`{default_b_row['commit']}`)，GPU：{default_b_row['gpu']}，"
+        "数值为 median，括号内为相对同 Scale 基准的变化比（>1 表示更快/更高）。",
         "",
     ]
 
     if is_pure_lockstep:
         lines.extend(
             [
-                "| 版本 | commit | batch | prompt | max_new_tokens | TTFT (ms) "
+                "| 版本 | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
                 "| TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
-                "| :--- | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
     elif is_pure_scheduler:
         lines.extend(
             [
-                "| 版本 | commit | batch | prompt | max_new_tokens | Makespan (ms) "
+                "| 版本 | Scale | commit | batch | prompt | max_new_tokens | Makespan (ms) "
                 "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
-                "| :--- | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
     else:
         lines.extend(
             [
-                "| 版本 | 类型 | commit | batch | prompt | max_new_tokens | TTFT (ms) "
+                "| 版本 | Engine | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
                 "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
-                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| :--- | :-: | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
 
-    b_ttft = float(b_row.get("ttft_ms.median", 0.0))
-    b_thr = float(b_row.get("throughput_tok_s.median", 0.0))
-    b_e2e = float(b_row.get("e2e_wall_ms.median", 0.0))
-    b_tpot = float(b_row.get("tpot_ms.median", 0.0)) if "tpot_ms.median" in b_row else 0.0
-    b_mksp = float(b_row.get("makespan_ms.median", 0.0)) if "makespan_ms.median" in b_row else 0.0
-
     for _, row in wide_df.iterrows():
+        sc = str(row.get("scale") or "medium")
+        b_row = base_by_scale.get(sc, default_b_row)
+        b_ttft = float(b_row.get("ttft_ms.median", 0.0))
+        b_thr = float(b_row.get("throughput_tok_s.median", 0.0))
+        b_e2e = float(b_row.get("e2e_wall_ms.median", 0.0))
+        b_tpot = float(b_row.get("tpot_ms.median", 0.0)) if "tpot_ms.median" in b_row else 0.0
+        b_mksp = float(b_row.get("makespan_ms.median", 0.0)) if "makespan_ms.median" in b_row else 0.0
+
         flag = {True: "✅", False: "❌", None: "—"}.get(row["correctness_passed"], "—")
         ttft = float(row.get("ttft_ms.median", 0.0))
         thr = float(row.get("throughput_tok_s.median", 0.0))
@@ -110,7 +124,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
             tpot = float(row.get("tpot_ms.median", 0.0))
             s_tpot = f" ({b_tpot / tpot:.2f}x)" if b_tpot > 0 and tpot > 0 else ""
             lines.append(
-                f"| {row['label']} | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
+                f"| {row['label']} | `{sc}` | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
                 f"{row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | {tpot:.2f}{s_tpot} | "
                 f"{thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
             )
@@ -119,7 +133,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
             itl_p95 = float(row.get("itl_ms_p95.median", 0.0))
             s_mksp = f" ({b_mksp / mksp:.2f}x)" if b_mksp > 0 and mksp > 0 else ""
             lines.append(
-                f"| {row['label']} | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
+                f"| {row['label']} | `{sc}` | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
                 f"{row['max_new_tokens_str']} | {mksp:.2f}{s_mksp} | {ttft:.2f}{s_ttft} | {itl_p95:.2f} | "
                 f"{thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
             )
@@ -129,7 +143,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
             e2e = float(row.get("e2e_wall_ms.median", 0.0))
             s_e2e = f" ({b_e2e / e2e:.2f}x)" if b_e2e > 0 and e2e > 0 else ""
             lines.append(
-                f"| {row['label']} | `{row['benchmark_type']}` | {row['commit']} | {row['batch_size']} | "
+                f"| {row['label']} | `{row['engine']}` | `{sc}` | {row['commit']} | {row['batch_size']} | "
                 f"{row['prompt_len_str']} | {row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | "
                 f"{tpot:.2f}{s_tpot} | {e2e:.2f}{s_e2e} | {thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
             )
@@ -137,8 +151,12 @@ def markdown_table(records: list[Any], base: Any) -> str:
     return "\n".join(lines)
 
 
+_SCALE_PALETTE = {"small": "#27ae60", "medium": "#2980b9", "large": "#e74c3c"}
+_SCALE_MARKERS = {"small": "o", "medium": "s", "large": "^"}
+
+
 def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) -> None:
-    """使用 Seaborn 与边界感知 MetricPlotSpec 绘制跨版本演化趋势图。"""
+    """使用 Seaborn 与边界感知 MetricPlotSpec 绘制跨版本多规模（small/medium/large）演化趋势图。"""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -153,10 +171,16 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     specs = resolve_plot_specs(records)
     tidy_df = wide_to_tidy_df(wide_df, specs)
 
+    release_labels = list(dict.fromkeys(wide_df.sort_values("release_idx")["label"]))
+    present_scales = [s for s in ("small", "medium", "large") if s in set(wide_df["scale"].unique())]
+    if not present_scales:
+        present_scales = list(dict.fromkeys(wide_df["scale"]))
+    has_multi_scale = len(present_scales) > 1
+
     total_panels = len(specs) + 2  # +2: Throughput Speedup vs Baseline & Correctness Gate
     ncols = 3
     nrows = math.ceil(total_panels / ncols)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(6.0 * ncols, 4.3 * nrows), squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 4.4 * nrows), squeeze=False)
     flat_axes = axes.flatten()
 
     for idx, spec in enumerate(specs):
@@ -171,10 +195,13 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                 data=sub,
                 x="label",
                 y="median",
-                color="#8e44ad" if spec.metric_key == "peak_allocated_mb" else "#16a085",
+                hue="scale" if has_multi_scale else None,
+                order=release_labels,
+                hue_order=present_scales if has_multi_scale else None,
+                palette=_SCALE_PALETTE if has_multi_scale else None,
+                color=None if has_multi_scale else ("#8e44ad" if spec.metric_key == "peak_allocated_mb" else "#16a085"),
                 ax=ax,
                 alpha=0.85,
-                width=0.55,
             )
             for bar in ax.patches:
                 h = bar.get_height()
@@ -186,39 +213,54 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         textcoords="offset points",
                         ha="center",
                         va="bottom",
-                        fontsize=8,
+                        fontsize=7.5,
                     )
         else:
-            sns.lineplot(
-                data=sub,
-                x="label",
-                y="median",
-                marker="o",
-                markersize=7,
-                linewidth=2.2,
-                color="#2980b9",
-                ax=ax,
-            )
-            if sub["std"].gt(0).any():
-                ax.errorbar(
-                    range(len(sub)),
-                    sub["median"],
-                    yerr=sub["std"],
-                    fmt="none",
-                    ecolor="#2980b9",
-                    capsize=3,
-                    alpha=0.65,
+            for sc_idx, sc in enumerate(present_scales):
+                sub_sc = sub[sub["scale"] == sc].sort_values("release_idx")
+                if sub_sc.empty:
+                    continue
+                xs = [release_labels.index(lbl) for lbl in sub_sc["label"]]
+                ys = sub_sc["median"].tolist()
+                stds = sub_sc["std"].tolist()
+                color = _SCALE_PALETTE.get(sc, "#2980b9") if has_multi_scale else "#2980b9"
+                marker = _SCALE_MARKERS.get(sc, "o")
+                ax.plot(
+                    xs,
+                    ys,
+                    marker=marker,
+                    markersize=6.5,
+                    linewidth=2.0,
+                    color=color,
+                    label=sc if has_multi_scale else None,
                 )
-            for x_i, (_, row) in enumerate(sub.iterrows()):
-                ax.annotate(
-                    f"{row['median']:.1f}",
-                    xy=(x_i, row["median"]),
-                    xytext=(0, 5),
-                    textcoords="offset points",
-                    ha="center",
-                    va="bottom",
-                    fontsize=8,
-                )
+                if any(s > 0 for s in stds):
+                    ax.errorbar(
+                        xs,
+                        ys,
+                        yerr=stds,
+                        fmt="none",
+                        ecolor=color,
+                        capsize=3,
+                        alpha=0.55,
+                    )
+                y_offset = 5 + (sc_idx - 1) * 2 if has_multi_scale else 5
+                for x_i, y_val in zip(xs, ys):
+                    ax.annotate(
+                        f"{y_val:.1f}",
+                        xy=(x_i, y_val),
+                        xytext=(0, y_offset),
+                        textcoords="offset points",
+                        ha="center",
+                        va="bottom",
+                        fontsize=7.5,
+                        color=color if has_multi_scale else "black",
+                    )
+            ax.set_xticks(range(len(release_labels)))
+            ax.set_xticklabels(release_labels, rotation=15, ha="right")
+            ax.margins(x=0.15, y=0.15)
+            if has_multi_scale:
+                ax.legend(title="Scale", fontsize=7.5, title_fontsize=8)
 
         ax.set_title(f"{idx + 1}. {spec.title}", fontsize=10.5)
         ax.set_xlabel("")
@@ -226,38 +268,60 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
         ax.tick_params(axis="x", rotation=15)
         ax.grid(True, linestyle="--", alpha=0.45)
 
-    # 附加面板 A：相对 Baseline 吞吐加速比
+    # 附加面板 A：相对同 Scale Baseline 吞吐加速比
     ax_spd = flat_axes[len(specs)]
-    b_thr = float(base_df.iloc[0]["throughput_tok_s.median"])
-    wide_df["speedup_vs_base"] = wide_df["throughput_tok_s.median"].apply(lambda v: v / b_thr if b_thr > 0 else 1.0)
-    sns.barplot(data=wide_df, x="label", y="speedup_vs_base", color="#27ae60", ax=ax_spd, alpha=0.85, width=0.55)
+    default_b_thr = float(base_df.iloc[0]["throughput_tok_s.median"])
+    base_thr_by_scale = {str(r["scale"]): float(r["throughput_tok_s.median"]) for _, r in base_df.iterrows()}
+    wide_df["speedup_vs_base"] = [
+        float(r["throughput_tok_s.median"]) / base_thr_by_scale.get(str(r["scale"]), default_b_thr)
+        if base_thr_by_scale.get(str(r["scale"]), default_b_thr) > 0
+        else 1.0
+        for _, r in wide_df.iterrows()
+    ]
+    sns.barplot(
+        data=wide_df,
+        x="label",
+        y="speedup_vs_base",
+        hue="scale" if has_multi_scale else None,
+        order=release_labels,
+        hue_order=present_scales if has_multi_scale else None,
+        palette=_SCALE_PALETTE if has_multi_scale else None,
+        color=None if has_multi_scale else "#27ae60",
+        ax=ax_spd,
+        alpha=0.85,
+    )
     ax_spd.axhline(1.0, color="gray", linestyle="--", linewidth=1)
     for bar in ax_spd.patches:
         h = bar.get_height()
-        ax_spd.annotate(
-            f"{h:.2f}x",
-            xy=(bar.get_x() + bar.get_width() / 2, h),
-            xytext=(0, 2),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-        )
+        if h > 0:
+            ax_spd.annotate(
+                f"{h:.2f}x",
+                xy=(bar.get_x() + bar.get_width() / 2, h),
+                xytext=(0, 2),
+                textcoords="offset points",
+                ha="center",
+                va="bottom",
+                fontsize=7.5,
+            )
     ax_spd.set_title(f"{len(specs) + 1}. Throughput Speedup vs Baseline (x)", fontsize=10.5)
     ax_spd.set_xlabel("")
     ax_spd.set_ylabel("Speedup Ratio (x)")
+    ax_spd.margins(y=0.14)
     ax_spd.tick_params(axis="x", rotation=15)
+    if has_multi_scale:
+        ax_spd.legend(title="Scale", fontsize=7.5, title_fontsize=8)
     ax_spd.grid(True, linestyle="--", alpha=0.45)
 
-    # 附加面板 B：正确性门禁
+    # 附加面板 B：按版本聚合的正确性门禁
     ax_corr = flat_axes[len(specs) + 1]
+    rel_df = wide_df.drop_duplicates(subset=["release_idx"]).sort_values("release_idx")
     ratios = [
         0.0 if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
-        for v in wide_df["correctness_match_ratio"]
+        for v in rel_df["correctness_match_ratio"]
     ]
-    colors = ["gray" if p is None else ("#2ecc71" if p else "#e74c3c") for p in wide_df["correctness_passed"]]
-    bars = ax_corr.bar(range(len(wide_df)), ratios, color=colors, alpha=0.85, width=0.55)
-    for i, (bar, p) in enumerate(zip(bars, wide_df["correctness_passed"])):
+    colors = ["gray" if p is None else ("#2ecc71" if p else "#e74c3c") for p in rel_df["correctness_passed"]]
+    bars = ax_corr.bar(range(len(rel_df)), ratios, color=colors, alpha=0.85, width=0.55)
+    for i, (bar, p) in enumerate(zip(bars, rel_df["correctness_passed"])):
         text = "n/a" if p is None else f"{ratios[i]:.2f}"
         ax_corr.annotate(
             text,
@@ -268,8 +332,8 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
             fontsize=8,
         )
     ax_corr.set_ylim(0, 1.15)
-    ax_corr.set_xticks(range(len(wide_df)))
-    ax_corr.set_xticklabels(wide_df["label"], rotation=15, ha="right")
+    ax_corr.set_xticks(range(len(rel_df)))
+    ax_corr.set_xticklabels(rel_df["label"], rotation=15, ha="right")
     ax_corr.set_ylabel("Token Match Ratio")
     ax_corr.set_title(f"{len(specs) + 2}. Correctness Gate", fontsize=10.5)
     ax_corr.grid(True, linestyle="--", alpha=0.45)
@@ -278,7 +342,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
         extra_ax.set_axis_off()
 
     fig.suptitle(
-        f"mini-infra-qwen3 Category 1: Release Evolution Analysis (Baseline: {label(base)})",
+        f"mini-infra-qwen3 Category 1: Release Evolution & Multi-Scale Analysis (Baseline: {label(base)})",
         fontsize=14,
         y=0.995,
     )
@@ -286,7 +350,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"第一类图表（版本演进趋势）已保存：{out_path}")
+    print(f"第一类图表（版本演进与多规模趋势）已保存：{out_path}")
 
 
 def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_path: Path) -> None:
@@ -297,7 +361,7 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     import matplotlib.pyplot as plt
 
     validated_target = validate_benchmark_record(target_rec, require_single_case=True)
-    w = validated_target.cases[0].to_dict()
+    w = _select_primary_case_dict(validated_target)
     is_scheduler = isinstance(validated_target, SchedulerBenchmarkRecord)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
@@ -347,23 +411,66 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     ax_ceil.set_title(title_21)
     ax_ceil.grid(True, linestyle="--", alpha=0.45)
 
-    # 2.2 显存足迹剖析（跨版本或当前版本堆叠图）
+    # 2.2 显存足迹剖析（跨版本或当前版本堆叠图：同 tag/feature 不同 scale 紧靠成组，不同 tag/feature 分开）
     wide_df = records_to_wide_df(records) if records else records_to_wide_df([validated_target])
-    xs = list(range(len(wide_df)))
+    has_multi_mem_scale = len(set(wide_df["scale"].unique())) > 1
+    scale_short = {"small": "S", "medium": "M", "large": "L"}
+
+    xs: list[float] = []
+    group_ticks: list[float] = []
+    group_labels: list[str] = []
+    bar_scale_tags: list[str] = []
+    intra_step = 0.24 if has_multi_mem_scale else 0.5
+    bar_width = 0.22 if has_multi_mem_scale else 0.5
+
+    for g_idx, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
+        n_in_group = len(g_df)
+        group_ticks.append(float(g_idx))
+        group_labels.append(str(g_df.iloc[0]["label"]))
+        for i, (_, r) in enumerate(g_df.iterrows()):
+            offset = (i - (n_in_group - 1) / 2.0) * intra_step
+            xs.append(float(g_idx) + offset)
+            sc_name = str(r.get("scale") or "medium")
+            bar_scale_tags.append(scale_short.get(sc_name, sc_name[:1].upper()))
+
     bottom = [0.0] * len(wide_df)
+    if "memory.weights_mb" in wide_df.columns and "memory.baseline_allocated_mb" in wide_df.columns:
+        wide_df["memory.weights_mb"] = wide_df["memory.weights_mb"].fillna(wide_df["memory.baseline_allocated_mb"])
+    elif "memory.weights_mb" not in wide_df.columns and "memory.baseline_allocated_mb" in wide_df.columns:
+        wide_df["memory.weights_mb"] = wide_df["memory.baseline_allocated_mb"]
+    elif "memory.weights_mb" not in wide_df.columns and "memory.weight_mb" in wide_df.columns:
+        wide_df["memory.weights_mb"] = wide_df["memory.weight_mb"]
     components = [
-        ("memory.weight_mb", "Resident Weights & Base", "tab:gray"),
+        ("memory.weights_mb", "Resident Weights & Base", "tab:gray"),
         ("memory.dynamic_peak_mb", "Dynamic Peak (Act/KV)", "tab:blue"),
         ("memory.fragmentation_mb", "Allocator Fragmentation", "tab:orange"),
     ]
     for col, name, color in components:
         vals = wide_df[col].fillna(0.0).tolist() if col in wide_df.columns else [0.0] * len(wide_df)
-        ax_mem.bar(xs, vals, bottom=bottom, label=name, color=color, alpha=0.85, width=0.5)
+        ax_mem.bar(xs, vals, bottom=bottom, label=name, color=color, alpha=0.85, width=bar_width)
         bottom = [b + v for b, v in zip(bottom, vals)]
-    ax_mem.set_xticks(xs)
-    ax_mem.set_xticklabels(wide_df["label"], rotation=15, ha="right")
+    if has_multi_mem_scale:
+        for x_pos, top_y, s_tag in zip(xs, bottom, bar_scale_tags):
+            if top_y > 0:
+                ax_mem.annotate(
+                    s_tag,
+                    xy=(x_pos, top_y),
+                    xytext=(0, 2),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=7.5,
+                    fontweight="bold",
+                )
+        ax_mem.margins(y=0.12)
+    ax_mem.set_xticks(group_ticks)
+    ax_mem.set_xticklabels(group_labels, rotation=15, ha="right", fontsize=8.5)
     ax_mem.set_ylabel("Memory (MiB)")
-    ax_mem.set_title("2.2 Memory Footprint Breakdown")
+    ax_mem.set_title(
+        "2.2 Memory Footprint Breakdown (S / M / L per Release)"
+        if has_multi_mem_scale
+        else "2.2 Memory Footprint Breakdown"
+    )
     ax_mem.legend(fontsize=8)
     ax_mem.grid(True, linestyle="--", alpha=0.45)
 
@@ -488,9 +595,9 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
 
 
 def generate_optimization_guidance(target_rec: Any) -> str:
-    """根据当前版本的单 Case profiling 数据，自动提炼诊断结论与下一步优化建议（支持 Lockstep 与 Scheduler）。"""
+    """根据当前版本的代表性 Case profiling 数据，自动提炼诊断结论与下一步优化建议（支持 Lockstep 与 Scheduler）。"""
     validated_target = validate_benchmark_record(target_rec, require_single_case=True)
-    w = validated_target.cases[0].to_dict()
+    w = _select_primary_case_dict(validated_target)
 
     lines = [
         "## 二、当前版本深度剖析与优化指引 (Profiling & Next Steps)",

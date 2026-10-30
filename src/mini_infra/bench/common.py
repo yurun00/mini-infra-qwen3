@@ -282,7 +282,7 @@ def require_cuda() -> torch.device:
 
 
 def format_lengths(value: int | Sequence[int]) -> str:
-    """将标量或逐请求长度序列格式化为 `16/32/64`（长周期重复序列折叠为 `(64/128/256/512)x4`）形式的展示串。"""
+    """将标量或逐请求长度序列格式化为紧凑可读展示串。"""
     if isinstance(value, Sequence) and not isinstance(value, str):
         items = list(value)
         n = len(items)
@@ -291,6 +291,7 @@ def format_lengths(value: int | Sequence[int]) -> str:
                 if n % period == 0 and items == items[:period] * (n // period):
                     pattern = "/".join(map(str, items[:period]))
                     return f"({pattern})x{n // period}" if period > 1 else f"{pattern}x{n}"
+            return f"{min(items)}..{max(items)}(μ={round(sum(items) / n)})"
         return "/".join(map(str, items))
     return str(value)
 
@@ -479,13 +480,49 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
         help="Profiler 性能剖析模式: extra-profile 或 full-profile",
     )
     p.add_argument("--tensorboard-dir", type=Path, default=None, help="导出 TensorBoard 格式性能剖析日志的目录（可选）")
+    p.add_argument(
+        "--scale",
+        choices=["small", "medium", "large"],
+        default=None,
+        help="工作负载规模标签（small / medium / large，可选；用于同版本多规模归档）",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="伪随机工作负载种子记录标签（可选）",
+    )
     p.add_argument("--output", type=Path, help="自定义输出路径")
 
 
+_SCALE_ORDER = {"small": 0, "medium": 1, "large": 2}
+
+
 def save_benchmark_record(output: Path, record: BaseModel, dirty: bool = False) -> None:
-    """将评测结果保存至指定 JSON 文件路径。"""
+    """将评测结果保存至指定 JSON 文件路径（若同 tag 下按 scale 分步运行，自动按 small/medium/large 归并）。"""
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = record.model_dump(mode="json", exclude_none=True)
+    new_cases = payload.get("cases", [])
+
+    if output.exists() and len(new_cases) == 1 and new_cases[0].get("scale") in _SCALE_ORDER:
+        try:
+            existing = json.loads(output.read_text(encoding="utf-8"))
+        except Exception:
+            existing = None
+        if (
+            isinstance(existing, dict)
+            and existing.get("tag") == payload.get("tag")
+            and existing.get("engine") == payload.get("engine")
+            and existing.get("mode") == payload.get("mode")
+        ):
+            new_scale = new_cases[0]["scale"]
+            merged_cases = [
+                c for c in existing.get("cases", []) if c.get("scale") in _SCALE_ORDER and c.get("scale") != new_scale
+            ]
+            merged_cases.append(new_cases[0])
+            merged_cases.sort(key=lambda c: _SCALE_ORDER.get(c.get("scale", ""), 99))
+            payload["cases"] = merged_cases
+
     output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"结果已写入 {output}" + ("（工作区有未提交改动）" if dirty else ""))
 

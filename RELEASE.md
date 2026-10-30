@@ -52,7 +52,7 @@ mini-infra verify scheduler-batch
 ---
 
 ### 步骤 3：全量基准测量与演进图表生成
-在固定的 GPU 测试机（如 GCP L4 实例）上通过 [`src/mini_infra/cli/commands/bench/release.py`](src/mini_infra/cli/commands/bench/release.py)（即 `mini-infra bench release`）执行，该子命令读取 [`workloads.py`](src/mini_infra/bench/workloads.py) 中预定义的标准真实 Traffic 负载（`LOCKSTEP_WORKLOAD` 与 `SCHEDULER_WORKLOAD`），一键完成单标杆测量、套件评测、演进报告生成与回归基线更新：
+在固定的 GPU 测试机（如 GCP L4 实例）上通过 [`src/mini_infra/cli/commands/bench/release.py`](src/mini_infra/cli/commands/bench/release.py)（即 `mini-infra bench release`）执行，该子命令读取 [`workloads.py`](src/mini_infra/bench/workloads.py) 中基于固定随机种子（`seed=42`）预定义的多规模真实伪随机 Traffic 负载（`BENCH_LOCKSTEP_WORKLOAD` 与 `BENCH_SCHEDULER_WORKLOAD`，涵盖 `small`、`medium`、`large` 三档），一键完成多规模基准测量、演进报告生成与回归基线更新：
 
 ```bash
 # 安装绘图与基准依赖
@@ -60,28 +60,23 @@ pip install -e ".[bench]"
 
 # 方式 A：若为齐步推理特性（如 v0.2.0 KV Cache / v0.3.0 Fixed Batching）：
 mini-infra bench release \
-  --type lockstep \
+  --engine lockstep \
   --tag "v0.3.0" \
   --release-feature "fixed batching" \
   --batching-method fixed-batching
 
 # 方式 B：若为队列调度器特性（如 v0.4.0 Continuous Batching）：
-# 1) 若 benchmarks/result-history/scheduler/ 尚无 baseline，先用 bench scheduler case 生成同构 WorkloadSpec（仅 Mode 为 fixed-batching）的 baseline：
-mini-infra bench scheduler case \
+# 1) 若 benchmarks/result-history/scheduler/ 尚无 baseline，先用同构 WorkloadSpec（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
+mini-infra bench release \
+  --engine scheduler \
   --tag "baseline" \
   --release-feature "fixed batching" \
   --batching-method fixed-batching \
-  --request-count 16 \
-  --max-running-requests 4 \
-  --warmup 3 \
-  --repeats 10 \
-  --prompt-lens 64 128 256 512 64 128 256 512 64 128 256 512 64 128 256 512 \
-  --output-budgets 16 64 32 128 16 64 32 128 16 64 32 128 16 64 32 128 \
-  --arrival-times-ms 0 0 0 0 80 160 240 320 400 480 560 640 720 800 880 960
+  --skip-regression
 
-# 2) 一键生成当前版本的 Scheduler 单标杆结果、套件、演进报告与回归基线：
+# 2) 一键生成当前版本的 Scheduler 多规模（small/medium/large）结果、演进报告与回归基线：
 mini-infra bench release \
-  --type scheduler \
+  --engine scheduler \
   --tag "v0.4.0" \
   --release-feature "continuous batching"
 ```
@@ -89,8 +84,8 @@ mini-infra bench release \
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。
 
 > ⚠️ **数据流与绘图约定**：
-> * **`benchmarks/result-history/{lockstep,scheduler}/*.json` 严格遵循单 Case 约束（`require_single_case=True`）**：每个归档文件只包含 1 个标杆 Case（默认分别采用 `workloads.py` 中的 `LOCKSTEP_WORKLOAD` 与 `SCHEDULER_WORKLOAD`），由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多 Case 套件评测结果统一存放在 `benchmarks/suites/` 下。
-> * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `result-history/lockstep/` 与 `result-history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--type lockstep` 或 `--type scheduler` 单独生成）；
+> * **`benchmarks/result-history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`BENCH_LOCKSTEP_WORKLOAD` / `BENCH_SCHEDULER_WORKLOAD`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/suites/` 下。
+> * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `result-history/lockstep/` 与 `result-history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--engine lockstep` 或 `--engine scheduler` 单独生成）；
 > * **`mini-infra bench check-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 > 🏷️ **版本号与特性（Feature）标注约定**：

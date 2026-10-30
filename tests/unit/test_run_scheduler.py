@@ -175,9 +175,9 @@ def test_run_scheduler_suite_on_cpu():
         warmup=0,
         repeats=2,
         suite_info=suite.to_dict(),
-        benchmark_type="scheduler",
+        engine="scheduler",
     )
-    assert record["benchmark_type"] == "scheduler"
+    assert record["engine"] == "scheduler"
     assert record["suite"]["request_count"] == 2
     assert len(record["cases"]) == 2
 

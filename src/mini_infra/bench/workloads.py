@@ -1,17 +1,30 @@
-"""基准测试工作负载配置（WorkloadSpec、标准 Lockstep/Scheduler 负载实例）与序列生成辅助工具。"""
+"""基准测试工作负载配置（WorkloadSpec、多规模伪随机真实 Traffic 负载实例）与序列生成辅助工具。"""
 
+import math
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Literal
 
 import torch
 
 from mini_infra.core.request import RequestSpec, make_request_specs
 from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
 
+WorkloadScale = Literal["small", "medium", "large"]
+WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
+DEFAULT_WORKLOAD_SEED: int = 42
+
+_SCALE_SEED_OFFSET: dict[str, int] = {
+    "small": 101,
+    "medium": 202,
+    "large": 303,
+}
+
 
 @dataclass(frozen=True)
 class WorkloadSpec:
-    """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats 与 warmup）。"""
+    """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats、warmup 与 seed）。"""
 
     mode: Mode
     batch_size: int
@@ -19,31 +32,168 @@ class WorkloadSpec:
     max_new_tokens: int | tuple[int, ...]
     repeats: int = field(default=1, compare=False)
     warmup: int = field(default=0, compare=False)
+    seed: int | None = field(default=None, compare=False)
+    scale: str | None = None
     max_running_requests: int | None = None
     arrival_times_ms: float | tuple[float, ...] | None = None
 
 
-# 标准齐步（Lockstep）基准工作负载：4 条阶梯变长 Prompt 与阶梯变长输出预算请求
-LOCKSTEP_WORKLOAD = WorkloadSpec(
-    mode=Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED),
-    batch_size=4,
-    prompt_len=(64, 128, 256, 512),
-    max_new_tokens=(16, 32, 64, 128),
-    repeats=10,
-    warmup=3,
-)
+def _sample_log_uniform_lengths(
+    rng: random.Random,
+    count: int,
+    min_len: int,
+    max_len: int,
+) -> tuple[int, ...]:
+    """采用分层对数均匀分布（Stratified Log-Uniform）+ 随机打乱采样请求长度序列。
 
-# 标准调度器（Scheduler）基准工作负载：16 条请求（4 个波次 × 并发槽位 4），变长 Prompt、交错长短输出预算与流式错峰到达
-SCHEDULER_WORKLOAD = WorkloadSpec(
-    mode=Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS),
-    batch_size=16,
-    prompt_len=(64, 128, 256, 512) * 4,
-    max_new_tokens=(16, 64, 32, 128) * 4,
-    repeats=10,
-    warmup=3,
-    max_running_requests=4,
-    arrival_times_ms=(0.0, 0.0, 0.0, 0.0) + tuple(80.0 * i for i in range(1, 13)),
-)
+    模拟真实线上流量中“短/中请求居多、长尾请求并存”的偏态分布特征，
+    同时保证在小样本（如 batch_size=2/4）下依然覆盖完整跨度，且结果由 seed 严格确定。
+    """
+    log_min = math.log(max(1, min_len))
+    log_max = math.log(max(min_len + 1, max_len))
+    values: list[int] = []
+    for i in range(count):
+        u_low = i / count
+        u_high = (i + 1) / count
+        u = rng.uniform(u_low, u_high)
+        val = int(round(math.exp(log_min + u * (log_max - log_min))))
+        values.append(max(min_len, min(max_len, val)))
+    rng.shuffle(values)
+    return tuple(values)
+
+
+def _sample_poisson_arrivals(
+    rng: random.Random,
+    count: int,
+    initial_burst: int,
+    mean_interval_ms: float,
+) -> tuple[float, ...]:
+    """生成带初始并发突发的泊松过程（指数分布到达间隔）请求到达时间序列（单位 ms）。"""
+    arrivals: list[float] = []
+    t = 0.0
+    burst = max(1, min(count, initial_burst))
+    for i in range(count):
+        if i < burst:
+            arrivals.append(0.0)
+        else:
+            dt = rng.expovariate(1.0 / mean_interval_ms)
+            dt = max(5.0, min(mean_interval_ms * 3.0, dt))
+            t += dt
+            arrivals.append(round(t, 1))
+    return tuple(arrivals)
+
+
+_LOCKSTEP_SCALE_CONFIGS: dict[WorkloadScale, dict[str, int]] = {
+    "small": {"batch_size": 4, "min_prompt": 16, "max_prompt": 64, "min_out": 8, "max_out": 32},
+    "medium": {"batch_size": 8, "min_prompt": 64, "max_prompt": 256, "min_out": 32, "max_out": 96},
+    "large": {"batch_size": 16, "min_prompt": 256, "max_prompt": 1024, "min_out": 64, "max_out": 192},
+}
+
+_SCHEDULER_SCALE_CONFIGS: dict[WorkloadScale, dict[str, int | float]] = {
+    "small": {
+        "batch_size": 16,
+        "max_running_requests": 4,
+        "min_prompt": 16,
+        "max_prompt": 64,
+        "min_out": 8,
+        "max_out": 32,
+        "initial_burst": 4,
+        "mean_interval_ms": 55.0,
+    },
+    "medium": {
+        "batch_size": 32,
+        "max_running_requests": 8,
+        "min_prompt": 64,
+        "max_prompt": 256,
+        "min_out": 32,
+        "max_out": 96,
+        "initial_burst": 8,
+        "mean_interval_ms": 110.0,
+    },
+    "large": {
+        "batch_size": 64,
+        "max_running_requests": 16,
+        "min_prompt": 256,
+        "max_prompt": 1024,
+        "min_out": 64,
+        "max_out": 192,
+        "initial_burst": 16,
+        "mean_interval_ms": 180.0,
+    },
+}
+
+
+def make_lockstep_workload(
+    scale: WorkloadScale = "medium",
+    *,
+    seed: int = DEFAULT_WORKLOAD_SEED,
+    mode: Mode | None = None,
+    warmup: int = 2,
+    repeats: int = 5,
+) -> WorkloadSpec:
+    """根据指定 scale (small/medium/large) 与 seed 生成确定性的伪随机 Lockstep 基准负载。"""
+    if scale not in _LOCKSTEP_SCALE_CONFIGS:
+        raise ValueError(f"未知 scale: {scale!r}，可选: {WORKLOAD_SCALES}")
+    cfg = _LOCKSTEP_SCALE_CONFIGS[scale]
+    rng = random.Random(seed * 1000 + _SCALE_SEED_OFFSET[scale])
+    bs = cfg["batch_size"]
+    prompt_lens = _sample_log_uniform_lengths(rng, bs, cfg["min_prompt"], cfg["max_prompt"])
+    out_budgets = _sample_log_uniform_lengths(rng, bs, cfg["min_out"], cfg["max_out"])
+    target_mode = mode or Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    return WorkloadSpec(
+        mode=target_mode,
+        batch_size=bs,
+        prompt_len=prompt_lens,
+        max_new_tokens=out_budgets,
+        repeats=repeats,
+        warmup=warmup,
+        seed=seed,
+        scale=scale,
+    )
+
+
+def make_scheduler_workload(
+    scale: WorkloadScale = "medium",
+    *,
+    seed: int = DEFAULT_WORKLOAD_SEED,
+    mode: Mode | None = None,
+    warmup: int = 2,
+    repeats: int = 5,
+) -> WorkloadSpec:
+    """根据指定 scale (small/medium/large) 与 seed 生成确定性的伪随机 Scheduler 基准负载。"""
+    if scale not in _SCHEDULER_SCALE_CONFIGS:
+        raise ValueError(f"未知 scale: {scale!r}，可选: {WORKLOAD_SCALES}")
+    cfg = _SCHEDULER_SCALE_CONFIGS[scale]
+    rng = random.Random(seed * 1000 + 500 + _SCALE_SEED_OFFSET[scale])
+    bs = int(cfg["batch_size"])
+    max_running = int(cfg["max_running_requests"])
+    prompt_lens = _sample_log_uniform_lengths(rng, bs, int(cfg["min_prompt"]), int(cfg["max_prompt"]))
+    out_budgets = _sample_log_uniform_lengths(rng, bs, int(cfg["min_out"]), int(cfg["max_out"]))
+    arrivals = _sample_poisson_arrivals(rng, bs, int(cfg["initial_burst"]), float(cfg["mean_interval_ms"]))
+    target_mode = mode or Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    return WorkloadSpec(
+        mode=target_mode,
+        batch_size=bs,
+        prompt_len=prompt_lens,
+        max_new_tokens=out_budgets,
+        repeats=repeats,
+        warmup=warmup,
+        seed=seed,
+        scale=scale,
+        max_running_requests=max_running,
+        arrival_times_ms=arrivals,
+    )
+
+
+# 标准齐步（Lockstep）多规模基准工作负载（small / medium / large）
+BENCH_LOCKSTEP_WORKLOAD: dict[WorkloadScale, WorkloadSpec] = {
+    s: make_lockstep_workload(s, seed=DEFAULT_WORKLOAD_SEED) for s in WORKLOAD_SCALES
+}
+
+# 标准调度器（Scheduler）多规模基准工作负载（small / medium / large）
+BENCH_SCHEDULER_WORKLOAD: dict[WorkloadScale, WorkloadSpec] = {
+    s: make_scheduler_workload(s, seed=DEFAULT_WORKLOAD_SEED) for s in WORKLOAD_SCALES
+}
 
 
 def make_sequence(
@@ -197,13 +347,18 @@ def build_scheduler_request_specs(
 
 
 __all__ = [
-    "LOCKSTEP_WORKLOAD",
-    "SCHEDULER_WORKLOAD",
+    "BENCH_LOCKSTEP_WORKLOAD",
+    "BENCH_SCHEDULER_WORKLOAD",
+    "DEFAULT_WORKLOAD_SEED",
+    "WORKLOAD_SCALES",
+    "WorkloadScale",
     "WorkloadSpec",
     "build_scheduler_request_specs",
     "make_alternating_budgets",
     "make_arrival_times",
+    "make_lockstep_workload",
     "make_prompt",
+    "make_scheduler_workload",
     "make_sequence",
     "make_sequences",
     "make_variable_output_budgets",

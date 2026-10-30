@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "engine": "lockstep",
   "tag": "eval",
   "release_feature": null,
   "mode": "kv-cache,kv-cache+fixed-batching",
@@ -1002,6 +1003,5 @@
     "kv_cache": true,
     "warmup": 1,
     "repeats": 3
-  },
-  "benchmark_type": "lockstep"
+  }
 }

@@ -79,17 +79,17 @@ def resolve_record_label(
 def resolve_plot_specs(
     records: Sequence[LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any]],
 ) -> list[MetricPlotSpec]:
-    """根据待比较记录的 benchmark_type 集合，动态解析应绘制的指标面板：
+    """根据待比较记录的 engine 集合，动态解析应绘制的指标面板：
 
     - 全为 lockstep：SHARED_PLOT_SPECS + LOCKSTEP_ONLY_PLOT_SPECS（含 tpot_ms）
     - 全为 scheduler：SHARED_PLOT_SPECS + SCHEDULER_ONLY_PLOT_SPECS（含 makespan/queue/itl 等）
     - 跨越 lockstep <-> scheduler 边界：仅返回 SHARED_PLOT_SPECS（自动隐藏不可跨边界的专属子图）
     """
     validated = [validate_benchmark_record(r, require_single_case=True) for r in records]
-    btypes = {r.benchmark_type for r in validated}
-    if btypes == {"lockstep"}:
+    engines = {r.engine for r in validated}
+    if engines == {"lockstep"}:
         return [*SHARED_PLOT_SPECS, *LOCKSTEP_ONLY_PLOT_SPECS]
-    if btypes == {"scheduler"}:
+    if engines == {"scheduler"}:
         return [*SHARED_PLOT_SPECS, *SCHEDULER_ONLY_PLOT_SPECS]
     return list(SHARED_PLOT_SPECS)
 
@@ -112,34 +112,43 @@ def records_to_wide_df(
     ]
 
     case_dicts: list[dict[str, Any]] = []
-    for idx, (rec, lbl) in enumerate(zip(validated, resolved_labels)):
-        c_dict = rec.cases[0].to_dict()
-        c_dict["order_idx"] = idx
-        c_dict["label"] = lbl
-        c_dict["tag"] = rec.tag
-        c_dict["benchmark_type"] = rec.benchmark_type
-        c_dict["commit"] = rec.git.get("commit", "n/a")
-        c_dict["gpu"] = rec.env.get("gpu", "Unknown GPU")
-        c_dict["prompt_len_str"] = format_lengths(c_dict["prompt_len"])
-        c_dict["max_new_tokens_str"] = format_lengths(c_dict["max_new_tokens"])
-        c_dict["workload_desc"] = (
-            f"bs={c_dict['batch_size']}, prompt={c_dict['prompt_len_str']}, out={c_dict['max_new_tokens_str']}"
-        )
-        corr = rec.correctness
-        if isinstance(corr, dict) and "passed" in corr:
-            c_dict["correctness_passed"] = corr.get("passed")
-            c_dict["correctness_match_ratio"] = corr.get("match_ratio")
-        elif isinstance(corr, dict):
-            sub_passes = [v.get("passed") for v in corr.values() if isinstance(v, dict)]
-            sub_ratios = [
-                v.get("match_ratio") for v in corr.values() if isinstance(v, dict) and v.get("match_ratio") is not None
-            ]
-            c_dict["correctness_passed"] = all(sub_passes) if sub_passes else None
-            c_dict["correctness_match_ratio"] = min(sub_ratios) if sub_ratios else None
-        else:
-            c_dict["correctness_passed"] = None
-            c_dict["correctness_match_ratio"] = None
-        case_dicts.append(c_dict)
+    order_idx = 0
+    for rec_idx, (rec, lbl) in enumerate(zip(validated, resolved_labels)):
+        for case_obj in rec.cases:
+            c_dict = case_obj.to_dict()
+            c_dict["order_idx"] = order_idx
+            c_dict["release_idx"] = rec_idx
+            order_idx += 1
+            c_dict["label"] = lbl
+            c_dict["tag"] = rec.tag
+            c_dict["scale"] = c_dict.get("scale") or "medium"
+            c_dict["seed"] = c_dict.get("seed")
+            c_dict["engine"] = rec.engine
+            c_dict["commit"] = rec.git.get("commit", "n/a")
+            c_dict["gpu"] = rec.env.get("gpu", "Unknown GPU")
+            c_dict["prompt_len_str"] = format_lengths(c_dict["prompt_len"])
+            c_dict["max_new_tokens_str"] = format_lengths(c_dict["max_new_tokens"])
+            c_dict["workload_desc"] = (
+                f"scale={c_dict['scale']}, bs={c_dict['batch_size']}, "
+                f"prompt={c_dict['prompt_len_str']}, out={c_dict['max_new_tokens_str']}"
+            )
+            corr = rec.correctness
+            if isinstance(corr, dict) and "passed" in corr:
+                c_dict["correctness_passed"] = corr.get("passed")
+                c_dict["correctness_match_ratio"] = corr.get("match_ratio")
+            elif isinstance(corr, dict):
+                sub_passes = [v.get("passed") for v in corr.values() if isinstance(v, dict)]
+                sub_ratios = [
+                    v.get("match_ratio")
+                    for v in corr.values()
+                    if isinstance(v, dict) and v.get("match_ratio") is not None
+                ]
+                c_dict["correctness_passed"] = all(sub_passes) if sub_passes else None
+                c_dict["correctness_match_ratio"] = min(sub_ratios) if sub_ratios else None
+            else:
+                c_dict["correctness_passed"] = None
+                c_dict["correctness_match_ratio"] = None
+            case_dicts.append(c_dict)
 
     wide_df = pd.json_normalize(case_dicts)
     extra_cols: dict[str, Any] = {}
@@ -223,7 +232,7 @@ def wide_to_tidy_df(
     if not valid_keys:
         return pd.DataFrame()
 
-    id_vars = ["order_idx", "label", "tag", "benchmark_type", "workload_desc"]
+    id_vars = ["order_idx", "release_idx", "label", "tag", "scale", "engine", "workload_desc"]
     median_cols = {f"{k}.median": k for k in valid_keys}
     std_cols = {f"{k}.std": k for k in valid_keys if f"{k}.std" in wide_df.columns}
 
@@ -251,9 +260,9 @@ def wide_to_tidy_df(
         tidy = melted_median
         tidy["std"] = 0.0
 
-    tidy["scale"] = tidy["metric_key"].map(lambda k: spec_by_key[k].scale)
-    tidy["median"] = tidy["median"] * tidy["scale"]
-    tidy["std"] = tidy["std"] * tidy["scale"]
+    tidy["unit_scale"] = tidy["metric_key"].map(lambda k: spec_by_key[k].scale)
+    tidy["median"] = tidy["median"] * tidy["unit_scale"]
+    tidy["std"] = tidy["std"] * tidy["unit_scale"]
     tidy["title"] = tidy["metric_key"].map(lambda k: spec_by_key[k].title)
     tidy["ylabel"] = tidy["metric_key"].map(lambda k: spec_by_key[k].ylabel)
     tidy["chart_kind"] = tidy["metric_key"].map(lambda k: spec_by_key[k].chart_kind)

@@ -21,12 +21,12 @@ pydantic.BaseModel
       │
       └── 第三层：顶层文件信封层 (Envelope Level) + 判别式联合 (Discriminated Union)
            └── BenchmarkEnvelopeBase       # 共享顶层元数据 (schema_version, tag, git, env, config, correctness, suite)
-                ├── LockstepBenchmarkRecord   # benchmark_type="lockstep",  cases: list[LockstepCaseRecord]
-                └── SchedulerBenchmarkRecord  # benchmark_type="scheduler", cases: list[SchedulerCaseRecord]
+                ├── LockstepBenchmarkRecord   # engine="lockstep",  cases: list[LockstepCaseRecord]
+                └── SchedulerBenchmarkRecord  # engine="scheduler", cases: list[SchedulerCaseRecord]
 ```
 
-通过 `AnyBenchmarkRecord`（`Field(discriminator="benchmark_type")`），
-反序列化任意评测 JSON 时可根据 `benchmark_type` 自动分发校验为对应的强类型子类。
+通过 `AnyBenchmarkRecord`（`Field(discriminator="engine")`），
+反序列化任意评测 JSON 时可根据 `engine` 自动分发校验为对应的强类型子类。
 """
 
 import time
@@ -180,6 +180,8 @@ class BaseCaseRecord(_DictAccessModel):
     max_new_tokens: int | list[int]
     repeats: int = 1
     warmup: int = 0
+    scale: str | None = None
+    seed: int | None = None
     e2e_wall_ms: DistributionStatsRecord
     e2e_model_ms: DistributionStatsRecord | None = None
     throughput_tok_s: DistributionStatsRecord
@@ -236,20 +238,20 @@ class BenchmarkEnvelopeBase(_DictAccessModel):
 class LockstepBenchmarkRecord(BenchmarkEnvelopeBase):
     """Lockstep 基准测试完整记录信封。"""
 
-    benchmark_type: Literal["lockstep"] = "lockstep"
+    engine: Literal["lockstep"] = "lockstep"
     cases: list[LockstepCaseRecord]
 
 
 class SchedulerBenchmarkRecord(BenchmarkEnvelopeBase):
     """Scheduler 基准测试完整记录信封。"""
 
-    benchmark_type: Literal["scheduler"] = "scheduler"
+    engine: Literal["scheduler"] = "scheduler"
     cases: list[SchedulerCaseRecord]
 
 
 AnyBenchmarkRecord = Annotated[
     LockstepBenchmarkRecord | SchedulerBenchmarkRecord,
-    Field(discriminator="benchmark_type"),
+    Field(discriminator="engine"),
 ]
 
 _BENCHMARK_RECORD_ADAPTER: TypeAdapter[LockstepBenchmarkRecord | SchedulerBenchmarkRecord] = TypeAdapter(
@@ -270,14 +272,14 @@ def build_benchmark_record(
     warmup: int,
     repeats: int,
     suite_info: dict[str, Any] | None = None,
-    benchmark_type: Literal["lockstep", "scheduler"] | None = None,
+    engine: Literal["lockstep", "scheduler"] | None = None,
 ) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
     """统一构建 Lockstep 或 Scheduler 标准评测结果信封（由 Pydantic 校验并返回模型）。"""
-    if benchmark_type is None:
+    if engine is None:
         if cases and hasattr(cases[0], "schedule_metrics"):
-            benchmark_type = "scheduler"
+            engine = "scheduler"
         else:
-            benchmark_type = "lockstep"
+            engine = "lockstep"
 
     record_cases = [c.to_record_dict() for c in cases]
     peaks_dict = peaks.to_dict() if hasattr(peaks, "to_dict") else peaks
@@ -297,7 +299,7 @@ def build_benchmark_record(
 
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "benchmark_type": benchmark_type,
+        "engine": engine,
         "tag": args.tag,
         "release_feature": getattr(args, "release_feature", None),
         "mode": mode_label,
@@ -324,6 +326,30 @@ def build_benchmark_record(
     return _BENCHMARK_RECORD_ADAPTER.validate_python(payload)
 
 
+def _check_single_case_constraint(
+    rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord,
+    source: str | Path,
+) -> None:
+    """校验 result-history 约束：单 Case，或同版本同模式下按 small/medium/large 各存 1 个 Case。"""
+    if not rec.cases:
+        raise ValueError(f"基准记录 {source} 不包含任何 case (single-case 约束)。")
+    if len(rec.cases) == 1:
+        return
+    scales = [c.scale for c in rec.cases]
+    modes = {c.mode for c in rec.cases}
+    if (
+        rec.suite is None
+        and len(modes) == 1
+        and all(s in ("small", "medium", "large") for s in scales)
+        and len(set(scales)) == len(scales)
+    ):
+        return
+    raise ValueError(
+        f"基准记录 {source} 必须只包含 1 个 case（或同模式下按 small/medium/large 各 1 个 case，single-case 约束），"
+        f"实际包含 {len(rec.cases)} 个 cases。"
+    )
+
+
 def validate_benchmark_record(
     data: Any,
     *,
@@ -336,10 +362,8 @@ def validate_benchmark_record(
     else:
         rec = _BENCHMARK_RECORD_ADAPTER.validate_python(data)
 
-    if require_single_case and len(rec.cases) != 1:
-        raise ValueError(
-            f"基准记录 {source} 必须只包含 1 个 case (single-case 约束)，实际包含 {len(rec.cases)} 个 cases。"
-        )
+    if require_single_case:
+        _check_single_case_constraint(rec, source)
     return rec
 
 
@@ -353,10 +377,8 @@ def load_benchmark_record(
         raise FileNotFoundError(f"文件不存在: {path}")
     raw_text = path.read_text(encoding="utf-8")
     rec = _BENCHMARK_RECORD_ADAPTER.validate_json(raw_text)
-    if require_single_case and len(rec.cases) != 1:
-        raise ValueError(
-            f"基准文件 {path} 必须只包含 1 个 case (single-case 约束)，实际包含 {len(rec.cases)} 个 cases。"
-        )
+    if require_single_case:
+        _check_single_case_constraint(rec, path)
     return rec
 
 

@@ -34,11 +34,12 @@ from mini_infra.bench.plotting.history import (
 
 def add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument(
-        "--type",
-        dest="benchmark_type",
+        "-e",
+        "--engine",
+        dest="engine",
         choices=["all", "lockstep", "scheduler"],
         default="all",
-        help="要生成的历史演进报告类型（默认: all，同时生成 lockstep 与 scheduler 报告）",
+        help="要生成的历史演进报告引擎分支（默认: all，同时生成 lockstep 与 scheduler 报告）",
     )
     p.add_argument("--baseline", help="作为基准的 tag，默认最早的结果")
     p.add_argument("--target", help="作为当前深度剖析对象的 tag，默认最新的结果")
@@ -148,9 +149,9 @@ def _render_single_history_report(
 
 
 def handle_history(args: argparse.Namespace) -> int:
-    btype = getattr(args, "benchmark_type", "all")
+    engine = getattr(args, "engine", "all")
     targets: list[tuple[str, str, Path, Path]] = []
-    if btype in ("all", "lockstep"):
+    if engine in ("all", "lockstep"):
         targets.append(
             (
                 "lockstep",
@@ -159,7 +160,7 @@ def handle_history(args: argparse.Namespace) -> int:
                 LOCKSTEP_REPORTS_DIR,
             )
         )
-    if btype in ("all", "scheduler"):
+    if engine in ("all", "scheduler"):
         targets.append(
             (
                 "scheduler",
@@ -173,7 +174,7 @@ def handle_history(args: argparse.Namespace) -> int:
     for domain_key, domain_title, hist_dir, rep_dir in targets:
         records = _load_domain_results(hist_dir)
         if not records:
-            if btype != "all":
+            if engine != "all":
                 print(f"{hist_dir} 中没有结果，请先运行 mini-infra bench {domain_key} case")
                 return 1
             continue
