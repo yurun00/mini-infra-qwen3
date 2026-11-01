@@ -52,10 +52,18 @@ def resolve_label(rec: Any, custom: str | None = None) -> str:
     return resolve_record_label(rec, custom)
 
 
+# 显存容量类指标（以 MiB 绝对增量展示变化）
+_MEMORY_MB_KEYS = {"peak_allocated_mb", "kv_cache_mb"}
+# 占比类指标（tidy 阶段已 *100，以百分点绝对增量展示变化）
+_FRACTION_KEYS = {"cache_management_fraction"}
+
+
 def _format_delta(metric_key: str, val_a: float, val_b: float) -> str:
     """根据指标物理性质格式化 A -> B 的相对变化（加速比或显存增量）。"""
-    if metric_key == "peak_allocated_mb":
+    if metric_key in _MEMORY_MB_KEYS:
         return f"{val_b - val_a:+.1f} MiB"
+    if metric_key in _FRACTION_KEYS:
+        return f"{val_b - val_a:+.2f} pp"
     if metric_key in _LATENCY_KEYS:
         ratio = val_a / val_b if val_b > 0 else 1.0
         return f"**{ratio:.2f}x**"

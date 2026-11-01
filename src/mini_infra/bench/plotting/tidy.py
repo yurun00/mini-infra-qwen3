@@ -33,6 +33,7 @@ SHARED_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
     MetricPlotSpec("throughput_req_s", "Request Throughput (req/s)", "Throughput (req/s)"),
     MetricPlotSpec("e2e_wall_ms", "End-to-End Wall Latency (ms)", "E2E Latency (ms)"),
     MetricPlotSpec("peak_allocated_mb", "Peak Allocated Memory (MiB)", "Peak Memory (MiB)"),
+    MetricPlotSpec("kv_cache_mb", "Peak Live KV Cache Memory (MiB)", "KV Cache (MiB)"),
     MetricPlotSpec(
         "slot_utilization",
         "Execution Slot Utilization (%)",
@@ -54,6 +55,12 @@ SCHEDULER_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
         "running_capacity_utilization",
         "Running Capacity Utilization (%)",
         "Capacity Utilization (%)",
+        scale=100.0,
+    ),
+    MetricPlotSpec(
+        "cache_management_fraction",
+        "Cache Management Overhead (% of busy time)",
+        "Cache Mgmt Fraction (%)",
         scale=100.0,
     ),
 )
@@ -199,10 +206,14 @@ def records_to_wide_df(
             if src in wide_df.columns:
                 extra_cols[dst] = wide_df[src]
 
-    # 4. 统一标量/分布混合指标：peak_allocated_mb 与无 packing 单请求记录的 slot_utilization 默认回退
+    # 4. 统一标量/分布混合指标：peak_allocated_mb、kv_cache_mb 与无 packing 单请求记录的 slot_utilization 默认回退
     if "memory.peak_allocated_mb" in wide_df.columns:
         extra_cols["peak_allocated_mb.median"] = wide_df["memory.peak_allocated_mb"]
         extra_cols["peak_allocated_mb.std"] = 0.0
+
+    if "memory.kv_cache_mb" in wide_df.columns:
+        extra_cols["kv_cache_mb.median"] = wide_df["memory.kv_cache_mb"]
+        extra_cols["kv_cache_mb.std"] = 0.0
 
     if "slot_utilization.median" in extra_cols:
         extra_cols["slot_utilization.median"] = extra_cols["slot_utilization.median"].fillna(1.0)

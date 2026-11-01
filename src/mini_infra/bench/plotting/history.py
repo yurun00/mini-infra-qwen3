@@ -374,13 +374,15 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
         slot_u = (pack.get("slot_utilization") or {}).get("median", 0.0)
         cap_u = (pack.get("running_capacity_utilization") or {}).get("median", 0.0)
         pad_e = (pack.get("padding_efficiency") or {}).get("median", 0.0)
+        cache_frac = ((w.get("schedule") or {}).get("cache_management_fraction") or {}).get("median", 0.0)
         ceil_items = [
             ("Slot Util", 100.0 * float(slot_u), "#2980b9"),
             ("Capacity Util", 100.0 * float(cap_u), "#8e44ad"),
             ("Padding Eff", 100.0 * float(pad_e), "#e67e22"),
             ("GPU Busy", 100.0 * float(gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
+            ("Cache Mgmt", 100.0 * float(cache_frac), "#e74c3c"),
         ]
-        title_21 = "2.1 Scheduler & GPU Utilization (Slot / Capacity / Padding / Busy)"
+        title_21 = "2.1 Scheduler & GPU Utilization (Slot / Capacity / Padding / Busy / Cache Mgmt)"
     else:
         eff = w.get("efficiency") or {}
         ceil_items = [
