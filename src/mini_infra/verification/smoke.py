@@ -42,7 +42,7 @@ def build_tiny_model():
 
 def check_output_shape_and_tied_weights(model):
     with torch.inference_mode():
-        logits = model(torch.tensor([[1, 2, 3]]))
+        logits, _ = model(torch.tensor([[1, 2, 3]]))
 
     assert logits.shape == (1, 3, model.config.vocab_size)
     assert model.lm_head.weight.data_ptr() == model.model.embed_tokens.weight.data_ptr()
@@ -52,23 +52,22 @@ def check_causal_mask(model):
     # 两个输入只有最后一个 Token 不同。若 causal mask 正确，前两个位置
     # 的输出不应该受最后一个 Token 影响。
     with torch.inference_mode():
-        first = model(torch.tensor([[1, 2, 3]]))
-        second = model(torch.tensor([[1, 2, 4]]))
+        first, _ = model(torch.tensor([[1, 2, 3]]))
+        second, _ = model(torch.tensor([[1, 2, 4]]))
 
     assert torch.allclose(first[:, :2, :], second[:, :2, :], atol=1e-6)
 
 
 def check_kv_cache_correctness(model):
-    """验证显式 KVCache 容器与全量重算路径输出完全一致。"""
+    """验证 past_key_values 增量路径与全量重算路径输出完全一致。"""
     prompt = torch.tensor([[1, 2, 3]])
     config = model.config
 
+    # past_key_values=None 即 Prefill：Logits 与全量重算天然一致，同时产出可复用的历史键值。
     with torch.inference_mode():
-        baseline_logits = model(prompt)
-        cache = KVCache()
-        prefill_logits = model(prompt, kv_cache=cache)
+        baseline_logits, present = model(prompt)
+    cache = KVCache(present)
 
-    assert torch.allclose(baseline_logits, prefill_logits, atol=1e-6)
     assert len(cache) == config.num_hidden_layers
     assert cache.get_seq_length() == 3
     expected_shape = (1, config.num_key_value_heads, 3, config.head_dim)
@@ -86,13 +85,15 @@ def check_kv_cache_correctness(model):
     )
     assert cache_size_bytes(cache) == expected_bytes
     assert cache.total_bytes() == expected_bytes
+    assert baseline_logits.shape == (1, 3, config.vocab_size)
 
-    # 单步 Decode 验证：传入 cache 自动追加
+    # 单步 Decode 验证：把上一步的 past_key_values 喂回去即可增量追加。
     next_input = torch.tensor([[4]])
     full_context = torch.cat((prompt, next_input), dim=1)
     with torch.inference_mode():
-        full_logits = model(full_context)
-        cached_logits = model(next_input, kv_cache=cache)
+        full_logits, _ = model(full_context)
+        cached_logits, present = model(next_input, past_key_values=cache.past_key_values)
+    cache = KVCache(present)
 
     assert torch.allclose(full_logits[:, -1, :], cached_logits[:, -1, :], atol=1e-5)
     assert cache.get_seq_length() == 4
@@ -145,12 +146,15 @@ def check_fixed_batching(model):
     print("Batch 与串行输出一致性检查通过")
 
     # 非法 Cache batch 维和错误长度的 Attention Mask 必须被拒绝。
-    cache = KVCache()
     prefill_ids = torch.tensor([request_a])
     with torch.inference_mode():
-        model(prefill_ids, kv_cache=cache)
+        _, present = model(prefill_ids)
         try:
-            model(prefill_ids[:, -1:], kv_cache=cache, attention_mask=torch.ones((1, 1), dtype=torch.bool))
+            model(
+                prefill_ids[:, -1:],
+                attention_mask=torch.ones((1, 1), dtype=torch.bool),
+                past_key_values=present,
+            )
         except ValueError:
             pass
         else:

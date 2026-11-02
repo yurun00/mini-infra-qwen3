@@ -5,7 +5,6 @@ import torch
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    KVCache,
     Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
@@ -17,16 +16,16 @@ def compare_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
     """逐步比较同一手写模型在无 Cache 与有 Cache 两种执行路径下的 Logits 与生成结果。"""
     generated_ids = input_ids
     cached_input = input_ids
-    cache = KVCache()
+    past_key_values = None
     generated_token_ids = []
     largest_error = 0.0
     mean_error_sum = 0.0
 
     for step in range(max_new_tokens):
-        # baseline 路径：全量历史重新计算，不使用 Cache
-        baseline_logits = model(generated_ids, kv_cache=None)
-        # cached 路径：使用显式 KVCache 容器（Prefill 首次建立，Decode 增量追加）
-        cached_logits = model(cached_input, kv_cache=cache)
+        # baseline 路径：全量历史重新计算，past_key_values=None 即不使用 Cache
+        baseline_logits, _ = model(generated_ids)
+        # cached 路径：首步 past_key_values=None 即 Prefill，其后用上一步返回的历史增量追加
+        cached_logits, past_key_values = model(cached_input, past_key_values=past_key_values)
 
         baseline_last = baseline_logits[:, -1, :]
         cached_last = cached_logits[:, -1, :]
@@ -42,7 +41,7 @@ def compare_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
         cached_token = torch.argmax(cached_last, dim=-1, keepdim=True)
         baseline_id = baseline_token.item()
         cached_id = cached_token.item()
-        cache_length = cache.get_seq_length()
+        cache_length = past_key_values[0][0].shape[2]
 
         print(
             "步骤 %02d: no-cache=%d, kv-cache=%d, cache_length=%d, "

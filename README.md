@@ -38,8 +38,8 @@ mini-infra-qwen3/
 │       │   ├── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
 │       │   └── tokenizer.py           # Qwen3Tokenizer
 │       ├── memory/                    # 显存与 KV Cache 管理体系
-│       │   ├── kv_cache.py            # KVCache 键值缓存容器与显存统计
-│       │   └── slot_cache.py          # DenseSlotCache 连续批处理槽位管理器
+│       │   ├── dense_slot_cache.py    # DenseSlotCache 连续批处理槽位管理器
+│       │   └── kv_cache.py            # KVCache 键值缓存容器与显存统计
 │       ├── core/                      # 调度与请求核心领域域（纯 CPU 逻辑，无 GPU/模型依赖）
 │       │   ├── request.py             # RequestSpec, RequestState (append_token), RequestStatus 请求生命周期模型
 │       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）

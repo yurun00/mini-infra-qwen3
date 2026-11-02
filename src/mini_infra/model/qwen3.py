@@ -1,11 +1,13 @@
-"""使用基础 PyTorch 实现带显式 KVCache 容器的 Qwen3-0.6B。
+"""使用基础 PyTorch 实现的 Qwen3-0.6B，历史键值以纯张量形式进出。
 
-本文件使用显式的 KVCache 容器对象管理历史键值缓存：
-- 当 kv_cache 为 None 时，执行全量上下文计算（No-Cache baseline）；
-- 当传入 kv_cache 对象时，Prefill 阶段自动建立 Cache，Decode 阶段自动增量更新。
-模型直接返回 Logits 张量，彻底消除对 use_cache 布尔标记和繁琐 Tuple 解包的依赖。
+模型层与显存管理层彻底解耦：只接受/返回 torch.Tensor，不认识任何 Cache 容器对象。
+- past_key_values 为 None 时执行全量上下文计算（Prefill 或 No-Cache baseline）；
+- past_key_values 为逐层 (key, value) 张量序列时，把历史拼在序列维左侧做增量 Decode。
+是否需要缓存由 past_key_values 是否为 None 决定，因此不存在 use_cache 布尔标记；
+前向统一返回 (logits, present_key_values)，由调用方决定丢弃还是写回自己的容器。
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -14,8 +16,10 @@ from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 from torch import nn
 
-from mini_infra.memory import KVCache
 from mini_infra.model.config import DEFAULT_MODEL_REVISION, Qwen3Config, model_dtype_from_config
+
+# 单层历史键值：(key, value)，两者形状均为 [batch, num_kv_heads, past_length, head_dim]。
+PastKeyValue = tuple[torch.Tensor, torch.Tensor]
 
 
 class RMSNorm(nn.Module):
@@ -125,9 +129,8 @@ class Qwen3Attention(nn.Module):
         cosine: torch.Tensor,
         sine: torch.Tensor,
         causal_mask: torch.Tensor,
-        kv_cache: KVCache | None = None,
-        layer_index: int = 0,
-    ) -> torch.Tensor:
+        past_key_value: PastKeyValue | None = None,
+    ) -> tuple[torch.Tensor, PastKeyValue]:
         batch_size, query_length, _ = hidden_states.shape
 
         query = self.q_proj(hidden_states)
@@ -142,10 +145,12 @@ class Qwen3Attention(nn.Module):
         value = value.view(batch_size, query_length, self.num_key_value_heads, self.head_dim)
         value = value.transpose(1, 2)
 
-        # Cache 中保存已经完成位置旋转、但尚未按 GQA 组展开的 K。
+        # 拼接进历史的是已经完成位置旋转、但尚未按 GQA 组展开的 K。
         query, key = apply_rotary_embedding(query, key, cosine, sine)
-        if kv_cache is not None:
-            key, value = kv_cache.update(key, value, layer_index)
+        if past_key_value is not None:
+            past_key, past_value = past_key_value
+            key = torch.cat((past_key, key), dim=2)
+            value = torch.cat((past_value, value), dim=2)
 
         # 只在真正计算 Attention 前展开，避免 Cache 占用不必要的显存。
         attention_key = repeat_key_value(key, self.num_key_value_groups)
@@ -160,7 +165,7 @@ class Qwen3Attention(nn.Module):
 
         attention_output = attention_output.transpose(1, 2).contiguous()
         attention_output = attention_output.view(batch_size, query_length, -1)
-        return self.o_proj(attention_output)
+        return self.o_proj(attention_output), (key, value)
 
 
 class Qwen3MLP(nn.Module):
@@ -194,25 +199,23 @@ class Qwen3DecoderLayer(nn.Module):
         cosine: torch.Tensor,
         sine: torch.Tensor,
         causal_mask: torch.Tensor,
-        kv_cache: KVCache | None = None,
-        layer_index: int = 0,
-    ) -> torch.Tensor:
+        past_key_value: PastKeyValue | None = None,
+    ) -> tuple[torch.Tensor, PastKeyValue]:
         residual = hidden_states
         normalized = self.input_layernorm(hidden_states)
-        attention_output = self.self_attn(
+        attention_output, present_key_value = self.self_attn(
             normalized,
             cosine,
             sine,
             causal_mask,
-            kv_cache=kv_cache,
-            layer_index=layer_index,
+            past_key_value=past_key_value,
         )
         hidden_states = residual + attention_output
 
         residual = hidden_states
         normalized = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + self.mlp(normalized)
-        return hidden_states
+        return hidden_states, present_key_value
 
 
 class Qwen3Model(nn.Module):
@@ -226,15 +229,15 @@ class Qwen3Model(nn.Module):
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
-    def validate_kv_cache(self, kv_cache: KVCache | None, batch_size: int) -> int:
-        """校验 Cache 层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度。"""
-        if kv_cache is None or len(kv_cache) == 0:
+    def validate_past_key_values(self, past_key_values: Sequence[PastKeyValue] | None, batch_size: int) -> int:
+        """校验历史键值的层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度。"""
+        if past_key_values is None:
             return 0
-        if len(kv_cache) != len(self.layers):
-            raise ValueError("KV Cache 层数与模型层数不一致")
-        past_length = kv_cache.get_seq_length()
+        if len(past_key_values) != len(self.layers):
+            raise ValueError("past_key_values 层数与模型层数不一致")
+        past_length = past_key_values[0][0].shape[2]
         expected = (batch_size, self.config.num_key_value_heads, past_length, self.config.head_dim)
-        for layer_index, (key, value) in enumerate(kv_cache):
+        for layer_index, (key, value) in enumerate(past_key_values):
             if tuple(key.shape) != expected or tuple(value.shape) != expected:
                 raise ValueError(
                     "第 %d 层 KV Cache 形状错误: key=%s, value=%s, expected=%s"
@@ -247,13 +250,13 @@ class Qwen3Model(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None,
         position_ids: torch.Tensor | None,
-        kv_cache: KVCache | None,
+        past_key_values: Sequence[PastKeyValue] | None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if input_ids.ndim != 2 or input_ids.shape[1] < 1:
             raise ValueError("input_ids 必须是形状为 [batch, sequence] 的非空 Tensor")
         device = input_ids.device
         batch_size, query_length = input_ids.shape
-        past_length = self.validate_kv_cache(kv_cache, batch_size)
+        past_length = self.validate_past_key_values(past_key_values, batch_size)
         key_value_length = past_length + query_length
 
         if attention_mask is None:
@@ -282,29 +285,31 @@ class Qwen3Model(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        kv_cache: KVCache | None = None,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-    ) -> torch.Tensor:
+        past_key_values: Sequence[PastKeyValue] | None = None,
+    ) -> tuple[torch.Tensor, list[PastKeyValue]]:
         hidden_states = self.embed_tokens(input_ids)
         position_ids, allowed = self.prepare_position_id_and_allowed_mask(
-            input_ids, attention_mask, position_ids, kv_cache
+            input_ids, attention_mask, position_ids, past_key_values
         )
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
         causal_mask = torch.zeros(allowed.shape, dtype=hidden_states.dtype, device=hidden_states.device)
         causal_mask.masked_fill_(~allowed, torch.finfo(hidden_states.dtype).min)
 
+        present_key_values: list[PastKeyValue] = []
         for layer_index, decoder_layer in enumerate(self.layers):
-            hidden_states = decoder_layer(
+            layer_past = None if past_key_values is None else past_key_values[layer_index]
+            hidden_states, present_key_value = decoder_layer(
                 hidden_states,
                 cosine,
                 sine,
                 causal_mask,
-                kv_cache=kv_cache,
-                layer_index=layer_index,
+                past_key_value=layer_past,
             )
+            present_key_values.append(present_key_value)
 
-        return self.norm(hidden_states)
+        return self.norm(hidden_states), present_key_values
 
 
 class Qwen3ForCausalLM(nn.Module):
@@ -323,17 +328,18 @@ class Qwen3ForCausalLM(nn.Module):
     def forward(
         self,
         input_ids: torch.Tensor,
-        kv_cache: KVCache | None = None,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        hidden_states = self.model(
+        past_key_values: Sequence[PastKeyValue] | None = None,
+    ) -> tuple[torch.Tensor, list[PastKeyValue]]:
+        """返回 (词表 Logits, 逐层拼接后的 present_key_values)。"""
+        hidden_states, present_key_values = self.model(
             input_ids,
-            kv_cache=kv_cache,
             attention_mask=attention_mask,
             position_ids=position_ids,
+            past_key_values=past_key_values,
         )
-        return self.lm_head(hidden_states)
+        return self.lm_head(hidden_states), present_key_values
 
 
 def resolve_model_directory(model_name_or_path: str, revision: str = DEFAULT_MODEL_REVISION) -> str:

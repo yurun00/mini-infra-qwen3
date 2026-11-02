@@ -1,5 +1,6 @@
 """KV Cache 显式容器定义与显存计算。"""
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -8,37 +9,21 @@ import torch
 class KVCache:
     """动态 KV Cache 显式容器。
 
-    在模型前向传播中用于累积并维护历史 Token 的 Key 和 Value 张量：
-    - Prefill 阶段：模型将各层的初始 Key/Value 张量写入容器中；
-    - Decode 阶段：每一步单 Token 推理时，将新计算的 Key/Value 原地追加到历史缓存中。
+    模型层只接受/返回纯张量（past_key_values / present_key_values），不认识本容器，
+    因此缓存的生命周期完全由显存层与引擎层维护：
+    - 前向前用 past_key_values 导出逐层 (key, value) 张量喂给模型；
+    - 前向后用模型返回的 present_key_values 重建容器（Prefill 首次建立，Decode 逐层变长）。
     """
 
-    def __init__(self):
-        self.key_cache: list[torch.Tensor] = []
-        self.value_cache: list[torch.Tensor] = []
+    def __init__(self, past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]] | None = None):
+        layers = () if past_key_values is None else past_key_values
+        self.key_cache: list[torch.Tensor] = [key for key, _ in layers]
+        self.value_cache: list[torch.Tensor] = [value for _, value in layers]
 
-    def update(
-        self, key_states: torch.Tensor, value_states: torch.Tensor, layer_index: int
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """将当前层新生成的 key_states 与 value_states 拼入缓存，并返回拼接后的全量张量。
-
-        Args:
-            key_states: [batch_size, num_kv_heads, seq_len, head_dim]
-            value_states: [batch_size, num_kv_heads, seq_len, head_dim]
-            layer_index: 解码层索引 (0 <= layer_index < num_layers)
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: 当前层拼接历史后的全量 (key, value)
-        """
-        if len(self.key_cache) <= layer_index:
-            # Prefill 阶段：首次填充当前层
-            self.key_cache.append(key_states)
-            self.value_cache.append(value_states)
-        else:
-            # Decode 阶段：在序列维度（dim=2）追加新计算的 Key/Value
-            self.key_cache[layer_index] = torch.cat([self.key_cache[layer_index], key_states], dim=2)
-            self.value_cache[layer_index] = torch.cat([self.value_cache[layer_index], value_states], dim=2)
-        return self.key_cache[layer_index], self.value_cache[layer_index]
+    @property
+    def past_key_values(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """导出模型前向所需的逐层 (key, value) 纯张量列表。"""
+        return list(zip(self.key_cache, self.value_cache))
 
     @property
     def length(self) -> int:

@@ -22,7 +22,7 @@ class DenseSlotCache:
     """持有 [capacity, kv_heads, length, head_dim] 形状的批量 KVCache 与对应的历史 Mask。
 
     序列维采用“右对齐”布局：各槽位真实历史位于序列维末尾，左侧为被 mask 的空位；
-    Decode 时新 Token 的 Key/Value 由模型统一追加到序列维最右侧。
+    Decode 时模型把新 Token 的 Key/Value 拼在序列维最右侧后整体返回，由本类写回容器。
     """
 
     def __init__(self, capacity: int, device: torch.device):
@@ -42,6 +42,13 @@ class DenseSlotCache:
     @property
     def total_bytes(self) -> int:
         return cache_size_bytes(self.cache)
+
+    @property
+    def past_key_values(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """导出底层批量 Cache 的纯张量视图，供模型前向直接消费。"""
+        if self.cache is None:
+            raise RuntimeError("Cache 尚未分配，无法导出 past_key_values")
+        return self.cache.past_key_values
 
     def admit(self, states: Sequence[RequestState], prefill_cache: KVCache) -> float:
         """把一批新请求的 Prefill Cache 写入各自槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
@@ -99,8 +106,11 @@ class DenseSlotCache:
         synchronize(self.device)
         return input_ids, position_ids, attention_mask, (time.perf_counter() - start) * 1000
 
-    def commit_decode_step(self, attention_mask: torch.Tensor) -> None:
-        """Decode 单步前向后（模型已把新 Token 的 KV 追加到 Cache 右侧），把本步 attention_mask 记为新的历史 Mask。"""
+    def commit_decode_step(
+        self, attention_mask: torch.Tensor, present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]]
+    ) -> None:
+        """Decode 单步后，把模型返回的 present_key_values 写回批量 Cache，并将本步 Mask 记为新的历史 Mask。"""
+        self.cache = KVCache(present_key_values)
         self.history_mask = attention_mask
 
     def bind_wave(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:

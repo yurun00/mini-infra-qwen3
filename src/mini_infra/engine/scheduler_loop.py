@@ -3,7 +3,7 @@
 作为底座引擎核心，串联三类组件驱动“调度 → 执行 → 槽位更新”的迭代循环：
 - 调度策略（入场、槽位分配、退场与 EOS/预算判定）：core/scheduler.py
 - 模型执行（单步 Prefill / 槽位 Decode 前向与计时）：engine/runner.py (ModelRunner)
-- KV Cache 槽位管理：memory/slot_cache.py (DenseSlotCache)
+- KV Cache 槽位管理：memory/dense_slot_cache.py (DenseSlotCache)
 
 对外通过 run_scheduler 统一驱动两类批处理调度策略，共享同一套三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）
 与 ModelRunner 执行协议，仅在准入时机与槽位绑定策略上区分：
@@ -35,7 +35,7 @@ from mini_infra.engine.types import (
     ScheduleResult,
     summarize_schedule,
 )
-from mini_infra.memory.slot_cache import DenseSlotCache
+from mini_infra.memory.dense_slot_cache import DenseSlotCache
 
 __all__ = ["run_scheduler"]
 

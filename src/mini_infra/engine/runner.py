@@ -16,18 +16,20 @@ import torch
 from mini_infra.core.request import RequestState
 from mini_infra.device import synchronize
 from mini_infra.engine.preprocessing import left_pad_sequences
+from mini_infra.memory.dense_slot_cache import DenseSlotCache
 from mini_infra.memory.kv_cache import KVCache
-from mini_infra.memory.slot_cache import DenseSlotCache
 
 
 class StepForwardResult(NamedTuple):
-    """单步前向计时输出对象（四字段 NamedTuple）：
+    """单步前向计时输出对象（五字段 NamedTuple）：
 
-    - 属性访问：.next_token, .elapsed_ms, .event_pair, .last_logits
+    - 属性访问：.next_token, .present_key_values, .elapsed_ms, .event_pair, .last_logits
+    - present_key_values 是模型返回的逐层 (key, value) 纯张量列表，由调用方决定丢弃还是写回容器；
     - last_logits 仅在 return_logits=True 时填充；CUDA 下 sync=False 时 event_pair 存放计时 Event，elapsed_ms 为 0。
     """
 
     next_token: torch.Tensor
+    present_key_values: list[tuple[torch.Tensor, torch.Tensor]]
     elapsed_ms: float = 0.0
     event_pair: tuple[Any, Any] | None = None
     last_logits: torch.Tensor | None = None
@@ -57,7 +59,7 @@ class ModelRunner:
     def step_forward(
         self,
         model_input: torch.Tensor,
-        kv_cache: KVCache | None = None,
+        past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]] | None = None,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
         return_logits: bool = False,
@@ -65,6 +67,7 @@ class ModelRunner:
     ) -> StepForwardResult:
         """单步张量前向推理与贪心采样。
 
+        - past_key_values 为 None 时做全量上下文计算（Prefill 或 No-Cache baseline），否则做增量 Decode；
         - sync=False（默认）：CUDA 下通过 Event 异步打点，供静态自回归循环避免每步 CPU-GPU 同步；
         - sync=True：执行前后硬件同步，直接计算耗时 ms，供调度器推进逻辑时钟。
         """
@@ -80,7 +83,9 @@ class ModelRunner:
         else:
             t0 = time.perf_counter()
 
-        logits = self.model(model_input, kv_cache=kv_cache, attention_mask=attention_mask, position_ids=position_ids)
+        logits, present_key_values = self.model(
+            model_input, attention_mask=attention_mask, position_ids=position_ids, past_key_values=past_key_values
+        )
         last_logits = logits[:, -1, :]
         next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
 
@@ -96,7 +101,11 @@ class ModelRunner:
 
         result_logits = last_logits if return_logits else None
         return StepForwardResult(
-            next_token=next_token, elapsed_ms=elapsed_ms, event_pair=event_pair, last_logits=result_logits
+            next_token=next_token,
+            present_key_values=present_key_values,
+            elapsed_ms=elapsed_ms,
+            event_pair=event_pair,
+            last_logits=result_logits,
         )
 
     def prefill_requests(self, states: Sequence[RequestState]) -> tuple[list[int], KVCache, float]:
@@ -104,22 +113,23 @@ class ModelRunner:
         input_ids, attention_mask, position_ids, _ = left_pad_sequences(
             [state.spec.token_ids for state in states], self.pad_token_id, self.device
         )
-        cache = KVCache()
-        step_out = self.step_forward(
-            input_ids, kv_cache=cache, attention_mask=attention_mask, position_ids=position_ids, sync=True
-        )
+        step_out = self.step_forward(input_ids, attention_mask=attention_mask, position_ids=position_ids, sync=True)
         next_tokens = step_out.next_token.squeeze(-1).tolist()
-        return next_tokens, cache, step_out.elapsed_ms
+        return next_tokens, KVCache(step_out.present_key_values), step_out.elapsed_ms
 
     def decode_slots(self, slot_cache: DenseSlotCache, running: Sequence[RequestState]) -> SlotDecodeResult:
-        """对 DenseSlotCache 的全部槽位做一步 Decode，并把本步 attention_mask 提交为新的历史 Mask。"""
+        """对 DenseSlotCache 的全部槽位做一步 Decode，并把返回的新 KV 与本步 attention_mask 一起提交回槽位。"""
         input_ids, position_ids, attention_mask, prepare_ms = slot_cache.prepare_decode_inputs(
             running, self.pad_token_id
         )
         step_out = self.step_forward(
-            input_ids, kv_cache=slot_cache.cache, attention_mask=attention_mask, position_ids=position_ids, sync=True
+            input_ids,
+            past_key_values=slot_cache.past_key_values,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            sync=True,
         )
-        slot_cache.commit_decode_step(attention_mask)
+        slot_cache.commit_decode_step(attention_mask, step_out.present_key_values)
         next_tokens = step_out.next_token.squeeze(-1).tolist()
         return SlotDecodeResult(next_tokens, step_out.elapsed_ms, prepare_ms)
 

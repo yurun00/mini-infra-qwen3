@@ -19,10 +19,9 @@ def model():
 def prefill(model, prompts: list[list[int]]) -> KVCache:
     """对一批 Prompt 做左 Padding Prefill，返回 Cache。"""
     input_ids, mask, positions, _ = left_pad_sequences(prompts, 0, CPU)
-    cache = KVCache()
     with torch.inference_mode():
-        model(input_ids, kv_cache=cache, attention_mask=mask, position_ids=positions)
-    return cache
+        _, present = model(input_ids, attention_mask=mask, position_ids=positions)
+    return KVCache(present)
 
 
 def admitted_state(index: int, prompt: list[int], slot: int) -> RequestState:
@@ -116,9 +115,17 @@ def test_commit_decode_step_updates_history_mask(model):
     slots.admit([state], prefill(model, [prompt]))
     assert slots.history_mask.shape == (3, 3)
 
-    _, _, attention_mask, _ = slots.prepare_decode_inputs([state], pad_token_id=0)
-    slots.commit_decode_step(attention_mask)
+    input_ids, position_ids, attention_mask, _ = slots.prepare_decode_inputs([state], pad_token_id=0)
+    with torch.inference_mode():
+        _, present = model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=slots.past_key_values,
+        )
+    slots.commit_decode_step(attention_mask, present)
     assert slots.history_mask.shape == (3, 4)
+    assert slots.length == 4
     torch.testing.assert_close(slots.history_mask, attention_mask)
 
 

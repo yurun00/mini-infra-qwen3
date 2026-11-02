@@ -27,8 +27,8 @@ def compare_step_by_step(
     error_sum = 0.0
 
     for step in range(max_new_tokens):
-        # 1. 手写模型单步前向：只取最后一个 Token 的 Logits 进行贪心选取。
-        handwritten_logits = handwritten_model(current_input_ids)[:, -1, :]
+        # 1. 手写模型单步前向：只取最后一个 Token 的 Logits 进行贪心选取（返回的历史键值这里用不到）。
+        handwritten_logits = handwritten_model(current_input_ids)[0][:, -1, :]
         handwritten_token = torch.argmax(handwritten_logits, dim=-1, keepdim=True)
 
         # 2. Transformers 参考实现前向：同样关闭所有采样策略，执行确定性贪心解码。

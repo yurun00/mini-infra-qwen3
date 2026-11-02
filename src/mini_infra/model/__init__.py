@@ -1,9 +1,5 @@
 """Qwen3 模型与 Tokenizer 架构。"""
 
-from mini_infra.memory import (
-    KVCache,
-    cache_size_bytes,
-)
 from mini_infra.model.config import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -11,6 +7,7 @@ from mini_infra.model.config import (
     model_dtype_from_config,
 )
 from mini_infra.model.qwen3 import (
+    PastKeyValue,
     Qwen3Attention,
     Qwen3DecoderLayer,
     Qwen3ForCausalLM,
@@ -33,8 +30,8 @@ from mini_infra.model.tokenizer import (
 __all__ = [
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
-    "KVCache",
     "PRE_TOKEN_PATTERN",
+    "PastKeyValue",
     "Qwen3Attention",
     "Qwen3Config",
     "Qwen3DecoderLayer",
@@ -46,7 +43,6 @@ __all__ = [
     "RotaryEmbedding",
     "apply_rotary_embedding",
     "build_byte_to_unicode",
-    "cache_size_bytes",
     "load_model",
     "model_dtype_from_config",
     "repeat_key_value",

@@ -60,28 +60,37 @@ $$\text{Shape: } [B, H_{\text{kv}}, S, D]$$
 * $S$ (`seq_len`)：当前已缓存的有效序列长度。
 * $D$ (`head_dim`)：注意力头维度（如 Qwen3 中为 128）。
 
-### 2. Prefill 与 Decode 的双模更新
-在 [`KVCache.update()`](../../src/mini_infra/memory/kv_cache.py#L20) 中显式区分两阶段：
+### 2. 模型层与容器层的职责边界
+模型层（[`src/mini_infra/model/qwen3.py`](../../src/mini_infra/model/qwen3.py)）**只认识纯张量**，不认识 `KVCache` 容器，两者彻底解耦：
+
+* 前向入参为逐层的 `past_key_values: list[tuple[key, value]] | None`；
+* 前向返回 `(logits, present_key_values)`，`present_key_values` 恒为拼接完历史之后的完整键值；
+* 不存在 `use_cache` 布尔开关——**`past_key_values is None` 即"无历史"**，这既表示 Prefill，也表示全量重算基线。
+
+因此 Prefill 与 Decode 的差异只体现在单层 Attention 的一次条件拼接上：
+
 ```python
-def update(
-    self, key_states: torch.Tensor, value_states: torch.Tensor, layer_index: int
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if len(self.key_cache) <= layer_index:
-        # 1. Prefill 阶段：首次前向，将整段 Prompt 的全量 Key/Value 保存入池
-        self.key_cache.append(key_states)
-        self.value_cache.append(value_states)
-    else:
-        # 2. Decode 阶段：沿序列长度维度 (dim=2) 原地拼接当前步的单 Token Key/Value
-        self.key_cache[layer_index] = torch.cat([self.key_cache[layer_index], key_states], dim=2)
-        self.value_cache[layer_index] = torch.cat([self.value_cache[layer_index], value_states], dim=2)
-    return self.key_cache[layer_index], self.value_cache[layer_index]
+# 拼接进历史的是已经完成位置旋转、但尚未按 GQA 组展开的 K。
+query, key = apply_rotary_embedding(query, key, cosine, sine)
+if past_key_value is not None:
+    past_key, past_value = past_key_value
+    # Decode 阶段：沿序列长度维度 (dim=2) 拼接当前步的单 Token Key/Value
+    key = torch.cat((past_key, key), dim=2)
+    value = torch.cat((past_value, value), dim=2)
+```
+
+容器侧的更新则退化为一次整体重建：`KVCache(present_key_values)`。显存层用 `past_key_values` 属性把容器导出为纯张量列表喂给模型，用构造函数把模型返回的张量收回容器：
+
+```python
+cache = KVCache(present_key_values)   # Prefill 建立 / Decode 逐层变长
+logits, present = model(input_ids, past_key_values=cache.past_key_values)
 ```
 
 ### 3. RoPE 旋转位置编码的位置偏置处理
 在增量 Decode 步中，输入的 `input_ids` 维度仅为 `[B, 1]`。若直接应用默认的绝对位置序列 `arange(0, 1)`，会导致位置编码错误。
 
-在 [`src/mini_infra/model/attention.py`](../../src/mini_infra/model/attention.py) 中，通过传入的 `position_ids` 或通过 `cache.get_seq_length()` 计算全局偏移：
-$$\text{position\_id} = \text{cached\_length}$$
+在 [`Qwen3Model.prepare_position_id_and_allowed_mask()`](../../src/mini_infra/model/qwen3.py#L248) 中，历史长度由 `validate_past_key_values()` 从 `past_key_values[0][0].shape[2]` 读出，并以此计算全局偏移：
+$$\text{position\_id} = \text{past\_length} + \text{arange}(0, \text{query\_length})$$
 确保单步 Query/Key 能够正确旋转到序列中的绝对位置坐标。
 
 ---
@@ -100,7 +109,7 @@ $$\text{KV Cache Bytes} = 2 \times L \times B \times H_{\text{kv}} \times D \tim
   $$2 \times 28 \times 1 \times 2 \times 128 \times 1 \times 2 = 28,672 \text{ Bytes} \approx 28.0 \text{ KB / token}$$
 * 若序列长度达到 4096，单个并发请求就需要消耗约 **112 MB** 纯 KV Cache 显存。
 
-在 [`src/mini_infra/memory/kv_cache.py`](../../src/mini_infra/memory/kv_cache.py#L49) 中，通过 `total_bytes()` 实现纳秒级显存审计：
+在 [`src/mini_infra/memory/kv_cache.py`](../../src/mini_infra/memory/kv_cache.py#L39) 中，通过 `total_bytes()` 实现纳秒级显存审计：
 ```python
 def total_bytes(self) -> int:
     return sum(
@@ -121,7 +130,7 @@ def total_bytes(self) -> int:
 
 本项目在 [`src/mini_infra/verification/parity/compare_cache.py`](../../src/mini_infra/verification/parity/compare_cache.py) 中构建了严格的逐步比对门禁：
 * 验证目标：
-  1. 生成的 Token 序列在 `use_cache=False` 与 `use_cache=True` 下 **100% 逐 Token 严格相等**；
+  1. 生成的 Token 序列在 `past_key_values=None`（全量重算）与逐层传入历史键值（增量解码）两条路径下 **100% 逐 Token 严格相等**；
   2. 解码过程每一步的输出 Logits 最大绝对误差满足：
      $$\max | \text{logits}_{\text{cache}} - \text{logits}_{\text{baseline}} | < 10^{-5}$$
 * 执行检验命令：

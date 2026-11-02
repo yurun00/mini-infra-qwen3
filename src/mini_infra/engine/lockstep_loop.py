@@ -149,11 +149,7 @@ class LockstepState:
             self.full_input_ids = torch.cat((self.full_input_ids, step_token), dim=1)
             self.full_position_ids = torch.cat((self.full_position_ids, curr_pos), dim=1)
 
-    def compute_batch_metrics(
-        self,
-        step_latencies_ms: list[float],
-        kv_cache: Any = None,
-    ) -> BatchScheduleInfo[float]:
+    def compute_batch_metrics(self, step_latencies_ms: list[float]) -> BatchScheduleInfo[float]:
         """统计批处理生成过程特有明细指标（利用率、Padding 效率等）。"""
         step_count = len(step_latencies_ms)
         valid_generated_tokens_count = sum(len(output) for output in self.outputs)
@@ -201,7 +197,8 @@ def run_lockstep(
     input_tensor, history_mask, pos_ids, prompt_lens = prepare_prefill_inputs(
         input_ids, token_sequences, has_uniform_len, pad_token_id, device
     )
-    kv_cache = KVCache() if use_cache else None
+    # 引擎层持有 KVCache 容器，只在模型边界用 past_key_values 导出/回收纯张量。
+    kv_cache: KVCache | None = None
     runner = ModelRunner(model, device, pad_token_id)
     state = LockstepState.create(
         input_ids_tensor=input_tensor,
@@ -225,12 +222,14 @@ def run_lockstep(
         model_input, attention_mask, position_ids = state.get_model_inputs(use_cache)
         step_out = runner.step_forward(
             model_input=model_input,
-            kv_cache=kv_cache,
+            past_key_values=None if kv_cache is None else kv_cache.past_key_values,
             attention_mask=attention_mask,
             position_ids=position_ids,
             return_logits=capture_logits,
             sync=False,
         )
+        if use_cache:
+            kv_cache = KVCache(step_out.present_key_values)
         if step_out.event_pair is not None:
             step_event_pairs.append(step_out.event_pair)
         else:
@@ -254,7 +253,7 @@ def run_lockstep(
 
     valid_tokens = sum(len(o) for o in state.outputs)
     e2e_model_ms = sum(step_latencies_ms)
-    batch_info = state.compute_batch_metrics(step_latencies_ms, kv_cache)
+    batch_info = state.compute_batch_metrics(step_latencies_ms)
 
     step_count = len(step_latencies_ms)
     sequences = [
@@ -268,7 +267,7 @@ def run_lockstep(
         )
         for idx in range(state.batch_size)
     ]
-    cache_bytes = cache_size_bytes(kv_cache) if kv_cache is not None else 0
+    cache_bytes = cache_size_bytes(kv_cache)
 
     metrics = compute_step_aggregated_metrics(
         step_latencies_ms=step_latencies_ms,
