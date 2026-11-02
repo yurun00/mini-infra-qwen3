@@ -19,6 +19,15 @@
    - **基线可对照性（Baseline Preservability）**：新增任何优化特性（如新 Cache 布局、算子融合、调度策略）必须通过清晰的模式或策略抽象接入，**绝不破坏既有 Baseline 路径的可运行性与可对比性**。
    - **零黑盒依赖（Zero Black-Box Policy）**：核心运行时（`model/`、`memory/`、`core/`、`engine/`、`entrypoints/`）坚持纯原生 Python 与 PyTorch 实现，**严禁引入 `transformers`、`tokenizers` 等外部黑盒封装库**（`transformers` 仅限在 `verification/parity/` 与 `tests/gpu/parity/` 中作为 Golden Reference 对照）。
 
+3. **拒绝无声明的过度向后兼容 (No Unsolicited Compatibility Overhead / YAGNI)**
+   - **轻装重构，杜绝残留**：除非有明确声明要求向下兼容，否则在重构或修改代码时，**严禁为了“兼容”旧逻辑而特意增加用不到的代码**（例如保留废弃的 member field、过时 method name、兼容性 property、无用参数默认值或 forwarding wrapper 等）。
+   - 保持代码库极简、直接与当前需求契合，彻底杜绝死代码（dead code）与认知噪音。
+
+4. **结果指标变更的端到端联动守恒 (Metrics Lifecycle & Asset Consistency)**
+   - **全链路感知**：凡是**增加、删除或修改结果指标**（如推理延迟、吞吐、显存统计、调度事件字段等），**必须严格检查并同步修改对应的落盘 JSON 与可视化绘图代码**：
+     1. **Schema 与 JSON 数据文件**：检查并同步更新 Pydantic 模型（`bench/schema.py`）以及相关的基准数据文件（如 `benchmarks/result-history/`、`benchmarks/data/` 等）。
+     2. **Plot 绘图与可视化脚本**：检查并同步修改绘图代码（`src/mini_infra/bench/plotting/` 等），防止因指标增删改名导致绘图脚本 KeyError、字段取空或图表损坏。
+
 ---
 
 ## 二、系统架构与不变量 (Architecture & Invariants)
