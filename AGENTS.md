@@ -28,6 +28,14 @@
      1. **Schema 与 JSON 数据文件**：检查并同步更新 Pydantic 模型（`bench/schema.py`）以及相关的基准数据文件（如 `benchmarks/result-history/`、`benchmarks/data/` 等）。
      2. **Plot 绘图与可视化脚本**：检查并同步修改绘图代码（`src/mini_infra/bench/plotting/` 等），防止因指标增删改名导致绘图脚本 KeyError、字段取空或图表损坏。
 
+5. **增量严格守门与存量债务豁免 (Ratchet & Legacy Debt Exemption)**
+   - **增量 100% 达标**：所有新增代码（新建文件、新函数、本次修改的 Diff 区域）必须严格遵守全部架构不变量与工程规则。
+   - **存量历史豁免**：未被本次任务范围触碰的历史代码，即便存在违规行为，默认予以豁免；**严禁在无用户明确指令时自作主张发起超出当前任务范围的大面积重构**。
+   - **显式债务标记契约**：允许通过在代码中添加显式注释来声明历史债务，Agent 遇到该标记时一律跳过违规告警并不予擅自修改：
+     - 单行或局部代码块：`# infra-legacy: <豁免原因或收敛计划>` 或 `# infra-legacy(<rule>): <reason>`
+     - 文件级豁免（置于文件顶部）：`# infra-legacy-file: <豁免原因>`
+   - **触碰时顺手收敛（Boy Scout Rule）**：只有当改动直接触碰到了涉及历史债务的文件/函数，或者任务明确要求重构时，才顺手推进规范收敛，且必须守住基线可对照性。
+
 ---
 
 ## 二、系统架构与不变量 (Architecture & Invariants)
@@ -64,12 +72,6 @@
 
 2. **严格请求隔离不变性 (Strict Request Isolation)**
    - 无论一个请求是单独运行，还是与任意长短请求拼 Batch、处于任意物理 Slot/Page、经历动态抢占/扩缩容或不同长度的 Padding，其有效 Token 的位置编码（`position_ids`）与因果可见范围（Attention Mask / Block Table 寻址）必须与独立运行时**严格等价**，绝不允许跨请求数值污染。
-
-3. **当前已知偏差（只准收敛，不准扩大）**
-   - `model/qwen3.py` 仍 import `KVCache` 容器（违反 ⑤）。
-   - `DenseSlotCache.prepare_decode_inputs()` 住在 `memory/` 却承担输入组装（违反 ④）。
-   - `model/tokenizer.py` 是 CPU 文本处理，却住在 `model/`（违反 ⑤）。
-   - **新增代码不得复制上述任何偏差**；改动触碰这些文件时应顺手推进收敛，且必须保持 `prepare_ms` 等既有计时口径不变以守住基线可对照性。
 
 ---
 
