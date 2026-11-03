@@ -34,8 +34,7 @@ from mini_infra.engine.metrics import (
 )
 from mini_infra.engine.mode import BatchingMethod
 from mini_infra.engine.results import ScheduleResult
-from mini_infra.engine.runner import ModelRunner
-from mini_infra.memory.dense_slot_cache import DenseSlotCache
+from mini_infra.worker import DenseSlotCache, ModelRunner
 
 __all__ = ["run_scheduler"]
 

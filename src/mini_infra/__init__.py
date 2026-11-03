@@ -35,11 +35,6 @@ from mini_infra.engine import (
     summarize_schedule,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
-from mini_infra.memory import (
-    DenseSlotCache,
-    KVCache,
-    cache_size_bytes,
-)
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -61,6 +56,14 @@ from mini_infra.profiling import (
     profile_scope,
 )
 from mini_infra.utils import percentile
+from mini_infra.worker import (
+    DenseSlotCache,
+    KVCache,
+    ModelRunner,
+    SlotDecodeResult,
+    StepForwardResult,
+    cache_size_bytes,
+)
 
 __all__ = [
     "ArrivalQueue",
@@ -80,6 +83,7 @@ __all__ = [
     "MODULE_SCOPES",
     "MemoryProfile",
     "Mode",
+    "ModelRunner",
     "OpLatencyBreakdown",
     "Qwen3Config",
     "Qwen3ForCausalLM",
@@ -93,7 +97,9 @@ __all__ = [
     "SchedulePhase",
     "ScheduleResult",
     "SequenceOutput",
+    "SlotDecodeResult",
     "StepAggregatedMetrics",
+    "StepForwardResult",
     "TensorBoardOptions",
     "build_memory_profile",
     "cache_size_bytes",

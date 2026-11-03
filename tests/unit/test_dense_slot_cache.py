@@ -5,8 +5,8 @@ import torch
 
 from mini_infra.core.request import RequestSpec, RequestState, RequestStatus
 from mini_infra.engine.preprocessing import left_pad_sequences
-from mini_infra.memory import DenseSlotCache, KVCache
 from mini_infra.verification.smoke import build_tiny_model
+from mini_infra.worker import DenseSlotCache, KVCache
 
 CPU = torch.device("cpu")
 

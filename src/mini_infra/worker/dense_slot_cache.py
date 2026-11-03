@@ -15,7 +15,7 @@ import torch
 
 from mini_infra.core.request import RequestState
 from mini_infra.device import synchronize
-from mini_infra.memory.kv_cache import KVCache, cache_size_bytes
+from mini_infra.worker.kv_cache import KVCache, cache_size_bytes
 
 
 class DenseSlotCache:

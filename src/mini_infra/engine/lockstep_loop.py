@@ -23,8 +23,7 @@ from mini_infra.engine.metrics import (
 )
 from mini_infra.engine.preprocessing import prepare_prefill_inputs
 from mini_infra.engine.results import GenerationResult
-from mini_infra.engine.runner import ModelRunner
-from mini_infra.memory.kv_cache import KVCache, cache_size_bytes
+from mini_infra.worker import KVCache, ModelRunner, cache_size_bytes
 
 __all__ = ["run_lockstep"]
 

@@ -38,11 +38,6 @@ from mini_infra.engine.results import (
     aggregate_generation_results,
     pad_output_tokens,
 )
-from mini_infra.engine.runner import (
-    ModelRunner,
-    SlotDecodeResult,
-    StepForwardResult,
-)
 from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.engine.tokenizer import (
     PRE_TOKEN_PATTERN,
@@ -63,7 +58,6 @@ __all__ = [
     "GenerationTrace",
     "MemoryProfile",
     "Mode",
-    "ModelRunner",
     "PRE_TOKEN_PATTERN",
     "Qwen3Tokenizer",
     "RequestMetrics",
@@ -72,9 +66,7 @@ __all__ = [
     "SchedulePhase",
     "ScheduleResult",
     "SequenceOutput",
-    "SlotDecodeResult",
     "StepAggregatedMetrics",
-    "StepForwardResult",
     "aggregate_generation_results",
     "build_memory_profile",
     "compute_step_aggregated_metrics",

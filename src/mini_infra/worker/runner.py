@@ -17,8 +17,8 @@ import torch
 from mini_infra.core.request import RequestState
 from mini_infra.device import synchronize
 from mini_infra.engine.preprocessing import left_pad_sequences
-from mini_infra.memory.dense_slot_cache import DenseSlotCache
-from mini_infra.memory.kv_cache import KVCache
+from mini_infra.worker.dense_slot_cache import DenseSlotCache
+from mini_infra.worker.kv_cache import KVCache
 
 
 class StepForwardResult(NamedTuple):

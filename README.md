@@ -33,22 +33,22 @@ mini-infra-qwen3/
 │       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, Mode, load_model 等
 │       ├── device.py                  # 通用硬件设备同步与显存统计工具
 │       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
-│       ├── model/                     # 统一模型与 Tokenizer 域
+│       ├── model/                     # 统一模型算子面（Pure Tensor-In, Tensor-Out）
 │       │   ├── config.py              # Qwen3Config 模型配置
-│       │   ├── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
-│       │   └── tokenizer.py           # Qwen3Tokenizer
-│       ├── memory/                    # 显存与 KV Cache 管理体系
+│       │   └── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
+│       ├── worker/                    # GPU 数据面：模型执行器与物理 KV Cache 显存池
+│       │   ├── runner.py              # 模型执行器 ModelRunner（step_forward / prefill_requests / decode_slots）
 │       │   ├── dense_slot_cache.py    # DenseSlotCache 连续批处理槽位管理器
 │       │   └── kv_cache.py            # KVCache 键值缓存容器与显存统计
-│       ├── core/                      # 调度与请求核心领域域（纯 CPU 逻辑，无 GPU/模型依赖）
+│       ├── core/                      # 调度与请求核心控制面（纯 CPU 逻辑，无 GPU/模型依赖）
 │       │   ├── request.py             # RequestSpec, RequestState (append_token), RequestStatus 请求生命周期模型
 │       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）
-│       │   └── types.py               # SequenceOutput, RequestMetrics, MemoryProfile, BatchScheduleInfo 跨层共享基础类型
+│       │   └── types.py               # BatchingMethod, SequenceOutput, RequestMetrics 基础控制面类型
 │       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）
 │       │   ├── offline.py             # 离线文本生成薄入口（Offline Entrypoint）：generate
-│       │   └── types.py               # GenerationOptions, GenerationResult, aggregate_generation_results
+│       │   └── types.py               # GenerationOptions 专用配置结构体
 │       ├── engine/                    # 推理与调度执行引擎域
-│       │   ├── runner.py              # 模型执行器 ModelRunner（step_forward / prefill_requests / decode_slots）
+│       │   ├── tokenizer.py           # 纯原生 Python Qwen3Tokenizer
 │       │   ├── lockstep_loop.py       # 齐步自回归生成主循环（run_lockstep：所有请求同时开始，无调度器）与状态机 LockstepState
 │       │   ├── scheduler_loop.py      # 请求队列调度主循环（run_scheduler：统一驱动 CONTINUOUS 与 FIXED）
 │       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义

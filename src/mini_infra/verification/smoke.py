@@ -16,8 +16,8 @@ from mini_infra.engine import (
     left_pad_sequences,
     run_scheduler,
 )
-from mini_infra.memory import KVCache, cache_size_bytes
 from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
+from mini_infra.worker import KVCache, cache_size_bytes
 
 
 def build_tiny_model():
