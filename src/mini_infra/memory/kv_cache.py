@@ -27,13 +27,9 @@ class KVCache:
     @property
     def length(self) -> int:
         """当前已缓存的历史序列长度（尚未分配时为 0）。"""
-        return self.get_seq_length()
-
-    def get_seq_length(self, layer_index: int = 0) -> int:
-        """获取已缓存的历史序列长度。"""
-        if not self.key_cache or len(self.key_cache) <= layer_index:
+        if not self.key_cache:
             return 0
-        return self.key_cache[layer_index].shape[2]
+        return self.key_cache[0].shape[2]
 
     @property
     def total_bytes(self) -> int:

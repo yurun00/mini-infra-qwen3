@@ -53,7 +53,7 @@ def test_admit_allocates_and_writes_right_aligned_slots(model):
 
     assert elapsed_ms >= 0
     assert slots.length == 4
-    assert slots.cache.get_seq_length() == 4
+    assert slots.cache.length == 4
     config = model.config
     assert tuple(slots.cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
     for state, prompt in zip(states, prompts):

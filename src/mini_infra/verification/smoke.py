@@ -69,7 +69,7 @@ def check_kv_cache_correctness(model):
     cache = KVCache(present)
 
     assert len(cache) == config.num_hidden_layers
-    assert cache.get_seq_length() == 3
+    assert cache.length == 3
     expected_shape = (1, config.num_key_value_heads, 3, config.head_dim)
     for key, value in cache:
         assert tuple(key.shape) == expected_shape
@@ -96,7 +96,7 @@ def check_kv_cache_correctness(model):
     cache = KVCache(present)
 
     assert torch.allclose(full_logits[:, -1, :], cached_logits[:, -1, :], atol=1e-5)
-    assert cache.get_seq_length() == 4
+    assert cache.length == 4
 
 
 def check_fixed_batching(model):

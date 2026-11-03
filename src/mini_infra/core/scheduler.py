@@ -37,23 +37,12 @@ class ArrivalQueue:
     def __iter__(self):
         return iter(self._requests)
 
-    @property
-    def requests(self) -> list[RequestState]:
-        return list(self._requests)
-
     def pop_arrived(self, clock_ms: float) -> list[RequestState]:
         """取出所有 arrival_ms <= clock_ms 的已到达请求，转入 WaitingQueue。"""
         arrived: list[RequestState] = []
         while self._requests and self._requests[0].spec.arrival_ms <= clock_ms:
             arrived.append(self._requests.popleft())
         return arrived
-
-    def pop_ready(self, clock_ms: float, limit: int) -> list[RequestState]:
-        """取出至多 limit 个 arrival_ms <= clock_ms 的请求（兼容旧接口）。"""
-        ready: list[RequestState] = []
-        while self._requests and len(ready) < limit and self._requests[0].spec.arrival_ms <= clock_ms:
-            ready.append(self._requests.popleft())
-        return ready
 
     def next_arrival_ms(self) -> float:
         """下一个请求的到达时间；队列为空时抛出 IndexError。"""

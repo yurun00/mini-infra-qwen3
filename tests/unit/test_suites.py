@@ -34,7 +34,9 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
         (2, BatchingMethod.NONE),
         (2, BatchingMethod.FIXED),
     ]
-    assert all(c.prompt_len == 128 and c.max_new_tokens == 32 and c.mode.kv_cache for c in cases)
+    assert all(
+        c.prompt_len == 128 and c.max_new_tokens == 32 and c.mode.is_enabled(FeatureFlag.KV_CACHE) for c in cases
+    )
 
 
 def test_serial_vs_fixed_batch_throughput_to_dict_is_json_serializable():
@@ -158,7 +160,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
     assert homo.prompt_len == (128, 128, 128, 128)
     assert homo.max_new_tokens == 32
     assert homo.mode.batching_method == BatchingMethod.FIXED
-    assert homo.mode.kv_cache is True
+    assert homo.mode.is_enabled(FeatureFlag.KV_CACHE) is True
 
     # Case 1: variable (不等长)
     mixed = cases[1]
@@ -166,7 +168,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
     assert mixed.prompt_len == (16, 32, 64, 128)
     assert mixed.max_new_tokens == 32
     assert mixed.mode.batching_method == BatchingMethod.FIXED
-    assert mixed.mode.kv_cache is True
+    assert mixed.mode.is_enabled(FeatureFlag.KV_CACHE) is True
 
 
 def test_uniform_vs_variable_prompt_padding_to_dict_is_json_serializable():
@@ -260,7 +262,7 @@ def test_uniform_vs_variable_budget_slots_cases():
     assert homo.prompt_len == (128, 128, 128, 128)
     assert homo.max_new_tokens == (64, 64, 64, 64)
     assert homo.mode.batching_method == BatchingMethod.FIXED
-    assert homo.mode.kv_cache is True
+    assert homo.mode.is_enabled(FeatureFlag.KV_CACHE) is True
 
     # Case 1: variable length budget
     mixed = cases[1]
@@ -268,7 +270,7 @@ def test_uniform_vs_variable_budget_slots_cases():
     assert mixed.prompt_len == (128, 128, 128, 128)
     assert mixed.max_new_tokens == (8, 16, 32, 64)
     assert mixed.mode.batching_method == BatchingMethod.FIXED
-    assert mixed.mode.kv_cache is True
+    assert mixed.mode.is_enabled(FeatureFlag.KV_CACHE) is True
 
 
 def test_uniform_vs_variable_budget_slots_to_dict_is_json_serializable():

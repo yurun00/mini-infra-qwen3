@@ -78,18 +78,6 @@ class Mode:
         return Mode(flags=self.flags, batching_method=batching_method)
 
     @property
-    def kv_cache(self) -> bool:
-        return self.is_enabled(FeatureFlag.KV_CACHE)
-
-    @property
-    def fixed_batching(self) -> bool:
-        return self.batching_method == BatchingMethod.FIXED
-
-    @property
-    def continuous_batching(self) -> bool:
-        return self.batching_method == BatchingMethod.CONTINUOUS
-
-    @property
     def is_batch(self) -> bool:
         return self.batching_method != BatchingMethod.NONE
 

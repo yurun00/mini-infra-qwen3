@@ -23,28 +23,13 @@ def indices(states: list[RequestState]) -> list[int]:
     return [state.spec.request_index for state in states]
 
 
-def test_pop_ready_only_returns_arrived_requests_in_arrival_order():
-    queue = ArrivalQueue(make_states([30.0, 0.0, 10.0]))
-    assert indices(queue.pop_ready(clock_ms=5.0, limit=8)) == [1]
-    assert indices(queue.pop_ready(clock_ms=10.0, limit=8)) == [2]
-    assert indices(queue.pop_ready(clock_ms=100.0, limit=8)) == [0]
-    assert not queue
-
-
-def test_pop_ready_respects_limit_and_keeps_submission_order_for_ties():
-    queue = ArrivalQueue(make_states([0.0, 0.0, 0.0, 0.0]))
-    assert indices(queue.pop_ready(0.0, limit=2)) == [0, 1]
-    assert indices(queue.pop_ready(0.0, limit=0)) == []
-    assert indices(queue.pop_ready(0.0, limit=8)) == [2, 3]
-
-
 def test_next_arrival_and_len():
     queue = ArrivalQueue(make_states([50.0, 20.0]))
     assert len(queue) == 2
     assert queue.next_arrival_ms() == 20.0
-    queue.pop_ready(20.0, limit=1)
+    queue.pop_arrived(clock_ms=20.0)
     assert queue.next_arrival_ms() == 50.0
-    queue.pop_ready(50.0, limit=1)
+    queue.pop_arrived(clock_ms=50.0)
     with pytest.raises(IndexError):
         queue.next_arrival_ms()
 

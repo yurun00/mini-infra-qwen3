@@ -29,9 +29,6 @@ def test_mode_default():
     mode = Mode()
     assert not mode.flags
     assert mode.batching_method == BatchingMethod.NONE
-    assert not mode.kv_cache
-    assert not mode.fixed_batching
-    assert not mode.continuous_batching
     assert not mode.is_batch
     assert str(mode) == "no-cache"
 
@@ -41,20 +38,16 @@ def test_mode_with_flag():
     mode_with_kv = mode.with_flag(FeatureFlag.KV_CACHE, True)
     assert mode_with_kv.is_enabled(FeatureFlag.KV_CACHE)
     assert mode_with_kv.is_enabled("kv-cache")
-    assert mode_with_kv.kv_cache
     assert str(mode_with_kv) == "kv-cache"
 
     mode_without_kv = mode_with_kv.with_flag(FeatureFlag.KV_CACHE, False)
     assert not mode_without_kv.is_enabled(FeatureFlag.KV_CACHE)
-    assert not mode_without_kv.kv_cache
 
 
 def test_mode_with_batching_method():
     mode = Mode({FeatureFlag.KV_CACHE})
     mode_fixed = mode.with_batching_method(BatchingMethod.FIXED)
-    assert mode_fixed.fixed_batching
     assert mode_fixed.is_batch
-    assert not mode_fixed.continuous_batching
     assert mode_fixed.batching_method == BatchingMethod.FIXED
     assert str(mode_fixed) == "kv-cache+fixed-batching"
 
