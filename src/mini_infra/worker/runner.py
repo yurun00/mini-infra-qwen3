@@ -45,6 +45,36 @@ class SlotDecodeResult(NamedTuple):
     prepare_ms: float
 
 
+def prepare_decode_inputs(
+    slot_cache: DenseSlotCache,
+    running_slot_indices: Sequence[int],
+    last_tokens: Sequence[int],
+    positions: Sequence[int],
+    pad_token_id: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
+    """构造 capacity 行的单步 Decode 输入，返回 (input_ids, position_ids, attention_mask, 准备耗时 ms)。
+
+    空闲/已结束槽位填 Padding 并整行 mask；先在 Host 侧组装列表再一次性传输，避免逐槽位的小 kernel。
+    """
+    if slot_cache.history_mask is None:
+        raise RuntimeError("Cache 尚未分配，无法构造 Decode 输入")
+    synchronize(slot_cache.device)
+    start = time.perf_counter()
+    token_ids = [pad_token_id] * slot_cache.capacity
+    pos_list = [0] * slot_cache.capacity
+    active = [False] * slot_cache.capacity
+    for slot_idx, token_id, pos in zip(running_slot_indices, last_tokens, positions):
+        token_ids[slot_idx] = token_id
+        pos_list[slot_idx] = pos
+        active[slot_idx] = True
+    input_ids = torch.tensor(token_ids, dtype=torch.long, device=slot_cache.device).unsqueeze(1)
+    position_ids = torch.tensor(pos_list, dtype=torch.long, device=slot_cache.device).unsqueeze(1)
+    active_mask = torch.tensor(active, dtype=torch.bool, device=slot_cache.device).unsqueeze(1)
+    attention_mask = torch.cat((slot_cache.history_mask, active_mask), dim=1)
+    synchronize(slot_cache.device)
+    return input_ids, position_ids, attention_mask, (time.perf_counter() - start) * 1000
+
+
 class ModelRunner:
     """模型执行器（ModelRunner 数据面）：负责管理模型前向与单步贪心采样，隐藏硬件计时与输入组装细节。
 
@@ -123,8 +153,15 @@ class ModelRunner:
 
     def decode_slots(self, dense_slot_cache: DenseSlotCache, running: Sequence[RequestState]) -> SlotDecodeResult:
         """对 DenseSlotCache 的全部槽位做一步 Decode，并把返回的新 KV 与本步 attention_mask 一起提交回槽位。"""
-        input_ids, position_ids, attention_mask, prepare_ms = dense_slot_cache.prepare_decode_inputs(
-            running, self.pad_token_id
+        running_slot_indices = [state.slot_idx for state in running if state.slot_idx is not None]
+        last_tokens = [state.generated[-1] for state in running]
+        positions = [state.cache_length for state in running]
+        input_ids, position_ids, attention_mask, prepare_ms = prepare_decode_inputs(
+            slot_cache=dense_slot_cache,
+            running_slot_indices=running_slot_indices,
+            last_tokens=last_tokens,
+            positions=positions,
+            pad_token_id=self.pad_token_id,
         )
         step_out = self.step_forward(
             input_ids,
@@ -142,4 +179,5 @@ __all__ = [
     "ModelRunner",
     "SlotDecodeResult",
     "StepForwardResult",
+    "prepare_decode_inputs",
 ]

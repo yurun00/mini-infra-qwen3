@@ -1,11 +1,6 @@
-"""Dense 槽位 KV Cache：Continuous Batching 的持久化批量 Cache。
+"""Dense 槽位 KV Cache：Continuous Batching 与固定批次的持久化批量 Cache。
 
-本期尚未引入 Paged KV Cache。这里用固定数量（capacity）的 dense 槽位保存 KV Cache：
-请求入场时把其 Prefill Cache 右对齐写入空槽位，Decode 时复用整个批量 Cache。
-这种实现便于观察请求的动态加入与退出，也会如实暴露两类搬移代价：
-
-1. 新请求的 Prompt 比当前 Cache 更长时，需要在序列维左侧补零扩容（整块 Cache 重新分配）；
-2. 只要仍有请求在运行，Cache 长度就只增不减（已结束请求的槽位只清 mask，不回收显存）。
+注意：本模块处于纯 GPU 数据面，只认整数槽位索引与裸张量，严禁 import RequestState 等控制面生命周期对象。
 """
 
 import time
@@ -13,7 +8,6 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.core.request import RequestState
 from mini_infra.device import synchronize
 from mini_infra.worker.kv_cache import KVCache, cache_size_bytes
 
@@ -22,7 +16,7 @@ class DenseSlotCache:
     """持有 [capacity, kv_heads, length, head_dim] 形状的批量 KVCache 与对应的历史 Mask。
 
     序列维采用“右对齐”布局：各槽位真实历史位于序列维末尾，左侧为被 mask 的空位；
-    Decode 时模型把新 Token 的 Key/Value 拼在序列维最右侧后整体返回，由本类写回容器。
+    Decode 时模型把新 Token 的 Key/Value 拼在序列维最右侧后整体返回，由 commit_decode_step 写回容器。
     """
 
     def __init__(self, capacity: int, device: torch.device):
@@ -50,11 +44,17 @@ class DenseSlotCache:
             raise RuntimeError("Cache 尚未分配，无法导出 past_key_values")
         return self.kv_cache.past_key_values
 
-    def absorb_prefill(self, states: Sequence[RequestState], prefill_cache: KVCache) -> float:
-        """把一批新请求的 Prefill Cache 写入各自槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
+    def absorb_prefill(
+        self,
+        slot_indices: Sequence[int],
+        cache_lengths: Sequence[int],
+        prefill_cache: KVCache,
+    ) -> float:
+        """把一批新请求的 Prefill Cache 写入指定槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
 
         Args:
-            states: 本次入场的请求，states[i] 对应 prefill_cache 的第 i 行，且已分配 slot_idx/cache_length。
+            slot_indices: 本次入场请求绑定的槽位索引列表。
+            cache_lengths: 各入场请求的 Prefill 缓存长度（Token 数）。
             prefill_cache: 左 Padding Prefill 产生的 Cache，各行真实 Token 位于序列维末尾 cache_length 个位置。
         """
         synchronize(self.device)
@@ -66,8 +66,7 @@ class DenseSlotCache:
             self._grow_left(target_length - self.length)
         assert self.kv_cache is not None and self.history_mask is not None
 
-        for row_idx, state in enumerate(states):
-            slot_idx, cache_length = state.slot_idx, state.cache_length
+        for row_idx, (slot_idx, cache_length) in enumerate(zip(slot_indices, cache_lengths)):
             start_pos = target_length - cache_length
             self.history_mask[slot_idx].zero_()
             self.history_mask[slot_idx, start_pos:] = True
@@ -80,31 +79,23 @@ class DenseSlotCache:
         synchronize(self.device)
         return (time.perf_counter() - start) * 1000
 
-    def prepare_decode_inputs(
-        self, running: Sequence[RequestState], pad_token_id: int
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
-        """构造 capacity 行的单步 Decode 输入，返回 (input_ids, position_ids, attention_mask, 准备耗时 ms)。
+    def adopt_prefill(
+        self,
+        slot_indices: Sequence[int],
+        cache_lengths: Sequence[int],
+        prefill_cache: KVCache,
+    ) -> None:
+        """零拷贝接管当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 路径），搬移耗时恒为 0。
 
-        空闲/已结束槽位填 Padding 并整行 mask；先在 Host 侧组装列表再一次性传输，避免逐槽位的小 kernel。
+        与 absorb_prefill 的拷贝语义相对：不分配、不复制，直接引用传入张量，仅按波次大小重置 capacity
+        并重建 history_mask。接管后调用方应释放其引用，由本类独占持有。
         """
-        if self.history_mask is None:
-            raise RuntimeError("Cache 尚未分配，无法构造 Decode 输入")
-        synchronize(self.device)
-        start = time.perf_counter()
-        token_ids = [pad_token_id] * self.capacity
-        positions = [0] * self.capacity
-        active = [False] * self.capacity
-        for state in running:
-            slot_idx = state.slot_idx
-            token_ids[slot_idx] = state.generated[-1]
-            positions[slot_idx] = state.cache_length
-            active[slot_idx] = True
-        input_ids = torch.tensor(token_ids, dtype=torch.long, device=self.device).unsqueeze(1)
-        position_ids = torch.tensor(positions, dtype=torch.long, device=self.device).unsqueeze(1)
-        active_mask = torch.tensor(active, dtype=torch.bool, device=self.device).unsqueeze(1)
-        attention_mask = torch.cat((self.history_mask, active_mask), dim=1)
-        synchronize(self.device)
-        return input_ids, position_ids, attention_mask, (time.perf_counter() - start) * 1000
+        self.capacity = len(slot_indices)
+        self.kv_cache = prefill_cache
+        target_length = prefill_cache.length
+        self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
+        for slot_idx, cache_length in zip(slot_indices, cache_lengths):
+            self.history_mask[slot_idx, target_length - cache_length :] = True
 
     def commit_decode_step(
         self, attention_mask: torch.Tensor, present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]]
@@ -113,23 +104,10 @@ class DenseSlotCache:
         self.kv_cache = KVCache(present_key_values)
         self.history_mask = attention_mask
 
-    def adopt_prefill(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:
-        """零拷贝接管当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 路径），搬移耗时恒为 0。
-
-        与 absorb_prefill 的拷贝语义相对：不分配、不复制，直接引用传入张量，仅按波次大小重置 capacity
-        并重建 history_mask。接管后调用方应释放其引用，由本类独占持有。
-        """
-        self.capacity = len(states)
-        self.kv_cache = prefill_cache
-        target_length = prefill_cache.length
-        self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
-        for state in states:
-            self.history_mask[state.slot_idx, target_length - state.cache_length :] = True
-
-    def release(self, state: RequestState) -> None:
+    def release(self, slot_index: int) -> None:
         """释放已结束请求的槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
-        if self.history_mask is not None and state.slot_idx is not None:
-            self.history_mask[state.slot_idx].zero_()
+        if self.history_mask is not None and slot_index is not None:
+            self.history_mask[slot_index].zero_()
 
     def reset(self) -> None:
         """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始槽位容量。"""
@@ -156,3 +134,6 @@ class DenseSlotCache:
             self.kv_cache.value_cache[layer_idx] = torch.cat((zeros, value), dim=2)
         mask_padding = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
         self.history_mask = torch.cat((mask_padding, self.history_mask), dim=1)
+
+
+__all__ = ["DenseSlotCache"]

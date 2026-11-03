@@ -46,7 +46,8 @@ def _retire(
 ) -> None:
     """释放已结束请求的槽位（调度侧归还槽位号，Cache 侧清 mask）；若没有运行中请求则整块回收 Cache。"""
     for state in finished:
-        dense_slot_cache.release(state)
+        if state.slot_idx is not None:
+            dense_slot_cache.release(state.slot_idx)
     running_queue.retire(finished)
     if not running_queue:
         dense_slot_cache.reset()
@@ -87,10 +88,12 @@ def _run_schedule(
             batch = waiting_queue.pop_batch(running_queue.num_free_slots)
             admitted = running_queue.admit(batch, clock_ms)
             token_ids, prefill_cache, model_ms = runner.prefill_requests(admitted)
+            slot_indices = [s.slot_idx for s in admitted if s.slot_idx is not None]
+            cache_lengths = [s.cache_length for s in admitted]
             if is_continuous:
-                cache_ms = dense_slot_cache.absorb_prefill(admitted, prefill_cache)
+                cache_ms = dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill_cache)
             else:
-                dense_slot_cache.adopt_prefill(admitted, prefill_cache)
+                dense_slot_cache.adopt_prefill(slot_indices, cache_lengths, prefill_cache)
                 cache_ms = 0.0
             del prefill_cache
             step_ms = model_ms + cache_ms

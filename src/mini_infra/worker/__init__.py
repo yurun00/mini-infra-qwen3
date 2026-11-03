@@ -6,6 +6,7 @@ from mini_infra.worker.runner import (
     ModelRunner,
     SlotDecodeResult,
     StepForwardResult,
+    prepare_decode_inputs,
 )
 
 __all__ = [
@@ -15,5 +16,5 @@ __all__ = [
     "SlotDecodeResult",
     "StepForwardResult",
     "cache_size_bytes",
+    "prepare_decode_inputs",
 ]
-
