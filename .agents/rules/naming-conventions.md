@@ -2,7 +2,7 @@
 trigger: glob
 alwaysApply: false
 globs: "src/mini_infra/**/*.py"
-description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后缀、私有前缀、property 与方法一致性、落盘契约名冻结"
+description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后缀、私有前缀、property 与方法一致性、落盘契约名联动改名"
 ---
 
 # 命名纪律专项规则
@@ -22,11 +22,11 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 
 ## 二、整数索引统一 `_idx` 后缀，前缀必须说明索引空间
 
-- 槽位号、块号、层号、行号、请求序号写作 `slot_idx` / `block_idx` / `layer_idx` / `row_idx` / `request_idx`。
-- **严禁**裸 `idx`、裸 `index`，以及不说明索引空间的缩写（`req_idx` 的 `req` 是 request 还是 requirement？必须写全 `request_idx`）。`i`、`j` 仅限 5 行以内的局部循环。
-- 名字里同时出现两个索引空间时两个都写全：`completion_step_by_request_idx`、`prompt_len_by_request_idx`。
-- **1-based 进度序号不是索引**，用 `_number` 且与总量成对出现：`case_number` / `total_cases`、`step_number` / `total_steps`。满足任一即不属本节管辖：① 来自 `enumerate(..., 1)`；② 从不用于寻址（全仓无任何 `x[它]`），只进入进度展示字符串。改成 `_idx` 会制造 off-by-one 陷阱——`cases[case_idx]` 天然差一。现存于 `bench/lockstep/run_suite.py`、`bench/scheduler/run_suite.py`、`cli/commands/bench/{lockstep,scheduler,release}.py`；改名前先确认它是否真的被用来寻址。
-- **与 §三 `_ms` 的区别（避免再次反转）**：`_ms` 是单位符号，`idx` 是 `index` 的既定行业缩写；展开成 `_index` 只增加行宽（本仓 `line-length = 120`）而不增加信息量。纪律的价值在**前缀说明了索引到哪个空间**，不在后缀长短——不得以「后缀不够正式」为由把 `_idx` 改回 `_index`。
+- 整数索引写作 `slot_idx` / `block_idx` / `layer_idx` / `row_idx` / `request_idx`；前缀写清索引到哪个空间。名字里同时出现两个空间时两个都写全：`completion_step_by_request_idx`、`prompt_len_by_request_idx`。
+- **严禁**裸 `idx`、裸 `index`，以及不说明空间的缩写（`req_idx` 的 `req` 是 request 还是 requirement？写全 `request_idx`）。`i`、`j` 仅限 5 行以内的局部循环。
+- 两个防反转判据：
+  - **1-based 进度序号不是索引**：`enumerate(..., 1)` 产出、从不用于寻址（全仓无 `x[它]`）、只进进度字符串的序号用 `_number` 且与总量成对（`case_number` / `total_cases`、`step_number` / `total_steps`），改成 `_idx` 会引入 off-by-one。改名前先确认它是否真的被寻址。
+  - **`_idx` 不得改回 `_index`**：`idx` 是 `index` 的既定行业缩写，展开只增行宽不增信息量（本仓 `line-length = 120`）；纪律在**前缀写清空间**，不在后缀长短。
 
 ## 三、时间量统一 `_ms` 后缀
 
@@ -53,13 +53,12 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 无参、无副作用、O(1) 或纯读取既有状态的取值器一律用 `@property`；需要参数、有副作用或代价与调用次数成正比的一律用方法。
 - 集合视图属性（返回内部容器快照的 `requests` / `free_slots` 之类）必须返回 **`tuple`**，不得返回 `list`：可变返回值会让调用方误以为改它能影响内部状态。取出型产物（`pop_batch` 等）不受此限。
 
-## 七、落盘契约名冻结
+## 七、落盘契约名的改名必须端到端联动
 
-- 凡进入 **JSON 落盘 schema、Pydantic 模型字段、CLI flag / argparse dest、绘图脚本取值的 key** 的名字属对外契约，**不得在命名重构中顺手改名**。完整清单与联动要求见 `AGENTS.md` 第一节第 4 条。
-- 冻结判据是**存在下游读者或已落盘的历史产物**，不是「它恰好被写进过某个 dict」。改名前必须先 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/`：
-  - 有读者 / 有历史产物 → 字符串字面量冻结，即使与按 §二 改名后的局部变量不同名也保持原样，并在赋值处加注释说明。现存例：`bench/plotting/tidy.py` 写入 DataFrame 的 `"order_idx"` / `"release_idx"`，被 `history.py` 的 `sort_values` / `groupby` 读取。
-  - 零读者且零历史产物 → 不触发本条，随标识符一起改名。现存例：`verification/parity/compare_lockstep_batch.py` 的 `--output` 诊断 JSON（`"target_idx"`）。
-- CLI 的 `--prompt-lens`（argparse dest `prompt_lens`）与 engine 内部的局部变量恰好同名但**不是同一个成员**：此类情况**禁止全局替换**，只能逐点改内部变量。
+- 进入 **JSON schema、Pydantic 字段、CLI flag / argparse dest、绘图取值 key** 的名字属对外契约，**允许改名，但必须连同全部读写点与已落盘数据一次改全**（详见 `AGENTS.md` 第一节第 4 条）。
+- 改名前 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/` 列读写点：写入点与读取点（`sort_values` / `groupby`）同步改全，`benchmarks/result-history/*.json` 已落盘字段名一并更新，严禁留旧名或半截改名。
+- 有下游读者 → 联动改（例：`bench/plotting/tidy.py` 写入的 `"order_idx"` / `"release_idx"` 被 `history.py` 读取）；零读者零历史产物 → 随标识符改（例：`compare_lockstep_batch.py` 的 `--output` 诊断 JSON `"target_idx"`）。
+- CLI 的 `--prompt-lens`（dest `prompt_lens`）与 engine 内部局部变量同名但**不是同一成员**：**禁全局替换**，逐点改内部变量。
 
 ---
 
