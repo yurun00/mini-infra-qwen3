@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-import torch
-
 from mini_infra.core.types import RequestMetrics, SequenceOutput
 
 
@@ -117,7 +115,7 @@ def make_request_specs(
     arrival_times_ms: Sequence[float] | None = None,
 ) -> list[RequestSpec]:
     """把 Prompt 序列、输出预算与到达时间组装成 RequestSpec 列表（request_idx 按提交顺序编号）。"""
-    sequences = [tuple(int(t) for t in torch.as_tensor(seq).tolist()) for seq in token_sequences]
+    sequences = [tuple(int(t) for t in seq) for seq in token_sequences]
     budgets = [max_new_tokens] * len(sequences) if isinstance(max_new_tokens, int) else list(max_new_tokens)
     arrivals = [0.0] * len(sequences) if arrival_times_ms is None else list(arrival_times_ms)
     if len(budgets) != len(sequences) or len(arrivals) != len(sequences):

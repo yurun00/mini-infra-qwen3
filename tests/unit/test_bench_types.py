@@ -11,8 +11,8 @@ from mini_infra.bench.lockstep.types import (
     WorkloadSpec,
     summarize_samples,
 )
-from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.engine import FeatureFlag, Mode
+from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
 

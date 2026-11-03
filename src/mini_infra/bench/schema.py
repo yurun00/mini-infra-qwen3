@@ -7,10 +7,10 @@ pydantic.BaseModel
  └── _DictAccessModel                      # 基础能力基类：强类型属性访问 + 只读字典下标兼容 (rec["k"])
       ├── 第一层：叶子统计与画像组件 (Leaf Value Records，与运行时领域 Dataclass 一一映射)
       │    ├── DistributionStatsRecord     <-> bench.common.DistributionStats
-      │    ├── MemoryProfileRecord         <-> core.types.MemoryProfile
-      │    ├── PackingInfoRecord           <-> core.types.BatchScheduleInfo[DistributionStats]
+      │    ├── MemoryProfileRecord         <-> engine.metrics.MemoryProfile
+      │    ├── PackingInfoRecord           <-> engine.metrics.BatchScheduleInfo[DistributionStats]
       │    ├── EfficiencyMetricsRecord     <-> bench.common.EfficiencyMetrics
-      │    └── ScheduleMetricsRecord       <-> engine.types.ScheduleMetrics[DistributionStats]
+      │    └── ScheduleMetricsRecord       <-> engine.metrics.ScheduleMetrics[DistributionStats]
       │
       ├── 第二层：单用例记录层 (Case Level)
       │    └── BaseCaseRecord              # 共享 WorkloadSpec 核心字段 + StepAggregatedMetrics 公共指标 + 叶子组件
@@ -112,7 +112,7 @@ class DistributionStatsRecord(_DictAccessModel):
 
 
 class MemoryProfileRecord(_DictAccessModel):
-    """显存监控剖析 Schema，单位 MiB（对应 `core.types.MemoryProfile.to_dict()`）。"""
+    """显存监控剖析 Schema，单位 MiB（对应 `engine.metrics.MemoryProfile.to_dict()`）。"""
 
     weights_mb: float | None = None
     baseline_allocated_mb: float = 0.0
@@ -125,7 +125,7 @@ class MemoryProfileRecord(_DictAccessModel):
 
 
 class PackingInfoRecord(_DictAccessModel):
-    """批处理打包（Padding 效率）与槽位利用率 Schema（对应 `core.types.BatchScheduleInfo[DistributionStats]`）。"""
+    """批处理打包（Padding 效率）与槽位利用率 Schema（对应 `engine.metrics.BatchScheduleInfo[DistributionStats]`）。"""
 
     padding_efficiency: DistributionStatsRecord
     slot_utilization: DistributionStatsRecord
@@ -141,7 +141,7 @@ class EfficiencyMetricsRecord(_DictAccessModel):
 
 
 class ScheduleMetricsRecord(_DictAccessModel):
-    """Scheduler 专属队列与步进调度统计 Schema（对应 `engine.types.ScheduleMetrics[DistributionStats]`）。"""
+    """Scheduler 专属队列与步进调度统计 Schema（对应 `engine.metrics.ScheduleMetrics[DistributionStats]`）。"""
 
     request_count: int
     max_running_requests: int
@@ -169,8 +169,8 @@ class BaseCaseRecord(_DictAccessModel):
     """Lockstep 与 Scheduler 共享的单 Case 核心记录基类。
 
     聚合了：
-    1. `engine.types.WorkloadSpec` 的通用负载描述（mode, batch_size, prompt_len, max_new_tokens, repeats, warmup）
-    2. `core.types.StepAggregatedMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
+    1. `bench.common.WorkloadSpec` 的通用负载描述（mode, batch_size, prompt_len, max_new_tokens, repeats, warmup）
+    2. `engine.metrics.StepAggregatedMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
     3. 叶子画像组件（memory, packing, efficiency）
     """
 

@@ -20,12 +20,13 @@ from mini_infra.engine.preprocessing import (
     normalize_budgets,
     prepare_prompt_sequences,
 )
-from mini_infra.engine.scheduler_loop import run_scheduler
-from mini_infra.engine.types import GenerationResult, LockstepResult, ScheduleResult
-from mini_infra.entrypoints.types import (
-    GenerationOptions,
+from mini_infra.engine.results import (
+    GenerationResult,
+    ScheduleResult,
     aggregate_generation_results,
 )
+from mini_infra.engine.scheduler_loop import run_scheduler
+from mini_infra.entrypoints.types import GenerationOptions
 from mini_infra.profiling import profile_scope
 
 
@@ -93,7 +94,7 @@ def _dispatch_lockstep(
     budgets: torch.Tensor,
     device: torch.device,
     opts: GenerationOptions,
-) -> LockstepResult:
+) -> GenerationResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
     is_cuda = device.type == "cuda"
     use_cache = mode.is_enabled(FeatureFlag.KV_CACHE)

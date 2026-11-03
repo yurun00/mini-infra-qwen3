@@ -12,21 +12,21 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.core.types import (
+from mini_infra.core.types import SequenceOutput
+from mini_infra.engine.metrics import (
     BatchScheduleInfo,
-    MemoryProfile,
-    SequenceOutput,
-    build_memory_profile,
-)
-from mini_infra.entrypoints.types import (
-    AggregationOptions,
-    GenerationOptions,
-    GenerationResult,
     GenerationTrace,
+    MemoryProfile,
     StepAggregatedMetrics,
-    aggregate_generation_results,
+    build_memory_profile,
     compute_step_aggregated_metrics,
 )
+from mini_infra.engine.results import (
+    AggregationOptions,
+    GenerationResult,
+    aggregate_generation_results,
+)
+from mini_infra.entrypoints.types import GenerationOptions
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 from mini_infra.utils import percentile
 
@@ -522,3 +522,33 @@ def test_generation_options_immutability_and_defaults(diverse_model):
     # 4. 不再支持平铺多余关键字参数（严格单一 options 结构体入口）
     with pytest.raises(TypeError):
         generate(mode, diverse_model, prompt, 3, device=CPU)  # type: ignore[call-arg]
+
+
+def test_generation_trace_enforces_cpu_tensors():
+    """验证 GenerationTrace 强制检查 logits_trace 必须为 CPU 张量契约。"""
+    # 1. 正常 CPU 张量传入成功
+    cpu_tensor = torch.randn(2, 10, device="cpu")
+    trace = GenerationTrace(
+        step_latencies_ms=[1.0],
+        num_active_tokens_per_step=[2],
+        logits_trace=[cpu_tensor],
+    )
+    assert trace.logits_trace is not None
+    assert trace.logits_trace[0].device.type == "cpu"
+
+    # 2. 非 Tensor 对象被拒绝
+    with pytest.raises(TypeError, match="torch.Tensor"):
+        GenerationTrace(
+            step_latencies_ms=[1.0],
+            num_active_tokens_per_step=[2],
+            logits_trace=[[1.0, 2.0]],  # type: ignore[list-item]
+        )
+
+    # 3. 若有 GPU/Meta 等非 CPU 设备，必须抛出 ValueError 拒绝
+    meta_tensor = torch.randn(2, 10, device="meta")
+    with pytest.raises(ValueError, match="CPU"):
+        GenerationTrace(
+            step_latencies_ms=[1.0],
+            num_active_tokens_per_step=[2],
+            logits_trace=[meta_tensor],
+        )

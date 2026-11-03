@@ -1,7 +1,23 @@
 """推理与 Serving 执行引擎域：包含模型执行器、批状态机、批处理调度循环、运行模式与结果类型。"""
 
+from mini_infra.core.types import (
+    RequestMetrics,
+    SequenceOutput,
+)
 from mini_infra.device import synchronize
 from mini_infra.engine.lockstep_loop import run_lockstep
+from mini_infra.engine.metrics import (
+    BatchScheduleInfo,
+    GenerationTrace,
+    MemoryProfile,
+    ScheduleEvent,
+    ScheduleMetrics,
+    SchedulePhase,
+    StepAggregatedMetrics,
+    build_memory_profile,
+    compute_step_aggregated_metrics,
+    summarize_schedule,
+)
 from mini_infra.engine.mode import (
     BatchingMethod,
     FeatureDimension,
@@ -15,6 +31,13 @@ from mini_infra.engine.preprocessing import (
     prepare_prefill_inputs,
     prepare_prompt_sequences,
 )
+from mini_infra.engine.results import (
+    AggregationOptions,
+    GenerationResult,
+    ScheduleResult,
+    aggregate_generation_results,
+    pad_output_tokens,
+)
 from mini_infra.engine.runner import (
     ModelRunner,
     SlotDecodeResult,
@@ -25,31 +48,9 @@ from mini_infra.engine.tokenizer import (
     PRE_TOKEN_PATTERN,
     Qwen3Tokenizer,
 )
-from mini_infra.engine.types import (
-    BatchScheduleInfo,
-    GenerationResult,
-    LockstepResult,
-    MemoryProfile,
-    RequestMetrics,
-    ScheduleEvent,
-    ScheduleMetrics,
-    SchedulePhase,
-    ScheduleResult,
-    SequenceOutput,
-    build_memory_profile,
-    pad_output_tokens,
-    percentile,
-    summarize_schedule,
-)
 from mini_infra.entrypoints.offline import generate
-from mini_infra.entrypoints.types import (
-    AggregationOptions,
-    GenerationOptions,
-    GenerationTrace,
-    StepAggregatedMetrics,
-    aggregate_generation_results,
-    compute_step_aggregated_metrics,
-)
+from mini_infra.entrypoints.types import GenerationOptions
+from mini_infra.utils import percentile
 
 __all__ = [
     "AggregationOptions",
@@ -60,7 +61,6 @@ __all__ = [
     "GenerationOptions",
     "GenerationResult",
     "GenerationTrace",
-    "LockstepResult",
     "MemoryProfile",
     "Mode",
     "ModelRunner",

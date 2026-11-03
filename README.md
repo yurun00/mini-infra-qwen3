@@ -53,7 +53,8 @@ mini-infra-qwen3/
 │       │   ├── scheduler_loop.py      # 请求队列调度主循环（run_scheduler：统一驱动 CONTINUOUS 与 FIXED）
 │       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义
 │       │   ├── preprocessing.py       # Prompt 规约、左填充（Left Padding）与 Batch 张量初始化
-│       │   └── types.py               # LockstepResult, ScheduleResult, ScheduleMetrics, ScheduleEvent 引擎层结果类型
+│       │   ├── results.py             # GenerationResult, ScheduleResult 引擎层结果容器与聚合
+│       │   └── metrics.py             # MemoryProfile, BatchScheduleInfo, ScheduleMetrics, GenerationTrace, ScheduleEvent 指标与统计画像
 │       ├── profiling/                 # 算子耗时剖析域
 │       │   ├── tracer.py              # PyTorch Profiler 打点、Scope 注入与 ProfileCollector
 │       │   ├── analyzer.py            # 耗时统计、Kernel 分类与跨 run 聚合

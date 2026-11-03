@@ -1,15 +1,11 @@
 from mini_infra.core import (
     ArrivalQueue,
-    BatchScheduleInfo,
-    MemoryProfile,
     RequestMetrics,
     RequestSpec,
     RequestState,
     RequestStatus,
     SequenceOutput,
-    build_memory_profile,
     make_request_specs,
-    pad_output_tokens,
     validate_request_specs,
 )
 from mini_infra.device import (
@@ -19,11 +15,12 @@ from mini_infra.device import (
 )
 from mini_infra.engine import (
     BatchingMethod,
+    BatchScheduleInfo,
     FeatureDimension,
     FeatureFlag,
     GenerationResult,
     GenerationTrace,
-    LockstepResult,
+    MemoryProfile,
     Mode,
     Qwen3Tokenizer,
     ScheduleEvent,
@@ -31,10 +28,11 @@ from mini_infra.engine import (
     SchedulePhase,
     ScheduleResult,
     StepAggregatedMetrics,
+    build_memory_profile,
+    pad_output_tokens,
     run_lockstep,
     run_scheduler,
     summarize_schedule,
-    Qwen3Tokenizer,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.memory import (
@@ -79,7 +77,6 @@ __all__ = [
     "KERNEL_CATEGORIES",
     "KVCache",
     "KernelInfo",
-    "LockstepResult",
     "MODULE_SCOPES",
     "MemoryProfile",
     "Mode",

@@ -17,7 +17,7 @@ from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
     GenerationOptions,
-    LockstepResult,
+    GenerationResult,
     Mode,
     ScheduleResult,
 )
@@ -83,7 +83,8 @@ def test_run_mode_uses_scheduler_for_all_methods_when_via_scheduler(diverse_mode
     assert fixed_sched.batching_method is BatchingMethod.FIXED
     assert fixed_sched.schedule_metrics.max_running_requests == 2
     assert isinstance(cont_sched, ScheduleResult)
-    assert isinstance(fixed_plain, LockstepResult)
+    assert isinstance(fixed_plain, GenerationResult)
+    assert not isinstance(fixed_plain, ScheduleResult)
     tokens = [s.token_ids for s in fixed_sched.sequences]
     assert tokens == [s.token_ids for s in cont_sched.sequences]
     assert tokens == [s.token_ids for s in none_sched.sequences]

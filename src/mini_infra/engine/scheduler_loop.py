@@ -27,14 +27,14 @@ from mini_infra.core.scheduler import (
     prepare_schedule,
 )
 from mini_infra.device import allocated_memory_mb, peak_memory_mb, reset_peak_memory, synchronize
-from mini_infra.engine.mode import BatchingMethod
-from mini_infra.engine.runner import ModelRunner
-from mini_infra.engine.types import (
+from mini_infra.engine.metrics import (
     ScheduleEvent,
     SchedulePhase,
-    ScheduleResult,
     summarize_schedule,
 )
+from mini_infra.engine.mode import BatchingMethod
+from mini_infra.engine.results import ScheduleResult
+from mini_infra.engine.runner import ModelRunner
 from mini_infra.memory.dense_slot_cache import DenseSlotCache
 
 __all__ = ["run_scheduler"]

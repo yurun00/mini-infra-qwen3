@@ -16,7 +16,7 @@ from mini_infra.bench.common import (
     WorkloadSpec,
     summarize_samples,
 )
-from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import OpLatencyBreakdown
 
 
@@ -24,7 +24,7 @@ from mini_infra.profiling import OpLatencyBreakdown
 class LockstepCaseResult:
     """单评测用例（多轮 Repeats 聚合）的标准性能与资源分析结果。
 
-    直接组合复用 core.types.StepAggregatedMetrics[DistributionStats]、MemoryProfile、
+    直接组合复用 engine.metrics.StepAggregatedMetrics[DistributionStats]、MemoryProfile、
     BatchScheduleInfo 与 EfficiencyMetrics，与 GenerationResult 顶层结构对齐。
     """
 

@@ -10,9 +10,15 @@ from mini_infra.bench.common import (
     WorkloadSpec,
     summarize_samples,
 )
-from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine.metrics import (
+    BatchScheduleInfo,
+    MemoryProfile,
+    ScheduleEvent,
+    ScheduleMetrics,
+    StepAggregatedMetrics,
+)
 from mini_infra.engine.mode import Mode
-from mini_infra.engine.types import ScheduleEvent, ScheduleMetrics, ScheduleResult
+from mini_infra.engine.results import ScheduleResult
 
 
 @dataclass(frozen=True)

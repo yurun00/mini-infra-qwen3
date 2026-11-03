@@ -31,8 +31,8 @@ from mini_infra.bench.lockstep.types import (
     summarize_samples,
 )
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.engine import GenerationOptions, Mode, generate
+from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 

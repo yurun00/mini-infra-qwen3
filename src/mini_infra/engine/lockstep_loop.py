@@ -13,17 +13,17 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.types import (
+from mini_infra.core.types import SequenceOutput
+from mini_infra.device import synchronize
+from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     GenerationTrace,
-    SequenceOutput,
     build_memory_profile,
     compute_step_aggregated_metrics,
 )
-from mini_infra.device import synchronize
 from mini_infra.engine.preprocessing import prepare_prefill_inputs
+from mini_infra.engine.results import GenerationResult
 from mini_infra.engine.runner import ModelRunner
-from mini_infra.engine.types import LockstepResult
 from mini_infra.memory.kv_cache import KVCache, cache_size_bytes
 
 __all__ = ["run_lockstep"]
@@ -187,11 +187,11 @@ def run_lockstep(
     stop_on_eos: bool = True,
     capture_logits: bool = False,
     baseline_allocated_bytes: int = 0,
-) -> LockstepResult:
+) -> GenerationResult:
     """执行齐步（Lockstep）自回归生成迭代循环（所有请求同时开始，含 step 0 Prefill 与后续 Decode 步）。
 
     内部完成 Prefill 输入组装与 LockstepState 状态机驱动，每步调用 ModelRunner.step_forward，
-    直接构建并返回由 5 大核心共享值对象组成的 LockstepResult。
+    直接构建并返回由 5 大核心共享值对象组成的 GenerationResult。
     """
     is_cuda = device.type == "cuda"
     input_ids_tensor, attention_mask, position_ids, prompt_lengths = prepare_prefill_inputs(
@@ -294,7 +294,7 @@ def run_lockstep(
         logits_trace=logits_trace,
     )
 
-    return LockstepResult(
+    return GenerationResult(
         sequences=sequences,
         metrics=metrics,
         memory=memory,

@@ -15,7 +15,6 @@ from mini_infra.engine import (
     FeatureFlag,
     GenerationOptions,
     GenerationResult,
-    LockstepResult,
     Mode,
     SchedulePhase,
     ScheduleResult,
@@ -235,7 +234,6 @@ class TestGenerateDispatch:
         assert isinstance(result, GenerationResult)
         assert isinstance(result, ScheduleResult)
         assert isinstance(fixed_result, GenerationResult)
-        assert isinstance(fixed_result, LockstepResult)
         assert not isinstance(fixed_result, ScheduleResult)
         assert result.schedule_metrics.request_count == 3
         assert len(result.request_metrics) == 3
