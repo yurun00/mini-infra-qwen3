@@ -32,6 +32,7 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 槽位号、块号、层号、行号、请求序号一律写作 `slot_idx` / `block_idx` / `layer_idx` / `row_idx` / `request_idx`。
 - **严禁**裸 `idx`、裸 `index`，以及不说明索引空间的缩写：`req_idx` 的 `req` 是 request 还是 requirement？必须写全 `request_idx`。`i`、`j` 只在 5 行以内的局部循环里可接受。
 - 一个名字里同时出现两个索引空间时，两个空间都必须写全：`completion_step_by_request_idx`、`prompt_len_by_request_idx`。
+- **1-based 进度序号不是索引**，用 `_number` 并与其总量成对出现：`case_number` / `total_cases`、`step_number` / `total_steps`。判据满足任一即不属本节管辖：① 它来自 `enumerate(..., 1)`；② 它从不用于寻址（全仓无任何 `x[它]`），只进入进度展示字符串。把这类名字改成 `_idx` 会制造 off-by-one 陷阱——`cases[case_idx]` 天然差一。现存于 `bench/lockstep/run_suite.py`、`bench/scheduler/run_suite.py` 与 `cli/commands/bench/{lockstep,scheduler,release}.py`；改名前先确认它是否真的被用来寻址。
 - **边界说明（避免再次反转）**：`_idx` 与 §三 的 `_ms` 不是同一类后缀。`_ms` 是**单位符号**，展开成 `_milliseconds` 反而不像单位；`idx` 是 `index` 的既定行业缩写，读者不会误解其含义，展开成 `_index` 只增加行宽（本仓 `line-length = 120`）而不增加任何信息量。命名纪律的价值在于**前缀说明了索引到哪个空间**，不在后缀长短——不要以「后缀不够正式」为由把 `_idx` 改回 `_index`。
 
 ## 三、时间量统一 `_ms` 后缀
