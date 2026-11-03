@@ -7,58 +7,47 @@ description: "张量维度契约、GPU 热路径纪律、显存布局契约、�
 
 # GPU 热路径、显存管理与数值精度专项规则
 
-当你在修改模型算子（`model/`）、显存与 KV Cache 管理（`memory/`）、执行引擎（`engine/`）或设备工具（`device.py`）时，必须严格遵守以下底层硬件与数值纪律：
+修改模型算子（`model/`）、显存与 KV Cache 管理（`memory/`）、执行引擎（`engine/`）或设备工具（`device.py`）时，遵守以下硬件与数值纪律。
 
 ---
 
-## 一、GPU 热路径与显存纪律 (Hot-Path & Memory Discipline)
+## 一、GPU 热路径与显存纪律
 
-1. **零隐式 Host-Device 同步 (Zero Accidental H2D/D2H Sync)**
-   - 在模型 `forward()` 与自回归 Decode 循环热路径中，**严禁**出现会触发 CPU-GPU 强同步阻塞流水线的操作：如 `tensor.item()`、`tensor.cpu()`、`tensor.numpy()`、`print(tensor)`，或基于 GPU 张量标量值的 Python `if / while` 分支。
+1. **零隐式 Host-Device 同步**：模型 `forward()` 与自回归 Decode 循环热路径中**严禁**出现触发 CPU-GPU 强同步、阻塞流水线的操作——`tensor.item()`、`tensor.cpu()`、`tensor.numpy()`、`print(tensor)`，或基于 GPU 张量标量值的 Python `if / while` 分支。
 
-2. **元数据 Host 侧批量组装后单次上卡 (Batched Metadata Preparation)**
-   - 单步调度所需的 `input_ids`、`position_ids`、槽位/块表映射（`slot_mapping` / `block_tables`）或活跃掩码（Active Mask），必须先在 Host 侧（CPU）根据控制面下发的整数索引批量组装完毕，再通过单次 H2D 转换构造为 GPU `torch.Tensor`。
-   - **严禁**在单步迭代内按槽位（Per-Slot）或按请求（Per-Request）循环发射零碎的 GPU 张量切片写入与小 Kernel。
+2. **元数据 Host 侧批量组装后单次上卡**：单步调度所需的 `input_ids`、`position_ids`、槽位/块表映射（`slot_mapping` / `block_tables`）与活跃掩码（Active Mask）必须先在 CPU 侧按控制面下发的整数索引批量组装完毕，再经单次 H2D 构造为 GPU 张量。**严禁**在单步迭代内按槽位（Per-Slot）或按请求（Per-Request）循环发射零碎的 GPU 张量切片写入与小 Kernel。
 
-3. **显存生命周期与推理态纪律 (Memory Lifecycle & Inference Mode)**
-   - 所有面向推理与调度的执行入口必须显式装饰 `@torch.inference_mode()`（优于 `torch.no_grad()`，彻底关闭视图追踪与版本计数器开销）。
-   - 完成临时缓冲区到持久化缓存池的拷贝或绑定后，及时释放临时大张量引用（如 `del prefill_cache`），避免虚高运行期峰值已分配显存（Peak Allocated Memory）。
+3. **显存生命周期与推理态**：所有面向推理与调度的执行入口必须显式装饰 `@torch.inference_mode()`（优于 `torch.no_grad()`，彻底关闭视图追踪与版本计数器开销）。临时缓冲区拷贝或绑定到持久化池后，及时释放大张量引用（如 `del prefill_cache`），避免虚高运行期峰值已分配显存（Peak Allocated Memory）。
 
-4. **显存视图与原地操作纪律 (View & In-Place Discipline)**
-   - 热路径上的中间结果**优先由预分配 Buffer 通过 `out=` 参数承接**（如 `torch.matmul(a, b, out=buffer)`），避免每步 Decode 反复申请释放造成的显存碎片与 Allocator 开销。
-   - **优先使用 `view()` 而非 `reshape()` 做形状变换**：`view()` 在内存不连续时会直接报错，能暴露隐藏的布局假设；`reshape()` 会静默退化为拷贝，把问题藏到性能里。
-   - **严禁在 KV Cache 读写路径上触发隐式 `contiguous()` 显存拷贝**（包括 `transpose` / `permute` 之后直接喂给要求连续内存的算子）。缓存布局必须在设计阶段就与算子的访存模式对齐，不允许靠运行期拷贝兜底。
+4. **显存视图与原地操作**
+   - 热路径中间结果**优先由预分配 Buffer 经 `out=` 参数承接**（如 `torch.matmul(a, b, out=buffer)`），避免每步 Decode 反复申请释放造成显存碎片与 Allocator 开销。
+   - **优先 `view()` 而非 `reshape()` 做形状变换**：`view()` 在内存不连续时直接报错，能暴露隐藏的布局假设；`reshape()` 静默退化为拷贝，把问题藏到性能里。
+   - **严禁在 KV Cache 读写路径触发隐式 `contiguous()` 显存拷贝**（包括 `transpose` / `permute` 之后直接喂给要求连续内存的算子）。缓存布局必须在设计阶段就与算子的访存模式对齐，不允许靠运行期拷贝兜底。
 
 ---
 
-## 二、张量对齐与数值稳定性不变量 (Alignment & Numerical Stability)
+## 二、张量对齐与数值稳定性不变量
 
-1. **张量维度契约强制声明 (Mandatory Tensor Shape Contract)**
-   - 所有核心方法（模型算子、Cache 读写、Runner 执行入口）必须在 **Docstring 或注释头部用统一格式**写明输入/输出的维度语义、`dtype` 与内存连续性：
+1. **张量维度契约强制声明**：所有核心方法（模型算子、Cache 读写、Runner 执行入口）必须在 Docstring 或注释头部用统一格式写明输入/输出的维度语义、`dtype` 与内存连续性：
 
-     ```text
-     hidden_states: [batch, seq_len, hidden_dim],              bf16, contiguous
-     key_cache:     [capacity, num_kv_heads, length, head_dim], bf16, contiguous
-     attention_mask: [batch, past_len + query_len],             bool
-     ```
+   ```text
+   hidden_states:  [batch, seq_len, hidden_dim],               bf16, contiguous
+   key_cache:      [capacity, num_kv_heads, length, head_dim], bf16, contiguous
+   attention_mask: [batch, past_len + query_len],              bool
+   ```
 
-   - 目的是**防止 PyTorch 广播机制掩盖维度错位**：广播会让 `[B, 1, D]` 与 `[B, S, D]` 的静默错配顺利通过运行期检查，产出数值错误却毫不报错的结果，是推理引擎最难排查的一类缺陷。
-   - 方法内部按需要与复杂度补充关键中间张量的维度、类型与连续性注释；凡 `reshape` / `view` / `transpose` / 切片等改变内存布局的操作，必须就地注明结果形状与是否 `contiguous`。
+   目的是**防止 PyTorch 广播掩盖维度错位**：广播会让 `[B, 1, D]` 与 `[B, S, D]` 的静默错配通过运行期检查，产出错误数值而不报错。方法内部按需补充关键中间张量的维度、类型与连续性注释；凡 `reshape` / `view` / `transpose` / 切片等改变内存布局的操作，必须就地注明结果形状与是否 `contiguous`。
 
 2. **序列填充与缓存槽位对齐契约**
-   - **Padding 隔离**：批量输入填充（如 Left Padding）时，有效 Token 的 `position_ids` 必须严格从 `0` 连续递增，Padding 位必须通过 `attention_mask` 彻底屏蔽，严禁 Padding 位参与有效 Attention 权重归一化或污染 RoPE 相对位置距离。
-   - **缓存布局守恒**：动态槽位或分页缓存（Slot / Paged KV Cache）在发生扩容、迁移或槽位复用时，必须同步更新历史掩码（History Mask / Block Table）并清零脏数据，确保空闲槽位或历史残留不会泄漏到活跃请求。
+   - **Padding 隔离**：批量填充（如 Left Padding）时，有效 Token 的 `position_ids` 必须严格从 `0` 连续递增，Padding 位必须通过 `attention_mask` 彻底屏蔽，严禁参与有效 Attention 权重归一化或污染 RoPE 相对位置距离。
+   - **缓存布局守恒**：动态槽位或分页缓存（Slot / Paged KV Cache）在扩容、迁移或槽位复用时，必须同步更新历史掩码（History Mask / Block Table）并清零脏数据，确保空闲槽位与历史残留不会泄漏到活跃请求。
 
-3. **低精度算子内部升维保护 (FP32 Upcasting in Reductions)**
-   - 在 `bfloat16` / `float16` 推理下，凡涉及平方求和归约、方差倒数、指数归一化或旋转位置频率计算的算子（如 `RMSNorm`、`Softmax`、`RotaryEmbedding`），**必须在算子内部显式升维至 `torch.float32` 完成核心计算后，再转回目标 `dtype`**，严防低尾数位下的精度坍塌或溢出。
+3. **低精度算子内部升维保护**：`bfloat16` / `float16` 推理下，凡涉及平方求和归约、方差倒数、指数归一化或旋转位置频率计算的算子（如 `RMSNorm`、`Softmax`、`RotaryEmbedding`）**必须在算子内部显式升维至 `torch.float32` 完成核心计算后，再转回目标 `dtype`**，严防低尾数位下的精度坍塌或溢出。
 
 ---
 
-## 三、异步流水线与同步计时的边界 (Execution & Timing Discipline)
+## 三、异步流水线与同步计时的边界
 
-1. **吞吐执行态（异步打点）**
-   - 在齐步自回归（Lockstep）等追求纯吞吐的执行循环中，CUDA 下默认使用 `torch.cuda.Event(enable_timing=True)` 记录起止事件，待循环结束后统一同步结算，**严禁在每步 Decode 内部插入 `torch.cuda.synchronize()` 破坏异步发射流水线**。
+1. **吞吐执行态（异步打点）**：齐步自回归（Lockstep）等追求纯吞吐的执行循环在 CUDA 下默认使用 `torch.cuda.Event(enable_timing=True)` 记录起止事件，待循环结束后统一同步结算；**严禁在每步 Decode 内部插入 `torch.cuda.synchronize()`** 破坏异步发射流水线。
 
-2. **离散调度仿真与阶段剖析态（显式同步）**
-   - 当耗时数据用于推进离散事件调度器逻辑时钟（`clock_ms`）或精确剖析子阶段开销时，必须在测量区间前后显式调用 `synchronize(device)`。
-   - **正交计时拆解**：必须将**纯模型算子前向耗时（Model Forward Time）** 与 **系统管理开销（KV Cache 分配/扩容/拷贝、Decode 输入准备耗时）** 正交分离统计，禁止混为一谈。
+2. **离散调度仿真与阶段剖析态（显式同步）**：耗时数据用于推进离散事件调度器逻辑时钟（`clock_ms`）或精确剖析子阶段开销时，必须在测量区间前后显式调用 `synchronize(device)`。**正交计时拆解**：纯模型算子前向耗时（Model Forward Time）与系统管理开销（KV Cache 分配/扩容/拷贝、Decode 输入准备耗时）必须正交分离统计，禁止混为一谈。
