@@ -67,8 +67,9 @@ class WaitingQueue:
         return iter(self._requests)
 
     @property
-    def requests(self) -> list[RequestState]:
-        return list(self._requests)
+    def requests(self) -> tuple[RequestState, ...]:
+        """当前等待队列的只读快照（FCFS 次序）。"""
+        return tuple(self._requests)
 
     def append(self, state: RequestState) -> None:
         state.status = RequestStatus.WAITING
@@ -107,16 +108,18 @@ class RunningQueue:
         return iter(self._requests)
 
     @property
-    def free_slots(self) -> list[int]:
-        return self._free_slots
+    def free_slots(self) -> tuple[int, ...]:
+        """空闲槽位号的只读快照（按最小堆次序，非排序结果）。"""
+        return tuple(self._free_slots)
 
     @property
     def num_free_slots(self) -> int:
         return len(self._free_slots)
 
     @property
-    def requests(self) -> list[RequestState]:
-        return self._requests
+    def requests(self) -> tuple[RequestState, ...]:
+        """当前活跃队列的只读快照。"""
+        return tuple(self._requests)
 
     def can_admit(self) -> bool:
         return bool(self._free_slots)

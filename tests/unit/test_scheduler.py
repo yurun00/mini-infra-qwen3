@@ -1,5 +1,7 @@
 """ArrivalQueue（FCFS 到达队列）、调度策略、record_tokens 与请求规格校验的单元测试（纯 Python，无需模型）。"""
 
+from collections.abc import Sequence
+
 import pytest
 
 from mini_infra.core import (
@@ -19,7 +21,7 @@ def make_states(arrivals: list[float]) -> list[RequestState]:
     return [RequestState(RequestSpec(i, (1, 2, 3), 4, arrival)) for i, arrival in enumerate(arrivals)]
 
 
-def indices(states: list[RequestState]) -> list[int]:
+def indices(states: Sequence[RequestState]) -> list[int]:
     return [state.spec.request_index for state in states]
 
 
@@ -154,7 +156,7 @@ def test_running_queue_lifecycle_and_slot_management():
     assert all(s.status is RequestStatus.RUNNING for s in admitted)
     assert all(s.admitted_ms == 5.0 for s in admitted)
     assert rq.num_free_slots == 1
-    assert rq.free_slots == [2]
+    assert rq.free_slots == (2,)
 
     # 尝试超量入场抛出异常
     with pytest.raises(ValueError, match="可用槽位不足"):
@@ -164,5 +166,5 @@ def test_running_queue_lifecycle_and_slot_management():
     rq.retire([states[0]])
     assert states[0].status is RequestStatus.FINISHED
     assert rq.num_free_slots == 2
-    assert rq.free_slots == [0, 2]
+    assert rq.free_slots == (0, 2)
     assert indices(rq.requests) == [1]

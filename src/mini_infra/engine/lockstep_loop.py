@@ -149,7 +149,7 @@ class LockstepState:
             self.full_input_ids = torch.cat((self.full_input_ids, step_token), dim=1)
             self.full_position_ids = torch.cat((self.full_position_ids, curr_pos), dim=1)
 
-    def compute_batch_metrics(self, step_latencies_ms: list[float]) -> BatchScheduleInfo[float]:
+    def _compute_batch_metrics(self, step_latencies_ms: list[float]) -> BatchScheduleInfo[float]:
         """统计批处理生成过程特有明细指标（利用率、Padding 效率等）。"""
         step_count = len(step_latencies_ms)
         valid_generated_tokens_count = sum(len(output) for output in self.outputs)
@@ -253,7 +253,7 @@ def run_lockstep(
 
     valid_tokens = sum(len(o) for o in state.outputs)
     e2e_model_ms = sum(step_latencies_ms)
-    batch_info = state.compute_batch_metrics(step_latencies_ms)
+    batch_info = state._compute_batch_metrics(step_latencies_ms)
 
     step_count = len(step_latencies_ms)
     sequences = [

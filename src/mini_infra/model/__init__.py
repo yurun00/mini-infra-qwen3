@@ -24,7 +24,6 @@ from mini_infra.model.qwen3 import (
 from mini_infra.model.tokenizer import (
     PRE_TOKEN_PATTERN,
     Qwen3Tokenizer,
-    build_byte_to_unicode,
 )
 
 __all__ = [
@@ -42,7 +41,6 @@ __all__ = [
     "RMSNorm",
     "RotaryEmbedding",
     "apply_rotary_embedding",
-    "build_byte_to_unicode",
     "load_model",
     "model_dtype_from_config",
     "repeat_key_value",

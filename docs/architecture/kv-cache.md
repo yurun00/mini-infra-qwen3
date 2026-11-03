@@ -89,7 +89,7 @@ logits, present = model(input_ids, past_key_values=cache.past_key_values)
 ### 3. RoPE 旋转位置编码的位置偏置处理
 在增量 Decode 步中，输入的 `input_ids` 维度仅为 `[B, 1]`。若直接应用默认的绝对位置序列 `arange(0, 1)`，会导致位置编码错误。
 
-在 [`Qwen3Model.prepare_position_id_and_allowed_mask()`](../../src/mini_infra/model/qwen3.py#L248) 中，历史长度由 `validate_past_key_values()` 从 `past_key_values[0][0].shape[2]` 读出，并以此计算全局偏移：
+在 [`Qwen3Model._prepare_position_ids_and_allowed_mask()`](../../src/mini_infra/model/qwen3.py#L248) 中，历史长度由 `_validate_past_key_values()` 从 `past_key_values[0][0].shape[2]` 读出，并以此计算全局偏移：
 $$\text{position\_id} = \text{past\_length} + \text{arange}(0, \text{query\_length})$$
 确保单步 Query/Key 能够正确旋转到序列中的绝对位置坐标。
 

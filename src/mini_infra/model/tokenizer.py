@@ -21,7 +21,7 @@ PRE_TOKEN_PATTERN = regex.compile(
 )
 
 
-def build_byte_to_unicode() -> dict[int, str]:
+def _build_byte_to_unicode() -> dict[int, str]:
     """建立可逆的 byte 到 Unicode 字符映射。"""
     visible_bytes = list(range(ord("!"), ord("~") + 1))
     visible_bytes += list(range(ord("¡"), ord("¬") + 1))
@@ -79,7 +79,7 @@ class Qwen3Tokenizer:
         escaped_tokens = [regex.escape(token) for token in added_tokens]
         self.added_token_pattern = regex.compile("(" + "|".join(escaped_tokens) + ")")
 
-        self.byte_to_unicode = build_byte_to_unicode()
+        self.byte_to_unicode = _build_byte_to_unicode()
         self.unicode_to_byte = {character: byte_value for byte_value, character in self.byte_to_unicode.items()}
         self.eos_token_id = self.added_token_to_id["<|im_end|>"]
 

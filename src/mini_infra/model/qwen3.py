@@ -229,7 +229,7 @@ class Qwen3Model(nn.Module):
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
-    def validate_past_key_values(self, past_key_values: Sequence[PastKeyValue] | None, batch_size: int) -> int:
+    def _validate_past_key_values(self, past_key_values: Sequence[PastKeyValue] | None, batch_size: int) -> int:
         """校验历史键值的层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度。"""
         if past_key_values is None:
             return 0
@@ -245,7 +245,7 @@ class Qwen3Model(nn.Module):
                 )
         return past_length
 
-    def prepare_position_id_and_allowed_mask(
+    def _prepare_position_ids_and_allowed_mask(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None,
@@ -256,7 +256,7 @@ class Qwen3Model(nn.Module):
             raise ValueError("input_ids 必须是形状为 [batch, sequence] 的非空 Tensor")
         device = input_ids.device
         batch_size, query_length = input_ids.shape
-        past_length = self.validate_past_key_values(past_key_values, batch_size)
+        past_length = self._validate_past_key_values(past_key_values, batch_size)
         key_value_length = past_length + query_length
 
         if attention_mask is None:
@@ -290,7 +290,7 @@ class Qwen3Model(nn.Module):
         past_key_values: Sequence[PastKeyValue] | None = None,
     ) -> tuple[torch.Tensor, list[PastKeyValue]]:
         hidden_states = self.embed_tokens(input_ids)
-        position_ids, allowed = self.prepare_position_id_and_allowed_mask(
+        position_ids, allowed = self._prepare_position_ids_and_allowed_mask(
             input_ids, attention_mask, position_ids, past_key_values
         )
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
