@@ -1,10 +1,7 @@
 """推理与 Serving 执行引擎域：包含模型执行器、批状态机、批处理调度循环、运行模式与结果类型。"""
 
 from mini_infra.device import synchronize
-from mini_infra.engine.lockstep_loop import (
-    LockstepState,
-    run_lockstep,
-)
+from mini_infra.engine.lockstep_loop import run_lockstep
 from mini_infra.engine.mode import (
     BatchingMethod,
     FeatureDimension,
@@ -60,7 +57,6 @@ __all__ = [
     "GenerationResult",
     "GenerationTrace",
     "LockstepResult",
-    "LockstepState",
     "MemoryProfile",
     "Mode",
     "ModelRunner",

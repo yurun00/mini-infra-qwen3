@@ -26,7 +26,7 @@ from mini_infra.engine.runner import ModelRunner
 from mini_infra.engine.types import LockstepResult
 from mini_infra.memory.kv_cache import KVCache, cache_size_bytes
 
-__all__ = ["LockstepState", "run_lockstep"]
+__all__ = ["run_lockstep"]
 
 
 @dataclass
@@ -57,7 +57,7 @@ class LockstepState:
     full_position_ids: torch.Tensor | None
 
     @classmethod
-    def create(
+    def _create(
         cls,
         input_ids_tensor: torch.Tensor,
         attention_mask: torch.Tensor,
@@ -92,13 +92,13 @@ class LockstepState:
             full_position_ids=position_ids if not use_cache else None,
         )
 
-    def get_model_inputs(self, use_cache: bool) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _get_model_inputs(self, use_cache: bool) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """获取当前前向所需的 (input_ids, attention_mask, position_ids)。"""
         model_input = self.curr_input_ids if use_cache else self.full_input_ids
         position_ids = self.curr_position_ids if use_cache else self.full_position_ids
         return model_input, self.attention_mask, position_ids
 
-    def commit_step(
+    def _commit_step(
         self,
         next_tokens: torch.Tensor,
         step: int,
@@ -133,7 +133,7 @@ class LockstepState:
 
         return not any(still_active)
 
-    def prepare_next_step(self, next_tokens: torch.Tensor, use_cache: bool) -> None:
+    def _prepare_next_step(self, next_tokens: torch.Tensor, use_cache: bool) -> None:
         """准备下一步前向输入：活跃槽位传真实 Token，已完成槽位填 Padding 并 mask 掉。"""
         step_token = torch.where(
             self.curr_active, next_tokens, torch.full_like(next_tokens, self.pad_token_id)
@@ -200,7 +200,7 @@ def run_lockstep(
     # 引擎层持有 KVCache 容器，只在模型边界用 past_key_values 导出/回收纯张量。
     kv_cache: KVCache | None = None
     runner = ModelRunner(model, device, pad_token_id)
-    state = LockstepState.create(
+    state = LockstepState._create(
         input_ids_tensor=input_ids_tensor,
         attention_mask=attention_mask,
         position_ids=position_ids,
@@ -219,7 +219,7 @@ def run_lockstep(
     wall_start = time.perf_counter()
 
     for step in range(state.max_steps):
-        model_input, attention_mask, position_ids = state.get_model_inputs(use_cache)
+        model_input, attention_mask, position_ids = state._get_model_inputs(use_cache)
         step_out = runner.step_forward(
             model_input=model_input,
             past_key_values=None if kv_cache is None else kv_cache.past_key_values,
@@ -242,10 +242,10 @@ def run_lockstep(
             logits_trace.append(step_out.last_logits.float().cpu())
 
         next_tokens = step_out.next_token.squeeze(1)
-        is_all_finished = state.commit_step(next_tokens, step, eos_token_id, stop_on_eos)
+        is_all_finished = state._commit_step(next_tokens, step, eos_token_id, stop_on_eos)
         if is_all_finished:
             break
-        state.prepare_next_step(next_tokens, use_cache)
+        state._prepare_next_step(next_tokens, use_cache)
 
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000
