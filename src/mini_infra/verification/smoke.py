@@ -126,12 +126,12 @@ def check_fixed_batching(model):
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
-    slots = generate(fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts)
-    assert slots.trace.num_active_tokens_per_step == [2, 2, 1, 1]
-    assert [s.completion_step for s in slots.sequences] == [2, 4]
-    assert abs(slots.batch_info.slot_utilization - 0.75) < 1e-12
+    batched = generate(fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts)
+    assert batched.trace.num_active_tokens_per_step == [2, 2, 1, 1]
+    assert [s.completion_step for s in batched.sequences] == [2, 4]
+    assert abs(batched.batch_info.slot_utilization - 0.75) < 1e-12
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
-    assert abs(slots.memory.kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
+    assert abs(batched.memory.kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
     print("Batched KV Cache、完成槽位和利用率检查通过")
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。
@@ -142,7 +142,7 @@ def check_fixed_batching(model):
         [2, 4],
         options=base_opts,
     )
-    assert [s.token_ids for s in serial.sequences] == [s.token_ids for s in slots.sequences]
+    assert [s.token_ids for s in serial.sequences] == [s.token_ids for s in batched.sequences]
     print("Batch 与串行输出一致性检查通过")
 
     # 非法 Cache batch 维和错误长度的 Attention Mask 必须被拒绝。
