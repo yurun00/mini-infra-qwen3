@@ -84,7 +84,7 @@ def check_kv_cache_correctness(model):
         * torch.tensor([], dtype=torch.float32).element_size()
     )
     assert cache_size_bytes(cache) == expected_bytes
-    assert cache.total_bytes() == expected_bytes
+    assert cache.total_bytes == expected_bytes
     assert baseline_logits.shape == (1, 3, config.vocab_size)
 
     # 单步 Decode 验证：把上一步的 past_key_values 喂回去即可增量追加。

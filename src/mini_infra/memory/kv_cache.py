@@ -1,7 +1,6 @@
 """KV Cache 显式容器定义与显存计算。"""
 
 from collections.abc import Sequence
-from typing import Any
 
 import torch
 
@@ -36,6 +35,7 @@ class KVCache:
             return 0
         return self.key_cache[layer_index].shape[2]
 
+    @property
     def total_bytes(self) -> int:
         """计算当前所有层 Key/Value 张量实际占用的内存/显存字节数。"""
         return sum(
@@ -56,10 +56,10 @@ class KVCache:
         return self.key_cache[layer_index], self.value_cache[layer_index]
 
 
-def cache_size_bytes(kv_cache: Any) -> int:
+def cache_size_bytes(kv_cache: KVCache | Sequence[tuple[torch.Tensor, torch.Tensor]] | None) -> int:
     """返回 KV Cache 容器实际承载的数据字节数。"""
     if kv_cache is None:
         return 0
     if isinstance(kv_cache, KVCache):
-        return kv_cache.total_bytes()
+        return kv_cache.total_bytes
     return sum(key.numel() * key.element_size() + value.numel() * value.element_size() for key, value in kv_cache)

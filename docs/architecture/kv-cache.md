@@ -109,8 +109,9 @@ $$\text{KV Cache Bytes} = 2 \times L \times B \times H_{\text{kv}} \times D \tim
   $$2 \times 28 \times 1 \times 2 \times 128 \times 1 \times 2 = 28,672 \text{ Bytes} \approx 28.0 \text{ KB / token}$$
 * 若序列长度达到 4096，单个并发请求就需要消耗约 **112 MB** 纯 KV Cache 显存。
 
-在 [`src/mini_infra/memory/kv_cache.py`](../../src/mini_infra/memory/kv_cache.py#L39) 中，通过 `total_bytes()` 实现纳秒级显存审计：
+在 [`src/mini_infra/memory/kv_cache.py`](../../src/mini_infra/memory/kv_cache.py#L39) 中，通过 `total_bytes` 属性实现纳秒级显存审计：
 ```python
+@property
 def total_bytes(self) -> int:
     return sum(
         k.numel() * k.element_size() + v.numel() * v.element_size() for k, v in zip(self.key_cache, self.value_cache)
