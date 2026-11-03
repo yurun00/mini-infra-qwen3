@@ -158,13 +158,13 @@ def test_capacity_must_be_positive():
         DenseSlotCache(capacity=0, device=CPU)
 
 
-def test_rebuild_pool_zero_copy_and_reset_restores_capacity(model):
+def test_adopt_prefill_zero_copy_and_reset_restores_capacity(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
     states = [admitted_state(0, prompts[0], slot=0), admitted_state(1, prompts[1], slot=1)]
     dense_slot_cache = DenseSlotCache(capacity=4, device=CPU)
     prefill_cache = prefill(model, prompts)
 
-    dense_slot_cache.rebuild_pool(states, prefill_cache)
+    dense_slot_cache.adopt_prefill(states, prefill_cache)
 
     assert dense_slot_cache.capacity == 2
     assert dense_slot_cache.kv_cache is prefill_cache

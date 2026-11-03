@@ -8,7 +8,7 @@
 对外通过 run_scheduler 统一驱动两类批处理调度策略，共享同一套三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）
 与 ModelRunner 执行协议，仅在准入时机与槽位绑定策略上区分：
 - CONTINUOUS（连续批处理）：只要 RunningQueue 有空闲槽位即准入新请求，并将 Prefill Cache 拷入持久化槽位；
-- FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空（当前波次全部完成）才准入下一波请求，零拷贝直接绑定波次 Cache。
+- FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空（当前波次全部完成）才准入下一波请求，零拷贝直接接管波次 Cache。
 在逻辑时间线上精确追踪模型与搬移耗时，输出 ScheduleResult（含 TTFT/TPOT/makespan 等事件流）。
 """
 
@@ -91,7 +91,7 @@ def _run_schedule(
             if is_continuous:
                 cache_ms = dense_slot_cache.absorb_prefill(admitted, prefill_cache)
             else:
-                dense_slot_cache.rebuild_pool(admitted, prefill_cache)
+                dense_slot_cache.adopt_prefill(admitted, prefill_cache)
                 cache_ms = 0.0
             del prefill_cache
             step_ms = model_ms + cache_ms

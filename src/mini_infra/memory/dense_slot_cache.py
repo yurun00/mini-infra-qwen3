@@ -113,8 +113,12 @@ class DenseSlotCache:
         self.kv_cache = KVCache(present_key_values)
         self.history_mask = attention_mask
 
-    def rebuild_pool(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:
-        """用当前波次左 Padding Prefill 产生的 Cache 重建整块物理池（Fixed Batching 零拷贝路径）。"""
+    def adopt_prefill(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:
+        """零拷贝接管当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 路径），搬移耗时恒为 0。
+
+        与 absorb_prefill 的拷贝语义相对：不分配、不复制，直接引用传入张量，仅按波次大小重置 capacity
+        并重建 history_mask。接管后调用方应释放其引用，由本类独占持有。
+        """
         self.capacity = len(states)
         self.kv_cache = prefill_cache
         target_length = prefill_cache.length
