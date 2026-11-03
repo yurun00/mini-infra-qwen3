@@ -18,10 +18,12 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 表达同一个语义的东西，在所有层、所有文件里必须叫同一个名字。**严禁**在不同模块给同一概念起近义别名（`max_len` / `max_length` / `padded_length` 混用，`req_idx` / `request_idx` / `idx` 混用）。
 - 反过来，**同一个名字严禁承载两种语义**。若两处同名却是不同概念，必须改名到语义可辨。
 
-  > **反例（已在本仓真实发生，作为判据）**：`history_mask` 与 `attention_mask` 是两种不同东西——
-  > `memory/dense_slot_cache.py` 的 `history_mask` 形状 `[capacity, past_len]`，**只含历史**，本步活跃位由 `prepare_decode_inputs` 现场 `cat` 上去；
-  > 而 `engine/lockstep_loop.py` 的同名字段是**直接喂给模型的整张 mask**（含当前步）。
-  > 判定方法是追读写点，不是看名字像不像。二者不可互相改名统一。
+  > **反例（本仓曾真实发生，已于命名收敛中修复）**：`memory/dense_slot_cache.py` 与 `engine/lockstep_loop.py`
+  > 曾各有一个 `history_mask`，却是两种不同东西——前者形状 `[capacity, past_len]`，**只含历史**，
+  > 本步活跃位由 `prepare_decode_inputs` 现场 `cat` 上去；后者是**直接喂给模型的整张 mask**（含当前步），
+  > 现已改名为 `attention_mask`。
+  > 判定方法是追读写点，不是看名字像不像：同名而异义的两处**必须**改名到语义可辨；语义确实不同的两处，
+  > **不可**为了「统一名字」而互相改名。
 
 - 改名时向**同文件既有写法**收敛，而不是引入第三种叫法。
 

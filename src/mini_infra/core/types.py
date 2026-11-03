@@ -118,8 +118,8 @@ def pad_output_tokens(
     if not selected_seqs:
         return torch.empty((0, 0), dtype=torch.long)
 
-    max_len = max((seq.output_len for seq in selected_seqs), default=0)
-    tensor = torch.full((len(selected_seqs), max_len), pad_token_id, dtype=torch.long)
+    max_output_len = max((seq.output_len for seq in selected_seqs), default=0)
+    tensor = torch.full((len(selected_seqs), max_output_len), pad_token_id, dtype=torch.long)
     for row_index, seq in enumerate(selected_seqs):
         if seq.token_ids:
             tensor[row_index, : seq.output_len] = torch.tensor(seq.token_ids, dtype=torch.long)

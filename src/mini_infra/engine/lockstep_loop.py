@@ -50,7 +50,7 @@ class LockstepState:
     finish_reasons: list[str]
 
     # 模型输入张量
-    history_mask: torch.Tensor
+    attention_mask: torch.Tensor
     curr_input_ids: torch.Tensor
     curr_position_ids: torch.Tensor
     full_input_ids: torch.Tensor | None
@@ -60,7 +60,7 @@ class LockstepState:
     def create(
         cls,
         input_ids_tensor: torch.Tensor,
-        history_mask: torch.Tensor,
+        attention_mask: torch.Tensor,
         position_ids: torch.Tensor,
         prompt_lengths: torch.Tensor,
         budgets: torch.Tensor,
@@ -85,7 +85,7 @@ class LockstepState:
             outputs=[[] for _ in range(batch_size)],
             completion_steps=[None] * batch_size,
             finish_reasons=["max_tokens"] * batch_size,
-            history_mask=history_mask,
+            attention_mask=attention_mask,
             curr_input_ids=input_ids_tensor,
             curr_position_ids=position_ids,
             full_input_ids=input_ids_tensor if not use_cache else None,
@@ -96,7 +96,7 @@ class LockstepState:
         """获取当前前向所需的 (input_ids, attention_mask, position_ids)。"""
         model_input = self.curr_input_ids if use_cache else self.full_input_ids
         position_ids = self.curr_position_ids if use_cache else self.full_position_ids
-        return model_input, self.history_mask, position_ids
+        return model_input, self.attention_mask, position_ids
 
     def commit_step(
         self,
@@ -138,7 +138,7 @@ class LockstepState:
         step_token = torch.where(
             self.curr_active, next_tokens, torch.full_like(next_tokens, self.pad_token_id)
         ).unsqueeze(1)
-        self.history_mask = torch.cat((self.history_mask, self.curr_active.unsqueeze(1)), dim=1)
+        self.attention_mask = torch.cat((self.attention_mask, self.curr_active.unsqueeze(1)), dim=1)
         next_positions = self.prompt_lengths + self.generated_counts - 1
         curr_pos = torch.where(self.curr_active, next_positions, torch.zeros_like(next_positions)).unsqueeze(1)
 
@@ -194,17 +194,17 @@ def run_lockstep(
     直接构建并返回由 5 大核心共享值对象组成的 LockstepResult。
     """
     is_cuda = device.type == "cuda"
-    input_tensor, history_mask, pos_ids, prompt_lens = prepare_prefill_inputs(
+    input_ids_tensor, attention_mask, position_ids, prompt_lengths = prepare_prefill_inputs(
         input_ids, token_sequences, has_uniform_prompt_len, pad_token_id, device
     )
     # 引擎层持有 KVCache 容器，只在模型边界用 past_key_values 导出/回收纯张量。
     kv_cache: KVCache | None = None
     runner = ModelRunner(model, device, pad_token_id)
     state = LockstepState.create(
-        input_ids_tensor=input_tensor,
-        history_mask=history_mask,
-        position_ids=pos_ids,
-        prompt_lengths=prompt_lens,
+        input_ids_tensor=input_ids_tensor,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        prompt_lengths=prompt_lengths,
         budgets=budgets,
         device=device,
         pad_token_id=pad_token_id,

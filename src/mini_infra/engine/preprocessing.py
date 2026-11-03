@@ -12,32 +12,32 @@ def left_pad_sequences(
     """把一组非空的一维 Token 序列左 Padding 为矩形 Tensor。
 
     Returns:
-        input_ids [B, L], attention_mask [B, L] (bool), position_ids [B, L], lengths [B]
+        input_ids [B, L], attention_mask [B, L] (bool), position_ids [B, L], prompt_lengths [B]
     """
     if not token_sequences:
         raise ValueError("token_sequences 不能为空")
-    lengths = []
+    prompt_lengths = []
     normalized = []
     for sequence in token_sequences:
         tensor = torch.as_tensor(sequence, dtype=torch.long, device=device)
         if tensor.ndim != 1 or tensor.numel() < 1:
             raise ValueError("每个 Prompt 必须是一维非空 Token 序列")
         normalized.append(tensor)
-        lengths.append(tensor.numel())
+        prompt_lengths.append(tensor.numel())
 
-    max_length = max(lengths)
+    padded_prompt_length = max(prompt_lengths)
     batch_size = len(normalized)
-    input_ids = torch.full((batch_size, max_length), pad_token_id, dtype=torch.long, device=device)
-    attention_mask = torch.zeros((batch_size, max_length), dtype=torch.bool, device=device)
-    for row, sequence in enumerate(normalized):
-        length = sequence.numel()
-        input_ids[row, max_length - length :] = sequence
-        attention_mask[row, max_length - length :] = True
+    input_ids = torch.full((batch_size, padded_prompt_length), pad_token_id, dtype=torch.long, device=device)
+    attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
+    for row_index, sequence in enumerate(normalized):
+        prompt_length = sequence.numel()
+        input_ids[row_index, padded_prompt_length - prompt_length :] = sequence
+        attention_mask[row_index, padded_prompt_length - prompt_length :] = True
 
     # 真实 Token 的逻辑位置从 0 开始；Padding 位置记为 0（会被 mask 掉）。
     position_ids = attention_mask.long().cumsum(dim=-1) - 1
     position_ids.clamp_(min=0)
-    return input_ids, attention_mask, position_ids, torch.tensor(lengths, dtype=torch.long, device=device)
+    return input_ids, attention_mask, position_ids, torch.tensor(prompt_lengths, dtype=torch.long, device=device)
 
 
 def normalize_budgets(max_new_tokens: int | Sequence[int], batch_size: int, device: torch.device) -> torch.Tensor:
@@ -96,11 +96,11 @@ def prepare_prefill_inputs(
             device=device, dtype=torch.long
         )
         batch_size, padded_prompt_length = input_ids_tensor.shape
-        history_mask = torch.ones((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
+        attention_mask = torch.ones((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
         position_ids = (
             torch.arange(padded_prompt_length, device=device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
         )
         prompt_lengths = torch.full((batch_size,), padded_prompt_length, dtype=torch.long, device=device)
-        return input_ids_tensor, history_mask, position_ids, prompt_lengths
+        return input_ids_tensor, attention_mask, position_ids, prompt_lengths
 
     return left_pad_sequences(token_sequences, pad_token_id, device)

@@ -38,7 +38,7 @@ def assert_slot_matches_single_request(slots: DenseSlotCache, model, state: Requ
     length, total = len(prompt), slots.length
     assert slots.history_mask[state.slot_index].tolist() == [False] * (total - length) + [True] * length
     for layer, (ref_key, ref_value) in enumerate(reference):
-        key, value = slots.cache[layer]
+        key, value = slots.kv_cache[layer]
         torch.testing.assert_close(key[state.slot_index, :, total - length :, :], ref_key[0])
         torch.testing.assert_close(value[state.slot_index, :, total - length :, :], ref_value[0])
 
@@ -47,15 +47,15 @@ def test_admit_allocates_and_writes_right_aligned_slots(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
     states = [admitted_state(0, prompts[0], slot=1), admitted_state(1, prompts[1], slot=3)]
     slots = DenseSlotCache(capacity=4, device=CPU)
-    assert slots.cache is None and slots.length == 0 and slots.total_bytes == 0
+    assert slots.kv_cache is None and slots.length == 0 and slots.total_bytes == 0
 
     elapsed_ms = slots.admit(states, prefill(model, prompts))
 
     assert elapsed_ms >= 0
     assert slots.length == 4
-    assert slots.cache.length == 4
+    assert slots.kv_cache.length == 4
     config = model.config
-    assert tuple(slots.cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
+    assert tuple(slots.kv_cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
     for state, prompt in zip(states, prompts):
         assert_slot_matches_single_request(slots, model, state, prompt)
     # 未使用的槽位整行被 mask
@@ -145,7 +145,7 @@ def test_release_and_reset(model):
     assert not slots.history_mask[0].any()
 
     slots.reset()
-    assert slots.cache is None and slots.history_mask is None
+    assert slots.kv_cache is None and slots.history_mask is None
     assert slots.length == 0 and slots.total_bytes == 0
 
 
@@ -154,18 +154,18 @@ def test_capacity_must_be_positive():
         DenseSlotCache(capacity=0, device=CPU)
 
 
-def test_bind_wave_zero_copy_and_reset_restores_capacity(model):
+def test_rebuild_pool_zero_copy_and_reset_restores_capacity(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
     states = [admitted_state(0, prompts[0], slot=0), admitted_state(1, prompts[1], slot=1)]
     slots = DenseSlotCache(capacity=4, device=CPU)
     prefill_cache = prefill(model, prompts)
 
-    slots.bind_wave(states, prefill_cache)
+    slots.rebuild_pool(states, prefill_cache)
 
     assert slots.capacity == 2
-    assert slots.cache is prefill_cache
+    assert slots.kv_cache is prefill_cache
     assert slots.history_mask.tolist() == [[True, True, True, True], [False, False, True, True]]
 
     slots.reset()
     assert slots.capacity == 4
-    assert slots.cache is None and slots.history_mask is None
+    assert slots.kv_cache is None and slots.history_mask is None

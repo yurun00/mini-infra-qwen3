@@ -123,13 +123,13 @@ class ScheduleResult(GenerationResult):
         """从单次调度结果提取负载规格 WorkloadSpec（相等比较时忽略 repeats 与 warmup）。"""
         from mini_infra.bench.workloads import WorkloadSpec
 
-        prompt_lens = [s.prompt_len for s in self.sequences]
+        prompt_lengths = [s.prompt_len for s in self.sequences]
         output_budgets = [r.num_output_tokens for r in self.request_metrics]
         arrivals = [r.arrival_ms for r in self.request_metrics]
         return WorkloadSpec(
             mode=Mode({FeatureFlag.KV_CACHE}, batching_method=self.batching_method),
             batch_size=self.schedule_metrics.request_count,
-            prompt_len=collapse_uniform(prompt_lens),
+            prompt_len=collapse_uniform(prompt_lengths),
             max_new_tokens=collapse_uniform(output_budgets),
             max_running_requests=self.schedule_metrics.max_running_requests,
             arrival_times_ms=collapse_uniform(arrivals),

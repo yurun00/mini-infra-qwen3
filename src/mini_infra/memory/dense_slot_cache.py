@@ -31,24 +31,24 @@ class DenseSlotCache:
         self._initial_capacity = capacity
         self.capacity = capacity
         self.device = device
-        self.cache: KVCache | None = None
+        self.kv_cache: KVCache | None = None
         self.history_mask: torch.Tensor | None = None
 
     @property
     def length(self) -> int:
         """当前底层批量 KVCache 的序列维长度（尚未分配时为 0）。"""
-        return 0 if self.cache is None else self.cache.length
+        return 0 if self.kv_cache is None else self.kv_cache.length
 
     @property
     def total_bytes(self) -> int:
-        return cache_size_bytes(self.cache)
+        return cache_size_bytes(self.kv_cache)
 
     @property
     def past_key_values(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
         """导出底层批量 Cache 的纯张量视图，供模型前向直接消费。"""
-        if self.cache is None:
+        if self.kv_cache is None:
             raise RuntimeError("Cache 尚未分配，无法导出 past_key_values")
-        return self.cache.past_key_values
+        return self.kv_cache.past_key_values
 
     def admit(self, states: Sequence[RequestState], prefill_cache: KVCache) -> float:
         """把一批新请求的 Prefill Cache 写入各自槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
@@ -60,23 +60,23 @@ class DenseSlotCache:
         synchronize(self.device)
         start = time.perf_counter()
         target_length = max(self.length, prefill_cache.length)
-        if self.cache is None:
+        if self.kv_cache is None:
             self._allocate(prefill_cache, target_length)
         elif target_length > self.length:
             self._grow_left(target_length - self.length)
-        assert self.cache is not None and self.history_mask is not None
+        assert self.kv_cache is not None and self.history_mask is not None
 
-        for batch_idx, state in enumerate(states):
-            slot, cache_length = state.slot_index, state.cache_length
+        for row_index, state in enumerate(states):
+            slot_index, cache_length = state.slot_index, state.cache_length
             start_pos = target_length - cache_length
-            self.history_mask[slot].zero_()
-            self.history_mask[slot, start_pos:] = True
+            self.history_mask[slot_index].zero_()
+            self.history_mask[slot_index, start_pos:] = True
             for layer_index, (prefill_key, prefill_value) in enumerate(prefill_cache):
-                key, value = self.cache.key_cache[layer_index], self.cache.value_cache[layer_index]
-                key[slot].zero_()
-                value[slot].zero_()
-                key[slot, :, start_pos:, :] = prefill_key[batch_idx, :, -cache_length:, :]
-                value[slot, :, start_pos:, :] = prefill_value[batch_idx, :, -cache_length:, :]
+                key, value = self.kv_cache.key_cache[layer_index], self.kv_cache.value_cache[layer_index]
+                key[slot_index].zero_()
+                value[slot_index].zero_()
+                key[slot_index, :, start_pos:, :] = prefill_key[row_index, :, -cache_length:, :]
+                value[slot_index, :, start_pos:, :] = prefill_value[row_index, :, -cache_length:, :]
         synchronize(self.device)
         return (time.perf_counter() - start) * 1000
 
@@ -95,10 +95,10 @@ class DenseSlotCache:
         positions = [0] * self.capacity
         active = [False] * self.capacity
         for state in running:
-            slot = state.slot_index
-            token_ids[slot] = state.generated[-1]
-            positions[slot] = state.cache_length
-            active[slot] = True
+            slot_index = state.slot_index
+            token_ids[slot_index] = state.generated[-1]
+            positions[slot_index] = state.cache_length
+            active[slot_index] = True
         input_ids = torch.tensor(token_ids, dtype=torch.long, device=self.device).unsqueeze(1)
         position_ids = torch.tensor(positions, dtype=torch.long, device=self.device).unsqueeze(1)
         active_mask = torch.tensor(active, dtype=torch.bool, device=self.device).unsqueeze(1)
@@ -110,13 +110,13 @@ class DenseSlotCache:
         self, attention_mask: torch.Tensor, present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]]
     ) -> None:
         """Decode 单步后，把模型返回的 present_key_values 写回批量 Cache，并将本步 Mask 记为新的历史 Mask。"""
-        self.cache = KVCache(present_key_values)
+        self.kv_cache = KVCache(present_key_values)
         self.history_mask = attention_mask
 
-    def bind_wave(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:
-        """直接绑定当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 零拷贝路径）。"""
+    def rebuild_pool(self, states: Sequence[RequestState], prefill_cache: KVCache) -> None:
+        """用当前波次左 Padding Prefill 产生的 Cache 重建整块物理池（Fixed Batching 零拷贝路径）。"""
         self.capacity = len(states)
-        self.cache = prefill_cache
+        self.kv_cache = prefill_cache
         target_length = prefill_cache.length
         self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
         for state in states:
@@ -130,25 +130,25 @@ class DenseSlotCache:
     def reset(self) -> None:
         """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始槽位容量。"""
         self.capacity = self._initial_capacity
-        self.cache = None
+        self.kv_cache = None
         self.history_mask = None
 
     def _allocate(self, prefill_cache: KVCache, length: int) -> None:
-        cache = KVCache()
+        new_cache = KVCache()
         for key, _ in prefill_cache:
             shape = (self.capacity, key.shape[1], length, key.shape[3])
-            cache.key_cache.append(torch.zeros(shape, dtype=key.dtype, device=self.device))
-            cache.value_cache.append(torch.zeros(shape, dtype=key.dtype, device=self.device))
-        self.cache = cache
+            new_cache.key_cache.append(torch.zeros(shape, dtype=key.dtype, device=self.device))
+            new_cache.value_cache.append(torch.zeros(shape, dtype=key.dtype, device=self.device))
+        self.kv_cache = new_cache
         self.history_mask = torch.zeros((self.capacity, length), dtype=torch.bool, device=self.device)
 
     def _grow_left(self, padding_len: int) -> None:
-        assert self.cache is not None and self.history_mask is not None
-        for layer_index, (key, value) in enumerate(self.cache):
+        assert self.kv_cache is not None and self.history_mask is not None
+        for layer_index, (key, value) in enumerate(self.kv_cache):
             zeros = torch.zeros(
                 (self.capacity, key.shape[1], padding_len, key.shape[3]), dtype=key.dtype, device=self.device
             )
-            self.cache.key_cache[layer_index] = torch.cat((zeros, key), dim=2)
-            self.cache.value_cache[layer_index] = torch.cat((zeros, value), dim=2)
+            self.kv_cache.key_cache[layer_index] = torch.cat((zeros, key), dim=2)
+            self.kv_cache.value_cache[layer_index] = torch.cat((zeros, value), dim=2)
         mask_padding = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
         self.history_mask = torch.cat((mask_padding, self.history_mask), dim=1)

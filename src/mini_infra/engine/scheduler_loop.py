@@ -91,7 +91,7 @@ def _run_schedule(
             if is_continuous:
                 cache_ms = slots.admit(admitted, prefill_cache)
             else:
-                slots.bind_wave(admitted, prefill_cache)
+                slots.rebuild_pool(admitted, prefill_cache)
                 cache_ms = 0.0
             del prefill_cache
             step_ms = model_ms + cache_ms
