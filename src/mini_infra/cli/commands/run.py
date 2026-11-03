@@ -218,8 +218,8 @@ def print_schedule_metrics(result: ScheduleResult) -> None:
 def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
     print("\n[%s]" % mode)
     for seq in result.sequences:
-        print("请求 %d Token IDs: %s" % (seq.request_index, seq.token_ids))
-        print("请求 %d 输出: %s" % (seq.request_index, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))
+        print("请求 %d Token IDs: %s" % (seq.request_idx, seq.token_ids))
+        print("请求 %d 输出: %s" % (seq.request_idx, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))
 
     print("端到端 Wall-clock 延迟: %.2f ms" % result.metrics.e2e_wall_ms)
     print("端到端模型计算延迟: %.2f ms" % result.metrics.e2e_model_ms)

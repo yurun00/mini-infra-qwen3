@@ -135,8 +135,8 @@ def test_variable_length_prompt_generation_smoke():
     )
     assert res.padded_output_tokens().shape == (2, 4)
     assert len(res.sequences) == 2
-    assert res.sequences[0].request_index == 0
-    assert res.sequences[1].request_index == 1
+    assert res.sequences[0].request_idx == 0
+    assert res.sequences[1].request_idx == 1
     assert len(res.sequences[0].token_ids) == 4
     assert len(res.sequences[1].token_ids) == 4
 

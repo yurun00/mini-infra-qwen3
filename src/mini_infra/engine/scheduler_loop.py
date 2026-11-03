@@ -100,8 +100,8 @@ def _run_schedule(
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.PREFILL,
-                    admitted_request_ids=tuple(s.spec.request_index for s in admitted),
-                    finished_request_ids=tuple(s.spec.request_index for s in finished),
+                    admitted_request_ids=tuple(s.spec.request_idx for s in admitted),
+                    finished_request_ids=tuple(s.spec.request_idx for s in finished),
                     physical_batch_size=len(admitted),
                     num_active_requests=len(running_queue),
                     num_generated_tokens=len(admitted),
@@ -124,7 +124,7 @@ def _run_schedule(
             step_ms = decode_result.model_ms + cache_ms
             clock_ms += step_ms
             finished = running_queue.step(
-                [decode_result.slot_tokens[s.slot_index] for s in running_queue],
+                [decode_result.slot_tokens[s.slot_idx] for s in running_queue],
                 clock_ms,
                 eos_token_id,
                 stop_on_eos,
@@ -133,7 +133,7 @@ def _run_schedule(
                 ScheduleEvent(
                     phase=SchedulePhase.DECODE,
                     admitted_request_ids=(),
-                    finished_request_ids=tuple(s.spec.request_index for s in finished),
+                    finished_request_ids=tuple(s.spec.request_idx for s in finished),
                     physical_batch_size=slots.capacity,
                     num_active_requests=active_before,
                     num_generated_tokens=active_before,

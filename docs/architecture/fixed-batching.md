@@ -54,10 +54,10 @@ def left_pad_sequences(token_sequences, pad_token_id, device):
     attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
 
     # 2. 靠右放置真实 Token 序列，左侧保留 pad_token_id
-    for row_index, sequence in enumerate(token_sequences):
+    for row_idx, sequence in enumerate(token_sequences):
         prompt_length = sequence.numel()
-        input_ids[row_index, padded_prompt_length - prompt_length :] = sequence
-        attention_mask[row_index, padded_prompt_length - prompt_length :] = True
+        input_ids[row_idx, padded_prompt_length - prompt_length :] = sequence
+        attention_mask[row_idx, padded_prompt_length - prompt_length :] = True
 
     # 3. 构造相对位置编码 Position IDs
     # 真实 Token 逻辑位置严格从 0 开始递增；左侧 Padding 位置 clamp 为 0
@@ -102,7 +102,7 @@ $$M_{i, j, k} = \begin{cases} 0, & \text{if } j \ge k \text{ 且 } \text{mask}_{
 
 ### 1. 动态退出与槽位空转
 每个请求拥有独立的输出预算（`budgets: torch.Tensor`）：
-* 某请求生成结束时，`curr_active[request_index]` 被置为 `False`；
+* 某请求生成结束时，`curr_active[request_idx]` 被置为 `False`；
 * 记录该请求的实际完成步数（`SequenceOutput.completion_step`）；
 * 已完成的请求在后续 Decode 步中将以 Dummy Token 占位，其槽位进入**空转（Idle）状态**，直到批内所有请求全部完成。
 

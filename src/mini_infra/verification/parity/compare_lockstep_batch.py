@@ -34,8 +34,8 @@ def synthetic_sequence(length: int, vocab_size: int, salt: int) -> list[int]:
 def compare_trace(
     reference: Any,
     candidate: Any,
-    target_index: int,
-    reference_index: int = 0,
+    target_idx: int,
+    reference_idx: int = 0,
 ) -> dict[str, Any]:
     """逐步对比两个运行轨迹中指定槽位的 Logits 误差、生成 Token 与 Top-1/Top-2 Margin。"""
     ref_trace = reference.trace.logits_trace
@@ -50,8 +50,8 @@ def compare_trace(
     per_step = []
 
     for step in range(step_count):
-        reference_logits = ref_trace[step][reference_index]
-        candidate_logits = cand_trace[step][target_index]
+        reference_logits = ref_trace[step][reference_idx]
+        candidate_logits = cand_trace[step][target_idx]
         difference = (reference_logits.float() - candidate_logits.float()).abs()
         max_error = difference.max().item()
         mean_error = difference.mean().item()
@@ -150,7 +150,7 @@ def run_compare_lockstep_batch(
     variant_runs: dict[str, Any] = {}
 
     # 2. 依次运行各个变种并与 reference 对比
-    for name, sequences, target_index in variants:
+    for name, sequences, target_idx in variants:
         candidate = (
             reference
             if name == "single"
@@ -163,12 +163,12 @@ def run_compare_lockstep_batch(
             )
         )
         variant_runs[name] = candidate
-        comparison = compare_trace(reference, candidate, target_index)
+        comparison = compare_trace(reference, candidate, target_idx)
         comparison.update(
             {
                 "variant": name,
                 "batch_size": len(sequences),
-                "target_index": target_index,
+                "target_idx": target_idx,
                 "prompt_lengths": [len(sequence) for sequence in sequences],
             }
         )
@@ -192,18 +192,18 @@ def run_compare_lockstep_batch(
         ("pair_content_isolation", "pair_content_b", "pair_content_c", 0),
         ("quad_order_isolation", "quad", "quad_reversed", 3),
     ]
-    for name, reference_name, candidate_name, candidate_index in isolation_pairs:
+    for name, reference_name, candidate_name, candidate_idx in isolation_pairs:
         comparison = compare_trace(
             variant_runs[reference_name],
             variant_runs[candidate_name],
-            candidate_index,
+            candidate_idx,
         )
         comparison.update(
             {
                 "variant": name,
                 "reference_variant": reference_name,
                 "candidate_variant": candidate_name,
-                "target_index": candidate_index,
+                "target_idx": candidate_idx,
             }
         )
         rows.append(comparison)

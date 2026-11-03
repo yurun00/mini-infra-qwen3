@@ -22,7 +22,7 @@ def make_dummy_case(
 ) -> SchedulerSuiteCase:
     flags = {FeatureFlag.KV_CACHE} if kv_cache else set()
     mode = Mode(flags, batching_method=batching_method)
-    spec = RequestSpec(request_index=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
+    spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     cid = case_id or ("continuous" if batching_method == BatchingMethod.CONTINUOUS else "fixed")
     return SchedulerSuiteCase(
         id=cid,
@@ -98,27 +98,27 @@ def test_interleave_batching_method_unselected_kv_cache():
 
     # Group 0 measure 阶段：按 repeat 轮换顺序
     # Round 0 (偶数，正序): c1, c2
-    assert g0_steps[2].repeat_index == 0 and g0_steps[2].case == c1
-    assert g0_steps[3].repeat_index == 0 and g0_steps[3].case == c2
+    assert g0_steps[2].repeat_idx == 0 and g0_steps[2].case == c1
+    assert g0_steps[3].repeat_idx == 0 and g0_steps[3].case == c2
     # Round 1 (奇数，反序): c2, c1
-    assert g0_steps[4].repeat_index == 1 and g0_steps[4].case == c2
-    assert g0_steps[5].repeat_index == 1 and g0_steps[5].case == c1
+    assert g0_steps[4].repeat_idx == 1 and g0_steps[4].case == c2
+    assert g0_steps[5].repeat_idx == 1 and g0_steps[5].case == c1
     # Round 2 (偶数，正序): c1, c2
-    assert g0_steps[6].repeat_index == 2 and g0_steps[6].case == c1
-    assert g0_steps[7].repeat_index == 2 and g0_steps[7].case == c2
+    assert g0_steps[6].repeat_idx == 2 and g0_steps[6].case == c1
+    assert g0_steps[7].repeat_idx == 2 and g0_steps[7].case == c2
 
     # Group 1 验证同样的结构
     assert g1_steps[0].phase == RunPhase.WARMUP and g1_steps[0].case == c3
     assert g1_steps[1].phase == RunPhase.WARMUP and g1_steps[1].case == c4
     # Round 0 (偶数，正序): c3, c4
-    assert g1_steps[2].repeat_index == 0 and g1_steps[2].case == c3
-    assert g1_steps[3].repeat_index == 0 and g1_steps[3].case == c4
+    assert g1_steps[2].repeat_idx == 0 and g1_steps[2].case == c3
+    assert g1_steps[3].repeat_idx == 0 and g1_steps[3].case == c4
     # Round 1 (奇数，反序): c4, c3
-    assert g1_steps[4].repeat_index == 1 and g1_steps[4].case == c4
-    assert g1_steps[5].repeat_index == 1 and g1_steps[5].case == c3
+    assert g1_steps[4].repeat_idx == 1 and g1_steps[4].case == c4
+    assert g1_steps[5].repeat_idx == 1 and g1_steps[5].case == c3
     # Round 2 (偶数，正序): c3, c4
-    assert g1_steps[6].repeat_index == 2 and g1_steps[6].case == c3
-    assert g1_steps[7].repeat_index == 2 and g1_steps[7].case == c4
+    assert g1_steps[6].repeat_idx == 2 and g1_steps[6].case == c3
+    assert g1_steps[7].repeat_idx == 2 and g1_steps[7].case == c4
 
 
 def test_interleave_none_pure_serial():
@@ -131,13 +131,13 @@ def test_interleave_none_pure_serial():
 
     # c1 跑完 warmup 与 2 轮 repeats
     assert plan[0].case == c1 and plan[0].phase == RunPhase.WARMUP
-    assert plan[1].case == c1 and plan[1].phase == RunPhase.MEASURE and plan[1].repeat_index == 0
-    assert plan[2].case == c1 and plan[2].phase == RunPhase.MEASURE and plan[2].repeat_index == 1
+    assert plan[1].case == c1 and plan[1].phase == RunPhase.MEASURE and plan[1].repeat_idx == 0
+    assert plan[2].case == c1 and plan[2].phase == RunPhase.MEASURE and plan[2].repeat_idx == 1
 
     # c2 跑完 warmup 与 2 轮 repeats
     assert plan[3].case == c2 and plan[3].phase == RunPhase.WARMUP
-    assert plan[4].case == c2 and plan[4].phase == RunPhase.MEASURE and plan[4].repeat_index == 0
-    assert plan[5].case == c2 and plan[5].phase == RunPhase.MEASURE and plan[5].repeat_index == 1
+    assert plan[4].case == c2 and plan[4].phase == RunPhase.MEASURE and plan[4].repeat_idx == 0
+    assert plan[5].case == c2 and plan[5].phase == RunPhase.MEASURE and plan[5].repeat_idx == 1
 
 
 def test_interleave_all_features():

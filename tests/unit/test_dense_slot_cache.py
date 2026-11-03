@@ -27,7 +27,7 @@ def prefill(model, prompts: list[list[int]]) -> KVCache:
 def admitted_state(index: int, prompt: list[int], slot: int) -> RequestState:
     state = RequestState(RequestSpec(index, tuple(prompt), 4))
     state.status = RequestStatus.RUNNING
-    state.slot_index = slot
+    state.slot_idx = slot
     state.cache_length = len(prompt)
     return state
 
@@ -36,11 +36,11 @@ def assert_slot_matches_single_request(slots: DenseSlotCache, model, state: Requ
     """槽位中右对齐的有效历史必须与该请求单独 Prefill 的 Cache 完全一致，且左侧空位被 mask。"""
     reference = prefill(model, [prompt])
     length, total = len(prompt), slots.length
-    assert slots.history_mask[state.slot_index].tolist() == [False] * (total - length) + [True] * length
+    assert slots.history_mask[state.slot_idx].tolist() == [False] * (total - length) + [True] * length
     for layer, (ref_key, ref_value) in enumerate(reference):
         key, value = slots.kv_cache[layer]
-        torch.testing.assert_close(key[state.slot_index, :, total - length :, :], ref_key[0])
-        torch.testing.assert_close(value[state.slot_index, :, total - length :, :], ref_value[0])
+        torch.testing.assert_close(key[state.slot_idx, :, total - length :, :], ref_key[0])
+        torch.testing.assert_close(value[state.slot_idx, :, total - length :, :], ref_value[0])
 
 
 def test_absorb_prefill_allocates_and_writes_right_aligned_slots(model):

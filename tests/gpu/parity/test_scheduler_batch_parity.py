@@ -85,14 +85,14 @@ def test_continuous_batching_gpu_parity() -> None:
         golden_tokens.append(gen_res.sequences[0].token_ids)
 
     # 4. 严格逐 Token 比对
-    for idx, expected in enumerate(golden_tokens):
-        cont_tokens = cont_result.sequences[idx].token_ids
-        fixed_tokens = fixed_result.sequences[idx].token_ids
+    for request_idx, expected in enumerate(golden_tokens):
+        cont_tokens = cont_result.sequences[request_idx].token_ids
+        fixed_tokens = fixed_result.sequences[request_idx].token_ids
         assert cont_tokens == expected, (
-            f"Continuous batching output divergence for req {idx}: got {cont_tokens}, expected {expected}"
+            f"Continuous batching output divergence for req {request_idx}: got {cont_tokens}, expected {expected}"
         )
         assert fixed_tokens == expected, (
-            f"Fixed batching output divergence for req {idx}: got {fixed_tokens}, expected {expected}"
+            f"Fixed batching output divergence for req {request_idx}: got {fixed_tokens}, expected {expected}"
         )
 
     # 5. 指标健康检查

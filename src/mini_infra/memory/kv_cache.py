@@ -47,9 +47,9 @@ class KVCache:
         """允许直接对每层的 (key, value) 进行遍历迭代。"""
         return iter(zip(self.key_cache, self.value_cache))
 
-    def __getitem__(self, layer_index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, layer_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """获取指定层的 (key, value)。"""
-        return self.key_cache[layer_index], self.value_cache[layer_index]
+        return self.key_cache[layer_idx], self.value_cache[layer_idx]
 
 
 def cache_size_bytes(kv_cache: KVCache | Sequence[tuple[torch.Tensor, torch.Tensor]] | None) -> int:

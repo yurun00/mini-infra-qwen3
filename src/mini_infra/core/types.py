@@ -38,7 +38,7 @@ class BatchingMethod(str, Enum):
 class SequenceOutput:
     """单个请求的生成序列输出（Offline 与 Serving 共享）。"""
 
-    request_index: int
+    request_idx: int
     token_ids: list[int]
     prompt_len: int
     output_len: int
@@ -59,7 +59,7 @@ class GenerationTrace:
 class RequestMetrics:
     """单个请求在逻辑时间线上的关键时间戳与延迟指标（单位 ms）。"""
 
-    request_index: int
+    request_idx: int
     arrival_ms: float
     admitted_ms: float
     first_token_ms: float
@@ -86,32 +86,32 @@ class RequestMetrics:
 
 def pad_output_tokens(
     sequences: Sequence[SequenceOutput],
-    request_index: int | Sequence[int] | None = None,
+    request_idx: int | Sequence[int] | None = None,
     pad_token_id: int = 0,
 ) -> torch.Tensor:
     """从 SequenceOutput 列表动态计算并返回对齐输出张量（GenerationResult 与 ScheduleResult 共用）。
 
     Args:
         sequences: 请求序列输出列表。
-        request_index: 单个请求 index (int)、请求 index 序列 (list/tuple) 或 None。
+        request_idx: 单个请求 index (int)、请求 index 序列 (list/tuple) 或 None。
             - 若传入单个 int：返回该请求的 1D 输出张量 [output_len]；若未找到引发 IndexError。
-            - 若传入 Sequence[int]：按指定顺序返回选定请求的 2D 对齐张量 [len(request_index), max_output_len]。
+            - 若传入 Sequence[int]：按指定顺序返回选定请求的 2D 对齐张量 [len(request_idx), max_output_len]。
             - 若为 None（默认）：返回整个批次的 2D 对齐张量 [B, max_output_len]。
         pad_token_id: 填充 token ID，默认为 0。仅在 2D 对齐时生效。
     """
-    if isinstance(request_index, int):
+    if isinstance(request_idx, int):
         for seq in sequences:
-            if seq.request_index == request_index:
+            if seq.request_idx == request_idx:
                 return torch.tensor(seq.token_ids, dtype=torch.long)
-        raise IndexError(f"Request index {request_index} not found in sequences")
+        raise IndexError(f"Request index {request_idx} not found in sequences")
 
-    if request_index is not None:
-        seq_map = {seq.request_index: seq for seq in sequences}
+    if request_idx is not None:
+        seq_map = {seq.request_idx: seq for seq in sequences}
         selected_seqs: Sequence[SequenceOutput] = []
-        for target_index in request_index:
-            if target_index not in seq_map:
-                raise IndexError(f"Request index {target_index} not found in sequences")
-            selected_seqs.append(seq_map[target_index])
+        for target_idx in request_idx:
+            if target_idx not in seq_map:
+                raise IndexError(f"Request index {target_idx} not found in sequences")
+            selected_seqs.append(seq_map[target_idx])
     else:
         selected_seqs = sequences
 
@@ -120,9 +120,9 @@ def pad_output_tokens(
 
     max_output_len = max((seq.output_len for seq in selected_seqs), default=0)
     tensor = torch.full((len(selected_seqs), max_output_len), pad_token_id, dtype=torch.long)
-    for row_index, seq in enumerate(selected_seqs):
+    for row_idx, seq in enumerate(selected_seqs):
         if seq.token_ids:
-            tensor[row_index, : seq.output_len] = torch.tensor(seq.token_ids, dtype=torch.long)
+            tensor[row_idx, : seq.output_len] = torch.tensor(seq.token_ids, dtype=torch.long)
     return tensor
 
 

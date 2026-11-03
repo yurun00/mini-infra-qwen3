@@ -183,8 +183,8 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 4.4 * nrows), squeeze=False)
     flat_axes = axes.flatten()
 
-    for spec_index, spec in enumerate(specs):
-        ax = flat_axes[spec_index]
+    for spec_idx, spec in enumerate(specs):
+        ax = flat_axes[spec_idx]
         sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
         if sub.empty:
             ax.set_axis_off()
@@ -216,7 +216,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         fontsize=7.5,
                     )
         else:
-            for scale_index, sc in enumerate(present_scales):
+            for scale_idx, sc in enumerate(present_scales):
                 sub_sc = sub[sub["scale"] == sc].sort_values("release_idx")
                 if sub_sc.empty:
                     continue
@@ -244,7 +244,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         capsize=3,
                         alpha=0.55,
                     )
-                y_offset = 5 + (scale_index - 1) * 2 if has_multi_scale else 5
+                y_offset = 5 + (scale_idx - 1) * 2 if has_multi_scale else 5
                 for x_i, y_val in zip(xs, ys):
                     ax.annotate(
                         f"{y_val:.1f}",
@@ -262,7 +262,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
             if has_multi_scale:
                 ax.legend(title="Scale", fontsize=7.5, title_fontsize=8)
 
-        ax.set_title(f"{spec_index + 1}. {spec.title}", fontsize=10.5)
+        ax.set_title(f"{spec_idx + 1}. {spec.title}", fontsize=10.5)
         ax.set_xlabel("")
         ax.set_ylabel(spec.ylabel)
         ax.tick_params(axis="x", rotation=15)
@@ -425,13 +425,13 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     intra_step = 0.24 if has_multi_mem_scale else 0.5
     bar_width = 0.22 if has_multi_mem_scale else 0.5
 
-    for group_index, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
+    for group_idx, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
         n_in_group = len(g_df)
-        group_ticks.append(float(group_index))
+        group_ticks.append(float(group_idx))
         group_labels.append(str(g_df.iloc[0]["label"]))
         for i, (_, r) in enumerate(g_df.iterrows()):
             offset = (i - (n_in_group - 1) / 2.0) * intra_step
-            xs.append(float(group_index) + offset)
+            xs.append(float(group_idx) + offset)
             sc_name = str(r.get("scale") or "medium")
             bar_scale_tags.append(scale_short.get(sc_name, sc_name[:1].upper()))
 

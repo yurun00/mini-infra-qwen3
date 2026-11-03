@@ -49,7 +49,7 @@ def test_frozen_dataclass_contract():
         assert is_dataclass(cls), f"{cls.__name__} 应当是 dataclass"
 
     seq = SequenceOutput(
-        request_index=0,
+        request_idx=0,
         token_ids=[1, 2, 3],
         prompt_len=4,
         output_len=3,
@@ -72,7 +72,7 @@ def test_frozen_dataclass_contract():
 def test_no_subscript_or_dynamic_attr_proxy():
     """验证彻底移除了字典访问与 __getattr__ 代理。"""
     seq = SequenceOutput(
-        request_index=0,
+        request_idx=0,
         token_ids=[10, 20],
         prompt_len=2,
         output_len=2,
@@ -202,7 +202,7 @@ def test_compute_step_aggregated_metrics():
 def test_aggregate_generation_results():
     """验证多 Run 结果聚合逻辑。"""
     res1 = GenerationResult(
-        sequences=[SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=3, output_len=2, finish_reason="stop")],
+        sequences=[SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=3, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
             mean_tpot_ms=5.0,
@@ -230,7 +230,7 @@ def test_aggregate_generation_results():
 
     res2 = GenerationResult(
         sequences=[
-            SequenceOutput(request_index=0, token_ids=[3, 4, 5], prompt_len=4, output_len=3, finish_reason="max_tokens")
+            SequenceOutput(request_idx=0, token_ids=[3, 4, 5], prompt_len=4, output_len=3, finish_reason="max_tokens")
         ],
         metrics=StepAggregatedMetrics(
             ttft_ms=12.0,
@@ -262,9 +262,9 @@ def test_aggregate_generation_results():
     # 1. 验证 Sequences 与 Padded Tokens
     assert merged.batch_size == 2
     assert len(merged.sequences) == 2
-    assert merged.sequences[0].request_index == 0
+    assert merged.sequences[0].request_idx == 0
     assert merged.sequences[0].token_ids == [1, 2]
-    assert merged.sequences[1].request_index == 1
+    assert merged.sequences[1].request_idx == 1
     assert merged.sequences[1].token_ids == [3, 4, 5]
     assert merged.padded_output_tokens().shape == (2, 3)
     assert merged.padded_output_tokens().tolist() == [[1, 2, 0], [3, 4, 5]]
@@ -295,7 +295,7 @@ def test_aggregate_generation_results():
 def test_aggregate_generation_results_with_options():
     """验证 aggregate_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
     res1 = GenerationResult(
-        sequences=[SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop")],
+        sequences=[SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
             mean_tpot_ms=4.0,
@@ -318,7 +318,7 @@ def test_aggregate_generation_results_with_options():
         batch_size=1,
     )
     res2 = GenerationResult(
-        sequences=[SequenceOutput(request_index=0, token_ids=[3, 4], prompt_len=2, output_len=2, finish_reason="stop")],
+        sequences=[SequenceOutput(request_idx=0, token_ids=[3, 4], prompt_len=2, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=20.0,
             mean_tpot_ms=8.0,
@@ -387,9 +387,9 @@ def test_padded_output_tokens_method():
     """验证 padded_output_tokens 方法在单请求、多请求、默认及自定义 pad_token_id 场景下的正确性。"""
     # 1. 变长 sequences
     seqs = [
-        SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop"),
-        SequenceOutput(request_index=1, token_ids=[3, 4, 5, 6], prompt_len=4, output_len=4, finish_reason="max_tokens"),
-        SequenceOutput(request_index=2, token_ids=[7], prompt_len=1, output_len=1, finish_reason="stop"),
+        SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop"),
+        SequenceOutput(request_idx=1, token_ids=[3, 4, 5, 6], prompt_len=4, output_len=4, finish_reason="max_tokens"),
+        SequenceOutput(request_idx=2, token_ids=[7], prompt_len=1, output_len=1, finish_reason="stop"),
     ]
     res = GenerationResult(
         sequences=seqs,
@@ -415,20 +415,20 @@ def test_padded_output_tokens_method():
         [7, 99, 99, 99],
     ]
 
-    # 2. 单个 request_index 输入：返回 1D Tensor
+    # 2. 单个 request_idx 输入：返回 1D Tensor
     req0 = res.padded_output_tokens(0)
     assert req0.shape == (2,)
     assert req0.tolist() == [1, 2]
 
-    req1 = res.padded_output_tokens(request_index=1)
+    req1 = res.padded_output_tokens(request_idx=1)
     assert req1.shape == (4,)
     assert req1.tolist() == [3, 4, 5, 6]
 
-    # 不存在的 request_index 引发 IndexError
+    # 不存在的 request_idx 引发 IndexError
     with pytest.raises(IndexError, match="Request index 999 not found"):
         res.padded_output_tokens(999)
 
-    # 3. 多个 request_index 列表输入：返回指定的 2D 对齐 Tensor
+    # 3. 多个 request_idx 列表输入：返回指定的 2D 对齐 Tensor
     subset = res.padded_output_tokens([2, 0], pad_token_id=-1)
     assert subset.shape == (2, 2)
     assert subset.tolist() == [

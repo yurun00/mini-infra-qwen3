@@ -29,10 +29,10 @@ def left_pad_sequences(
     batch_size = len(normalized)
     input_ids = torch.full((batch_size, padded_prompt_length), pad_token_id, dtype=torch.long, device=device)
     attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
-    for row_index, sequence in enumerate(normalized):
+    for row_idx, sequence in enumerate(normalized):
         prompt_length = sequence.numel()
-        input_ids[row_index, padded_prompt_length - prompt_length :] = sequence
-        attention_mask[row_index, padded_prompt_length - prompt_length :] = True
+        input_ids[row_idx, padded_prompt_length - prompt_length :] = sequence
+        attention_mask[row_idx, padded_prompt_length - prompt_length :] = True
 
     # 真实 Token 的逻辑位置从 0 开始；Padding 位置记为 0（会被 mask 掉）。
     position_ids = attention_mask.long().cumsum(dim=-1) - 1

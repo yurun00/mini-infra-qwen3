@@ -237,11 +237,11 @@ class Qwen3Model(nn.Module):
             raise ValueError("past_key_values 层数与模型层数不一致")
         past_length = past_key_values[0][0].shape[2]
         expected = (batch_size, self.config.num_key_value_heads, past_length, self.config.head_dim)
-        for layer_index, (key, value) in enumerate(past_key_values):
+        for layer_idx, (key, value) in enumerate(past_key_values):
             if tuple(key.shape) != expected or tuple(value.shape) != expected:
                 raise ValueError(
                     "第 %d 层 KV Cache 形状错误: key=%s, value=%s, expected=%s"
-                    % (layer_index, tuple(key.shape), tuple(value.shape), expected)
+                    % (layer_idx, tuple(key.shape), tuple(value.shape), expected)
                 )
         return past_length
 
@@ -298,8 +298,8 @@ class Qwen3Model(nn.Module):
         causal_mask.masked_fill_(~allowed, torch.finfo(hidden_states.dtype).min)
 
         present_key_values: list[PastKeyValue] = []
-        for layer_index, decoder_layer in enumerate(self.layers):
-            layer_past = None if past_key_values is None else past_key_values[layer_index]
+        for layer_idx, decoder_layer in enumerate(self.layers):
+            layer_past = None if past_key_values is None else past_key_values[layer_idx]
             hidden_states, present_key_value = decoder_layer(
                 hidden_states,
                 cosine,

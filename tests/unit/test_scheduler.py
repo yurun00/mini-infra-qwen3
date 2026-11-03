@@ -22,7 +22,7 @@ def make_states(arrivals: list[float]) -> list[RequestState]:
 
 
 def indices(states: Sequence[RequestState]) -> list[int]:
-    return [state.spec.request_index for state in states]
+    return [state.spec.request_idx for state in states]
 
 
 def test_next_arrival_and_len():
@@ -39,10 +39,10 @@ def test_next_arrival_and_len():
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"request_index": -1, "token_ids": (1,), "max_new_tokens": 1},
-        {"request_index": 0, "token_ids": (), "max_new_tokens": 1},
-        {"request_index": 0, "token_ids": (1,), "max_new_tokens": 0},
-        {"request_index": 0, "token_ids": (1,), "max_new_tokens": 1, "arrival_ms": -1.0},
+        {"request_idx": -1, "token_ids": (1,), "max_new_tokens": 1},
+        {"request_idx": 0, "token_ids": (), "max_new_tokens": 1},
+        {"request_idx": 0, "token_ids": (1,), "max_new_tokens": 0},
+        {"request_idx": 0, "token_ids": (1,), "max_new_tokens": 1, "arrival_ms": -1.0},
     ],
 )
 def test_request_spec_rejects_invalid_fields(kwargs):
@@ -52,7 +52,7 @@ def test_request_spec_rejects_invalid_fields(kwargs):
 
 def test_make_request_specs_broadcasts_budget_and_defaults_arrival():
     specs = make_request_specs([[1, 2], [3]], 5)
-    assert [(s.request_index, s.token_ids, s.max_new_tokens, s.arrival_ms) for s in specs] == [
+    assert [(s.request_idx, s.token_ids, s.max_new_tokens, s.arrival_ms) for s in specs] == [
         (0, (1, 2), 5, 0.0),
         (1, (3,), 5, 0.0),
     ]
@@ -152,7 +152,7 @@ def test_running_queue_lifecycle_and_slot_management():
     states = make_states([0.0, 0.0, 0.0])
     admitted = rq.admit(states[:2], clock_ms=5.0)
     assert indices(admitted) == [0, 1]
-    assert [s.slot_index for s in admitted] == [0, 1]
+    assert [s.slot_idx for s in admitted] == [0, 1]
     assert all(s.status is RequestStatus.RUNNING for s in admitted)
     assert all(s.admitted_ms == 5.0 for s in admitted)
     assert rq.num_free_slots == 1

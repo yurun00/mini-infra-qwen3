@@ -46,8 +46,8 @@ class ScheduleEvent:
     """一次模型调用（Prefill 或 Decode）及其搬移开销的调度事件记录。"""
 
     phase: SchedulePhase
-    admitted_request_ids: tuple[int, ...]  # 本事件入场的 request_index
-    finished_request_ids: tuple[int, ...]  # 本事件结束的 request_index
+    admitted_request_ids: tuple[int, ...]  # 本事件入场的 request_idx
+    finished_request_ids: tuple[int, ...]  # 本事件结束的 request_idx
     physical_batch_size: int  # 模型实际执行的行数（含空槽位/已结束槽位）
     num_active_requests: int  # 事件期间仍在占用槽位的请求数
     num_generated_tokens: int  # 本事件产出的有效 Token 数
@@ -92,11 +92,11 @@ class GenerationResult:
 
     def padded_output_tokens(
         self,
-        request_index: int | Sequence[int] | None = None,
+        request_idx: int | Sequence[int] | None = None,
         pad_token_id: int = 0,
     ) -> torch.Tensor:
         """从 sequences 动态计算并返回对齐输出张量。"""
-        return pad_output_tokens(self.sequences, request_index=request_index, pad_token_id=pad_token_id)
+        return pad_output_tokens(self.sequences, request_idx=request_idx, pad_token_id=pad_token_id)
 
 
 @dataclass(frozen=True)
@@ -149,12 +149,12 @@ def summarize_schedule(
 ) -> ScheduleResult:
     """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
     requests = [state.to_request_metrics() for state in states]
-    completion_step_by_request_index = {
-        request_index: step_index + 1 for step_index, e in enumerate(events) for request_index in e.finished_request_ids
+    completion_step_by_request_idx = {
+        request_idx: step_idx + 1 for step_idx, e in enumerate(events) for request_idx in e.finished_request_ids
     }
     sequences = [
         state.to_sequence_output(
-            completion_step=completion_step_by_request_index.get(state.spec.request_index, len(events))
+            completion_step=completion_step_by_request_idx.get(state.spec.request_idx, len(events))
         )
         for state in states
     ]
@@ -175,11 +175,11 @@ def summarize_schedule(
     running_capacity_util = capacity_area / (max_running_requests * busy_ms) if busy_ms else 0.0
     peak_live_kv_cache_mb = max((e.live_kv_cache_bytes for e in events), default=0) / mib
 
-    prompt_len_by_request_index = {state.spec.request_index: state.spec.prompt_len for state in states}
+    prompt_len_by_request_idx = {state.spec.request_idx: state.spec.prompt_len for state in states}
     num_prompt_tokens = sum(state.spec.prompt_len for state in states)
     num_padded_prompt_tokens = sum(
         len(e.admitted_request_ids)
-        * max(prompt_len_by_request_index[request_index] for request_index in e.admitted_request_ids)
+        * max(prompt_len_by_request_idx[request_idx] for request_idx in e.admitted_request_ids)
         for e in events
         if e.phase is SchedulePhase.PREFILL and e.admitted_request_ids
     )

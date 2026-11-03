@@ -261,7 +261,7 @@ def handle_suite(args: argparse.Namespace) -> int:
     )
 
     def on_suite_step(step_number: int, total_steps: int, planned_run: PlannedRun) -> None:
-        rep = f"repeat {planned_run.repeat_index + 1}" if planned_run.repeat_index is not None else "warmup"
+        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
         print(
             f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | "

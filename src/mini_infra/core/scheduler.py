@@ -131,7 +131,7 @@ class RunningQueue:
         for state in states:
             state.status = RequestStatus.RUNNING
             state.admitted_ms = clock_ms
-            state.slot_index = heapq.heappop(self._free_slots)
+            state.slot_idx = heapq.heappop(self._free_slots)
             state.cache_length = state.spec.prompt_len
             self._requests.append(state)
         return list(states)
@@ -159,8 +159,8 @@ class RunningQueue:
         """释放已结束请求的槽位，标记 FINISHED 状态并从活跃队列中移出。"""
         for state in finished:
             state.status = RequestStatus.FINISHED
-            if state.slot_index is not None:
-                heapq.heappush(self._free_slots, state.slot_index)
+            if state.slot_idx is not None:
+                heapq.heappush(self._free_slots, state.slot_idx)
         self._requests = [s for s in self._requests if s.status is RequestStatus.RUNNING]
 
 

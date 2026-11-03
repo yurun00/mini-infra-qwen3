@@ -214,9 +214,7 @@ def check_continuous_batching(model):
     # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
     same_arrival_specs = make_request_specs([sequences[0]] * 12, 1)
     same_arrival = run_scheduler(BatchingMethod.CONTINUOUS, model, same_arrival_specs, 3, -1, device, stop_on_eos=False)
-    flattened_admissions = [
-        request_index for event in same_arrival.events for request_index in event.admitted_request_ids
-    ]
+    flattened_admissions = [request_idx for event in same_arrival.events for request_idx in event.admitted_request_ids]
     assert flattened_admissions == list(range(12))
 
     print("Continuous Batching 动态加入退出、FCFS 与输出一致性检查通过")

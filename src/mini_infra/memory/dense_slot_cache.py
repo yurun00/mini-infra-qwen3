@@ -54,7 +54,7 @@ class DenseSlotCache:
         """把一批新请求的 Prefill Cache 写入各自槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
 
         Args:
-            states: 本次入场的请求，states[i] 对应 prefill_cache 的第 i 行，且已分配 slot_index/cache_length。
+            states: 本次入场的请求，states[i] 对应 prefill_cache 的第 i 行，且已分配 slot_idx/cache_length。
             prefill_cache: 左 Padding Prefill 产生的 Cache，各行真实 Token 位于序列维末尾 cache_length 个位置。
         """
         synchronize(self.device)
@@ -66,17 +66,17 @@ class DenseSlotCache:
             self._grow_left(target_length - self.length)
         assert self.kv_cache is not None and self.history_mask is not None
 
-        for row_index, state in enumerate(states):
-            slot_index, cache_length = state.slot_index, state.cache_length
+        for row_idx, state in enumerate(states):
+            slot_idx, cache_length = state.slot_idx, state.cache_length
             start_pos = target_length - cache_length
-            self.history_mask[slot_index].zero_()
-            self.history_mask[slot_index, start_pos:] = True
-            for layer_index, (prefill_key, prefill_value) in enumerate(prefill_cache):
-                key, value = self.kv_cache.key_cache[layer_index], self.kv_cache.value_cache[layer_index]
-                key[slot_index].zero_()
-                value[slot_index].zero_()
-                key[slot_index, :, start_pos:, :] = prefill_key[row_index, :, -cache_length:, :]
-                value[slot_index, :, start_pos:, :] = prefill_value[row_index, :, -cache_length:, :]
+            self.history_mask[slot_idx].zero_()
+            self.history_mask[slot_idx, start_pos:] = True
+            for layer_idx, (prefill_key, prefill_value) in enumerate(prefill_cache):
+                key, value = self.kv_cache.key_cache[layer_idx], self.kv_cache.value_cache[layer_idx]
+                key[slot_idx].zero_()
+                value[slot_idx].zero_()
+                key[slot_idx, :, start_pos:, :] = prefill_key[row_idx, :, -cache_length:, :]
+                value[slot_idx, :, start_pos:, :] = prefill_value[row_idx, :, -cache_length:, :]
         synchronize(self.device)
         return (time.perf_counter() - start) * 1000
 
@@ -95,10 +95,10 @@ class DenseSlotCache:
         positions = [0] * self.capacity
         active = [False] * self.capacity
         for state in running:
-            slot_index = state.slot_index
-            token_ids[slot_index] = state.generated[-1]
-            positions[slot_index] = state.cache_length
-            active[slot_index] = True
+            slot_idx = state.slot_idx
+            token_ids[slot_idx] = state.generated[-1]
+            positions[slot_idx] = state.cache_length
+            active[slot_idx] = True
         input_ids = torch.tensor(token_ids, dtype=torch.long, device=self.device).unsqueeze(1)
         position_ids = torch.tensor(positions, dtype=torch.long, device=self.device).unsqueeze(1)
         active_mask = torch.tensor(active, dtype=torch.bool, device=self.device).unsqueeze(1)
@@ -120,12 +120,12 @@ class DenseSlotCache:
         target_length = prefill_cache.length
         self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
         for state in states:
-            self.history_mask[state.slot_index, target_length - state.cache_length :] = True
+            self.history_mask[state.slot_idx, target_length - state.cache_length :] = True
 
     def release(self, state: RequestState) -> None:
         """释放已结束请求的槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
-        if self.history_mask is not None and state.slot_index is not None:
-            self.history_mask[state.slot_index].zero_()
+        if self.history_mask is not None and state.slot_idx is not None:
+            self.history_mask[state.slot_idx].zero_()
 
     def reset(self) -> None:
         """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始槽位容量。"""
@@ -144,11 +144,11 @@ class DenseSlotCache:
 
     def _grow_left(self, padding_len: int) -> None:
         assert self.kv_cache is not None and self.history_mask is not None
-        for layer_index, (key, value) in enumerate(self.kv_cache):
+        for layer_idx, (key, value) in enumerate(self.kv_cache):
             zeros = torch.zeros(
                 (self.capacity, key.shape[1], padding_len, key.shape[3]), dtype=key.dtype, device=self.device
             )
-            self.kv_cache.key_cache[layer_index] = torch.cat((zeros, key), dim=2)
-            self.kv_cache.value_cache[layer_index] = torch.cat((zeros, value), dim=2)
+            self.kv_cache.key_cache[layer_idx] = torch.cat((zeros, key), dim=2)
+            self.kv_cache.value_cache[layer_idx] = torch.cat((zeros, value), dim=2)
         mask_padding = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
         self.history_mask = torch.cat((mask_padding, self.history_mask), dim=1)

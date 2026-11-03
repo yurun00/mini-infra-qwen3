@@ -123,13 +123,13 @@ class LockstepState:
             (next_tokens.long(), active_before.long(), finished.long(), stopped.long(), self.curr_active.long())
         ).tolist()
         self.active_counts_per_step.append(sum(was_active))
-        for request_index in range(self.batch_size):
-            if not was_active[request_index]:
+        for request_idx in range(self.batch_size):
+            if not was_active[request_idx]:
                 continue
-            self.outputs[request_index].append(tokens[request_index])
-            if now_finished[request_index]:
-                self.completion_steps[request_index] = step + 1
-                self.finish_reasons[request_index] = "stop" if by_eos[request_index] else "max_tokens"
+            self.outputs[request_idx].append(tokens[request_idx])
+            if now_finished[request_idx]:
+                self.completion_steps[request_idx] = step + 1
+                self.finish_reasons[request_idx] = "stop" if by_eos[request_idx] else "max_tokens"
 
         return not any(still_active)
 
@@ -258,16 +258,16 @@ def run_lockstep(
     step_count = len(step_latencies_ms)
     sequences = [
         SequenceOutput(
-            request_index=request_index,
-            token_ids=state.outputs[request_index],
-            prompt_len=int(state.prompt_lengths[request_index].item()),
-            output_len=len(state.outputs[request_index]),
-            finish_reason=state.finish_reasons[request_index],
-            completion_step=state.completion_steps[request_index]
-            if state.completion_steps[request_index] is not None
+            request_idx=request_idx,
+            token_ids=state.outputs[request_idx],
+            prompt_len=int(state.prompt_lengths[request_idx].item()),
+            output_len=len(state.outputs[request_idx]),
+            finish_reason=state.finish_reasons[request_idx],
+            completion_step=state.completion_steps[request_idx]
+            if state.completion_steps[request_idx] is not None
             else step_count,
         )
-        for request_index in range(state.batch_size)
+        for request_idx in range(state.batch_size)
     ]
     cache_bytes = cache_size_bytes(kv_cache)
 

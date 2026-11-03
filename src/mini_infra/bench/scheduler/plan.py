@@ -29,7 +29,7 @@ class PlannedRun:
 
     case: SchedulerSuiteCase
     phase: RunPhase
-    repeat_index: int | None
+    repeat_idx: int | None
     group_id: int
 
 
@@ -99,7 +99,7 @@ def build_scheduler_run_plan(
                         PlannedRun(
                             case=case,
                             phase=RunPhase.WARMUP,
-                            repeat_index=None,
+                            repeat_idx=None,
                             group_id=group_id,
                         )
                     )
@@ -120,7 +120,7 @@ def build_scheduler_run_plan(
                     PlannedRun(
                         case=case,
                         phase=RunPhase.MEASURE,
-                        repeat_index=r,
+                        repeat_idx=r,
                         group_id=group_id,
                     )
                 )
@@ -134,7 +134,7 @@ def format_scheduler_run_plan(plan: Sequence[PlannedRun]) -> str:
         return "执行计划为空。"
     lines = [f"Scheduler 基准评测执行计划（共 {len(plan)} 步）："]
     for i, planned_run in enumerate(plan, 1):
-        rep = f"repeat {planned_run.repeat_index + 1}" if planned_run.repeat_index is not None else "warmup"
+        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
         lines.append(
             f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | "
