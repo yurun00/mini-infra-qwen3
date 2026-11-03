@@ -91,10 +91,10 @@ class WaitingQueue:
 
     def pop_batch(self, limit: int) -> list[RequestState]:
         """按就绪次序取出至多 limit 个就绪请求用于调度入场。"""
-        poped: list[RequestState] = []
-        while self._requests and len(poped) < limit:
-            poped.append(self._requests.popleft())
-        return poped
+        popped: list[RequestState] = []
+        while self._requests and len(popped) < limit:
+            popped.append(self._requests.popleft())
+        return popped
 
 
 class RunningQueue:
