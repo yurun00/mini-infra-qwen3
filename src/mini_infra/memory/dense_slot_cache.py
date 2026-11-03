@@ -50,7 +50,7 @@ class DenseSlotCache:
             raise RuntimeError("Cache 尚未分配，无法导出 past_key_values")
         return self.kv_cache.past_key_values
 
-    def admit(self, states: Sequence[RequestState], prefill_cache: KVCache) -> float:
+    def absorb_prefill(self, states: Sequence[RequestState], prefill_cache: KVCache) -> float:
         """把一批新请求的 Prefill Cache 写入各自槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
 
         Args:

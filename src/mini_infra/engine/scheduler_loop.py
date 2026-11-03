@@ -89,7 +89,7 @@ def _run_schedule(
             admitted = running_queue.admit(batch, clock_ms)
             token_ids, prefill_cache, model_ms = runner.prefill_requests(admitted)
             if is_continuous:
-                cache_ms = slots.admit(admitted, prefill_cache)
+                cache_ms = slots.absorb_prefill(admitted, prefill_cache)
             else:
                 slots.rebuild_pool(admitted, prefill_cache)
                 cache_ms = 0.0

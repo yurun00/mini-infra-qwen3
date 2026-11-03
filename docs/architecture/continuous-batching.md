@@ -27,9 +27,9 @@
 
 与单次生成的单体 [`KVCache`](kv-cache.md) 不同，Continuous Batching 需要在一个固定的并发容量（`max_running_requests`）下管理多个动态进出的请求：
 
-* **静态槽位预分配**：在初始化时预分配 `[capacity, num_kv_heads, max_length, head_dim]` 的稠密 Key/Value 缓存张量，避免自回归过程中发生频繁的动态内存申请与显存碎片化。
+* **静态槽位预分配**：在初始化时预分配 `[capacity, num_kv_heads, length, head_dim]` 的稠密 Key/Value 缓存张量，避免自回归过程中发生频繁的动态内存申请与显存碎片化。
 * **右对齐与历史掩码（Right-Aligned & History Mask）**：
-  * 请求进场时，其 Prompt 的 KV 被放置在槽位右侧，并由 `DenseSlotCache.mask` 统一管理历史有效位置（类似因果掩码的批扩展）。
+  * 请求进场时，其 Prompt 的 KV 被放置在槽位右侧，并由 `DenseSlotCache.history_mask` 统一管理历史有效位置（类似因果掩码的批扩展）。
   * 当更长 Prompt 入场导致槽位全局长度扩展时，自动对所有活动槽位的历史掩码左侧补 0，无需搬移 KV 缓存本身。
 * **槽位即时复用**：请求结束后，`slots.release(slot_index)` 在常数时间内清空该槽位掩码与状态，使得后续请求可以立即无缝复用该物理空间。
 
@@ -112,7 +112,7 @@ mini-infra bench scheduler suite --tag v0.3.0 --suite fixed-vs-continuous-variab
 
 1. **CPU 单元测试**：
    * `pytest tests/unit/test_scheduler.py`：验证到达队列 FCFS 出队、时间窗口推进与空队列边界。
-   * `pytest tests/unit/test_slot_cache.py`：验证槽位分配、右对齐扩展、掩码更新与释放。
+   * `pytest tests/unit/test_dense_slot_cache.py`：验证槽位分配、右对齐扩展、掩码更新与释放。
    * `pytest tests/unit/test_continuous.py`：在随机小模型上验证与串行 `generate` 逐位一致，覆盖变长 Prompt、EOS 提前截断、容量溢出排队等边缘场景。
 2. **GPU 真实权重等价性测试**：
    * `pytest tests/gpu/parity/test_scheduler_batch_parity.py` 或 `mini-infra verify scheduler-batch`：在真实的 Qwen3-0.6B 权重上，验证 Continuous Batching 和 Fixed Batching 的生成结果与单请求串行生成 100% 逐 Token 严格对齐（详见 [docs/guides/parity-verification.md](../guides/parity-verification.md)）。

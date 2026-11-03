@@ -48,22 +48,22 @@ flowchart TD
 ```python
 def left_pad_sequences(token_sequences, pad_token_id, device):
     # 1. 计算最大序列长度并初始化张量
-    max_length = max(lengths)
+    padded_prompt_length = max(prompt_lengths)
     batch_size = len(token_sequences)
-    input_ids = torch.full((batch_size, max_length), pad_token_id, dtype=torch.long, device=device)
-    attention_mask = torch.zeros((batch_size, max_length), dtype=torch.bool, device=device)
+    input_ids = torch.full((batch_size, padded_prompt_length), pad_token_id, dtype=torch.long, device=device)
+    attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
 
     # 2. 靠右放置真实 Token 序列，左侧保留 pad_token_id
-    for row, sequence in enumerate(token_sequences):
-        length = sequence.numel()
-        input_ids[row, max_length - length :] = sequence
-        attention_mask[row, max_length - length :] = True
+    for row_index, sequence in enumerate(token_sequences):
+        prompt_length = sequence.numel()
+        input_ids[row_index, padded_prompt_length - prompt_length :] = sequence
+        attention_mask[row_index, padded_prompt_length - prompt_length :] = True
 
     # 3. 构造相对位置编码 Position IDs
     # 真实 Token 逻辑位置严格从 0 开始递增；左侧 Padding 位置 clamp 为 0
     position_ids = attention_mask.long().cumsum(dim=-1) - 1
     position_ids.clamp_(min=0)
-    return input_ids, attention_mask, position_ids, torch.tensor(lengths)
+    return input_ids, attention_mask, position_ids, torch.tensor(prompt_lengths)
 ```
 
 #### 逐值示例
