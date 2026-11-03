@@ -12,11 +12,10 @@ from typing import Any
 import torch
 
 from mini_infra.core.request import make_request_specs
-from mini_infra.engine import BatchingMethod, run_scheduler
+from mini_infra.engine import BatchingMethod, Qwen3Tokenizer, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )

@@ -1,4 +1,4 @@
-"""Qwen3 模型与 Tokenizer 架构。"""
+"""Qwen3 模型纯张量算子架构。"""
 
 from mini_infra.model.config import (
     DEFAULT_MODEL_ID,
@@ -21,15 +21,10 @@ from mini_infra.model.qwen3 import (
     resolve_model_directory,
     rotate_half,
 )
-from mini_infra.model.tokenizer import (
-    PRE_TOKEN_PATTERN,
-    Qwen3Tokenizer,
-)
 
 __all__ = [
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
-    "PRE_TOKEN_PATTERN",
     "PastKeyValue",
     "Qwen3Attention",
     "Qwen3Config",
@@ -37,7 +32,6 @@ __all__ = [
     "Qwen3ForCausalLM",
     "Qwen3MLP",
     "Qwen3Model",
-    "Qwen3Tokenizer",
     "RMSNorm",
     "RotaryEmbedding",
     "apply_rotary_embedding",

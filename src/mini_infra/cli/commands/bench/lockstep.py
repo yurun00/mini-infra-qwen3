@@ -28,8 +28,8 @@ from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import SUITES, SuiteCase, get_suite
 from mini_infra.bench.schema import build_benchmark_record
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
-from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
+from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, Qwen3Tokenizer
+from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
 
 

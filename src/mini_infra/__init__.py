@@ -25,6 +25,7 @@ from mini_infra.engine import (
     GenerationTrace,
     LockstepResult,
     Mode,
+    Qwen3Tokenizer,
     ScheduleEvent,
     ScheduleMetrics,
     SchedulePhase,
@@ -33,6 +34,7 @@ from mini_infra.engine import (
     run_lockstep,
     run_scheduler,
     summarize_schedule,
+    Qwen3Tokenizer,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.memory import (
@@ -45,7 +47,6 @@ from mini_infra.model import (
     DEFAULT_MODEL_REVISION,
     Qwen3Config,
     Qwen3ForCausalLM,
-    Qwen3Tokenizer,
     load_model,
     model_dtype_from_config,
     resolve_model_directory,

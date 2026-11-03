@@ -39,8 +39,8 @@ from mini_infra.bench.scheduler.suites import (
 )
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
-from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
+from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, Qwen3Tokenizer
+from mini_infra.model import load_model, resolve_model_directory
 
 
 def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:

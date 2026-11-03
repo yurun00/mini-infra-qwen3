@@ -21,6 +21,10 @@ from mini_infra.engine.runner import (
     StepForwardResult,
 )
 from mini_infra.engine.scheduler_loop import run_scheduler
+from mini_infra.engine.tokenizer import (
+    PRE_TOKEN_PATTERN,
+    Qwen3Tokenizer,
+)
 from mini_infra.engine.types import (
     BatchScheduleInfo,
     GenerationResult,
@@ -60,6 +64,8 @@ __all__ = [
     "MemoryProfile",
     "Mode",
     "ModelRunner",
+    "PRE_TOKEN_PATTERN",
+    "Qwen3Tokenizer",
     "RequestMetrics",
     "ScheduleEvent",
     "ScheduleMetrics",

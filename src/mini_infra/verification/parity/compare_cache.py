@@ -2,10 +2,10 @@
 
 import torch
 
+from mini_infra.engine import Qwen3Tokenizer
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )

@@ -14,12 +14,12 @@ from mini_infra.engine import (
     FeatureFlag,
     GenerationOptions,
     Mode,
+    Qwen3Tokenizer,
     generate,
 )
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )

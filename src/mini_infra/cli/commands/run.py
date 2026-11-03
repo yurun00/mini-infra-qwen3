@@ -16,6 +16,7 @@ from mini_infra.engine import (
     GenerationOptions,
     GenerationResult,
     Mode,
+    Qwen3Tokenizer,
     ScheduleResult,
     generate,
     run_scheduler,
@@ -24,7 +25,6 @@ from mini_infra.engine import (
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )
