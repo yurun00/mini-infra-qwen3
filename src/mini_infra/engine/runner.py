@@ -121,17 +121,19 @@ class ModelRunner:
         next_tokens = step_out.next_token.squeeze(-1).tolist()
         return next_tokens, KVCache(step_out.present_key_values), step_out.elapsed_ms
 
-    def decode_slots(self, slots: DenseSlotCache, running: Sequence[RequestState]) -> SlotDecodeResult:
+    def decode_slots(self, dense_slot_cache: DenseSlotCache, running: Sequence[RequestState]) -> SlotDecodeResult:
         """对 DenseSlotCache 的全部槽位做一步 Decode，并把返回的新 KV 与本步 attention_mask 一起提交回槽位。"""
-        input_ids, position_ids, attention_mask, prepare_ms = slots.prepare_decode_inputs(running, self.pad_token_id)
+        input_ids, position_ids, attention_mask, prepare_ms = dense_slot_cache.prepare_decode_inputs(
+            running, self.pad_token_id
+        )
         step_out = self.step_forward(
             input_ids,
-            past_key_values=slots.past_key_values,
+            past_key_values=dense_slot_cache.past_key_values,
             attention_mask=attention_mask,
             position_ids=position_ids,
             should_sync=True,
         )
-        slots.commit_decode_step(attention_mask, step_out.present_key_values)
+        dense_slot_cache.commit_decode_step(attention_mask, step_out.present_key_values)
         next_tokens = step_out.next_token.squeeze(-1).tolist()
         return SlotDecodeResult(next_tokens, step_out.elapsed_ms, prepare_ms)
 

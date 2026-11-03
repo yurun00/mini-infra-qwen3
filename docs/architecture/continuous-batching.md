@@ -31,7 +31,7 @@
 * **右对齐与历史掩码（Right-Aligned & History Mask）**：
   * 请求进场时，其 Prompt 的 KV 被放置在槽位右侧，并由 `DenseSlotCache.history_mask` 统一管理历史有效位置（类似因果掩码的批扩展）。
   * 当更长 Prompt 入场导致槽位全局长度扩展时，自动对所有活动槽位的历史掩码左侧补 0，无需搬移 KV 缓存本身。
-* **槽位即时复用**：请求结束后，`slots.release(slot_idx)` 在常数时间内清空该槽位掩码与状态，使得后续请求可以立即无缝复用该物理空间。
+* **槽位即时复用**：请求结束后，`dense_slot_cache.release(slot_idx)` 在常数时间内清空该槽位掩码与状态，使得后续请求可以立即无缝复用该物理空间。
 
 ### 2. 调度器与时钟模拟：`ArrivalQueue` & `run_scheduler`
 

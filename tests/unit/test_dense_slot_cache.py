@@ -32,13 +32,15 @@ def admitted_state(index: int, prompt: list[int], slot: int) -> RequestState:
     return state
 
 
-def assert_slot_matches_single_request(slots: DenseSlotCache, model, state: RequestState, prompt: list[int]) -> None:
+def assert_slot_matches_single_request(
+    dense_slot_cache: DenseSlotCache, model, state: RequestState, prompt: list[int]
+) -> None:
     """槽位中右对齐的有效历史必须与该请求单独 Prefill 的 Cache 完全一致，且左侧空位被 mask。"""
     reference = prefill(model, [prompt])
-    length, total = len(prompt), slots.length
-    assert slots.history_mask[state.slot_idx].tolist() == [False] * (total - length) + [True] * length
+    length, total = len(prompt), dense_slot_cache.length
+    assert dense_slot_cache.history_mask[state.slot_idx].tolist() == [False] * (total - length) + [True] * length
     for layer, (ref_key, ref_value) in enumerate(reference):
-        key, value = slots.kv_cache[layer]
+        key, value = dense_slot_cache.kv_cache[layer]
         torch.testing.assert_close(key[state.slot_idx, :, total - length :, :], ref_key[0])
         torch.testing.assert_close(value[state.slot_idx, :, total - length :, :], ref_value[0])
 
@@ -46,62 +48,64 @@ def assert_slot_matches_single_request(slots: DenseSlotCache, model, state: Requ
 def test_absorb_prefill_allocates_and_writes_right_aligned_slots(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
     states = [admitted_state(0, prompts[0], slot=1), admitted_state(1, prompts[1], slot=3)]
-    slots = DenseSlotCache(capacity=4, device=CPU)
-    assert slots.kv_cache is None and slots.length == 0 and slots.total_bytes == 0
+    dense_slot_cache = DenseSlotCache(capacity=4, device=CPU)
+    assert dense_slot_cache.kv_cache is None and dense_slot_cache.length == 0 and dense_slot_cache.total_bytes == 0
 
-    elapsed_ms = slots.absorb_prefill(states, prefill(model, prompts))
+    elapsed_ms = dense_slot_cache.absorb_prefill(states, prefill(model, prompts))
 
     assert elapsed_ms >= 0
-    assert slots.length == 4
-    assert slots.kv_cache.length == 4
+    assert dense_slot_cache.length == 4
+    assert dense_slot_cache.kv_cache.length == 4
     config = model.config
-    assert tuple(slots.kv_cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
+    assert tuple(dense_slot_cache.kv_cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
     for state, prompt in zip(states, prompts):
-        assert_slot_matches_single_request(slots, model, state, prompt)
+        assert_slot_matches_single_request(dense_slot_cache, model, state, prompt)
     # 未使用的槽位整行被 mask
-    assert slots.history_mask[0].tolist() == [False] * 4
-    assert slots.history_mask[2].tolist() == [False] * 4
+    assert dense_slot_cache.history_mask[0].tolist() == [False] * 4
+    assert dense_slot_cache.history_mask[2].tolist() == [False] * 4
 
 
 def test_absorb_prefill_longer_prompt_grows_cache_to_the_left_and_preserves_existing_slots(model):
     first_prompt, longer_prompt = [3, 5], [11, 13, 17, 19, 23]
     first = admitted_state(0, first_prompt, slot=0)
-    slots = DenseSlotCache(capacity=2, device=CPU)
-    slots.absorb_prefill([first], prefill(model, [first_prompt]))
-    assert slots.length == 2
+    dense_slot_cache = DenseSlotCache(capacity=2, device=CPU)
+    dense_slot_cache.absorb_prefill([first], prefill(model, [first_prompt]))
+    assert dense_slot_cache.length == 2
 
     second = admitted_state(1, longer_prompt, slot=1)
-    slots.absorb_prefill([second], prefill(model, [longer_prompt]))
+    dense_slot_cache.absorb_prefill([second], prefill(model, [longer_prompt]))
 
-    assert slots.length == 5
-    assert_slot_matches_single_request(slots, model, first, first_prompt)
-    assert_slot_matches_single_request(slots, model, second, longer_prompt)
+    assert dense_slot_cache.length == 5
+    assert_slot_matches_single_request(dense_slot_cache, model, first, first_prompt)
+    assert_slot_matches_single_request(dense_slot_cache, model, second, longer_prompt)
 
 
 def test_absorb_prefill_shorter_prompt_keeps_cache_length(model):
     long_prompt, short_prompt = [3, 5, 7, 9, 11], [13, 17]
-    slots = DenseSlotCache(capacity=2, device=CPU)
-    slots.absorb_prefill([admitted_state(0, long_prompt, 0)], prefill(model, [long_prompt]))
+    dense_slot_cache = DenseSlotCache(capacity=2, device=CPU)
+    dense_slot_cache.absorb_prefill([admitted_state(0, long_prompt, 0)], prefill(model, [long_prompt]))
     short = admitted_state(1, short_prompt, 1)
-    slots.absorb_prefill([short], prefill(model, [short_prompt]))
+    dense_slot_cache.absorb_prefill([short], prefill(model, [short_prompt]))
 
-    assert slots.length == 5
-    assert_slot_matches_single_request(slots, model, short, short_prompt)
+    assert dense_slot_cache.length == 5
+    assert_slot_matches_single_request(dense_slot_cache, model, short, short_prompt)
 
 
 def test_prepare_decode_inputs_masks_inactive_slots_and_appends_active_column(model):
     prompt = [3, 5, 7]
     state = admitted_state(0, prompt, slot=2)
     state.generated.append(42)
-    slots = DenseSlotCache(capacity=3, device=CPU)
-    slots.absorb_prefill([state], prefill(model, [prompt]))
+    dense_slot_cache = DenseSlotCache(capacity=3, device=CPU)
+    dense_slot_cache.absorb_prefill([state], prefill(model, [prompt]))
 
-    input_ids, position_ids, attention_mask, prepare_ms = slots.prepare_decode_inputs([state], pad_token_id=0)
+    input_ids, position_ids, attention_mask, prepare_ms = dense_slot_cache.prepare_decode_inputs(
+        [state], pad_token_id=0
+    )
 
     assert prepare_ms >= 0
     assert input_ids.tolist() == [[0], [0], [42]]
     assert position_ids.tolist() == [[0], [0], [3]]  # 下一个 Token 的位置 == 已缓存长度
-    assert attention_mask.shape == (3, slots.length + 1)
+    assert attention_mask.shape == (3, dense_slot_cache.length + 1)
     assert attention_mask[:, -1].tolist() == [False, False, True]
     assert attention_mask[2].tolist() == [True, True, True, True]
     assert not attention_mask[0].any() and not attention_mask[1].any()
@@ -111,22 +115,22 @@ def test_commit_decode_step_updates_history_mask(model):
     prompt = [3, 5, 7]
     state = admitted_state(0, prompt, slot=2)
     state.generated.append(42)
-    slots = DenseSlotCache(capacity=3, device=CPU)
-    slots.absorb_prefill([state], prefill(model, [prompt]))
-    assert slots.history_mask.shape == (3, 3)
+    dense_slot_cache = DenseSlotCache(capacity=3, device=CPU)
+    dense_slot_cache.absorb_prefill([state], prefill(model, [prompt]))
+    assert dense_slot_cache.history_mask.shape == (3, 3)
 
-    input_ids, position_ids, attention_mask, _ = slots.prepare_decode_inputs([state], pad_token_id=0)
+    input_ids, position_ids, attention_mask, _ = dense_slot_cache.prepare_decode_inputs([state], pad_token_id=0)
     with torch.inference_mode():
         _, present = model(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_values=slots.past_key_values,
+            past_key_values=dense_slot_cache.past_key_values,
         )
-    slots.commit_decode_step(attention_mask, present)
-    assert slots.history_mask.shape == (3, 4)
-    assert slots.length == 4
-    torch.testing.assert_close(slots.history_mask, attention_mask)
+    dense_slot_cache.commit_decode_step(attention_mask, present)
+    assert dense_slot_cache.history_mask.shape == (3, 4)
+    assert dense_slot_cache.length == 4
+    torch.testing.assert_close(dense_slot_cache.history_mask, attention_mask)
 
 
 def test_prepare_decode_inputs_requires_allocated_cache():
@@ -137,16 +141,16 @@ def test_prepare_decode_inputs_requires_allocated_cache():
 def test_release_and_reset(model):
     prompt = [3, 5, 7]
     state = admitted_state(0, prompt, slot=0)
-    slots = DenseSlotCache(capacity=2, device=CPU)
-    slots.absorb_prefill([state], prefill(model, [prompt]))
-    assert slots.total_bytes > 0
+    dense_slot_cache = DenseSlotCache(capacity=2, device=CPU)
+    dense_slot_cache.absorb_prefill([state], prefill(model, [prompt]))
+    assert dense_slot_cache.total_bytes > 0
 
-    slots.release(state)
-    assert not slots.history_mask[0].any()
+    dense_slot_cache.release(state)
+    assert not dense_slot_cache.history_mask[0].any()
 
-    slots.reset()
-    assert slots.kv_cache is None and slots.history_mask is None
-    assert slots.length == 0 and slots.total_bytes == 0
+    dense_slot_cache.reset()
+    assert dense_slot_cache.kv_cache is None and dense_slot_cache.history_mask is None
+    assert dense_slot_cache.length == 0 and dense_slot_cache.total_bytes == 0
 
 
 def test_capacity_must_be_positive():
@@ -157,15 +161,15 @@ def test_capacity_must_be_positive():
 def test_rebuild_pool_zero_copy_and_reset_restores_capacity(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
     states = [admitted_state(0, prompts[0], slot=0), admitted_state(1, prompts[1], slot=1)]
-    slots = DenseSlotCache(capacity=4, device=CPU)
+    dense_slot_cache = DenseSlotCache(capacity=4, device=CPU)
     prefill_cache = prefill(model, prompts)
 
-    slots.rebuild_pool(states, prefill_cache)
+    dense_slot_cache.rebuild_pool(states, prefill_cache)
 
-    assert slots.capacity == 2
-    assert slots.kv_cache is prefill_cache
-    assert slots.history_mask.tolist() == [[True, True, True, True], [False, False, True, True]]
+    assert dense_slot_cache.capacity == 2
+    assert dense_slot_cache.kv_cache is prefill_cache
+    assert dense_slot_cache.history_mask.tolist() == [[True, True, True, True], [False, False, True, True]]
 
-    slots.reset()
-    assert slots.capacity == 4
-    assert slots.kv_cache is None and slots.history_mask is None
+    dense_slot_cache.reset()
+    assert dense_slot_cache.capacity == 4
+    assert dense_slot_cache.kv_cache is None and dense_slot_cache.history_mask is None
