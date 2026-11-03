@@ -371,8 +371,8 @@ def handle_release(args: argparse.Namespace) -> int:
     )
     child_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
 
-    for idx, step in enumerate(steps, 1):
-        print(f"\n[{idx}/{total}] 开始执行: {step.description}", flush=True)
+    for step_number, step in enumerate(steps, 1):
+        print(f"\n[{step_number}/{total}] 开始执行: {step.description}", flush=True)
         print("  $", " ".join(step.cmd), flush=True)
         for p in step.artifacts:
             rel = p.relative_to(REPO_ROOT) if p.is_relative_to(REPO_ROOT) else p
@@ -382,12 +382,12 @@ def handle_release(args: argparse.Namespace) -> int:
             rc = subprocess.run(step.cmd, cwd=REPO_ROOT, env=child_env).returncode
             if rc != 0:
                 print(
-                    f"\n[ERROR] [{idx}/{total}] 执行失败 (exit code={rc}): {step.description}",
+                    f"\n[ERROR] [{step_number}/{total}] 执行失败 (exit code={rc}): {step.description}",
                     file=sys.stderr,
                     flush=True,
                 )
                 return rc
-            print(f"[{idx}/{total}] 完成: {step.description}", flush=True)
+            print(f"[{step_number}/{total}] 完成: {step.description}", flush=True)
 
     print(f"\n=== Release Benchmark Pipeline 全部完成 (共 {total} 步) ===", flush=True)
     return 0

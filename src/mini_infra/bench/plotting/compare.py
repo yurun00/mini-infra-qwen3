@@ -146,8 +146,8 @@ def plot_mode_comparison(
     flat_axes = axes.flatten()
     palette = ["#e74c3c", "#2ecc71"]
 
-    for idx, spec in enumerate(specs):
-        ax = flat_axes[idx]
+    for spec_index, spec in enumerate(specs):
+        ax = flat_axes[spec_index]
         sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
         if sub.empty:
             ax.set_axis_off()
@@ -209,7 +209,7 @@ def plot_mode_comparison(
                     fontsize=8.5,
                 )
 
-        ax.set_title(f"{idx + 1}. {spec.title}", fontsize=10.5)
+        ax.set_title(f"{spec_index + 1}. {spec.title}", fontsize=10.5)
         ax.set_xlabel("")
         ax.set_ylabel(spec.ylabel)
         ax.grid(True, linestyle="--", alpha=0.45)

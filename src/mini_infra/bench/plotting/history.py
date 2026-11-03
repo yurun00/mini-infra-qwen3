@@ -183,8 +183,8 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 4.4 * nrows), squeeze=False)
     flat_axes = axes.flatten()
 
-    for idx, spec in enumerate(specs):
-        ax = flat_axes[idx]
+    for spec_index, spec in enumerate(specs):
+        ax = flat_axes[spec_index]
         sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
         if sub.empty:
             ax.set_axis_off()
@@ -216,7 +216,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         fontsize=7.5,
                     )
         else:
-            for sc_idx, sc in enumerate(present_scales):
+            for scale_index, sc in enumerate(present_scales):
                 sub_sc = sub[sub["scale"] == sc].sort_values("release_idx")
                 if sub_sc.empty:
                     continue
@@ -244,7 +244,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         capsize=3,
                         alpha=0.55,
                     )
-                y_offset = 5 + (sc_idx - 1) * 2 if has_multi_scale else 5
+                y_offset = 5 + (scale_index - 1) * 2 if has_multi_scale else 5
                 for x_i, y_val in zip(xs, ys):
                     ax.annotate(
                         f"{y_val:.1f}",
@@ -262,7 +262,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
             if has_multi_scale:
                 ax.legend(title="Scale", fontsize=7.5, title_fontsize=8)
 
-        ax.set_title(f"{idx + 1}. {spec.title}", fontsize=10.5)
+        ax.set_title(f"{spec_index + 1}. {spec.title}", fontsize=10.5)
         ax.set_xlabel("")
         ax.set_ylabel(spec.ylabel)
         ax.tick_params(axis="x", rotation=15)
@@ -425,13 +425,13 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     intra_step = 0.24 if has_multi_mem_scale else 0.5
     bar_width = 0.22 if has_multi_mem_scale else 0.5
 
-    for g_idx, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
+    for group_index, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
         n_in_group = len(g_df)
-        group_ticks.append(float(g_idx))
+        group_ticks.append(float(group_index))
         group_labels.append(str(g_df.iloc[0]["label"]))
         for i, (_, r) in enumerate(g_df.iterrows()):
             offset = (i - (n_in_group - 1) / 2.0) * intra_step
-            xs.append(float(g_idx) + offset)
+            xs.append(float(group_index) + offset)
             sc_name = str(r.get("scale") or "medium")
             bar_scale_tags.append(scale_short.get(sc_name, sc_name[:1].upper()))
 
@@ -513,10 +513,10 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
             float((sched.get("itl_ms_p95") or {}).get("median", 0.0)),
             float((sched.get("end_to_end_ms_p95") or {}).get("median", 0.0)),
         ]
-        x_idx = list(range(len(lat_categories)))
+        x_ticks = list(range(len(lat_categories)))
         bar_w = 0.36
-        bars_50 = ax_cat.bar([x - bar_w / 2 for x in x_idx], p50_vals, width=bar_w, label="P50", color="#3498db")
-        bars_95 = ax_cat.bar([x + bar_w / 2 for x in x_idx], p95_vals, width=bar_w, label="P95", color="#e74c3c")
+        bars_50 = ax_cat.bar([x - bar_w / 2 for x in x_ticks], p50_vals, width=bar_w, label="P50", color="#3498db")
+        bars_95 = ax_cat.bar([x + bar_w / 2 for x in x_ticks], p95_vals, width=bar_w, label="P95", color="#e74c3c")
         for bar in (*bars_50, *bars_95):
             h = bar.get_height()
             ax_cat.annotate(
@@ -528,7 +528,7 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
                 va="bottom",
                 fontsize=7.5,
             )
-        ax_cat.set_xticks(x_idx)
+        ax_cat.set_xticks(x_ticks)
         ax_cat.set_xticklabels(lat_categories)
         ax_cat.set_ylabel("Latency (ms)")
         ax_cat.set_title("2.4 Request Latency Percentiles (P50 vs P95)")
@@ -742,10 +742,10 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         lines.append("### 5. 当前 Top 8 热点 Kernel 明细")
         lines.append("| 序号 | Kernel 名称 | 类别 | CUDA 耗时 (ms) | 耗时占比 | 调用次数 |")
         lines.append("| :-: | :--- | :-: | :-: | :-: | :-: |")
-        for idx, k in enumerate(top_kernels[:8], 1):
+        for rank, k in enumerate(top_kernels[:8], 1):
             k_name = k["name"][:40]
             lines.append(
-                f"| {idx} | `{k_name}` | {k['category']} | {k['cuda_ms']:.2f} | "
+                f"| {rank} | `{k_name}` | {k['category']} | {k['cuda_ms']:.2f} | "
                 f"{k['share'] * 100:.1f}% | {k['calls']} |"
             )
         lines.append("")

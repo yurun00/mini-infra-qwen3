@@ -185,14 +185,16 @@ def run_mode(
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
         specs = make_request_specs(sequences, budgets)
-        concurrency = options.max_running_requests if options.max_running_requests is not None else len(specs)
-        if concurrency < 1:
+        effective_max_running_requests = (
+            options.max_running_requests if options.max_running_requests is not None else len(specs)
+        )
+        if effective_max_running_requests < 1:
             raise ValueError("max_running_requests 必须大于 0")
         return run_scheduler(
             mode.batching_method,
             model,
             specs,
-            concurrency,
+            effective_max_running_requests,
             options.eos_token_id,
             options.device or torch.device("cuda"),
             pad_token_id=options.pad_token_id,
@@ -258,9 +260,10 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         top_k = breakdown.top_kernels
         if top_k:
             print("Top-%d CUDA Kernels:" % len(top_k))
-            for idx, k in enumerate(top_k, 1):
+            for rank, k in enumerate(top_k, 1):
                 print(
-                    "  %2d. %-45s | %8.3f ms | %6.2f%% | %4d 次" % (idx, k.name[:45], k.cuda_ms, k.share * 100, k.calls)
+                    "  %2d. %-45s | %8.3f ms | %6.2f%% | %4d 次"
+                    % (rank, k.name[:45], k.cuda_ms, k.share * 100, k.calls)
                 )
     if tensorboard_dir is not None:
         print("TensorBoard Trace 目录: %s" % tensorboard_dir)

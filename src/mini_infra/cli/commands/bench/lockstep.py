@@ -217,9 +217,9 @@ def handle_suite(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    def on_progress(idx: int, total: int, case: SuiteCase) -> None:
+    def on_progress(case_number: int, total_cases: int, case: SuiteCase) -> None:
         print(
-            f"[{idx}/{total}] mode={case.mode} batch={case.batch_size} "
+            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.batch_size} "
             f"prompt={format_lengths(case.prompt_len)} max_new_tokens={format_lengths(case.max_new_tokens)} ...",
             flush=True,
         )

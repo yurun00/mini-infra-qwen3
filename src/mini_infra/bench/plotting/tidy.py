@@ -119,13 +119,14 @@ def records_to_wide_df(
     ]
 
     case_dicts: list[dict[str, Any]] = []
-    order_idx = 0
-    for rec_idx, (rec, lbl) in enumerate(zip(validated, resolved_labels)):
+    order_counter = 0
+    for release_index, (rec, lbl) in enumerate(zip(validated, resolved_labels)):
         for case_obj in rec.cases:
             c_dict = case_obj.to_dict()
-            c_dict["order_idx"] = order_idx
-            c_dict["release_idx"] = rec_idx
-            order_idx += 1
+            # "order_idx" / "release_idx" 是落盘与绘图端冻结的 DataFrame 列名契约（规则 §七），不随局部变量改名。
+            c_dict["order_idx"] = order_counter
+            c_dict["release_idx"] = release_index
+            order_counter += 1
             c_dict["label"] = lbl
             c_dict["tag"] = rec.tag
             c_dict["scale"] = c_dict.get("scale") or "medium"

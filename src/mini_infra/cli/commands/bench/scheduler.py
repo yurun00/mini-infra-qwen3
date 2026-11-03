@@ -175,8 +175,8 @@ def handle_case(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    def on_case_step(phase: str, idx: int, total: int) -> None:
-        print(f"  [{phase} {idx}/{total}] mode={target_mode} requests={len(specs)} ...", flush=True)
+    def on_case_step(phase: str, step_number: int, total_steps: int) -> None:
+        print(f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={len(specs)} ...", flush=True)
 
     result = run_case(
         model=model,
@@ -260,11 +260,11 @@ def handle_suite(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    def on_suite_step(idx: int, total: int, planned_run: PlannedRun) -> None:
+    def on_suite_step(step_number: int, total_steps: int, planned_run: PlannedRun) -> None:
         rep = f"repeat {planned_run.repeat_index + 1}" if planned_run.repeat_index is not None else "warmup"
         case = planned_run.case
         print(
-            f"  [{idx:02d}/{total:02d}] {planned_run.phase.value:<7} | {rep:<10} | "
+            f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | "
             f"case_id={case.id} mode={case.mode} max_running={case.max_running_requests} ...",
             flush=True,
         )
