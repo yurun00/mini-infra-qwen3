@@ -3,7 +3,7 @@
 不经过请求队列调度器（Scheduler），所有请求在 t=0 同时入场、打包进同一张量齐步执行（1 步 Prefill + N 步 Decode）。
 面向算子基准测试与数值等价性校验（支持 use_cache=False 全量重算对照、capture_logits=True 逐步 Logits 采集
 以及 CUDA Event 全异步计时）。内部持有向量化状态机 LockstepState，每步直接调用
-ModelRunner.step_forward(sync=False) 执行前向推理，避免每步 CPU-GPU 同步开销。
+ModelRunner.step_forward(should_sync=False) 执行前向推理，避免每步 CPU-GPU 同步开销。
 """
 
 import time
@@ -98,7 +98,7 @@ class LockstepState:
         position_ids = self.curr_position_ids if use_cache else self.full_position_ids
         return model_input, self.history_mask, position_ids
 
-    def update_step(
+    def commit_step(
         self,
         next_tokens: torch.Tensor,
         step: int,
@@ -177,7 +177,7 @@ def run_lockstep(
     model: torch.nn.Module,
     input_ids: torch.Tensor | Sequence[Any],
     token_sequences: list[torch.Tensor],
-    has_uniform_len: bool,
+    has_uniform_prompt_len: bool,
     budgets: torch.Tensor,
     use_cache: bool,
     device: torch.device,
@@ -195,7 +195,7 @@ def run_lockstep(
     """
     is_cuda = device.type == "cuda"
     input_tensor, history_mask, pos_ids, prompt_lens = prepare_prefill_inputs(
-        input_ids, token_sequences, has_uniform_len, pad_token_id, device
+        input_ids, token_sequences, has_uniform_prompt_len, pad_token_id, device
     )
     # 引擎层持有 KVCache 容器，只在模型边界用 past_key_values 导出/回收纯张量。
     kv_cache: KVCache | None = None
@@ -225,8 +225,8 @@ def run_lockstep(
             past_key_values=None if kv_cache is None else kv_cache.past_key_values,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            return_logits=capture_logits,
-            sync=False,
+            capture_logits=capture_logits,
+            should_sync=False,
         )
         if use_cache:
             kv_cache = KVCache(step_out.present_key_values)
@@ -242,7 +242,7 @@ def run_lockstep(
             logits_trace.append(step_out.last_logits.float().cpu())
 
         next_tokens = step_out.next_token.squeeze(1)
-        is_all_finished = state.update_step(next_tokens, step, eos_token_id, stop_on_eos)
+        is_all_finished = state.commit_step(next_tokens, step, eos_token_id, stop_on_eos)
         if is_all_finished:
             break
         state.prepare_next_step(next_tokens, use_cache)

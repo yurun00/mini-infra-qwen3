@@ -46,7 +46,7 @@ def generate(
     opts = options or GenerationOptions()
 
     # 1. 规约输入 Prompt、预算与设备
-    token_sequences, device, has_uniform_len = prepare_prompt_sequences(input_ids, opts.device)
+    token_sequences, device, has_uniform_prompt_len = prepare_prompt_sequences(input_ids, opts.device)
     budgets = normalize_budgets(max_new_tokens, len(token_sequences), device)
 
     # 2. Continuous Batching 分发（不再静默回退到固定批次路径）
@@ -77,7 +77,7 @@ def generate(
         model,
         input_ids,
         token_sequences,
-        has_uniform_len,
+        has_uniform_prompt_len,
         budgets,
         device,
         opts,
@@ -89,7 +89,7 @@ def _dispatch_lockstep(
     model: torch.nn.Module,
     input_ids: torch.Tensor | Sequence[Any],
     token_sequences: list[torch.Tensor],
-    has_uniform_len: bool,
+    has_uniform_prompt_len: bool,
     budgets: torch.Tensor,
     device: torch.device,
     opts: GenerationOptions,
@@ -107,7 +107,7 @@ def _dispatch_lockstep(
         model=model,
         input_ids=input_ids,
         token_sequences=token_sequences,
-        has_uniform_len=has_uniform_len,
+        has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
         use_cache=use_cache,
         device=device,
@@ -174,12 +174,12 @@ def _dispatch_continuous(
     if opts.max_running_requests is not None and opts.max_running_requests < 1:
         raise ValueError("max_running_requests 必须大于 0")
     specs = make_request_specs(token_sequences, budgets.tolist())
-    concurrency = opts.max_running_requests if opts.max_running_requests is not None else len(specs)
+    max_running_requests = opts.max_running_requests if opts.max_running_requests is not None else len(specs)
     return run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
         specs,
-        concurrency,
+        max_running_requests,
         opts.eos_token_id,
         device,
         pad_token_id=opts.pad_token_id,

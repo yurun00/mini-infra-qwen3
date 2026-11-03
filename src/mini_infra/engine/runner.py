@@ -3,8 +3,9 @@
 不做任何调度决策（谁入场、谁退场见 core/scheduler.py），也不维护请求生命周期、EOS/预算判定或逻辑时钟
 （见 engine/lockstep_loop.py 与 engine/scheduler_loop.py）。两类计时口径并存，调用方按场景选用：
 
-- step_forward：底层单步张量前向与贪心采样，默认在 CUDA 下用 Event 异步打点（sync=False），供齐步（Lockstep）循环使用；
-- prefill_requests / decode_slots：面向请求槽位的输入组装与同步前向（sync=True），供调度循环推进逻辑时钟。
+- step_forward：底层单步张量前向与贪心采样，CUDA 下默认用 Event 异步打点（should_sync=False），
+  供齐步（Lockstep）循环使用；
+- prefill_requests / decode_slots：面向请求槽位的输入组装与同步前向（should_sync=True），供调度循环推进逻辑时钟。
 """
 
 import time
@@ -25,7 +26,8 @@ class StepForwardResult(NamedTuple):
 
     - 属性访问：.next_token, .present_key_values, .elapsed_ms, .event_pair, .last_logits
     - present_key_values 是模型返回的逐层 (key, value) 纯张量列表，由调用方决定丢弃还是写回容器；
-    - last_logits 仅在 return_logits=True 时填充；CUDA 下 sync=False 时 event_pair 存放计时 Event，elapsed_ms 为 0。
+    - last_logits 仅在 capture_logits=True 时填充；CUDA 下 should_sync=False 时 event_pair 存放计时 Event，
+      elapsed_ms 为 0。
     """
 
     next_token: torch.Tensor
@@ -47,8 +49,8 @@ class ModelRunner:
     """模型执行器（ModelRunner 数据面）：负责管理模型前向与单步贪心采样，隐藏硬件计时与输入组装细节。
 
     对请求生命周期（max_new_tokens、eos_token_id、finish_reason）完全无感知：
-    - step_forward：单步张量前向与采样原语（支持 sync=False 异步 Event 打点与 sync=True 同步测时）；
-    - prefill_requests / decode_slots：接收活跃请求或 DenseSlotCache，完成张量组装并调用 step_forward(sync=True)。
+    - step_forward：单步张量前向与采样原语（支持 should_sync=False 异步 Event 打点与 should_sync=True 同步测时）；
+    - prefill_requests / decode_slots：接收活跃请求或 DenseSlotCache，组装张量并调用 step_forward(should_sync=True)。
     """
 
     def __init__(self, model: torch.nn.Module, device: torch.device, pad_token_id: int = 0):
@@ -62,16 +64,16 @@ class ModelRunner:
         past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]] | None = None,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-        return_logits: bool = False,
-        sync: bool = False,
+        capture_logits: bool = False,
+        should_sync: bool = False,
     ) -> StepForwardResult:
         """单步张量前向推理与贪心采样。
 
         - past_key_values 为 None 时做全量上下文计算（Prefill 或 No-Cache baseline），否则做增量 Decode；
-        - sync=False（默认）：CUDA 下通过 Event 异步打点，供静态自回归循环避免每步 CPU-GPU 同步；
-        - sync=True：执行前后硬件同步，直接计算耗时 ms，供调度器推进逻辑时钟。
+        - should_sync=False（默认）：CUDA 下通过 Event 异步打点，供静态自回归循环避免每步 CPU-GPU 同步；
+        - should_sync=True：执行前后硬件同步，直接计算耗时 ms，供调度器推进逻辑时钟。
         """
-        if sync:
+        if should_sync:
             synchronize(self.device)
 
         event_pair = None
@@ -91,7 +93,7 @@ class ModelRunner:
 
         if self.device.type == "cuda":
             end.record()
-            if sync:
+            if should_sync:
                 synchronize(self.device)
                 elapsed_ms = start.elapsed_time(end)
             else:
@@ -99,7 +101,7 @@ class ModelRunner:
         else:
             elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        result_logits = last_logits if return_logits else None
+        result_logits = last_logits if capture_logits else None
         return StepForwardResult(
             next_token=next_token,
             present_key_values=present_key_values,
@@ -113,7 +115,9 @@ class ModelRunner:
         input_ids, attention_mask, position_ids, _ = left_pad_sequences(
             [state.spec.token_ids for state in states], self.pad_token_id, self.device
         )
-        step_out = self.step_forward(input_ids, attention_mask=attention_mask, position_ids=position_ids, sync=True)
+        step_out = self.step_forward(
+            input_ids, attention_mask=attention_mask, position_ids=position_ids, should_sync=True
+        )
         next_tokens = step_out.next_token.squeeze(-1).tolist()
         return next_tokens, KVCache(step_out.present_key_values), step_out.elapsed_ms
 
@@ -125,7 +129,7 @@ class ModelRunner:
             past_key_values=slots.past_key_values,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            sync=True,
+            should_sync=True,
         )
         slots.commit_decode_step(attention_mask, step_out.present_key_values)
         next_tokens = step_out.next_token.squeeze(-1).tolist()

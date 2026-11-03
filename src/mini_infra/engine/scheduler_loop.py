@@ -203,12 +203,14 @@ def run_scheduler(
     else:
         method = BatchingMethod.from_str(batching_method)
 
-    concurrency = 1 if (method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
+    effective_max_running_requests = (
+        1 if (method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
+    )
     return _run_schedule(
         method=method,
         model=model,
         request_specs=request_specs,
-        max_running_requests=concurrency,
+        max_running_requests=effective_max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
         pad_token_id=pad_token_id,
