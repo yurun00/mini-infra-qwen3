@@ -82,7 +82,7 @@ if past_key_value is not None:
 容器侧的更新则退化为一次整体重建：`KVCache(present_key_values)`。显存层用 `past_key_values` 属性把容器导出为纯张量列表喂给模型，用构造函数把模型返回的张量收回容器：
 
 ```python
-cache = KVCache(present_key_values)   # Prefill 建立 / Decode 逐层变长
+cache = KVCache(present_key_values)  # Prefill 建立 / Decode 逐层变长
 logits, present = model(input_ids, past_key_values=cache.past_key_values)
 ```
 
