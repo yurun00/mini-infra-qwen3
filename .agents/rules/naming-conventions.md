@@ -15,7 +15,7 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 
 ## 一、同一概念全仓唯一名 (One Concept, One Name)
 
-- 表达同一个语义的东西，在所有层、所有文件里必须叫同一个名字。**严禁**在不同模块给同一概念起近义别名（`max_len` / `max_length` / `padded_length` 混用，`req_idx` / `request_idx` / `idx` 混用）。
+- 表达同一个语义的东西，在所有层、所有文件里必须叫同一个名字。**严禁**在不同模块给同一概念起近义别名（`max_len` / `max_length` / `padded_length` 混用；`req_idx` / `request_idx` / `idx` 混用——按 §二 三者都必须收敛为 `request_idx`）。
 - 反过来，**同一个名字严禁承载两种语义**。若两处同名却是不同概念，必须改名到语义可辨。
 
   > **反例（本仓曾真实发生，已于命名收敛中修复）**：`memory/dense_slot_cache.py` 与 `engine/lockstep_loop.py`
@@ -27,11 +27,12 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 
 - 改名时向**同文件既有写法**收敛，而不是引入第三种叫法。
 
-## 二、整数索引统一 `_index` 后缀
+## 二、整数索引统一 `_idx` 后缀，且前缀必须说明索引空间
 
-- 槽位号、块号、层号、行号、请求序号一律写作 `slot_index` / `block_index` / `layer_index` / `row_index` / `request_index`。
-- **严禁** `idx` 及其变体（`req_idx`、`batch_idx`、`slot_idx`）。`idx` 不携带任何量纲信息，且无法区分「张量行号」与「请求序号」这两类完全不同的索引。
-- 索引名必须说明**索引到哪个空间**。裸 `index`、`i`、`j` 只在 5 行以内的局部循环里可接受。
+- 槽位号、块号、层号、行号、请求序号一律写作 `slot_idx` / `block_idx` / `layer_idx` / `row_idx` / `request_idx`。
+- **严禁**裸 `idx`、裸 `index`，以及不说明索引空间的缩写：`req_idx` 的 `req` 是 request 还是 requirement？必须写全 `request_idx`。`i`、`j` 只在 5 行以内的局部循环里可接受。
+- 一个名字里同时出现两个索引空间时，两个空间都必须写全：`completion_step_by_request_idx`、`prompt_len_by_request_idx`。
+- **边界说明（避免再次反转）**：`_idx` 与 §三 的 `_ms` 不是同一类后缀。`_ms` 是**单位符号**，展开成 `_milliseconds` 反而不像单位；`idx` 是 `index` 的既定行业缩写，读者不会误解其含义，展开成 `_index` 只增加行宽（本仓 `line-length = 120`）而不增加任何信息量。命名纪律的价值在于**前缀说明了索引到哪个空间**，不在后缀长短——不要以「后缀不够正式」为由把 `_idx` 改回 `_index`。
 
 ## 三、时间量统一 `_ms` 后缀
 
@@ -63,6 +64,9 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 凡进入 **JSON 落盘 schema、Pydantic 模型字段、CLI flag / argparse dest、绘图脚本取值的 key** 的名字，属于对外契约，**不得在命名重构中顺手改名**。
 - 完整清单与联动要求见根目录 `AGENTS.md` 第一节第 4 条（结果指标变更的端到端联动守恒）。改名前必须先 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/` 确认零命中。
 - 特别地：CLI 的 `--prompt-lens`（argparse dest `prompt_lens`）与 engine 内部的局部变量恰好同名但**不是同一个成员**。此类情况下**禁止全局替换**，只能逐点改内部变量。
+- 冻结的判据是**存在下游读者或已落盘的历史产物**，不是「它恰好被写进过某个 dict」。判定时先 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/`：
+  - 有读者 / 有历史产物 → 字符串字面量冻结，即使与按 §二 改名后的局部变量不同名也保持原样，并在赋值处加注释说明。现存例：`bench/plotting/tidy.py` 写入 DataFrame 的 `"order_idx"` / `"release_idx"`，被 `history.py` 的 `sort_values` / `groupby` 读取。
+  - 零读者且零历史产物 → 不触发本条，随标识符一起改名。现存例：`verification/parity/compare_lockstep_batch.py` 的 `--output` 诊断 JSON（`"target_idx"`）。
 
 ---
 
