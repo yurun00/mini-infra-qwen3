@@ -46,8 +46,8 @@ def generate(
     opts = options or GenerationOptions()
 
     # 1. 规约输入 Prompt、预算与设备
-    token_sequences, target_device, has_uniform_len = prepare_prompt_sequences(input_ids, opts.device)
-    budgets = normalize_budgets(max_new_tokens, len(token_sequences), target_device)
+    token_sequences, device, has_uniform_len = prepare_prompt_sequences(input_ids, opts.device)
+    budgets = normalize_budgets(max_new_tokens, len(token_sequences), device)
 
     # 2. Continuous Batching 分发（不再静默回退到固定批次路径）
     if mode.batching_method == BatchingMethod.CONTINUOUS:
@@ -56,7 +56,7 @@ def generate(
             model,
             token_sequences,
             budgets,
-            target_device,
+            device,
             opts,
         )
 
@@ -67,7 +67,7 @@ def generate(
             model,
             token_sequences,
             budgets,
-            target_device,
+            device,
             opts,
         )
 
@@ -79,7 +79,7 @@ def generate(
         token_sequences,
         has_uniform_len,
         budgets,
-        target_device,
+        device,
         opts,
     )
 
@@ -91,17 +91,17 @@ def _dispatch_lockstep(
     token_sequences: list[torch.Tensor],
     has_uniform_len: bool,
     budgets: torch.Tensor,
-    target_device: torch.device,
+    device: torch.device,
     opts: GenerationOptions,
 ) -> LockstepResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
-    is_cuda = target_device.type == "cuda"
+    is_cuda = device.type == "cuda"
     use_cache = mode.is_enabled(FeatureFlag.KV_CACHE)
 
-    synchronize(target_device)
-    baseline_allocated_bytes = torch.cuda.memory_allocated(target_device) if is_cuda else 0
+    synchronize(device)
+    baseline_allocated_bytes = torch.cuda.memory_allocated(device) if is_cuda else 0
     if is_cuda:
-        torch.cuda.reset_peak_memory_stats(target_device)
+        torch.cuda.reset_peak_memory_stats(device)
 
     loop_kwargs = dict(
         model=model,
@@ -110,7 +110,7 @@ def _dispatch_lockstep(
         has_uniform_len=has_uniform_len,
         budgets=budgets,
         use_cache=use_cache,
-        device=target_device,
+        device=device,
         pad_token_id=opts.pad_token_id,
         eos_token_id=opts.eos_token_id,
         stop_on_eos=opts.stop_on_eos,
@@ -119,7 +119,7 @@ def _dispatch_lockstep(
     )
 
     if opts.profile:
-        with profile_scope(model, device=target_device, tensorboard_options=opts.tensorboard_options) as prof_collector:
+        with profile_scope(model, device=device, tensorboard_options=opts.tensorboard_options) as prof_collector:
             gen_result = run_lockstep(**loop_kwargs)
         op_latency_breakdown = prof_collector.get_latency_breakdown(top=opts.top_kernels)
         return replace(gen_result, op_breakdown=op_latency_breakdown)

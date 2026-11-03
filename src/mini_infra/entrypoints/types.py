@@ -110,12 +110,12 @@ def aggregate_generation_results(
         options = AggregationOptions()
 
     sequences: list[SequenceOutput] = []
-    req_counter = 0
+    request_index = 0
     for run in runs:
         for seq in run.sequences:
             sequences.append(
                 SequenceOutput(
-                    request_index=req_counter,
+                    request_index=request_index,
                     token_ids=seq.token_ids,
                     prompt_len=seq.prompt_len,
                     output_len=seq.output_len,
@@ -123,7 +123,7 @@ def aggregate_generation_results(
                     completion_step=seq.completion_step,
                 )
             )
-            req_counter += 1
+            request_index += 1
 
     total_requests = len(sequences)
     step_latencies = [x for run in runs for x in run.trace.step_latencies_ms]

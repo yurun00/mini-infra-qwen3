@@ -99,13 +99,13 @@ class RequestState:
 
     def to_request_metrics(self) -> RequestMetrics:
         """导出为不可变的单请求时间线指标 RequestMetrics。"""
-        idx = self.spec.request_index
+        request_index = self.spec.request_index
         return RequestMetrics(
-            request_index=idx,
+            request_index=request_index,
             arrival_ms=self.spec.arrival_ms,
-            admitted_ms=_require(self.admitted_ms, "admitted_ms", idx),
-            first_token_ms=_require(self.first_token_ms, "first_token_ms", idx),
-            completion_ms=_require(self.completion_ms, "completion_ms", idx),
+            admitted_ms=_require(self.admitted_ms, "admitted_ms", request_index),
+            first_token_ms=_require(self.first_token_ms, "first_token_ms", request_index),
+            completion_ms=_require(self.completion_ms, "completion_ms", request_index),
             num_output_tokens=len(self.generated),
             token_times_ms=tuple(self.token_times_ms),
         )

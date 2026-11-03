@@ -73,7 +73,7 @@ def _run_schedule(
     runner = ModelRunner(model, device, pad_token_id)
     waiting_queue = WaitingQueue()
     running_queue = RunningQueue(max_running_requests)
-    slots_cache = DenseSlotCache(max_running_requests, device)
+    slots = DenseSlotCache(max_running_requests, device)
     events: list[ScheduleEvent] = []
     wall_start = time.perf_counter()
 
@@ -89,9 +89,9 @@ def _run_schedule(
             admitted = running_queue.admit(batch, clock_ms)
             token_ids, prefill_cache, model_ms = runner.prefill_requests(admitted)
             if is_continuous:
-                cache_ms = slots_cache.admit(admitted, prefill_cache)
+                cache_ms = slots.admit(admitted, prefill_cache)
             else:
-                slots_cache.bind_wave(admitted, prefill_cache)
+                slots.bind_wave(admitted, prefill_cache)
                 cache_ms = 0.0
             del prefill_cache
             step_ms = model_ms + cache_ms
@@ -108,16 +108,16 @@ def _run_schedule(
                     step_ms=step_ms,
                     model_ms=model_ms,
                     cache_management_ms=cache_ms,
-                    live_kv_cache_bytes=slots_cache.total_bytes,
+                    live_kv_cache_bytes=slots.total_bytes,
                 )
             )
-            _retire(finished, running_queue, slots_cache)
+            _retire(finished, running_queue, slots)
             continue
 
         # 3. 运行中请求 Decode
         if running_queue:
             active_before = len(running_queue)
-            decode_result = runner.decode_slots(slots_cache, running_queue.requests)
+            decode_result = runner.decode_slots(slots, running_queue.requests)
             for state in running_queue:
                 state.cache_length += 1
             cache_ms = decode_result.prepare_ms if is_continuous else 0.0
@@ -134,16 +134,16 @@ def _run_schedule(
                     phase=SchedulePhase.DECODE,
                     admitted_request_ids=(),
                     finished_request_ids=tuple(s.spec.request_index for s in finished),
-                    physical_batch_size=slots_cache.capacity,
+                    physical_batch_size=slots.capacity,
                     num_active_requests=active_before,
                     num_generated_tokens=active_before,
                     step_ms=step_ms,
                     model_ms=decode_result.model_ms,
                     cache_management_ms=cache_ms,
-                    live_kv_cache_bytes=slots_cache.total_bytes,
+                    live_kv_cache_bytes=slots.total_bytes,
                 )
             )
-            _retire(finished, running_queue, slots_cache)
+            _retire(finished, running_queue, slots)
             continue
 
         # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）。

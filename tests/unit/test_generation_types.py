@@ -415,20 +415,20 @@ def test_padded_output_tokens_method():
         [7, 99, 99, 99],
     ]
 
-    # 2. 单个 request_idx 输入：返回 1D Tensor
+    # 2. 单个 request_index 输入：返回 1D Tensor
     req0 = res.padded_output_tokens(0)
     assert req0.shape == (2,)
     assert req0.tolist() == [1, 2]
 
-    req1 = res.padded_output_tokens(request_idx=1)
+    req1 = res.padded_output_tokens(request_index=1)
     assert req1.shape == (4,)
     assert req1.tolist() == [3, 4, 5, 6]
 
-    # 不存在的 request_idx 引发 IndexError
+    # 不存在的 request_index 引发 IndexError
     with pytest.raises(IndexError, match="Request index 999 not found"):
         res.padded_output_tokens(999)
 
-    # 3. 多个 request_idx 列表输入：返回指定的 2D 对齐 Tensor
+    # 3. 多个 request_index 列表输入：返回指定的 2D 对齐 Tensor
     subset = res.padded_output_tokens([2, 0], pad_token_id=-1)
     assert subset.shape == (2, 2)
     assert subset.tolist() == [
