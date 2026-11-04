@@ -4,9 +4,10 @@ import pytest
 import torch
 
 from mini_infra.core.request import RequestSpec, RequestState, RequestStatus
-from mini_infra.engine.preprocessing import left_pad_sequences
 from mini_infra.verification.smoke import build_tiny_model
-from mini_infra.worker import DenseSlotCache, KVCache, prepare_decode_inputs
+from mini_infra.worker import DenseSlotCache, KVCache
+from mini_infra.worker.base_runner import _left_pad_sequences
+from mini_infra.worker.slot_runner import _prepare_decode_inputs
 
 CPU = torch.device("cpu")
 
@@ -18,7 +19,7 @@ def model():
 
 def prefill(model, prompts: list[list[int]]) -> KVCache:
     """对一批 Prompt 做左 Padding Prefill，返回 Cache。"""
-    input_ids, mask, positions, _ = left_pad_sequences(prompts, 0, CPU)
+    input_ids, mask, positions, _ = _left_pad_sequences(prompts, 0, CPU)
     with torch.inference_mode():
         _, present = model(input_ids, attention_mask=mask, position_ids=positions)
     return KVCache(present)
@@ -95,7 +96,7 @@ def test_prepare_decode_inputs_masks_inactive_slots_and_appends_active_column(mo
     dense_slot_cache = DenseSlotCache(capacity=3, device=CPU)
     dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
 
-    input_ids, position_ids, attention_mask, prepare_ms = prepare_decode_inputs(
+    input_ids, position_ids, attention_mask, prepare_ms = _prepare_decode_inputs(
         slot_cache=dense_slot_cache,
         running_slot_indices=[slot_idx],
         last_tokens=[42],
@@ -119,7 +120,7 @@ def test_commit_decode_step_updates_history_mask(model):
     dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
     assert dense_slot_cache.history_mask.shape == (3, 3)
 
-    input_ids, position_ids, attention_mask, _ = prepare_decode_inputs(
+    input_ids, position_ids, attention_mask, _ = _prepare_decode_inputs(
         slot_cache=dense_slot_cache,
         running_slot_indices=[slot_idx],
         last_tokens=[42],
@@ -141,7 +142,7 @@ def test_commit_decode_step_updates_history_mask(model):
 
 def test_prepare_decode_inputs_requires_allocated_cache():
     with pytest.raises(RuntimeError):
-        prepare_decode_inputs(
+        _prepare_decode_inputs(
             slot_cache=DenseSlotCache(capacity=2, device=CPU),
             running_slot_indices=[],
             last_tokens=[],

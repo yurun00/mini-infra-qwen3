@@ -5,39 +5,11 @@ from typing import Any
 
 import torch
 
-
-def left_pad_sequences(
-    token_sequences: Sequence[Any], pad_token_id: int, device: torch.device
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """把一组非空的一维 Token 序列左 Padding 为矩形 Tensor。
-
-    Returns:
-        input_ids [B, L], attention_mask [B, L] (bool), position_ids [B, L], prompt_lengths [B]
-    """
-    if not token_sequences:
-        raise ValueError("token_sequences 不能为空")
-    prompt_lengths = []
-    normalized = []
-    for sequence in token_sequences:
-        tensor = torch.as_tensor(sequence, dtype=torch.long, device=device)
-        if tensor.ndim != 1 or tensor.numel() < 1:
-            raise ValueError("每个 Prompt 必须是一维非空 Token 序列")
-        normalized.append(tensor)
-        prompt_lengths.append(tensor.numel())
-
-    padded_prompt_length = max(prompt_lengths)
-    batch_size = len(normalized)
-    input_ids = torch.full((batch_size, padded_prompt_length), pad_token_id, dtype=torch.long, device=device)
-    attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
-    for row_idx, sequence in enumerate(normalized):
-        prompt_length = sequence.numel()
-        input_ids[row_idx, padded_prompt_length - prompt_length :] = sequence
-        attention_mask[row_idx, padded_prompt_length - prompt_length :] = True
-
-    # 真实 Token 的逻辑位置从 0 开始；Padding 位置记为 0（会被 mask 掉）。
-    position_ids = attention_mask.long().cumsum(dim=-1) - 1
-    position_ids.clamp_(min=0)
-    return input_ids, attention_mask, position_ids, torch.tensor(prompt_lengths, dtype=torch.long, device=device)
+__all__ = [
+    "normalize_budgets",
+    "normalize_token_sequences",
+    "prepare_prompt_sequences",
+]
 
 
 def normalize_budgets(max_new_tokens: int | Sequence[int], batch_size: int, device: torch.device) -> torch.Tensor:
@@ -81,26 +53,3 @@ def prepare_prompt_sequences(
         if device is None:
             device = token_sequences[0].device
     return token_sequences, device, has_uniform_prompt_len
-
-
-def prepare_prefill_inputs(
-    input_ids: torch.Tensor | Sequence[Any],
-    token_sequences: list[torch.Tensor],
-    has_uniform_prompt_len: bool,
-    pad_token_id: int,
-    device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """构建 Prefill 阶段直接喂给模型的初始输入张量（天然等长跳过 padding，不等长采用左 Padding）。"""
-    if has_uniform_prompt_len:
-        input_ids_tensor = (input_ids if input_ids.ndim == 2 else input_ids.unsqueeze(0)).to(
-            device=device, dtype=torch.long
-        )
-        batch_size, padded_prompt_length = input_ids_tensor.shape
-        attention_mask = torch.ones((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
-        position_ids = (
-            torch.arange(padded_prompt_length, device=device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
-        )
-        prompt_lengths = torch.full((batch_size,), padded_prompt_length, dtype=torch.long, device=device)
-        return input_ids_tensor, attention_mask, position_ids, prompt_lengths
-
-    return left_pad_sequences(token_sequences, pad_token_id, device)

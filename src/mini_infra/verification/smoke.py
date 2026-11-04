@@ -13,11 +13,11 @@ from mini_infra.engine import (
     Mode,
     SchedulePhase,
     generate,
-    left_pad_sequences,
     run_scheduler,
 )
 from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
 from mini_infra.worker import KVCache, cache_size_bytes
+from mini_infra.worker.base_runner import _left_pad_sequences
 
 
 def build_tiny_model():
@@ -107,7 +107,7 @@ def check_fixed_batching(model):
     request_b = [11, 13]
     request_c = [17, 19]
 
-    padded, mask, positions, lengths = left_pad_sequences([request_a, request_b], 0, device)
+    padded, mask, positions, lengths = _left_pad_sequences([request_a, request_b], 0, device)
     assert padded.tolist() == [[3, 5, 7, 9], [0, 0, 11, 13]]
     assert mask.tolist() == [[True] * 4, [False, False, True, True]]
     assert positions.tolist() == [[0, 1, 2, 3], [0, 0, 0, 1]]

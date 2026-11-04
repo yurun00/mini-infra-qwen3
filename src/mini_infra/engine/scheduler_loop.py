@@ -2,11 +2,11 @@
 
 作为底座引擎核心，串联三类组件驱动“调度 → 执行 → 槽位更新”的迭代循环：
 - 调度策略（入场、槽位分配、退场与 EOS/预算判定）：core/scheduler.py
-- 模型执行（单步 Prefill / 槽位 Decode 前向与计时）：engine/runner.py (ModelRunner)
-- KV Cache 槽位管理：memory/dense_slot_cache.py (DenseSlotCache)
+- 模型执行（单步 Prefill / 槽位 Decode 前向与计时）：worker/runner.py (SlotRunner)
+- KV Cache 槽位管理：worker/dense_slot_cache.py (DenseSlotCache)
 
 对外通过 run_scheduler 统一驱动两类批处理调度策略，共享同一套三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）
-与 ModelRunner 执行协议，仅在准入时机与槽位绑定策略上区分：
+与 SlotRunner 执行协议，仅在准入时机与槽位绑定策略上区分：
 - CONTINUOUS（连续批处理）：只要 RunningQueue 有空闲槽位即准入新请求，并将 Prefill Cache 拷入持久化槽位；
 - FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空（当前波次全部完成）才准入下一波请求，零拷贝直接接管波次 Cache。
 在逻辑时间线上精确追踪模型与搬移耗时，输出 ScheduleResult（含 TTFT/TPOT/makespan 等事件流）。
@@ -34,7 +34,7 @@ from mini_infra.engine.metrics import (
 )
 from mini_infra.engine.mode import BatchingMethod
 from mini_infra.engine.results import ScheduleResult
-from mini_infra.worker import DenseSlotCache, ModelRunner
+from mini_infra.worker import DenseSlotCache, SlotRunner
 
 __all__ = ["run_scheduler"]
 
@@ -70,7 +70,7 @@ def _run_schedule(
     synchronize(device)
     baseline_mb = allocated_memory_mb(device)
     reset_peak_memory(device)
-    runner = ModelRunner(model, device, pad_token_id)
+    runner = SlotRunner(model, device, pad_token_id)
     waiting_queue = WaitingQueue()
     running_queue = RunningQueue(max_running_requests)
     dense_slot_cache = DenseSlotCache(max_running_requests, device)
@@ -87,18 +87,17 @@ def _run_schedule(
         if can_admit and waiting_queue:
             batch = waiting_queue.pop_batch(running_queue.num_free_slots)
             admitted = running_queue.admit(batch, clock_ms)
-            token_ids, prefill_cache, model_ms = runner.prefill_requests(admitted)
+            prefill_out = runner.step_prefill([s.spec.token_ids for s in admitted])
             slot_indices = [s.slot_idx for s in admitted if s.slot_idx is not None]
             cache_lengths = [s.cache_length for s in admitted]
             if is_continuous:
-                cache_ms = dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill_cache)
+                cache_ms = dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill_out.prefill_cache)
             else:
-                dense_slot_cache.adopt_prefill(slot_indices, cache_lengths, prefill_cache)
+                dense_slot_cache.adopt_prefill(slot_indices, cache_lengths, prefill_out.prefill_cache)
                 cache_ms = 0.0
-            del prefill_cache
-            step_ms = model_ms + cache_ms
+            step_ms = prefill_out.model_ms + cache_ms
             clock_ms += step_ms
-            finished = running_queue.step(token_ids, clock_ms, eos_token_id, stop_on_eos, states=admitted)
+            finished = running_queue.step(prefill_out.next_tokens, clock_ms, eos_token_id, stop_on_eos, states=admitted)
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.PREFILL,
@@ -108,7 +107,7 @@ def _run_schedule(
                     num_active_requests=len(running_queue),
                     num_generated_tokens=len(admitted),
                     step_ms=step_ms,
-                    model_ms=model_ms,
+                    model_ms=prefill_out.model_ms,
                     cache_management_ms=cache_ms,
                     live_kv_cache_bytes=dense_slot_cache.total_bytes,
                 )
@@ -119,14 +118,22 @@ def _run_schedule(
         # 3. 运行中请求 Decode
         if running_queue:
             active_before = len(running_queue)
-            decode_result = runner.decode_slots(dense_slot_cache, running_queue.requests)
+            slot_indices = [s.slot_idx for s in running_queue if s.slot_idx is not None]
+            last_tokens = [s.generated[-1] for s in running_queue]
+            positions = [s.cache_length for s in running_queue]
+            decode_out = runner.step_decode(
+                dense_slot_cache,
+                running_slot_indices=slot_indices,
+                last_tokens=last_tokens,
+                positions=positions,
+            )
             for state in running_queue:
                 state.cache_length += 1
-            cache_ms = decode_result.prepare_ms if is_continuous else 0.0
-            step_ms = decode_result.model_ms + cache_ms
+            cache_ms = decode_out.prepare_ms if is_continuous else 0.0
+            step_ms = decode_out.model_ms + cache_ms
             clock_ms += step_ms
             finished = running_queue.step(
-                [decode_result.slot_tokens[s.slot_idx] for s in running_queue],
+                [decode_out.slot_tokens[s.slot_idx] for s in running_queue],
                 clock_ms,
                 eos_token_id,
                 stop_on_eos,
@@ -140,7 +147,7 @@ def _run_schedule(
                     num_active_requests=active_before,
                     num_generated_tokens=active_before,
                     step_ms=step_ms,
-                    model_ms=decode_result.model_ms,
+                    model_ms=decode_out.model_ms,
                     cache_management_ms=cache_ms,
                     live_kv_cache_bytes=dense_slot_cache.total_bytes,
                 )
