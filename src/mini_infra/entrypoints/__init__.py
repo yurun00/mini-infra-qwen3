@@ -11,13 +11,14 @@ from mini_infra.engine.results import (
     aggregate_generation_results,
 )
 from mini_infra.entrypoints.offline import generate
-from mini_infra.entrypoints.types import GenerationOptions
+from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 
 __all__ = [
     "AggregationOptions",
     "GenerationOptions",
     "GenerationResult",
     "GenerationTrace",
+    "PromptInput",
     "StepAggregatedMetrics",
     "aggregate_generation_results",
     "compute_step_aggregated_metrics",

@@ -34,7 +34,7 @@ from mini_infra.engine import (
     run_scheduler,
     summarize_schedule,
 )
-from mini_infra.entrypoints import GenerationOptions, generate
+from mini_infra.entrypoints import GenerationOptions, PromptInput, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -81,6 +81,7 @@ __all__ = [
     "MemoryProfile",
     "Mode",
     "OpLatencyBreakdown",
+    "PromptInput",
     "Qwen3Config",
     "Qwen3ForCausalLM",
     "Qwen3Tokenizer",

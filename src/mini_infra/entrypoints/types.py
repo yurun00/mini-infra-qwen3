@@ -1,9 +1,11 @@
-"""用户级推理入口专用数据结构（GenerationOptions）。"""
+"""用户级推理入口专用数据结构（GenerationOptions 与 PromptInput）。"""
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 
+from mini_infra.inputs import PromptInput
 from mini_infra.profiling import TensorBoardOptions
 
 
@@ -20,8 +22,10 @@ class GenerationOptions:
     top_kernels: int = 10
     tensorboard_options: TensorBoardOptions | None = None
     max_running_requests: int | None = None
+    tokenizer: Any | None = None
 
 
 __all__ = [
     "GenerationOptions",
+    "PromptInput",
 ]

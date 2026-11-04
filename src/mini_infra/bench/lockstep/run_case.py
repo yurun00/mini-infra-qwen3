@@ -208,7 +208,7 @@ def run_case(
         prof_res = generate(
             mode=mode,
             model=model,
-            input_ids=input_ids,
+            prompts=input_ids,
             max_new_tokens=max_new_tokens,
             options=prof_opts,
         )

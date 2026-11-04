@@ -18,7 +18,7 @@ from mini_infra.engine.lockstep_loop import run_lockstep
 from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
-    prepare_prompt_sequences,
+    normalize_token_sequences,
 )
 from mini_infra.engine.results import (
     GenerationResult,
@@ -26,7 +26,7 @@ from mini_infra.engine.results import (
     aggregate_generation_results,
 )
 from mini_infra.engine.scheduler_loop import run_scheduler
-from mini_infra.entrypoints.types import GenerationOptions
+from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 from mini_infra.profiling import profile_scope
 
 
@@ -34,7 +34,7 @@ from mini_infra.profiling import profile_scope
 def generate(
     mode: Mode,
     model: torch.nn.Module,
-    input_ids: torch.Tensor | Sequence[Any],
+    prompts: PromptInput | Sequence[PromptInput],
     max_new_tokens: int | Sequence[int],
     options: GenerationOptions | None = None,
 ) -> GenerationResult:
@@ -46,11 +46,15 @@ def generate(
     """
     opts = options or GenerationOptions()
 
-    # 1. 规约输入 Prompt、预算与设备
-    token_sequences, device, has_uniform_prompt_len = prepare_prompt_sequences(input_ids, opts.device)
-    budgets = normalize_budgets(max_new_tokens, len(token_sequences), device)
+    # 1. 规约设备
+    device = torch.device(opts.device) if opts.device is not None else next(model.parameters()).device
 
-    # 2. Continuous Batching 分发（不再静默回退到固定批次路径）
+    # 2. 规约输入 Prompt 与输出预算
+    tokenizer = getattr(opts, "tokenizer", None)
+    token_sequences, has_uniform_prompt_len = normalize_token_sequences(prompts, tokenizer=tokenizer)
+    budgets = normalize_budgets(max_new_tokens, len(token_sequences))
+
+    # 3. Continuous Batching 分发（不再静默回退到固定批次路径）
     if mode.batching_method == BatchingMethod.CONTINUOUS:
         return _dispatch_continuous(
             mode,
@@ -61,7 +65,7 @@ def generate(
             opts,
         )
 
-    # 3. 串行 baseline 分发
+    # 4. 串行 baseline 分发
     if mode.batching_method == BatchingMethod.NONE and len(token_sequences) > 1:
         return _dispatch_serial_baseline(
             mode,
@@ -72,11 +76,10 @@ def generate(
             opts,
         )
 
-    # 4. 齐步（Lockstep）执行（所有请求同时开始，无队列调度）
+    # 5. 齐步（Lockstep）执行（所有请求同时开始，无队列调度）
     return _dispatch_lockstep(
         mode,
         model,
-        input_ids,
         token_sequences,
         has_uniform_prompt_len,
         budgets,
@@ -88,10 +91,9 @@ def generate(
 def _dispatch_lockstep(
     mode: Mode,
     model: torch.nn.Module,
-    input_ids: torch.Tensor | Sequence[Any],
-    token_sequences: list[torch.Tensor],
+    token_sequences: Sequence[Any],
     has_uniform_prompt_len: bool,
-    budgets: torch.Tensor,
+    budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
 ) -> GenerationResult:
@@ -106,7 +108,7 @@ def _dispatch_lockstep(
 
     loop_kwargs = dict(
         model=model,
-        input_ids=input_ids,
+        input_ids=token_sequences,
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
@@ -130,8 +132,8 @@ def _dispatch_lockstep(
 def _dispatch_serial_baseline(
     mode: Mode,
     model: torch.nn.Module,
-    token_sequences: list[torch.Tensor],
-    budgets: torch.Tensor,
+    token_sequences: Sequence[Any],
+    budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
 ) -> GenerationResult:
@@ -150,11 +152,11 @@ def _dispatch_serial_baseline(
         generate(
             mode,
             model,
-            seq.to(device=device, dtype=torch.long).unsqueeze(0),
+            seq,
             budget,
             options=single_req_options,
         )
-        for seq, budget in zip(token_sequences, budgets.tolist())
+        for seq, budget in zip(token_sequences, budgets)
     ]
     return aggregate_generation_results(runs)
 
@@ -162,8 +164,8 @@ def _dispatch_serial_baseline(
 def _dispatch_continuous(
     mode: Mode,
     model: torch.nn.Module,
-    token_sequences: list[torch.Tensor],
-    budgets: torch.Tensor,
+    token_sequences: Sequence[Any],
+    budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
 ) -> ScheduleResult:
@@ -174,7 +176,7 @@ def _dispatch_continuous(
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
     if opts.max_running_requests is not None and opts.max_running_requests < 1:
         raise ValueError("max_running_requests 必须大于 0")
-    specs = make_request_specs(token_sequences, budgets.tolist())
+    specs = make_request_specs(token_sequences, budgets)
     max_running_requests = opts.max_running_requests if opts.max_running_requests is not None else len(specs)
     return run_scheduler(
         BatchingMethod.CONTINUOUS,
@@ -191,5 +193,6 @@ def _dispatch_continuous(
 __all__ = [
     "GenerationOptions",
     "GenerationResult",
+    "PromptInput",
     "generate",
 ]

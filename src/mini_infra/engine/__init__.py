@@ -27,7 +27,6 @@ from mini_infra.engine.mode import (
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
     normalize_token_sequences,
-    prepare_prompt_sequences,
 )
 from mini_infra.engine.results import (
     AggregationOptions,
@@ -73,7 +72,6 @@ __all__ = [
     "normalize_token_sequences",
     "pad_output_tokens",
     "percentile",
-    "prepare_prompt_sequences",
     "run_lockstep",
     "run_scheduler",
     "summarize_schedule",

@@ -44,6 +44,7 @@
 
 - **分层由依赖决定，不由目录名决定**：模块只要 `import torch` 并持有张量即属数据面，无论物理位于哪个包。
 - **只能依赖下游层，严禁反向依赖**；新增模块先声明归属哪一层。
+- **输入协议共享层（`inputs/`）**：`PromptInput` 等纯 Python 输入协议类型，**不 `import torch`、不持有张量、不含 tokenize**；被 `entrypoints/`（①）与 `engine/`（②）共同依赖。tokenize 与其规约实现仍属 `engine/`。
 
 ```text
 ① Entrypoints  (接入层)      协议解析、参数校验、Tokenize / Detokenize、结果聚合

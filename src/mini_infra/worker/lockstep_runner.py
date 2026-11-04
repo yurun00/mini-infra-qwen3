@@ -36,7 +36,7 @@ def _prepare_prefill_inputs(
                 device=device, dtype=torch.long
             )
         else:
-            input_ids_tensor = torch.as_tensor(input_ids, dtype=torch.long, device=device)
+            input_ids_tensor = torch.as_tensor(token_sequences, dtype=torch.long, device=device)
             if input_ids_tensor.ndim == 1:
                 input_ids_tensor = input_ids_tensor.unsqueeze(0)
         batch_size, padded_prompt_length = input_ids_tensor.shape

@@ -129,7 +129,7 @@ def test_variable_length_prompt_generation_smoke():
     res = generate(
         mode=mode,
         model=model,
-        input_ids=prompts,
+        prompts=prompts,
         max_new_tokens=4,
         options=GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False),
     )
