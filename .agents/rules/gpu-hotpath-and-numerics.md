@@ -1,13 +1,13 @@
 ---
 trigger: glob
 alwaysApply: false
-globs: "src/mini_infra/model/**/*.py,src/mini_infra/memory/**/*.py,src/mini_infra/engine/**/*.py,src/mini_infra/device.py"
+globs: "src/mini_infra/model/**/*.py,src/mini_infra/worker/**/*.py,src/mini_infra/engine/**/*.py,src/mini_infra/device.py"
 description: "张量维度契约、GPU 热路径纪律、显存布局契约、浮点数值稳定性与双轨计时规范"
 ---
 
 # GPU 热路径、显存管理与数值精度专项规则
 
-修改模型算子（`model/`）、显存与 KV Cache 管理（`memory/`）、执行引擎（`engine/`）或设备工具（`device.py`）时，遵守以下硬件与数值纪律。
+修改模型算子（`model/`）、数据面执行器与 KV Cache 管理（`worker/`）、执行引擎（`engine/`）或设备工具（`device.py`）时，遵守以下硬件与数值纪律。
 
 ---
 

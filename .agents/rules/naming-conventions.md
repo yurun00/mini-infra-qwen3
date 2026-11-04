@@ -16,7 +16,7 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 同一语义在所有层、所有文件必须同名。**严禁**近义别名混用：`max_len` / `max_length` / `padded_length`；`req_idx` / `request_idx` / `idx`（按 §二 三者收敛为 `request_idx`）。
 - 反之，**同名严禁承载两种语义**。
 
-  > **反例（已修复）**：`memory/dense_slot_cache.py` 的 `history_mask` 形状 `[capacity, past_len]`、**只含历史**（活跃位由 `prepare_decode_inputs` 现场 `cat`）；`engine/lockstep_loop.py` 的同名变量是**喂给模型的整张 mask**（含当前步），已改名 `attention_mask`。判据是追读写点，不是看名字像不像：同名异义的两处**必须**改名到语义可辨；语义确实不同的两处**不可**为「统一名字」互相改名。
+  > **反例（已修复）**：`worker/dense_slot_cache.py` 的 `history_mask` 形状 `[capacity, past_len]`、**只含历史**（活跃位由 `_prepare_decode_inputs` 现场 `cat`）；`engine/lockstep_loop.py` 的同名变量是**喂给模型的整张 mask**（含当前步），已改名 `attention_mask`。判据是追读写点，不是看名字像不像：同名异义的两处**必须**改名到语义可辨；语义确实不同的两处**不可**为「统一名字」互相改名。
 
 - 改名时向**同文件既有写法**收敛，不引入第三种叫法。
 
