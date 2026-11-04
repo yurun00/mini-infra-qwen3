@@ -143,7 +143,7 @@ class FixedVsContinuousVariableOutputLengthSuite:
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length] * self.request_count
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = make_alternating_budgets(self.request_count, self.short_output, self.long_output)
         return make_request_specs(sequences, budgets)
 
@@ -188,7 +188,7 @@ class FixedVsContinuousUniformOutputLengthSuite:
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length] * self.request_count
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = [self.output_budget] * self.request_count
         return make_request_specs(sequences, budgets)
 
@@ -237,7 +237,7 @@ class FixedVsContinuousStaggeredArrivalsSuite:
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length] * self.request_count
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = make_alternating_budgets(self.request_count, self.short_output, self.long_output)
         arrivals = make_arrival_times(self.request_count, self.arrival_interval_ms)
         return make_request_specs(sequences, budgets, arrivals)
@@ -289,7 +289,7 @@ class FixedVsContinuousPrefillInterferenceSuite:
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length, self.prompt_length, self.interference_prompt_length]
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = [self.long_output, self.long_output, self.short_output]
         arrivals = [0.0, 0.0, self.interference_arrival_ms]
         return make_request_specs(sequences, budgets, arrivals)

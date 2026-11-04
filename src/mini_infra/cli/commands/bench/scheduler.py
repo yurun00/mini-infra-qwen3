@@ -157,7 +157,7 @@ def handle_case(args: argparse.Namespace) -> int:
         max_running_requests=max_running,
         arrival_times_ms=arrivals,
     )
-    specs = tuple(build_scheduler_request_specs(workload, vocab, device=device))
+    specs = tuple(build_scheduler_request_specs(workload, vocab))
     case_name = "custom"
 
     case_variant_id = "continuous" if method == BatchingMethod.CONTINUOUS else "fixed"

@@ -97,7 +97,7 @@ def run_case(
 
     is_variable_prompt_lens = isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str)
     effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
-    input_ids = make_prompt(vocab, prompt_len, effective_batch_size, device)
+    prompts = make_prompt(vocab, prompt_len, effective_batch_size)
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
@@ -108,7 +108,7 @@ def run_case(
         generate(
             mode,
             model,
-            input_ids,
+            prompts,
             max_new_tokens,
             options=warmup_opts,
         )
@@ -125,7 +125,7 @@ def run_case(
         generate(
             mode,
             model,
-            input_ids,
+            prompts,
             max_new_tokens,
             options=run_opts,
         )
@@ -208,7 +208,7 @@ def run_case(
         prof_res = generate(
             mode=mode,
             model=model,
-            prompts=input_ids,
+            prompts=prompts,
             max_new_tokens=max_new_tokens,
             options=prof_opts,
         )
