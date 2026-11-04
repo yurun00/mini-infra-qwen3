@@ -7,13 +7,10 @@
 """
 
 from collections.abc import Sequence
-from dataclasses import replace
-from typing import Any
 
 import torch
 
 from mini_infra.core.request import make_request_specs
-from mini_infra.device import synchronize
 from mini_infra.engine.lockstep_loop import run_lockstep
 from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
 from mini_infra.engine.preprocessing import (
@@ -27,7 +24,6 @@ from mini_infra.engine.results import (
 )
 from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.entrypoints.types import GenerationOptions, PromptInput
-from mini_infra.profiling import profile_scope
 
 
 @torch.inference_mode()
@@ -91,24 +87,16 @@ def generate(
 def _dispatch_lockstep(
     mode: Mode,
     model: torch.nn.Module,
-    token_sequences: Sequence[Any],
+    token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
 ) -> GenerationResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
-    is_cuda = device.type == "cuda"
     use_cache = mode.is_enabled(FeatureFlag.KV_CACHE)
-
-    synchronize(device)
-    baseline_allocated_bytes = torch.cuda.memory_allocated(device) if is_cuda else 0
-    if is_cuda:
-        torch.cuda.reset_peak_memory_stats(device)
-
-    loop_kwargs = dict(
+    return run_lockstep(
         model=model,
-        input_ids=token_sequences,
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
@@ -118,21 +106,16 @@ def _dispatch_lockstep(
         eos_token_id=opts.eos_token_id,
         stop_on_eos=opts.stop_on_eos,
         capture_logits=opts.capture_logits,
-        baseline_allocated_bytes=baseline_allocated_bytes,
+        profile=opts.profile,
+        top_kernels=opts.top_kernels,
+        tensorboard_options=opts.tensorboard_options,
     )
-
-    if opts.profile:
-        with profile_scope(model, device=device, tensorboard_options=opts.tensorboard_options) as prof_collector:
-            gen_result = run_lockstep(**loop_kwargs)
-        op_latency_breakdown = prof_collector.get_latency_breakdown(top=opts.top_kernels)
-        return replace(gen_result, op_breakdown=op_latency_breakdown)
-    return run_lockstep(**loop_kwargs)
 
 
 def _dispatch_serial_baseline(
     mode: Mode,
     model: torch.nn.Module,
-    token_sequences: Sequence[Any],
+    token_sequences: Sequence[Sequence[int]],
     budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
@@ -164,7 +147,7 @@ def _dispatch_serial_baseline(
 def _dispatch_continuous(
     mode: Mode,
     model: torch.nn.Module,
-    token_sequences: Sequence[Any],
+    token_sequences: Sequence[Sequence[int]],
     budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,

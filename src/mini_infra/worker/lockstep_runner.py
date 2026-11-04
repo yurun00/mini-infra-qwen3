@@ -23,22 +23,16 @@ class LockstepOutput(NamedTuple):
 
 
 def _prepare_prefill_inputs(
-    input_ids: torch.Tensor | Sequence[Any],
-    token_sequences: list[torch.Tensor] | Sequence[Sequence[int]],
+    token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     pad_token_id: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """构建 Prefill 阶段直接喂给模型的初始输入张量（内部物理张量辅助函数）。"""
     if has_uniform_prompt_len:
-        if isinstance(input_ids, torch.Tensor):
-            input_ids_tensor = (input_ids if input_ids.ndim == 2 else input_ids.unsqueeze(0)).to(
-                device=device, dtype=torch.long
-            )
-        else:
-            input_ids_tensor = torch.as_tensor(token_sequences, dtype=torch.long, device=device)
-            if input_ids_tensor.ndim == 1:
-                input_ids_tensor = input_ids_tensor.unsqueeze(0)
+        input_ids_tensor = torch.as_tensor(token_sequences, dtype=torch.long, device=device)
+        if input_ids_tensor.ndim == 1:
+            input_ids_tensor = input_ids_tensor.unsqueeze(0)
         batch_size, padded_prompt_length = input_ids_tensor.shape
         attention_mask = torch.ones((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
         position_ids = (
@@ -89,14 +83,13 @@ class LockstepRunner(BaseModelRunner):
 
     def init_input_batch(
         self,
-        input_ids: torch.Tensor | Sequence[Any],
-        token_sequences: list[torch.Tensor] | Sequence[Sequence[int]],
+        token_sequences: Sequence[Sequence[int]],
         has_uniform_prompt_len: bool,
         use_cache: bool,
     ) -> LockstepInputBatch:
         """构建并初始化一个齐步批次的 GPU 输入张量容器与 Cache 状态。"""
         input_ids_tensor, attention_mask, position_ids, prompt_lengths = _prepare_prefill_inputs(
-            input_ids, token_sequences, has_uniform_prompt_len, self.pad_token_id, self.device
+            token_sequences, has_uniform_prompt_len, self.pad_token_id, self.device
         )
         return LockstepInputBatch(
             device=self.device,

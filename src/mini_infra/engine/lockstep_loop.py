@@ -23,6 +23,7 @@ from mini_infra.engine.metrics import (
     compute_step_aggregated_metrics,
 )
 from mini_infra.engine.results import GenerationResult
+from mini_infra.profiling import profile_scope
 from mini_infra.worker import LockstepRunner
 
 __all__ = ["run_lockstep"]
@@ -127,10 +128,9 @@ def _resolve_step_latencies(
 
 def run_lockstep(
     model: torch.nn.Module,
-    input_ids: torch.Tensor | Sequence[Any],
-    token_sequences: list[torch.Tensor],
+    token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
-    budgets: torch.Tensor,
+    budgets: Sequence[int],
     use_cache: bool,
     device: torch.device,
     *,
@@ -138,22 +138,28 @@ def run_lockstep(
     eos_token_id: int | None = None,
     stop_on_eos: bool = True,
     capture_logits: bool = False,
-    baseline_allocated_bytes: int = 0,
+    profile: bool = False,
+    top_kernels: int = 10,
+    tensorboard_options: Any = None,
 ) -> GenerationResult:
     """执行齐步（Lockstep）自回归生成迭代循环（所有请求同时开始，含 step 0 Prefill 与后续 Decode 步）。
 
     内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在数据面自治流转 GPU 输入与 KV Cache，
-    直接构建并返回由 5 大核心共享值对象组成的 GenerationResult。
+    直接构建并返回由核心共享值对象组成的 GenerationResult。
     """
     is_cuda = device.type == "cuda"
+    synchronize(device)
+    baseline_allocated_bytes = torch.cuda.memory_allocated(device) if is_cuda else 0
+    if is_cuda:
+        torch.cuda.reset_peak_memory_stats(device)
+
     runner = LockstepRunner(model, device, pad_token_id)
     batch = runner.init_input_batch(
-        input_ids=input_ids,
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         use_cache=use_cache,
     )
-    budgets_list = budgets.tolist() if isinstance(budgets, torch.Tensor) else list(budgets)
+    budgets_list = list(budgets)
     state = LockstepState._create(
         batch_size=len(batch.prompt_lengths),
         padded_prompt_length=batch.padded_prompt_length,
@@ -168,35 +174,45 @@ def run_lockstep(
 
     wall_start = time.perf_counter()
 
-    for step in range(state.max_steps):
-        step_out = runner.step(batch, capture_logits=capture_logits, use_cache=use_cache)
-        if step_out.event_pair is not None:
-            step_event_pairs.append(step_out.event_pair)
-        else:
-            step_times_ms.append(step_out.elapsed_ms)
+    def _execute_loop() -> None:
+        nonlocal memory_after_prefill_bytes
+        for step in range(state.max_steps):
+            step_out = runner.step(batch, capture_logits=capture_logits, use_cache=use_cache)
+            if step_out.event_pair is not None:
+                step_event_pairs.append(step_out.event_pair)
+            else:
+                step_times_ms.append(step_out.elapsed_ms)
 
-        if step == 0 and is_cuda:
-            memory_after_prefill_bytes = torch.cuda.memory_allocated(device)
+            if step == 0 and is_cuda:
+                memory_after_prefill_bytes = torch.cuda.memory_allocated(device)
 
-        if capture_logits and step_out.last_logits is not None:
-            logits_trace.append(step_out.last_logits.float().cpu())
+            if capture_logits and step_out.last_logits is not None:
+                logits_trace.append(step_out.last_logits.float().cpu())
 
-        is_all_finished = state._commit_step(
-            next_tokens=step_out.next_tokens,
-            step=step,
-            eos_token_id=eos_token_id,
-            stop_on_eos=stop_on_eos,
-        )
-        if is_all_finished:
-            break
+            is_all_finished = state._commit_step(
+                next_tokens=step_out.next_tokens,
+                step=step,
+                eos_token_id=eos_token_id,
+                stop_on_eos=stop_on_eos,
+            )
+            if is_all_finished:
+                break
 
-        runner.prepare_next_inputs(
-            batch,
-            curr_active=state.curr_active,
-            next_positions=state._next_positions(),
-            next_tokens=step_out.next_tokens,
-            use_cache=use_cache,
-        )
+            runner.prepare_next_inputs(
+                batch,
+                curr_active=state.curr_active,
+                next_positions=state._next_positions(),
+                next_tokens=step_out.next_tokens,
+                use_cache=use_cache,
+            )
+
+    op_breakdown = None
+    if profile:
+        with profile_scope(model, device=device, tensorboard_options=tensorboard_options) as prof_collector:
+            _execute_loop()
+        op_breakdown = prof_collector.get_latency_breakdown(top=top_kernels)
+    else:
+        _execute_loop()
 
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000
@@ -252,4 +268,5 @@ def run_lockstep(
         trace=trace,
         batch_size=state.batch_size,
         batch_info=batch_info,
+        op_breakdown=op_breakdown,
     )
