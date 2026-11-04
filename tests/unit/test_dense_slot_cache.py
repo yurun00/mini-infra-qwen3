@@ -53,9 +53,8 @@ def test_absorb_prefill_allocates_and_writes_right_aligned_slots(model):
     dense_slot_cache = DenseSlotCache(capacity=4, device=CPU)
     assert dense_slot_cache.kv_cache is None and dense_slot_cache.length == 0 and dense_slot_cache.total_bytes == 0
 
-    elapsed_ms = dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill(model, prompts))
+    dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill(model, prompts))
 
-    assert elapsed_ms >= 0
     assert dense_slot_cache.length == 4
     assert dense_slot_cache.kv_cache.length == 4
     config = model.config
@@ -96,7 +95,7 @@ def test_prepare_decode_inputs_masks_inactive_slots_and_appends_active_column(mo
     dense_slot_cache = DenseSlotCache(capacity=3, device=CPU)
     dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
 
-    input_ids, position_ids, attention_mask, prepare_ms = _prepare_decode_inputs(
+    input_ids, position_ids, attention_mask = _prepare_decode_inputs(
         slot_cache=dense_slot_cache,
         running_slot_indices=[slot_idx],
         last_tokens=[42],
@@ -104,7 +103,6 @@ def test_prepare_decode_inputs_masks_inactive_slots_and_appends_active_column(mo
         pad_token_id=0,
     )
 
-    assert prepare_ms >= 0
     assert input_ids.tolist() == [[0], [0], [42]]
     assert position_ids.tolist() == [[0], [0], [3]]  # 下一个 Token 的位置 == 已缓存长度
     assert attention_mask.shape == (3, dense_slot_cache.length + 1)
@@ -120,7 +118,7 @@ def test_commit_decode_step_updates_history_mask(model):
     dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
     assert dense_slot_cache.history_mask.shape == (3, 3)
 
-    input_ids, position_ids, attention_mask, _ = _prepare_decode_inputs(
+    input_ids, position_ids, attention_mask = _prepare_decode_inputs(
         slot_cache=dense_slot_cache,
         running_slot_indices=[slot_idx],
         last_tokens=[42],

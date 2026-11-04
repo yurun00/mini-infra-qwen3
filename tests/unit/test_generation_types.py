@@ -552,3 +552,12 @@ def test_generation_trace_enforces_cpu_tensors():
             num_active_tokens_per_step=[2],
             logits_trace=[meta_tensor],
         )
+
+
+def test_generation_options_accepts_str_and_torch_device():
+    """验证 GenerationOptions 支持字符串与 torch.device 类型的 device 参数。"""
+    opts_str = GenerationOptions(device="cpu")
+    assert opts_str.device == "cpu"
+
+    opts_dev = GenerationOptions(device=torch.device("cpu"))
+    assert opts_dev.device == torch.device("cpu")

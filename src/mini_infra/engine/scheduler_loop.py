@@ -87,11 +87,15 @@ def _run_schedule(
         if can_admit and waiting_queue:
             batch = waiting_queue.pop_batch(running_queue.num_free_slots)
             admitted = running_queue.admit(batch, clock_ms)
-            prefill_out = runner.step_prefill([s.spec.token_ids for s in admitted])
+            prefill_out = runner.run_prefill_step([s.spec.token_ids for s in admitted])
             slot_indices = [s.slot_idx for s in admitted if s.slot_idx is not None]
             cache_lengths = [s.cache_length for s in admitted]
             if is_continuous:
-                cache_ms = dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill_out.prefill_cache)
+                synchronize(device)
+                cache_start = time.perf_counter()
+                dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill_out.prefill_cache)
+                synchronize(device)
+                cache_ms = (time.perf_counter() - cache_start) * 1000
             else:
                 dense_slot_cache.adopt_prefill(slot_indices, cache_lengths, prefill_out.prefill_cache)
                 cache_ms = 0.0
@@ -121,15 +125,20 @@ def _run_schedule(
             slot_indices = [s.slot_idx for s in running_queue if s.slot_idx is not None]
             last_tokens = [s.generated[-1] for s in running_queue]
             positions = [s.cache_length for s in running_queue]
-            decode_out = runner.step_decode(
+            synchronize(device)
+            prepare_start = time.perf_counter()
+            input_ids, position_ids, attention_mask = runner.prepare_decode_inputs(
                 dense_slot_cache,
                 running_slot_indices=slot_indices,
                 last_tokens=last_tokens,
                 positions=positions,
             )
+            synchronize(device)
+            prepare_ms = (time.perf_counter() - prepare_start) * 1000
+            decode_out = runner.run_decode_step(input_ids, attention_mask, position_ids, dense_slot_cache)
             for state in running_queue:
                 state.cache_length += 1
-            cache_ms = decode_out.prepare_ms if is_continuous else 0.0
+            cache_ms = prepare_ms if is_continuous else 0.0
             step_ms = decode_out.model_ms + cache_ms
             clock_ms += step_ms
             finished = running_queue.step(

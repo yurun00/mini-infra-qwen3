@@ -14,7 +14,7 @@ class GenerationOptions:
     """文本生成可选控制项容器。"""
 
     eos_token_id: int | None = None
-    device: torch.device | None = None
+    device: torch.device | str | None = None
     stop_on_eos: bool = True
     pad_token_id: int = 0
     capture_logits: bool = False

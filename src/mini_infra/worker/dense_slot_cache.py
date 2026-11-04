@@ -3,12 +3,10 @@
 注意：本模块处于纯 GPU 数据面，只认整数槽位索引与裸张量，严禁 import RequestState 等控制面生命周期对象。
 """
 
-import time
 from collections.abc import Sequence
 
 import torch
 
-from mini_infra.device import synchronize
 from mini_infra.worker.kv_cache import KVCache, cache_size_bytes
 
 
@@ -49,16 +47,14 @@ class DenseSlotCache:
         slot_indices: Sequence[int],
         cache_lengths: Sequence[int],
         prefill_cache: KVCache,
-    ) -> float:
-        """把一批新请求的 Prefill Cache 写入指定槽位，必要时分配/左侧扩容，返回搬移耗时（ms）。
+    ) -> None:
+        """把一批新请求的 Prefill Cache 写入指定槽位，必要时分配/左侧扩容（不 sync、不计时，计时由调用方负责）。
 
         Args:
             slot_indices: 本次入场请求绑定的槽位索引列表。
             cache_lengths: 各入场请求的 Prefill 缓存长度（Token 数）。
             prefill_cache: 左 Padding Prefill 产生的 Cache，各行真实 Token 位于序列维末尾 cache_length 个位置。
         """
-        synchronize(self.device)
-        start = time.perf_counter()
         target_length = max(self.length, prefill_cache.length)
         if self.kv_cache is None:
             self._allocate(prefill_cache, target_length)
@@ -76,8 +72,6 @@ class DenseSlotCache:
                 value[slot_idx].zero_()
                 key[slot_idx, :, start_pos:, :] = prefill_key[row_idx, :, -cache_length:, :]
                 value[slot_idx, :, start_pos:, :] = prefill_value[row_idx, :, -cache_length:, :]
-        synchronize(self.device)
-        return (time.perf_counter() - start) * 1000
 
     def adopt_prefill(
         self,
