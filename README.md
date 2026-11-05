@@ -36,6 +36,7 @@ mini-infra-qwen3/
 │       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
 │       ├── model/                     # 统一模型算子面（Pure Tensor-In, Tensor-Out）
 │       │   ├── config.py              # Qwen3Config 模型配置
+│       │   ├── loader.py              # 模型目录解析与 safetensors 权重加载（resolve_model_directory, load_model）
 │       │   └── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
 │       ├── worker/                    # GPU data plane：专职执行器与物理 KV Cache 池（纯物理索引与张量）
 │       │   ├── base_runner.py         # BaseModelRunner 基础无状态模型执行器（持有模型/设备与左填充 Prefill）
@@ -59,6 +60,9 @@ mini-infra-qwen3/
 │       │   ├── tokenizer.py           # 纯原生 Python Qwen3Tokenizer
 │       │   ├── lockstep_loop.py       # 齐步自回归生成主循环（run_lockstep：所有请求同时开始，无调度器）与状态机 LockstepState
 │       │   ├── scheduler_loop.py      # 请求队列调度主循环（run_scheduler：统一驱动 CONTINUOUS、FIXED 与 PAGED）
+│       │   ├── schedule_backend.py    # 调度后端抽象基类（ScheduleBackend）与单步产出（ScheduleStepOutput）
+│       │   ├── dense_schedule_backend.py # 稠密 batch slot 调度后端（DenseScheduleBackend）
+│       │   ├── paged_schedule_backend.py # 分页 KV Cache 调度后端（PagedScheduleBackend）
 │       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义
 │       │   ├── preprocessing.py       # Prompt 规约、左填充（Left Padding）与 Batch 张量初始化
 │       │   ├── results.py             # GenerationResult, ScheduleResult 引擎层结果容器与聚合

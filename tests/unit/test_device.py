@@ -88,4 +88,3 @@ def test_pending_step_latencies_cuda_mock():
         assert latencies == [5.67, 5.67]
         mock_sync.assert_called_once_with(cuda_device)
         assert collector.settle() == []
-
