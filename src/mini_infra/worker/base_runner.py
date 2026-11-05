@@ -1,31 +1,26 @@
-"""基础模型执行器（BaseModelRunner）：负责底层张量前向与设备端采样。
+"""基础模型执行器（BaseModelRunner）：持有底层模型与硬件配置。
 
 只认裸张量与底层硬件配置（device / pad_token_id），对请求队列、生命周期与高阶批处理场景完全无感知。
+单步执行由各专职 Runner 在调用点显式组合：`with StepTimer(...)` 圈定计时区间，区间内直接调模型前向，
+再用 `greedy_sample(logits)` 采样。
 """
 
-import time
 from collections.abc import Sequence
 from typing import Any, NamedTuple
 
 import torch
 
-from mini_infra.device import synchronize
+from mini_infra.device import StepTimer
+from mini_infra.worker.kv_cache import KVCache
+from mini_infra.worker.sampler import greedy_sample
 
 
-class ForwardSampleOutput(NamedTuple):
-    """底层张量单步前向与贪心采样产出（纯张量面内部值对象）：
+class PrefillOutput(NamedTuple):
+    """Prefill 单步产出：各请求首个 Token ID 列表、Prefill Cache 容器与模型耗时（ms）。"""
 
-    - 属性访问：.next_token (GPU Tensor), .present_key_values, .elapsed_ms, .event_pair, .last_logits
-    - present_key_values 是模型返回的逐层 (key, value) 纯张量列表；
-    - last_logits 仅在 capture_logits=True 时填充；CUDA 下 should_sync=False 时 event_pair 存放计时 Event，
-      elapsed_ms 为 0。
-    """
-
-    next_token: torch.Tensor
-    present_key_values: list[tuple[torch.Tensor, torch.Tensor]]
-    elapsed_ms: float = 0.0
-    event_pair: tuple[Any, Any] | None = None
-    last_logits: torch.Tensor | None = None
+    next_tokens: list[int]
+    prefill_cache: KVCache
+    model_ms: float
 
 
 def _left_pad_sequences(
@@ -63,67 +58,29 @@ def _left_pad_sequences(
 
 
 class BaseModelRunner:
-    """基础无状态模型执行器：只负责底层张量前向与贪心采样，不持有任何请求批次状态。"""
+    """基础无状态模型执行器：只持有模型与硬件配置，不承载单步执行原语与请求批次状态。"""
 
     def __init__(self, model: torch.nn.Module, device: torch.device, pad_token_id: int = 0):
         self.model = model
         self.device = device
         self.pad_token_id = pad_token_id
 
-    def _forward_and_sample(
-        self,
-        model_input: torch.Tensor,
-        past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]] | None = None,
-        attention_mask: torch.Tensor | None = None,
-        position_ids: torch.Tensor | None = None,
-        capture_logits: bool = False,
-        should_sync: bool = False,
-    ) -> ForwardSampleOutput:
-        """底层单步张量前向推理与贪心采样（受保护底层物理原语）。
-
-        - past_key_values 为 None 时做全量上下文计算（Prefill 或 No-Cache baseline），否则做增量 Decode；
-        - should_sync=False（默认）：CUDA 下通过 Event 异步打点，供静态自回归循环避免每步 CPU-GPU 同步；
-        - should_sync=True：执行前后硬件同步，直接计算耗时 ms，供调度器推进逻辑时钟。
-        """
-        if should_sync:
-            synchronize(self.device)
-
-        event_pair = None
-        elapsed_ms = 0.0
-
-        if self.device.type == "cuda":
-            start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-            start.record()
-        else:
-            t0 = time.perf_counter()
-
-        logits, present_key_values = self.model(
-            model_input, attention_mask=attention_mask, position_ids=position_ids, past_key_values=past_key_values
+    def run_prefill_step(self, prompt_sequences: Sequence[Sequence[int]]) -> PrefillOutput:
+        """对一批新入场请求做左 Padding Prefill，返回各请求首个 Token 列表、Prefill Cache 与模型耗时。"""
+        input_ids, attention_mask, position_ids, _ = _left_pad_sequences(
+            prompt_sequences, self.pad_token_id, self.device
         )
-        last_logits = logits[:, -1, :]
-        next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
-
-        if self.device.type == "cuda":
-            end.record()
-            if should_sync:
-                synchronize(self.device)
-                elapsed_ms = start.elapsed_time(end)
-            else:
-                event_pair = (start, end)
-        else:
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-
-        result_logits = last_logits if capture_logits else None
-        return ForwardSampleOutput(
-            next_token=next_token,
-            present_key_values=present_key_values,
-            elapsed_ms=elapsed_ms,
-            event_pair=event_pair,
-            last_logits=result_logits,
+        with StepTimer(self.device) as timer:
+            logits, present_key_values = self.model(input_ids, attention_mask=attention_mask, position_ids=position_ids)
+            next_token, _ = greedy_sample(logits)
+        return PrefillOutput(
+            next_tokens=next_token.squeeze(-1).tolist(),
+            prefill_cache=KVCache(present_key_values),
+            model_ms=timer.elapsed_ms,
         )
 
 
 __all__ = [
     "BaseModelRunner",
-    "ForwardSampleOutput",
+    "PrefillOutput",
 ]

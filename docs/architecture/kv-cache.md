@@ -46,7 +46,7 @@ flowchart LR
 
 ## 二、架构设计与显式容器实现
 
-本项目杜绝框架层隐藏的全局隐式全局变量，在 [`src/mini_infra/memory/kv_cache.py`](../../src/mini_infra/memory/kv_cache.py) 中构建了纯 Python/PyTorch 的显式数据容器：
+本项目杜绝框架层隐藏的全局隐式全局变量，在 [`src/mini_infra/worker/kv_cache.py`](../../src/mini_infra/worker/kv_cache.py) 中构建了纯 Python/PyTorch 的显式数据容器：
 
 ### 1. 容器数据结构与张量维度
 `KVCache` 类维护每层解耦的张量列表：
@@ -63,9 +63,9 @@ $$\text{Shape: } [B, H_{\text{kv}}, S, D]$$
 ### 2. 模型层与容器层的职责边界
 模型层（[`src/mini_infra/model/qwen3.py`](../../src/mini_infra/model/qwen3.py)）**只认识纯张量**，不认识 `KVCache` 容器，两者彻底解耦：
 
-* 前向入参为逐层的 `past_key_values: list[tuple[key, value]] | None`；
+* 前向入参为 `attn_metadata: DenseAttentionMetadata | None`，其 `past_key_values` 字段为逐层的 `(key, value)` 列表；
 * 前向返回 `(logits, present_key_values)`，`present_key_values` 恒为拼接完历史之后的完整键值；
-* 不存在 `use_cache` 布尔开关——**`past_key_values is None` 即"无历史"**，这既表示 Prefill，也表示全量重算基线。
+* 不存在 `use_cache` 布尔开关——**`attn_metadata is None` 即"无历史"**，这既表示 Prefill，也表示全量重算基线。
 
 因此 Prefill 与 Decode 的差异只体现在单层 Attention 的一次条件拼接上：
 
@@ -79,17 +79,18 @@ if past_key_value is not None:
     value = torch.cat((past_value, value), dim=2)
 ```
 
-容器侧的更新则退化为一次整体重建：`KVCache(present_key_values)`。显存层用 `past_key_values` 属性把容器导出为纯张量列表喂给模型，用构造函数把模型返回的张量收回容器：
+容器侧的更新则退化为一次整体重建：`KVCache(present_key_values)`。显存层用 `past_key_values` 属性把容器导出为纯张量列表，包成 `DenseAttentionMetadata` 喂给模型，用构造函数把模型返回的张量收回容器：
 
 ```python
 cache = KVCache(present_key_values)  # Prefill 建立 / Decode 逐层变长
-logits, present = model(input_ids, past_key_values=cache.past_key_values)
+attn_metadata = DenseAttentionMetadata(tuple(cache.past_key_values))
+logits, present = model(input_ids, attn_metadata=attn_metadata)
 ```
 
 ### 3. RoPE 旋转位置编码的位置偏置处理
 在增量 Decode 步中，输入的 `input_ids` 维度仅为 `[B, 1]`。若直接应用默认的绝对位置序列 `arange(0, 1)`，会导致位置编码错误。
 
-在 [`Qwen3Model._prepare_position_ids_and_allowed_mask()`](../../src/mini_infra/model/qwen3.py#L248) 中，历史长度由 `_validate_past_key_values()` 从 `past_key_values[0][0].shape[2]` 读出，并以此计算全局偏移：
+在 [`Qwen3Model._prepare_position_ids_and_allowed_mask()`](../../src/mini_infra/model/qwen3.py#L340) 中，历史长度由 `_validate_past_key_values()` 从 `DenseAttentionMetadata.past_key_values[0][0].shape[2]` 读出，并以此计算全局偏移：
 $$\text{position\_id} = \text{past\_length} + \text{arange}(0, \text{query\_length})$$
 确保单步 Query/Key 能够正确旋转到序列中的绝对位置坐标。
 
@@ -109,7 +110,7 @@ $$\text{KV Cache Bytes} = 2 \times L \times B \times H_{\text{kv}} \times D \tim
   $$2 \times 28 \times 1 \times 2 \times 128 \times 1 \times 2 = 28,672 \text{ Bytes} \approx 28.0 \text{ KB / token}$$
 * 若序列长度达到 4096，单个并发请求就需要消耗约 **112 MB** 纯 KV Cache 显存。
 
-在 [`src/mini_infra/memory/kv_cache.py`](../../src/mini_infra/memory/kv_cache.py#L39) 中，通过 `total_bytes` 属性实现纳秒级显存审计：
+在 [`src/mini_infra/worker/kv_cache.py`](../../src/mini_infra/worker/kv_cache.py#L35) 中，通过 `total_bytes` 属性实现纳秒级显存审计：
 ```python
 @property
 def total_bytes(self) -> int:
@@ -131,7 +132,7 @@ def total_bytes(self) -> int:
 
 本项目在 [`src/mini_infra/verification/parity/compare_cache.py`](../../src/mini_infra/verification/parity/compare_cache.py) 中构建了严格的逐步比对门禁：
 * 验证目标：
-  1. 生成的 Token 序列在 `past_key_values=None`（全量重算）与逐层传入历史键值（增量解码）两条路径下 **100% 逐 Token 严格相等**；
+  1. 生成的 Token 序列在 `attn_metadata=None`（全量重算）与逐层传入历史键值（增量解码）两条路径下 **100% 逐 Token 严格相等**；
   2. 解码过程每一步的输出 Logits 最大绝对误差满足：
      $$\max | \text{logits}_{\text{cache}} - \text{logits}_{\text{baseline}} | < 10^{-5}$$
 * 执行检验命令：
@@ -149,8 +150,8 @@ def total_bytes(self) -> int:
 1. **显存碎片化（Memory Fragmentation）**：随着序列自回归增长，频繁执行动态扩容与张量重分配会触发 PyTorch 缓存分配器的反复垃圾回收；
 2. **多请求动态并发受限**：每个序列长度不同，难以直接进行批处理内存连续管理。
 
-为了解决多并发问题，项目在 Chapter 03/04 演进出：
-- **静态槽位管理**：[固定批处理与左填充机制 (fixed-batching.md)](fixed-batching.md)；
-- **迭代级槽位复用**：[连续批处理架构与调度原理 (continuous-batching.md)](continuous-batching.md)；
-- **非连续块显存虚拟化**：后续章节的 PagedAttention 机制。
+为了解决多并发问题，项目按特性驱动（Feature-Driven）路线演进出：
+- **静态 batch slot 管理**：[固定批处理与左填充机制 (fixed-batching.md)](fixed-batching.md)；
+- **迭代级 batch slot 复用**：[连续批处理架构与调度原理 (continuous-batching.md)](continuous-batching.md)；
+- **非连续显存虚拟化**：[Paged KV Cache（physical block pool + block table）](paged-kv-cache.md)。
 

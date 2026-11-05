@@ -9,6 +9,7 @@ def test_feature_flag():
     assert FeatureFlag.from_str("kv-cache") == FeatureFlag.KV_CACHE
     assert FeatureFlag.from_str(FeatureFlag.KV_CACHE) == FeatureFlag.KV_CACHE
     assert str(FeatureFlag.KV_CACHE) == "kv-cache"
+    assert FeatureFlag.from_str("paged-kv-cache") == FeatureFlag.PAGED_KV_CACHE
 
     with pytest.raises(ValueError, match="未知特性标志"):
         FeatureFlag.from_str("nonexistent-feature")
@@ -57,6 +58,7 @@ def test_mode_to_dict():
     d = mode.to_dict()
     assert d == {
         "kv-cache": True,
+        "paged-kv-cache": False,
         "batching_method": "fixed-batching",
     }
     assert "batching" not in d  # 确保无历史兼容冗余键
@@ -72,7 +74,7 @@ def test_mode_contains():
 
 
 def test_mode_feature_dimensions_and_value():
-    assert Mode.FEATURE_DIMENSIONS == (FeatureFlag.KV_CACHE, BatchingMethod)
+    assert Mode.FEATURE_DIMENSIONS == (FeatureFlag.KV_CACHE, FeatureFlag.PAGED_KV_CACHE, BatchingMethod)
 
     mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
     assert mode.feature_dimensions == Mode.FEATURE_DIMENSIONS
@@ -91,3 +93,12 @@ def test_mode_feature_dimensions_and_value():
 
     with pytest.raises(TypeError, match="未知的特征维度类型"):
         mode.feature_value("kv-cache")
+
+
+def test_mode_with_paged_kv_cache_flag():
+    mode = Mode({FeatureFlag.KV_CACHE, FeatureFlag.PAGED_KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    assert mode.is_enabled("paged-kv-cache")
+    assert str(mode) == "kv-cache+paged-kv-cache+continuous-batching"
+    assert mode.with_flag(FeatureFlag.PAGED_KV_CACHE, False) == Mode(
+        {FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS
+    )

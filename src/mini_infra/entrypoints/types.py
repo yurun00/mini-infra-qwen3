@@ -1,10 +1,11 @@
 """用户级推理入口专用数据结构（GenerationOptions 与 PromptInput）。"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
 
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.inputs import PromptInput
 from mini_infra.profiling import TensorBoardOptions
 
@@ -22,6 +23,8 @@ class GenerationOptions:
     top_kernels: int = 10
     tensorboard_options: TensorBoardOptions | None = None
     max_running_requests: int | None = None
+    # 仅 FeatureFlag.PAGED_KV_CACHE 启用时生效
+    paged_cache_config: PagedCacheConfig = field(default_factory=PagedCacheConfig)
     tokenizer: Any | None = None
 
 

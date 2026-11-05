@@ -12,6 +12,7 @@ class FeatureFlag(str, Enum):
     """支持的所有布尔型特性标志（Feature Flag）；每个成员对应一个可独立开启/关闭（enable/disable）的二值特性。"""
 
     KV_CACHE = "kv-cache"
+    PAGED_KV_CACHE = "paged-kv-cache"
 
     @classmethod
     def from_str(cls, value: "str | FeatureFlag") -> "FeatureFlag":

@@ -81,7 +81,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
@@ -89,7 +89,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Scale | commit | batch | prompt | max_new_tokens | Makespan (ms) "
-                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
@@ -97,7 +97,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Engine | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
@@ -631,9 +631,9 @@ def generate_optimization_guidance(target_rec: Any) -> str:
             f"基于当前调度器版本 `{label(validated_target)}`（`requests={w['batch_size']}, "
             f"max_running={sched.get('max_running_requests', 4)}`）下的基准测量与轨迹剖析，诊断如下：\n"
         )
-        lines.append("### 1. 槽位与并发容量利用率诊断（调度效率）")
+        lines.append("### 1. batch slot 与并发容量利用率诊断（调度效率）")
         lines.append(
-            f"- 🔹 **执行槽位有效率（Slot Utilization）为 {slot_u * 100:.1f}%**，"
+            f"- 🔹 **执行 batch slot 有效率（Slot Utilization）为 {slot_u * 100:.1f}%**，"
             f"**并发容量利用率（Running Capacity Utilization）为 {cap_u * 100:.1f}%**，"
             f"**Prompt Padding 有效率为 {pad_e * 100:.1f}%**。"
         )
@@ -668,7 +668,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         )
         lines.append(
             "- 👉 **下一步核心演进方向**：引入 **Paged KV Cache（分页键值缓存）** 与 **Prefix Cache**，"
-            "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密槽位搬移。"
+            "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密 batch slot 搬移。"
         )
         lines.append("")
         return "\n".join(lines)

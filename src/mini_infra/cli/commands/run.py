@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from mini_infra.core import make_request_specs
+from mini_infra.core import PagedCacheConfig, make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
     FeatureFlag,
@@ -22,6 +22,7 @@ from mini_infra.engine import (
     run_scheduler,
     synchronize,
 )
+from mini_infra.entrypoints.offline import resolve_paged_cache
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -61,6 +62,18 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="是否启用 KV Cache 特性（默认: True）",
+    )
+    parser.add_argument(
+        "--kv-block-size",
+        type=int,
+        default=PagedCacheConfig.block_size,
+        help="Paged KV Cache 每个物理块容纳的 Token 数，仅在启用 paged-kv-cache 特性时生效（默认: %(default)s）",
+    )
+    parser.add_argument(
+        "--num-kv-blocks",
+        type=int,
+        default=None,
+        help="Paged KV Cache 物理块池大小（含 null block），默认按工作负载自动推导为不会耗尽的最小值",
     )
     parser.add_argument(
         "--batching-method",
@@ -199,6 +212,7 @@ def run_mode(
             options.device or torch.device("cuda"),
             pad_token_id=options.pad_token_id,
             stop_on_eos=options.stop_on_eos,
+            paged_cache_config=resolve_paged_cache(mode, options),
         )
     return generate(mode, model, input_ids, budgets, options=options)
 
@@ -336,10 +350,12 @@ def handle_run(args: argparse.Namespace) -> int:
     if args.max_running_requests is not None and not via_scheduler:
         print("[warn] --max-running-requests 仅对调度路径（含 continuous-batching）生效，当前对比未启用，将被忽略。")
 
+    paged_cache_config = PagedCacheConfig(block_size=args.kv_block_size, num_blocks=args.num_kv_blocks)
     warmup_opts = GenerationOptions(
         eos_token_id=tokenizer.eos_token_id,
         device=device,
         max_running_requests=args.max_running_requests,
+        paged_cache_config=paged_cache_config,
     )
     for mode in modes:
         for _ in range(args.warmup):
@@ -373,6 +389,7 @@ def handle_run(args: argparse.Namespace) -> int:
             top_kernels=args.top_kernels,
             tensorboard_options=tb_options,
             max_running_requests=args.max_running_requests,
+            paged_cache_config=paged_cache_config,
         )
         results[mode] = run_mode(mode, model, input_ids, sequences, budgets, run_opts, via_scheduler)
         print_result(mode, results[mode], tokenizer, tensorboard_dir=tb_dir)

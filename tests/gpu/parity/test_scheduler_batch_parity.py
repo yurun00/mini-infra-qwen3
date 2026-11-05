@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
@@ -70,6 +71,17 @@ def test_continuous_batching_gpu_parity() -> None:
         stop_on_eos=False,
     )
 
+    paged_result = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        max_running_requests=2,
+        eos_token_id=eos_token_id,
+        device=cuda,
+        stop_on_eos=False,
+        paged_cache_config=PagedCacheConfig(block_size=16),
+    )
+
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
     single_mode = Mode({FeatureFlag.KV_CACHE})
     single_opts = GenerationOptions(eos_token_id=eos_token_id, device=cuda, stop_on_eos=False)
@@ -90,6 +102,9 @@ def test_continuous_batching_gpu_parity() -> None:
         fixed_tokens = fixed_result.sequences[request_idx].token_ids
         assert cont_tokens == expected, (
             f"Continuous batching output divergence for req {request_idx}: got {cont_tokens}, expected {expected}"
+        )
+        assert paged_result.sequences[request_idx].token_ids == expected, (
+            f"Paged continuous batching output divergence for req {request_idx}"
         )
         assert fixed_tokens == expected, (
             f"Fixed batching output divergence for req {request_idx}: got {fixed_tokens}, expected {expected}"

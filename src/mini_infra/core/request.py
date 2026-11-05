@@ -51,12 +51,12 @@ class RequestSpec:
 
 @dataclass
 class RequestState:
-    """请求在调度过程中的可变运行态（槽位、已生成 Token 与关键时间戳）。"""
+    """请求在调度过程中的可变运行态（Batch 槽位、已生成 Token 与关键时间戳）。"""
 
     spec: RequestSpec
     status: RequestStatus = RequestStatus.WAITING
     generated: list[int] = field(default_factory=list)
-    slot_idx: int | None = None
+    batch_slot_idx: int | None = None
     cache_length: int = 0
     admitted_ms: float | None = None
     first_token_ms: float | None = None

@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from mini_infra.core.request import RequestSpec, RequestState, RequestStatus
+from mini_infra.model import DenseAttentionMetadata
 from mini_infra.verification.smoke import build_tiny_model
 from mini_infra.worker import DenseSlotCache, KVCache
 from mini_infra.worker.base_runner import _left_pad_sequences
@@ -28,39 +29,39 @@ def prefill(model, prompts: list[list[int]]) -> KVCache:
 def admitted_state(index: int, prompt: list[int], slot: int) -> RequestState:
     state = RequestState(RequestSpec(index, tuple(prompt), 4))
     state.status = RequestStatus.RUNNING
-    state.slot_idx = slot
+    state.batch_slot_idx = slot
     state.cache_length = len(prompt)
     return state
 
 
 def assert_slot_matches_single_request(
-    dense_slot_cache: DenseSlotCache, model, slot_idx: int, prompt: list[int]
+    dense_slot_cache: DenseSlotCache, model, batch_slot_idx: int, prompt: list[int]
 ) -> None:
     """槽位中右对齐的有效历史必须与该请求单独 Prefill 的 Cache 完全一致，且左侧空位被 mask。"""
     reference = prefill(model, [prompt])
     length, total = len(prompt), dense_slot_cache.length
-    assert dense_slot_cache.history_mask[slot_idx].tolist() == [False] * (total - length) + [True] * length
+    assert dense_slot_cache.history_mask[batch_slot_idx].tolist() == [False] * (total - length) + [True] * length
     for layer, (ref_key, ref_value) in enumerate(reference):
         key, value = dense_slot_cache.kv_cache[layer]
-        torch.testing.assert_close(key[slot_idx, :, total - length :, :], ref_key[0])
-        torch.testing.assert_close(value[slot_idx, :, total - length :, :], ref_value[0])
+        torch.testing.assert_close(key[batch_slot_idx, :, total - length :, :], ref_key[0])
+        torch.testing.assert_close(value[batch_slot_idx, :, total - length :, :], ref_value[0])
 
 
 def test_absorb_prefill_allocates_and_writes_right_aligned_slots(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
-    slot_indices = [1, 3]
+    batch_slot_indices = [1, 3]
     cache_lengths = [len(p) for p in prompts]
     dense_slot_cache = DenseSlotCache(capacity=4, device=CPU)
     assert dense_slot_cache.kv_cache is None and dense_slot_cache.length == 0 and dense_slot_cache.total_bytes == 0
 
-    dense_slot_cache.absorb_prefill(slot_indices, cache_lengths, prefill(model, prompts))
+    dense_slot_cache.absorb_prefill(batch_slot_indices, cache_lengths, prefill(model, prompts))
 
     assert dense_slot_cache.length == 4
     assert dense_slot_cache.kv_cache.length == 4
     config = model.config
     assert tuple(dense_slot_cache.kv_cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
-    for slot_idx, prompt in zip(slot_indices, prompts):
-        assert_slot_matches_single_request(dense_slot_cache, model, slot_idx, prompt)
+    for batch_slot_idx, prompt in zip(batch_slot_indices, prompts):
+        assert_slot_matches_single_request(dense_slot_cache, model, batch_slot_idx, prompt)
     # 未使用的槽位整行被 mask
     assert dense_slot_cache.history_mask[0].tolist() == [False] * 4
     assert dense_slot_cache.history_mask[2].tolist() == [False] * 4
@@ -91,13 +92,13 @@ def test_absorb_prefill_shorter_prompt_keeps_cache_length(model):
 
 def test_prepare_decode_inputs_masks_inactive_slots_and_appends_active_column(model):
     prompt = [3, 5, 7]
-    slot_idx = 2
+    batch_slot_idx = 2
     dense_slot_cache = DenseSlotCache(capacity=3, device=CPU)
-    dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
+    dense_slot_cache.absorb_prefill([batch_slot_idx], [len(prompt)], prefill(model, [prompt]))
 
     input_ids, position_ids, attention_mask = _prepare_decode_inputs(
         slot_cache=dense_slot_cache,
-        running_slot_indices=[slot_idx],
+        running_batch_slot_indices=[batch_slot_idx],
         last_tokens=[42],
         positions=[len(prompt)],
         pad_token_id=0,
@@ -113,14 +114,14 @@ def test_prepare_decode_inputs_masks_inactive_slots_and_appends_active_column(mo
 
 def test_commit_decode_step_updates_history_mask(model):
     prompt = [3, 5, 7]
-    slot_idx = 2
+    batch_slot_idx = 2
     dense_slot_cache = DenseSlotCache(capacity=3, device=CPU)
-    dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
+    dense_slot_cache.absorb_prefill([batch_slot_idx], [len(prompt)], prefill(model, [prompt]))
     assert dense_slot_cache.history_mask.shape == (3, 3)
 
     input_ids, position_ids, attention_mask = _prepare_decode_inputs(
         slot_cache=dense_slot_cache,
-        running_slot_indices=[slot_idx],
+        running_batch_slot_indices=[batch_slot_idx],
         last_tokens=[42],
         positions=[len(prompt)],
         pad_token_id=0,
@@ -130,7 +131,7 @@ def test_commit_decode_step_updates_history_mask(model):
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_values=dense_slot_cache.past_key_values,
+            attn_metadata=DenseAttentionMetadata(tuple(dense_slot_cache.past_key_values)),
         )
     dense_slot_cache.commit_decode_step(attention_mask, present)
     assert dense_slot_cache.history_mask.shape == (3, 4)
@@ -142,7 +143,7 @@ def test_prepare_decode_inputs_requires_allocated_cache():
     with pytest.raises(RuntimeError):
         _prepare_decode_inputs(
             slot_cache=DenseSlotCache(capacity=2, device=CPU),
-            running_slot_indices=[],
+            running_batch_slot_indices=[],
             last_tokens=[],
             positions=[],
             pad_token_id=0,
@@ -151,12 +152,12 @@ def test_prepare_decode_inputs_requires_allocated_cache():
 
 def test_release_and_reset(model):
     prompt = [3, 5, 7]
-    slot_idx = 0
+    batch_slot_idx = 0
     dense_slot_cache = DenseSlotCache(capacity=2, device=CPU)
-    dense_slot_cache.absorb_prefill([slot_idx], [len(prompt)], prefill(model, [prompt]))
+    dense_slot_cache.absorb_prefill([batch_slot_idx], [len(prompt)], prefill(model, [prompt]))
     assert dense_slot_cache.total_bytes > 0
 
-    dense_slot_cache.release(slot_idx)
+    dense_slot_cache.release(batch_slot_idx)
     assert not dense_slot_cache.history_mask[0].any()
 
     dense_slot_cache.reset()
@@ -171,12 +172,12 @@ def test_capacity_must_be_positive():
 
 def test_adopt_prefill_zero_copy_and_reset_restores_capacity(model):
     prompts = [[3, 5, 7, 9], [11, 13]]
-    slot_indices = [0, 1]
+    batch_slot_indices = [0, 1]
     cache_lengths = [len(p) for p in prompts]
     dense_slot_cache = DenseSlotCache(capacity=4, device=CPU)
     prefill_cache = prefill(model, prompts)
 
-    dense_slot_cache.adopt_prefill(slot_indices, cache_lengths, prefill_cache)
+    dense_slot_cache.adopt_prefill(batch_slot_indices, cache_lengths, prefill_cache)
 
     assert dense_slot_cache.capacity == 2
     assert dense_slot_cache.kv_cache is prefill_cache

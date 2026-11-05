@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 import torch
 
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine.lockstep_loop import run_lockstep
 from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
@@ -24,6 +25,17 @@ from mini_infra.engine.results import (
 )
 from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.entrypoints.types import GenerationOptions, PromptInput
+
+
+def resolve_paged_cache(mode: Mode, opts: GenerationOptions) -> PagedCacheConfig | None:
+    """按 Mode 解析 Paged KV Cache 配置：未启用返回 None；启用时校验其依赖 KV Cache 与 Continuous Batching。"""
+    if not mode.is_enabled(FeatureFlag.PAGED_KV_CACHE):
+        return None
+    if not mode.is_enabled(FeatureFlag.KV_CACHE):
+        raise ValueError("paged-kv-cache 依赖 KV Cache，请同时启用 FeatureFlag.KV_CACHE")
+    if mode.batching_method != BatchingMethod.CONTINUOUS:
+        raise ValueError("paged-kv-cache 目前仅支持 continuous-batching")
+    return opts.paged_cache_config
 
 
 @torch.inference_mode()
@@ -41,6 +53,7 @@ def generate(
     不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
     """
     opts = options or GenerationOptions()
+    paged_cache_config = resolve_paged_cache(mode, opts)
 
     # 1. 规约设备
     device = torch.device(opts.device) if opts.device is not None else next(model.parameters()).device
@@ -59,6 +72,7 @@ def generate(
             budgets,
             device,
             opts,
+            paged_cache_config,
         )
 
     # 4. 串行 baseline 分发
@@ -151,6 +165,7 @@ def _dispatch_continuous(
     budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
+    paged_cache_config: PagedCacheConfig | None,
 ) -> ScheduleResult:
     """以 Continuous Batching 执行（支持自定义并发上限），直接返回 ScheduleResult。"""
     if not mode.is_enabled(FeatureFlag.KV_CACHE):
@@ -170,6 +185,7 @@ def _dispatch_continuous(
         device,
         pad_token_id=opts.pad_token_id,
         stop_on_eos=opts.stop_on_eos,
+        paged_cache_config=paged_cache_config,
     )
 
 

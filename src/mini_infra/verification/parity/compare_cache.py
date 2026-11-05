@@ -6,6 +6,7 @@ from mini_infra.engine import Qwen3Tokenizer
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
+    DenseAttentionMetadata,
     load_model,
     resolve_model_directory,
 )
@@ -22,10 +23,11 @@ def compare_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
     mean_error_sum = 0.0
 
     for step in range(max_new_tokens):
-        # baseline 路径：全量历史重新计算，past_key_values=None 即不使用 Cache
+        # baseline 路径：全量历史重新计算，attn_metadata=None 即不使用 Cache
         baseline_logits, _ = model(generated_ids)
-        # cached 路径：首步 past_key_values=None 即 Prefill，其后用上一步返回的历史增量追加
-        cached_logits, past_key_values = model(cached_input, past_key_values=past_key_values)
+        # cached 路径：首步 attn_metadata=None 即 Prefill，其后用上一步返回的历史增量追加
+        attn_metadata = None if past_key_values is None else DenseAttentionMetadata(tuple(past_key_values))
+        cached_logits, past_key_values = model(cached_input, attn_metadata=attn_metadata)
 
         baseline_last = baseline_logits[:, -1, :]
         cached_last = cached_logits[:, -1, :]

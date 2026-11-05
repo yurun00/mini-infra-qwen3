@@ -88,15 +88,15 @@ class WaitingQueue:
 
 
 class RunningQueue:
-    """正在占用槽位进行计算的活跃请求队列。"""
+    """正在占用 Batch 槽位进行计算的活跃请求队列。"""
 
     def __init__(self, capacity: int):
         if capacity < 1:
             raise ValueError("capacity 必须大于 0")
         self.capacity = capacity
         self._requests: list[RequestState] = []
-        self._free_slots: list[int] = list(range(capacity))
-        heapq.heapify(self._free_slots)
+        self._free_batch_slots: list[int] = list(range(capacity))
+        heapq.heapify(self._free_batch_slots)
 
     def __len__(self) -> int:
         return len(self._requests)
@@ -108,13 +108,13 @@ class RunningQueue:
         return iter(self._requests)
 
     @property
-    def free_slots(self) -> tuple[int, ...]:
-        """空闲槽位号的只读快照（按最小堆次序，非排序结果）。"""
-        return tuple(self._free_slots)
+    def free_batch_slots(self) -> tuple[int, ...]:
+        """空闲 Batch 槽位号的只读快照（按最小堆次序，非排序结果）。"""
+        return tuple(self._free_batch_slots)
 
     @property
-    def num_free_slots(self) -> int:
-        return len(self._free_slots)
+    def num_free_batch_slots(self) -> int:
+        return len(self._free_batch_slots)
 
     @property
     def requests(self) -> tuple[RequestState, ...]:
@@ -122,21 +122,21 @@ class RunningQueue:
         return tuple(self._requests)
 
     def can_admit(self) -> bool:
-        return bool(self._free_slots)
+        return bool(self._free_batch_slots)
 
     def admit(self, states: Sequence[RequestState], clock_ms: float) -> list[RequestState]:
-        """将就绪请求分配最小空闲槽位并标记 RUNNING 状态，加入运行中队列。"""
-        if len(states) > len(self._free_slots):
-            raise ValueError(f"可用槽位不足：需要 {len(states)}，剩余 {len(self._free_slots)}")
+        """将就绪请求分配最小空闲 Batch 槽位并标记 RUNNING 状态，加入运行中队列。"""
+        if len(states) > len(self._free_batch_slots):
+            raise ValueError(f"可用 Batch 槽位不足：需要 {len(states)}，剩余 {len(self._free_batch_slots)}")
         for state in states:
             state.status = RequestStatus.RUNNING
             state.admitted_ms = clock_ms
-            state.slot_idx = heapq.heappop(self._free_slots)
+            state.batch_slot_idx = heapq.heappop(self._free_batch_slots)
             state.cache_length = state.spec.prompt_len
             self._requests.append(state)
         return list(states)
 
-    def step(
+    def process_step_output(
         self,
         token_ids: Sequence[int],
         clock_ms: float,
@@ -156,11 +156,11 @@ class RunningQueue:
         return finished
 
     def retire(self, finished: Sequence[RequestState]) -> None:
-        """释放已结束请求的槽位，标记 FINISHED 状态并从活跃队列中移出。"""
+        """释放已结束请求的 Batch 槽位，标记 FINISHED 状态并从活跃队列中移出。"""
         for state in finished:
             state.status = RequestStatus.FINISHED
-            if state.slot_idx is not None:
-                heapq.heappush(self._free_slots, state.slot_idx)
+            if state.batch_slot_idx is not None:
+                heapq.heappush(self._free_batch_slots, state.batch_slot_idx)
         self._requests = [s for s in self._requests if s.status is RequestStatus.RUNNING]
 
 

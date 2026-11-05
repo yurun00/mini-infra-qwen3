@@ -57,9 +57,12 @@ def test_run_compare_scheduler_batch_on_cpu(diverse_model, tmp_path):
     assert result["fixed_matches_serialized"] is True
     assert result["continuous_matches_serialized"] is True
     assert result["fixed_matches_continuous"] is True
+    assert result["paged_matches_serialized"] is True
+    assert result["paged_matches_continuous"] is True
     assert len(result["serialized_token_ids"]) == 4
     assert len(result["fixed_token_ids"]) == 4
     assert len(result["continuous_token_ids"]) == 4
+    assert len(result["paged_token_ids"]) == 4
 
     # 2. 验证 admission trace 记录了动态入场
     assert len(result["continuous_admission_trace"]) >= 2
@@ -73,6 +76,7 @@ def test_run_compare_scheduler_batch_on_cpu(diverse_model, tmp_path):
     assert "environment" in data
     assert "result" in data
     assert data["result"]["continuous_matches_serialized"] is True
+    assert data["result"]["paged_matches_serialized"] is True
 
 
 def test_execute_validations():

@@ -15,7 +15,7 @@ from typing import Any
 import torch
 
 from mini_infra.core.types import SequenceOutput
-from mini_infra.device import synchronize
+from mini_infra.device import PendingStepLatencies, synchronize
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     GenerationTrace,
@@ -117,15 +117,6 @@ class LockstepState:
         )
 
 
-def _resolve_step_latencies(
-    step_event_pairs: list[tuple[Any, Any]], step_times_ms: list[float], is_cuda: bool
-) -> list[float]:
-    """CUDA 下使用 Event 硬件测时，非 CUDA 下使用 CPU 墙钟。"""
-    if is_cuda and step_event_pairs:
-        return [s.elapsed_time(e) for s, e in step_event_pairs]
-    return step_times_ms
-
-
 def run_lockstep(
     model: torch.nn.Module,
     token_sequences: Sequence[Sequence[int]],
@@ -167,8 +158,7 @@ def run_lockstep(
         budgets=budgets_list,
     )
 
-    step_event_pairs: list[tuple[Any, Any]] = []
-    step_times_ms: list[float] = []
+    latencies = PendingStepLatencies(device)
     logits_trace = [] if capture_logits else None
     memory_after_prefill_bytes = 0
 
@@ -177,11 +167,8 @@ def run_lockstep(
     def _execute_loop() -> None:
         nonlocal memory_after_prefill_bytes
         for step in range(state.max_steps):
-            step_out = runner.step(batch, capture_logits=capture_logits, use_cache=use_cache)
-            if step_out.event_pair is not None:
-                step_event_pairs.append(step_out.event_pair)
-            else:
-                step_times_ms.append(step_out.elapsed_ms)
+            with latencies.measure_step():
+                step_out = runner.step(batch, capture_logits=capture_logits, use_cache=use_cache)
 
             if step == 0 and is_cuda:
                 memory_after_prefill_bytes = torch.cuda.memory_allocated(device)
@@ -214,9 +201,9 @@ def run_lockstep(
     else:
         _execute_loop()
 
+    step_latencies_ms = latencies.settle()
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000
-    step_latencies_ms = _resolve_step_latencies(step_event_pairs, step_times_ms, is_cuda)
 
     valid_tokens = sum(len(o) for o in state.outputs)
     e2e_model_ms = sum(step_latencies_ms)

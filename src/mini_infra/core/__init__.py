@@ -1,5 +1,13 @@
-"""调度核心领域包（纯 CPU 控制面）：包含请求模型、三级调度队列与基础状态/输出类型。"""
+"""调度核心领域包（纯 CPU 控制面）：包含请求模型、三级调度队列、Paged KV Cache 逻辑块管理与基础状态/输出类型。"""
 
+from mini_infra.core.block_manager import (
+    NULL_BLOCK_ID,
+    FreeKVCacheBlockQueue,
+    KVCacheManager,
+    PagedCacheConfig,
+    num_blocks_for_tokens,
+    required_pool_blocks,
+)
 from mini_infra.core.request import (
     RequestSpec,
     RequestState,
@@ -21,8 +29,12 @@ from mini_infra.core.types import (
 )
 
 __all__ = [
+    "NULL_BLOCK_ID",
     "ArrivalQueue",
     "BatchingMethod",
+    "FreeKVCacheBlockQueue",
+    "KVCacheManager",
+    "PagedCacheConfig",
     "RequestMetrics",
     "RequestSpec",
     "RequestState",
@@ -32,6 +44,8 @@ __all__ = [
     "WaitingQueue",
     "collapse_uniform",
     "make_request_specs",
+    "num_blocks_for_tokens",
     "prepare_schedule",
+    "required_pool_blocks",
     "validate_request_specs",
 ]

@@ -2,12 +2,12 @@
 trigger: glob
 alwaysApply: false
 globs: "src/mini_infra/**/*.py"
-description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后缀、私有前缀、property 与方法一致性、落盘契约名联动改名"
+description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后缀、私有前缀、property 与方法一致性、落盘契约名联动改名、命名简短与方法名不重复参数语义"
 ---
 
 # 命名纪律专项规则
 
-命名是架构资产：读者靠标识符判断一个值属于哪一层、什么量纲、是否可变。在 `src/mini_infra/` 下新增或修改任何标识符（变量、参数、字段、方法、属性）时，遵守以下七条。
+在 `src/mini_infra/` 下新增或修改任何标识符（变量、参数、字段、方法、属性）时，遵守以下八条纪律。
 
 ---
 
@@ -22,7 +22,7 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 
 ## 二、整数索引统一 `_idx` 后缀，前缀必须说明索引空间
 
-- 整数索引写作 `slot_idx` / `block_idx` / `layer_idx` / `row_idx` / `request_idx`；前缀写清索引到哪个空间。名字里同时出现两个空间时两个都写全：`completion_step_by_request_idx`、`prompt_len_by_request_idx`。
+- 整数索引写作 `batch_slot_idx` / `block_idx` / `layer_idx` / `row_idx` / `request_idx`；前缀写清索引到哪个空间。名字里同时出现两个空间时两个都写全：`completion_step_by_request_idx`、`prompt_len_by_request_idx`。
 - **严禁**裸 `idx`、裸 `index`，以及不说明空间的缩写（`req_idx` 的 `req` 是 request 还是 requirement？写全 `request_idx`）。`i`、`j` 仅限 5 行以内的局部循环。
 - 两个防反转判据：
   - **1-based 进度序号不是索引**：`enumerate(..., 1)` 产出、从不用于寻址（全仓无 `x[它]`）、只进进度字符串的序号用 `_number` 且与总量成对（`case_number` / `total_cases`、`step_number` / `total_steps`），改成 `_idx` 会引入 off-by-one。改名前先确认它是否真的被寻址。
@@ -35,7 +35,7 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 
 ## 四、布尔量统一谓词前缀
 
-- 布尔变量与参数必须以下列之一开头：`is_`、`has_`、`can_`、`should_`，使调用点读起来是一个断言：`has_uniform_prompt_len`、`should_sync`、`can_admit`、`is_all_finished`。
+- 布尔变量与参数必须以下列之一开头：`is_`、`has_`、`can_`、`should_`，使调用点读起来是一个断言：`has_uniform_prompt_len`、`can_admit`、`is_all_finished`。
 - **严禁**动词原形或名词做布尔名（`sync`、`cache`、`uniform`）——调用点 `sync=False` 看不出这是开关还是动作。
 - **惯例名豁免登记**：`use_cache` 保持原名不改。它是 HuggingFace / PyTorch 生态的既定惯例名，改动会牺牲与外部对照实现的可比性。除此之外，新增布尔量不得再引用「惯例」作为免检理由。
 
@@ -51,7 +51,7 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 同一概念在不同类上暴露时**必须同为 `@property` 或同为方法**。
   > **反例（已修复）**：`DenseSlotCache.total_bytes` 曾是 property 而 `KVCache.total_bytes()` 曾是方法，调用方要靠记住类型来决定加不加括号。
 - 无参、无副作用、O(1) 或纯读取既有状态的取值器一律用 `@property`；需要参数、有副作用或代价与调用次数成正比的一律用方法。
-- 集合视图属性（返回内部容器快照的 `requests` / `free_slots` 之类）必须返回 **`tuple`**，不得返回 `list`：可变返回值会让调用方误以为改它能影响内部状态。取出型产物（`pop_batch` 等）不受此限。
+- 集合视图属性（返回内部容器快照的 `requests` / `free_batch_slots` 之类）必须返回 **`tuple`**，不得返回 `list`：可变返回值会让调用方误以为改它能影响内部状态。取出型产物（`pop_batch` 等）不受此限。
 
 ## 七、落盘契约名的改名必须端到端联动
 
@@ -59,6 +59,13 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - 改名前 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/` 列读写点：写入点与读取点（`sort_values` / `groupby`）同步改全，`benchmarks/result-history/*.json` 已落盘字段名一并更新，严禁留旧名或半截改名。
 - 有下游读者 → 联动改（例：`bench/plotting/tidy.py` 写入的 `"order_idx"` / `"release_idx"` 被 `history.py` 读取）；零读者零历史产物 → 随标识符改（例：`compare_lockstep_batch.py` 的 `--output` 诊断 JSON `"target_idx"`）。
 - CLI 的 `--prompt-lens`（dest `prompt_lens`）与 engine 内部局部变量同名但**不是同一成员**：**禁全局替换**，逐点改内部变量。
+
+## 八、命名尽量简短；方法名不重复参数语义
+
+- **宁短勿赘**：满足唯一名（§一）与索引前缀（§二）前提下，不携带上下文中可推断的冗余信息。
+- **方法名不重复参数语义**：参数名已表达语义时，方法名不再同义反复。
+  - 正例：`dense_slot_cache.release(batch_slot_idx)`、`free_block_queue.allocate(num_blocks)`
+  - 反例：`release_slot(batch_slot_idx)`、`allocate_blocks(num_blocks)`
 
 ---
 

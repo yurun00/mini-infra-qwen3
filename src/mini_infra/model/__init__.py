@@ -7,6 +7,8 @@ from mini_infra.model.config import (
     model_dtype_from_config,
 )
 from mini_infra.model.qwen3 import (
+    DenseAttentionMetadata,
+    PagedAttentionMetadata,
     PastKeyValue,
     Qwen3Attention,
     Qwen3DecoderLayer,
@@ -25,6 +27,8 @@ from mini_infra.model.qwen3 import (
 __all__ = [
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
+    "DenseAttentionMetadata",
+    "PagedAttentionMetadata",
     "PastKeyValue",
     "Qwen3Attention",
     "Qwen3Config",

@@ -13,7 +13,7 @@
 | **1. 参考实现对齐** | `compare_transformers.py` | `mini-infra verify transformers` | `pytest tests/gpu/parity/test_transformers_parity.py` | FP16/BF16 | 验证手写 Qwen3 与 Hugging Face 官方分词、Logits 与输出 100% 对齐 |
 | **2. KV Cache 等价** | `compare_cache.py` | `mini-infra verify cache` | `pytest tests/gpu/parity/test_cache_parity.py` | `float32` | 验证引入 KV Cache 增量 Decode 与无 Cache 全量重算的数值完全一致 |
 | **3. Lockstep 批隔离** | `compare_lockstep_batch.py` | `mini-infra verify lockstep-batch` | `pytest tests/gpu/parity/test_lockstep_batch_parity.py` | `float32` | 验证固定批处理在不同 Batch Size、顺序与 Padding 长度下的严格请求隔离 |
-| **4. Scheduler 批调度** | `compare_scheduler_batch.py` | `mini-infra verify scheduler-batch` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous 与 Fixed 调度下的动态槽位绑定、Mask 管理与串行基准对齐 |
+| **4. scheduler 批调度** | `compare_scheduler_batch.py` | `mini-infra verify scheduler-batch` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
 
 > [!NOTE]
 > 所有命令既支持直接平铺调用（如 `mini-infra verify cache`），也支持语义分层调用（如 `mini-infra verify parity cache`）。
@@ -24,7 +24,7 @@
 
 ### 1. Hugging Face Transformers 对照测试
 
-* **对应源码**：[`src/mini_infra/verification/parity/compare_transformers.py`](file:///home/yurun/projects/mini-infra-qwen3/src/mini_infra/verification/parity/compare_transformers.py)
+* **对应源码**：[`src/mini_infra/verification/parity/compare_transformers.py`](../../src/mini_infra/verification/parity/compare_transformers.py)
 * **核心目标**：以 Hugging Face `transformers`（`AutoModelForCausalLM`）为黄金参考（Golden Truth），比对分词、Prefill 与逐步 Decode 下的 Logits 最大绝对误差，确保自研模型架构无算子缺陷。
 
 #### CLI 运行指令
@@ -54,7 +54,7 @@ pytest tests/gpu/parity/test_transformers_parity.py
 
 ### 2. KV Cache 前后数值对齐测试
 
-* **对应源码**：[`src/mini_infra/verification/parity/compare_cache.py`](file:///home/yurun/projects/mini-infra-qwen3/src/mini_infra/verification/parity/compare_cache.py)
+* **对应源码**：[`src/mini_infra/verification/parity/compare_cache.py`](../../src/mini_infra/verification/parity/compare_cache.py)
 * **核心目标**：验证模型在开启 KV Cache（增量计算新 Token）与关闭 KV Cache（每一步将全部历史 Token 送入重新前向）两种执行路径下的数值等价性。
 
 #### CLI 运行指令
@@ -83,7 +83,7 @@ pytest tests/gpu/parity/test_cache_parity.py
 
 ### 3. Lockstep 批处理请求隔离与数值对齐测试
 
-* **对应源码**：[`src/mini_infra/verification/parity/compare_lockstep_batch.py`](file:///home/yurun/projects/mini-infra-qwen3/src/mini_infra/verification/parity/compare_lockstep_batch.py)
+* **对应源码**：[`src/mini_infra/verification/parity/compare_lockstep_batch.py`](../../src/mini_infra/verification/parity/compare_lockstep_batch.py)
 * **核心目标**：验证齐步固定批处理（Fixed Batching）的**请求隔离（Request Isolation）**。不管一个请求与什么样的长短请求伴随组成 Batch、位于 Batch 的第几行、受到多长的左填充（Left Padding），其生成结果必须与该请求**完全单独隔离运行**时 100% 一致。
 
 #### CLI 运行指令
@@ -111,17 +111,18 @@ pytest tests/gpu/parity/test_lockstep_batch_parity.py
 
 ---
 
-### 4. Scheduler 批调度一致性测试（Fixed vs Continuous vs 串行）
+### 4. scheduler 批调度一致性测试（Fixed vs Continuous vs Paged vs 串行）
 
-* **对应源码**：[`src/mini_infra/verification/parity/compare_scheduler_batch.py`](file:///home/yurun/projects/mini-infra-qwen3/src/mini_infra/verification/parity/compare_scheduler_batch.py)
-* **核心目标**：验证在底层通用调度循环（三级队列 + ModelRunner + DenseSlotCache 槽位管理）下：
+* **对应源码**：[`src/mini_infra/verification/parity/compare_scheduler_batch.py`](../../src/mini_infra/verification/parity/compare_scheduler_batch.py)
+* **核心目标**：验证在底层通用调度循环（三级队列 + `DenseExecutionStrategy` / `PagedExecutionStrategy`）下：
   1. **Fixed Batching（波次准入）** 与单请求串行调度（`max_running_requests=1`）输出完全一致；
-  2. **Continuous Batching（空槽即准入）** 与单请求串行调度输出完全一致；
-  3. 检验长短请求混跑、短请求提前命中 EOS 释放槽位、新请求动态 Prefill 入场、Cache 左侧扩容与历史 Mask 隔离等复杂调度时序下的正确性。
+  2. **Continuous Batching（空 batch slot 即准入，DenseSlotCache）** 与单请求串行调度输出完全一致；
+  3. **Continuous Batching + Paged KV Cache（physical block pool + block table）** 与单请求串行调度输出完全一致；
+  4. 检验长短请求混跑、短请求提前结束释放 batch slot / physical block、新请求动态 Prefill 入场、Cache 左侧扩容与 history mask / `context_lens` 掩码隔离等复杂调度时序下的正确性。
 
 #### CLI 运行指令
 ```bash
-# 默认参数运行（并发槽位 2，输出预算差异化测试）
+# 默认参数运行（并发 batch slot 2，输出预算差异化测试）
 mini-infra verify scheduler-batch
 
 # 指定参数与导出 Admission 轨迹
@@ -138,7 +139,7 @@ mini-infra verify scheduler-batch \
 # 1. GPU 真实 Qwen3 权重端到端对齐测试
 pytest tests/gpu/parity/test_scheduler_batch_parity.py
 
-# 2. CPU 快速单元逻辑测试（无 GPU 环境可用，覆盖队列出入与槽位分配）
+# 2. CPU 快速单元逻辑测试（无 GPU 环境可用，覆盖队列出入与 batch slot 分配）
 pytest tests/unit/test_compare_scheduler_batch.py
 ```
 
@@ -147,6 +148,8 @@ pytest tests/unit/test_compare_scheduler_batch.py
     - `fixed 与串行单请求一致: True`
     - `continuous 与串行单请求一致: True`
     - `fixed 与 continuous 一致: True`
+    - `paged 与串行单请求一致: True`
+    - `paged 与 continuous 一致: True`
   - 打印动态入场轨迹（如 `Continuous admission trace: [[0, 1], [2], [3]]`）。
 
 ---

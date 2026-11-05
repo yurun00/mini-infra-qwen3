@@ -11,6 +11,7 @@ from typing import Any
 
 import torch
 
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, Qwen3Tokenizer, run_scheduler
 from mini_infra.model import (
@@ -39,7 +40,7 @@ def run_compare_scheduler_batch(
     output: str | Path | None = None,
     environment_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """运行单请求隔离、固定批处理与连续批处理对比，返回比对统计结果字典。"""
+    """运行单请求隔离、固定批处理、连续批处理与 Paged KV Cache 连续批处理对比，返回比对统计结果字典。"""
     specs = make_request_specs(sequences, budgets)
 
     # 1. 串行调度基准（serialized baseline，并发槽位为 1）
@@ -75,24 +76,42 @@ def run_compare_scheduler_batch(
         stop_on_eos=False,
     )
 
+    # 4. 连续批处理 + Paged KV Cache（块大小取 4，使短序列也会跨块、块被回收复用）
+    paged = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        max_running_requests=max_running_requests,
+        eos_token_id=eos_token_id,
+        device=device,
+        stop_on_eos=False,
+        paged_cache_config=PagedCacheConfig(block_size=4),
+    )
+
     serialized_token_ids = [s.token_ids for s in serialized.sequences]
     fixed_token_ids = [s.token_ids for s in fixed.sequences]
     continuous_token_ids = [s.token_ids for s in continuous.sequences]
+    paged_token_ids = [s.token_ids for s in paged.sequences]
     admission_trace = [list(event.admitted_request_ids) for event in continuous.events if event.admitted_request_ids]
 
     result: dict[str, Any] = {
         "serialized_token_ids": serialized_token_ids,
         "fixed_token_ids": fixed_token_ids,
         "continuous_token_ids": continuous_token_ids,
+        "paged_token_ids": paged_token_ids,
         "fixed_matches_serialized": fixed_token_ids == serialized_token_ids,
         "continuous_matches_serialized": continuous_token_ids == serialized_token_ids,
         "fixed_matches_continuous": fixed_token_ids == continuous_token_ids,
+        "paged_matches_serialized": paged_token_ids == serialized_token_ids,
+        "paged_matches_continuous": paged_token_ids == continuous_token_ids,
         "continuous_admission_trace": admission_trace,
     }
 
     print("fixed 与串行单请求一致:", result["fixed_matches_serialized"])
     print("continuous 与串行单请求一致:", result["continuous_matches_serialized"])
     print("fixed 与 continuous 一致:", result["fixed_matches_continuous"])
+    print("paged 与串行单请求一致:", result["paged_matches_serialized"])
+    print("paged 与 continuous 一致:", result["paged_matches_continuous"])
     print("Continuous admission trace:", result["continuous_admission_trace"])
 
     if output:
@@ -174,7 +193,7 @@ def execute_compare_scheduler_batch(
         environment_metadata=environment,
     )
 
-    if dtype == "float32" and not result["continuous_matches_serialized"]:
+    if dtype == "float32" and not (result["continuous_matches_serialized"] and result["paged_matches_serialized"]):
         print("float32 动态请求归属或输出一致性检查失败")
         return 1
     return 0

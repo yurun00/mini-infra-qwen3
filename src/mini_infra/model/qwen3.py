@@ -1,14 +1,18 @@
 """使用基础 PyTorch 实现的 Qwen3-0.6B，历史键值以纯张量形式进出。
 
 模型层与显存管理层彻底解耦：只接受/返回 torch.Tensor，不认识任何 Cache 容器对象。
-- past_key_values 为 None 时执行全量上下文计算（Prefill 或 No-Cache baseline）；
-- past_key_values 为逐层 (key, value) 张量序列时，把历史拼在序列维左侧做增量 Decode。
-是否需要缓存由 past_key_values 是否为 None 决定，因此不存在 use_cache 布尔标记；
-前向统一返回 (logits, present_key_values)，由调用方决定丢弃还是写回自己的容器。
+前向由 __call__ / forward 承接，按 attn_metadata 类型分派执行路径（对标 vLLM attn_metadata 分派）：
+- attn_metadata 为 None 时执行全量上下文计算（Prefill 或 No-Cache baseline）；
+- attn_metadata 为 DenseAttentionMetadata 时走 Dense KV Cache 增量路径（逐层历史 key/value 拼在序列维左侧，
+  返回新拼接的 present_key_values）；
+- attn_metadata 为 PagedAttentionMetadata 时走 Paged KV Cache Decode 路径（寻址 slot_mapping / block_tables /
+  context_lens 与逐层物理块池 kv_pools 都封装在 metadata 内，新 K/V 就地写入 physical block pool，
+  按 block table gather 历史后 attend）。纯张量进出，零外部容器依赖。
 """
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 import torch
 import torch.nn.functional as F
@@ -18,8 +22,36 @@ from torch import nn
 
 from mini_infra.model.config import DEFAULT_MODEL_REVISION, Qwen3Config, model_dtype_from_config
 
-# 单层历史键值：(key, value)，两者形状均为 [batch, num_kv_heads, past_length, head_dim]。
+# 单层历史键值：(key, value)，形状为 [batch, num_kv_heads, past_length, head_dim]
+# 或在 physical block pool 场景下为 [num_blocks, block_size, num_kv_heads, head_dim]。
 PastKeyValue = tuple[torch.Tensor, torch.Tensor]
+
+
+class PagedAttentionMetadata(NamedTuple):
+    """Paged Decode 单步所需的物理寻址 + 逐层存储元数据（对标 vLLM attn_metadata）。
+
+    slot_mapping:  [batch],             本步新 Token K/V 写入的 slot = physical_block_id * block_size + offset
+    block_tables:  [batch, max_blocks], 各请求 logical block -> physical block 映射（max_blocks 为当前 batch 内
+                                        最长请求已分配的块数，较短请求右侧以 null block 补齐）
+    context_lens:  [batch],             各请求含本步新 Token 在内的有效上下文长度
+    kv_pools:      逐层 (key_pool, value_pool)，各 [num_blocks, block_size, num_kv_heads, head_dim]；
+                   取料阶段暂留空，由 PagedRunner 在前向前用 _replace 组装为物理块池。
+    """
+
+    slot_mapping: torch.Tensor
+    block_tables: torch.Tensor
+    context_lens: torch.Tensor
+    kv_pools: tuple[PastKeyValue, ...] = ()
+
+
+class DenseAttentionMetadata(NamedTuple):
+    """Dense KV Cache Decode 单步所需的逐层历史键值（按层排序，与 Qwen3Model.layers 对齐，
+    对标 vLLM attn_metadata 的 dense 形态）。
+
+    past_key_values: 逐层 (key, value)，各 [batch, num_kv_heads, past_len, head_dim]
+    """
+
+    past_key_values: tuple[PastKeyValue, ...]
 
 
 class RMSNorm(nn.Module):
@@ -123,14 +155,15 @@ class Qwen3Attention(nn.Module):
         self.q_norm = RMSNorm(config.head_dim, config.rms_norm_eps)
         self.k_norm = RMSNorm(config.head_dim, config.rms_norm_eps)
 
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        cosine: torch.Tensor,
-        sine: torch.Tensor,
-        causal_mask: torch.Tensor,
-        past_key_value: PastKeyValue | None = None,
-    ) -> tuple[torch.Tensor, PastKeyValue]:
+    def _project_qkv(
+        self, hidden_states: torch.Tensor, cosine: torch.Tensor, sine: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """投影并归一化 Q/K/V，且对 Q/K 施加 RoPE。
+
+        Returns:
+            query [batch, num_heads, query_len, head_dim]
+            key / value [batch, num_kv_heads, query_len, head_dim]（key 已旋转，均未按 GQA 组展开）
+        """
         batch_size, query_length, _ = hidden_states.shape
 
         query = self.q_proj(hidden_states)
@@ -145,12 +178,18 @@ class Qwen3Attention(nn.Module):
         value = value.view(batch_size, query_length, self.num_key_value_heads, self.head_dim)
         value = value.transpose(1, 2)
 
-        # 拼接进历史的是已经完成位置旋转、但尚未按 GQA 组展开的 K。
         query, key = apply_rotary_embedding(query, key, cosine, sine)
-        if past_key_value is not None:
-            past_key, past_value = past_key_value
-            key = torch.cat((past_key, key), dim=2)
-            value = torch.cat((past_value, value), dim=2)
+        return query, key, value
+
+    def _attend(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        causal_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """对完整历史 K/V 做 GQA Attention，返回 o_proj 前的 [batch, query_len, num_heads * head_dim]。"""
+        batch_size, _, query_length, _ = query.shape
 
         # 只在真正计算 Attention 前展开，避免 Cache 占用不必要的显存。
         attention_key = repeat_key_value(key, self.num_key_value_groups)
@@ -164,8 +203,70 @@ class Qwen3Attention(nn.Module):
         attention_output = torch.matmul(attention_probs, attention_value)
 
         attention_output = attention_output.transpose(1, 2).contiguous()
-        attention_output = attention_output.view(batch_size, query_length, -1)
-        return self.o_proj(attention_output), (key, value)
+        return attention_output.view(batch_size, query_length, -1)
+
+    def _apply_paged_kv_pool(
+        self,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        kv_pool: PastKeyValue,
+        metadata: PagedAttentionMetadata,
+    ) -> PastKeyValue:
+        """单步 Paged Decode：将新 K/V 就地写入 physical block pool，并按 block_tables 收集历史 K/V 视图。
+
+        key / value:  [batch, num_kv_heads, 1, head_dim], model_dtype, contiguous
+        kv_pool:      (key_pool, value_pool)，各 [num_blocks, block_size, num_kv_heads, head_dim]，model_dtype，
+                      contiguous，就地更新
+        metadata:     PagedAttentionMetadata，含 slot_mapping [batch] (long) 与 block_tables [batch, max_blocks] (long)
+
+        Returns:
+            (history_key, history_value): 形状均为 [batch, num_kv_heads, max_history_len, head_dim]，model_dtype，
+            作为非连续视图供 _attend 的 matmul 消费。
+        """
+        batch_size = key.shape[0]
+        key_pool, value_pool = kv_pool
+        pool_shape = (-1, self.num_key_value_heads, self.head_dim)
+        # view -> [num_blocks * block_size, num_kv_heads, head_dim], model_dtype, contiguous；
+        # squeeze(2): [batch, num_kv_heads, 1, head_dim] -> [batch, num_kv_heads, head_dim], contiguous，
+        # 按 slot 写入 physical block pool。
+        key_pool.view(pool_shape).index_copy_(0, metadata.slot_mapping, key.squeeze(2))
+        value_pool.view(pool_shape).index_copy_(0, metadata.slot_mapping, value.squeeze(2))
+
+        # 按 block table 取块：[batch, max_blocks, block_size, kv_heads, head_dim]（gather 产出，contiguous）
+        #   -> view 为 [batch, max_blocks * block_size, kv_heads, head_dim]（contiguous）
+        #   -> transpose 为 [batch, kv_heads, max_history_len, head_dim]（非连续视图，直接喂 matmul，不触发拷贝）。
+        max_history_len = metadata.block_tables.shape[1] * key_pool.shape[1]
+        history_shape = (batch_size, max_history_len, self.num_key_value_heads, self.head_dim)
+        history_key = key_pool[metadata.block_tables].view(history_shape).transpose(1, 2)
+        history_value = value_pool[metadata.block_tables].view(history_shape).transpose(1, 2)
+        return history_key, history_value
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        cosine: torch.Tensor,
+        sine: torch.Tensor,
+        causal_mask: torch.Tensor,
+        past_key_value: PastKeyValue | None = None,
+        kv_pool: PastKeyValue | None = None,
+        attn_metadata: PagedAttentionMetadata | None = None,
+    ) -> tuple[torch.Tensor, PastKeyValue]:
+        query, key, value = self._project_qkv(hidden_states, cosine, sine)
+
+        if attn_metadata is not None:
+            assert kv_pool is not None
+            key, value = self._apply_paged_kv_pool(key, value, kv_pool, attn_metadata)
+            present_key_value = kv_pool
+        elif past_key_value is not None:
+            past_key, past_value = past_key_value
+            key = torch.cat((past_key, key), dim=2)
+            value = torch.cat((past_value, value), dim=2)
+            present_key_value = (key, value)
+        else:
+            present_key_value = (key, value)
+
+        attention_output = self.o_proj(self._attend(query, key, value, causal_mask))
+        return attention_output, present_key_value
 
 
 class Qwen3MLP(nn.Module):
@@ -200,6 +301,8 @@ class Qwen3DecoderLayer(nn.Module):
         sine: torch.Tensor,
         causal_mask: torch.Tensor,
         past_key_value: PastKeyValue | None = None,
+        kv_pool: PastKeyValue | None = None,
+        attn_metadata: PagedAttentionMetadata | None = None,
     ) -> tuple[torch.Tensor, PastKeyValue]:
         residual = hidden_states
         normalized = self.input_layernorm(hidden_states)
@@ -209,6 +312,8 @@ class Qwen3DecoderLayer(nn.Module):
             sine,
             causal_mask,
             past_key_value=past_key_value,
+            kv_pool=kv_pool,
+            attn_metadata=attn_metadata,
         )
         hidden_states = residual + attention_output
 
@@ -282,30 +387,79 @@ class Qwen3Model(nn.Module):
         allowed = (~future).unsqueeze(0) & attention_mask.unsqueeze(1)
         return position_ids, allowed.unsqueeze(1)
 
+    def _build_paged_inputs(
+        self,
+        input_ids: torch.Tensor,
+        position_ids: torch.Tensor,
+        metadata: PagedAttentionMetadata,
+        dtype: torch.dtype,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """校验 Paged Decode 输入并构造广播加性掩码 [batch, 1, 1, max_history_len]。"""
+        if input_ids.ndim != 2 or input_ids.shape[1] != 1:
+            raise ValueError("Paged Decode 的 input_ids 必须是形状为 [batch, 1] 的 Tensor")
+        if position_ids.ndim != 2 or position_ids.shape[1] != 1:
+            raise ValueError("Paged Decode 的 position_ids 必须是形状为 [batch, 1] 的 Tensor")
+        kv_pools = metadata.kv_pools
+        if len(kv_pools) != len(self.layers):
+            raise ValueError("kv_pools 层数与模型层数不一致")
+
+        # 加性掩码 [batch, 1, 1, max_history_len]（max_history_len = max_blocks * block_size）：
+        # 仅前 context_lens[b] 个有效位置为 0.0，其余（尾块未写满位置、右侧补齐的 null block）填 dtype 最小值屏蔽。
+        # block_tables: [batch, max_blocks], key_pool: [num_blocks, block_size, num_kv_heads, head_dim]
+        max_history_len = metadata.block_tables.shape[1] * kv_pools[0][0].shape[1]
+        # positions: [max_history_len], long, contiguous（0 .. max_history_len - 1）
+        positions = torch.arange(max_history_len, device=input_ids.device)
+        # visible: [1, max_history_len] < [batch, 1] -> [batch, max_history_len], bool, contiguous
+        visible = positions.unsqueeze(0) < metadata.context_lens.unsqueeze(1)
+        # causal_mask: [batch, max_history_len], model_dtype, contiguous
+        causal_mask = torch.zeros(visible.shape, dtype=dtype, device=input_ids.device)
+        causal_mask.masked_fill_(~visible, torch.finfo(dtype).min)
+        # view -> [batch, 1, 1, max_history_len], model_dtype, contiguous
+        # （对齐 _attend 中 attention_scores [batch, num_heads, 1, max_history_len] 的广播维度）
+        causal_mask = causal_mask.view(visible.shape[0], 1, 1, max_history_len)
+        return position_ids, causal_mask
+
     def forward(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-        past_key_values: Sequence[PastKeyValue] | None = None,
+        attn_metadata: DenseAttentionMetadata | PagedAttentionMetadata | None = None,
     ) -> tuple[torch.Tensor, list[PastKeyValue]]:
         hidden_states = self.embed_tokens(input_ids)
-        position_ids, allowed = self._prepare_position_ids_and_allowed_mask(
-            input_ids, attention_mask, position_ids, past_key_values
-        )
+        if isinstance(attn_metadata, PagedAttentionMetadata):
+            if position_ids is None:
+                raise ValueError("Paged Decode 必须提供 position_ids")
+            position_ids, causal_mask = self._build_paged_inputs(
+                input_ids, position_ids, attn_metadata, hidden_states.dtype
+            )
+        else:
+            past_key_values = None if attn_metadata is None else attn_metadata.past_key_values
+            position_ids, allowed = self._prepare_position_ids_and_allowed_mask(
+                input_ids, attention_mask, position_ids, past_key_values
+            )
+            causal_mask = torch.zeros(allowed.shape, dtype=hidden_states.dtype, device=hidden_states.device)
+            causal_mask.masked_fill_(~allowed, torch.finfo(hidden_states.dtype).min)
+
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
-        causal_mask = torch.zeros(allowed.shape, dtype=hidden_states.dtype, device=hidden_states.device)
-        causal_mask.masked_fill_(~allowed, torch.finfo(hidden_states.dtype).min)
 
         present_key_values: list[PastKeyValue] = []
+        paged = isinstance(attn_metadata, PagedAttentionMetadata)
         for layer_idx, decoder_layer in enumerate(self.layers):
-            layer_past = None if past_key_values is None else past_key_values[layer_idx]
+            layer_past = None
+            layer_kv_pool = None
+            if paged:
+                layer_kv_pool = attn_metadata.kv_pools[layer_idx]
+            elif attn_metadata is not None:
+                layer_past = attn_metadata.past_key_values[layer_idx]
             hidden_states, present_key_value = decoder_layer(
                 hidden_states,
                 cosine,
                 sine,
                 causal_mask,
                 past_key_value=layer_past,
+                kv_pool=layer_kv_pool,
+                attn_metadata=attn_metadata if paged else None,
             )
             present_key_values.append(present_key_value)
 
@@ -330,14 +484,14 @@ class Qwen3ForCausalLM(nn.Module):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-        past_key_values: Sequence[PastKeyValue] | None = None,
+        attn_metadata: DenseAttentionMetadata | PagedAttentionMetadata | None = None,
     ) -> tuple[torch.Tensor, list[PastKeyValue]]:
-        """返回 (词表 Logits, 逐层拼接后的 present_key_values)。"""
+        """执行模型前向，返回 (词表 Logits, 逐层 present_key_values)。"""
         hidden_states, present_key_values = self.model(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            past_key_values=past_key_values,
+            attn_metadata=attn_metadata,
         )
         return self.lm_head(hidden_states), present_key_values
 

@@ -44,14 +44,14 @@ class DenseSlotCache:
 
     def absorb_prefill(
         self,
-        slot_indices: Sequence[int],
+        batch_slot_indices: Sequence[int],
         cache_lengths: Sequence[int],
         prefill_cache: KVCache,
     ) -> None:
-        """把一批新请求的 Prefill Cache 写入指定槽位，必要时分配/左侧扩容（不 sync、不计时，计时由调用方负责）。
+        """把一批新请求的 Prefill Cache 写入指定 Batch 槽位，必要时分配/左侧扩容（不 sync、不计时，计时由调用方负责）。
 
         Args:
-            slot_indices: 本次入场请求绑定的槽位索引列表。
+            batch_slot_indices: 本次入场请求绑定的 Batch 槽位索引列表。
             cache_lengths: 各入场请求的 Prefill 缓存长度（Token 数）。
             prefill_cache: 左 Padding Prefill 产生的 Cache，各行真实 Token 位于序列维末尾 cache_length 个位置。
         """
@@ -62,20 +62,20 @@ class DenseSlotCache:
             self._grow_left(target_length - self.length)
         assert self.kv_cache is not None and self.history_mask is not None
 
-        for row_idx, (slot_idx, cache_length) in enumerate(zip(slot_indices, cache_lengths)):
+        for row_idx, (batch_slot_idx, cache_length) in enumerate(zip(batch_slot_indices, cache_lengths)):
             start_pos = target_length - cache_length
-            self.history_mask[slot_idx].zero_()
-            self.history_mask[slot_idx, start_pos:] = True
+            self.history_mask[batch_slot_idx].zero_()
+            self.history_mask[batch_slot_idx, start_pos:] = True
             for layer_idx, (prefill_key, prefill_value) in enumerate(prefill_cache):
                 key, value = self.kv_cache.key_cache[layer_idx], self.kv_cache.value_cache[layer_idx]
-                key[slot_idx].zero_()
-                value[slot_idx].zero_()
-                key[slot_idx, :, start_pos:, :] = prefill_key[row_idx, :, -cache_length:, :]
-                value[slot_idx, :, start_pos:, :] = prefill_value[row_idx, :, -cache_length:, :]
+                key[batch_slot_idx].zero_()
+                value[batch_slot_idx].zero_()
+                key[batch_slot_idx, :, start_pos:, :] = prefill_key[row_idx, :, -cache_length:, :]
+                value[batch_slot_idx, :, start_pos:, :] = prefill_value[row_idx, :, -cache_length:, :]
 
     def adopt_prefill(
         self,
-        slot_indices: Sequence[int],
+        batch_slot_indices: Sequence[int],
         cache_lengths: Sequence[int],
         prefill_cache: KVCache,
     ) -> None:
@@ -84,12 +84,12 @@ class DenseSlotCache:
         与 absorb_prefill 的拷贝语义相对：不分配、不复制，直接引用传入张量，仅按波次大小重置 capacity
         并重建 history_mask。接管后调用方应释放其引用，由本类独占持有。
         """
-        self.capacity = len(slot_indices)
+        self.capacity = len(batch_slot_indices)
         self.kv_cache = prefill_cache
         target_length = prefill_cache.length
         self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
-        for slot_idx, cache_length in zip(slot_indices, cache_lengths):
-            self.history_mask[slot_idx, target_length - cache_length :] = True
+        for batch_slot_idx, cache_length in zip(batch_slot_indices, cache_lengths):
+            self.history_mask[batch_slot_idx, target_length - cache_length :] = True
 
     def commit_decode_step(
         self, attention_mask: torch.Tensor, present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]]
@@ -98,10 +98,10 @@ class DenseSlotCache:
         self.kv_cache = KVCache(present_key_values)
         self.history_mask = attention_mask
 
-    def release(self, slot_index: int) -> None:
-        """释放已结束请求的槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
-        if self.history_mask is not None and slot_index is not None:
-            self.history_mask[slot_index].zero_()
+    def release(self, batch_slot_idx: int) -> None:
+        """释放已结束请求的 Batch 槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
+        if self.history_mask is not None and batch_slot_idx is not None:
+            self.history_mask[batch_slot_idx].zero_()
 
     def reset(self) -> None:
         """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始槽位容量。"""

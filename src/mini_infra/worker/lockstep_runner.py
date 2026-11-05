@@ -5,20 +5,20 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 import torch
 
+from mini_infra.model import DenseAttentionMetadata
 from mini_infra.worker.base_runner import BaseModelRunner, _left_pad_sequences
 from mini_infra.worker.kv_cache import KVCache
+from mini_infra.worker.sampler import greedy_sample
 
 
 class LockstepOutput(NamedTuple):
-    """齐步（Lockstep）单步推理产出：下一个 Token ID 列表、耗时、计时 Event 与可选 Logits。"""
+    """齐步（Lockstep）单步推理产出：下一个 Token ID 列表与可选 Logits。"""
 
     next_tokens: list[int]
-    elapsed_ms: float = 0.0
-    event_pair: tuple[Any, Any] | None = None
     last_logits: torch.Tensor | None = None
 
 
@@ -112,23 +112,19 @@ class LockstepRunner(BaseModelRunner):
     ) -> LockstepOutput:
         """执行单步齐步前向推理：读取 batch 张量、执行前向、就地更新 batch.kv_cache 并返回采样 Token。"""
         model_input, attention_mask, position_ids, past_kvs = batch.get_model_inputs(use_cache)
-        step_out = self._forward_and_sample(
-            model_input=model_input,
-            past_key_values=past_kvs,
+        attn_metadata = None if past_kvs is None else DenseAttentionMetadata(tuple(past_kvs))
+        logits, present_key_values = self.model(
+            model_input,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            capture_logits=capture_logits,
-            should_sync=False,
+            attn_metadata=attn_metadata,
         )
+        next_token, last_logits = greedy_sample(logits)
         if use_cache:
-            batch.update_kv_cache(step_out.present_key_values)
-        next_tokens = step_out.next_token.squeeze(-1).tolist()
-        return LockstepOutput(
-            next_tokens=next_tokens,
-            elapsed_ms=step_out.elapsed_ms,
-            event_pair=step_out.event_pair,
-            last_logits=step_out.last_logits,
-        )
+            batch.update_kv_cache(present_key_values)
+        next_tokens = next_token.squeeze(-1).tolist()
+        last_logits_out = last_logits if capture_logits else None
+        return LockstepOutput(next_tokens=next_tokens, last_logits=last_logits_out)
 
     def prepare_next_inputs(
         self,

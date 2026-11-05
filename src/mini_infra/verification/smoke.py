@@ -15,7 +15,7 @@ from mini_infra.engine import (
     generate,
     run_scheduler,
 )
-from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
+from mini_infra.model import DenseAttentionMetadata, Qwen3Config, Qwen3ForCausalLM
 from mini_infra.worker import KVCache, cache_size_bytes
 from mini_infra.worker.base_runner import _left_pad_sequences
 
@@ -59,11 +59,11 @@ def check_causal_mask(model):
 
 
 def check_kv_cache_correctness(model):
-    """验证 past_key_values 增量路径与全量重算路径输出完全一致。"""
+    """验证 Dense KV Cache 增量路径与全量重算路径输出完全一致。"""
     prompt = torch.tensor([[1, 2, 3]])
     config = model.config
 
-    # past_key_values=None 即 Prefill：Logits 与全量重算天然一致，同时产出可复用的历史键值。
+    # attn_metadata=None 即 Prefill：Logits 与全量重算天然一致，同时产出可复用的历史键值。
     with torch.inference_mode():
         baseline_logits, present = model(prompt)
     cache = KVCache(present)
@@ -87,12 +87,12 @@ def check_kv_cache_correctness(model):
     assert cache.total_bytes == expected_bytes
     assert baseline_logits.shape == (1, 3, config.vocab_size)
 
-    # 单步 Decode 验证：把上一步的 past_key_values 喂回去即可增量追加。
+    # 单步 Decode 验证：把上一步的 present_key_values 包成 DenseAttentionMetadata 喂回去即可增量追加。
     next_input = torch.tensor([[4]])
     full_context = torch.cat((prompt, next_input), dim=1)
     with torch.inference_mode():
         full_logits, _ = model(full_context)
-        cached_logits, present = model(next_input, past_key_values=cache.past_key_values)
+        cached_logits, present = model(next_input, attn_metadata=DenseAttentionMetadata(tuple(cache.past_key_values)))
     cache = KVCache(present)
 
     assert torch.allclose(full_logits[:, -1, :], cached_logits[:, -1, :], atol=1e-5)
@@ -153,7 +153,7 @@ def check_fixed_batching(model):
             model(
                 prefill_ids[:, -1:],
                 attention_mask=torch.ones((1, 1), dtype=torch.bool),
-                past_key_values=present,
+                attn_metadata=DenseAttentionMetadata(tuple(present)),
             )
         except ValueError:
             pass
