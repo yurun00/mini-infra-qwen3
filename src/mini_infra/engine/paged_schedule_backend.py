@@ -22,7 +22,7 @@ __all__ = ["PagedScheduleBackend"]
 
 
 class PagedScheduleBackend(ScheduleBackend):
-    """连续批处理的分页 KV Cache 调度后端（基于 PagedRunner、PagedKVCachePool 与 KVCacheManager）。"""
+    """连续批处理与固定批次的分页 KV Cache 调度后端（基于 PagedRunner、PagedKVCachePool 与 KVCacheManager）。"""
 
     def __init__(
         self,
@@ -31,6 +31,7 @@ class PagedScheduleBackend(ScheduleBackend):
         request_specs: Sequence[RequestSpec],
         max_running_requests: int,
         paged_cache_config: PagedCacheConfig,
+        method: BatchingMethod = BatchingMethod.CONTINUOUS,
         pad_token_id: int = 0,
     ) -> None:
         self.block_size = paged_cache_config.block_size
@@ -45,7 +46,8 @@ class PagedScheduleBackend(ScheduleBackend):
                 f"num_blocks={num_blocks} 无法容纳单个请求所需的 {largest_request_blocks} "
                 "个物理块（另需 1 个 null block）"
             )
-        super().__init__(model, device, max_running_requests, BatchingMethod.CONTINUOUS)
+        super().__init__(model, device, max_running_requests, method)
+        self.is_continuous = method is BatchingMethod.CONTINUOUS
         config = model.config  # type: ignore[attr-defined]
         self.runner = PagedRunner(model, device, pad_token_id)
         self.pool = PagedKVCachePool(
@@ -64,7 +66,8 @@ class PagedScheduleBackend(ScheduleBackend):
         return True
 
     def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
-        if running_queue.can_admit() and waiting_queue:
+        can_admit = running_queue.can_admit() if self.is_continuous else not running_queue
+        if can_admit and waiting_queue:
             candidates = waiting_queue.requests[: running_queue.num_free_batch_slots]
             return self.kv_cache_manager.num_admissible([s.spec.prompt_len for s in candidates])
         return 0

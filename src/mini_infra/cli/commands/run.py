@@ -178,8 +178,10 @@ def shrink_budgets(budgets: int | list[int], limit: int) -> int | list[int]:
 
 
 def uses_scheduler(modes: Sequence[Mode]) -> bool:
-    """只要任一 mode 使用 continuous batching，所有结果都统一由 run_scheduler 产出（指标可比）。"""
-    return any(m.batching_method is BatchingMethod.CONTINUOUS for m in modes)
+    """只要任一 mode 使用 continuous batching 或 paged-kv-cache，所有结果都统一由 run_scheduler 产出（指标可比）。"""
+    return any(
+        m.batching_method is BatchingMethod.CONTINUOUS or m.is_enabled(FeatureFlag.PAGED_KV_CACHE) for m in modes
+    )
 
 
 def run_mode(

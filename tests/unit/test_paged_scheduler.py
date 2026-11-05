@@ -154,11 +154,46 @@ def test_concurrent_growth_exhaustion_fails_loudly(model):
         run_paged(model, specs, 2, block_size=4, num_blocks=5)
 
 
-def test_paged_scheduling_only_supports_continuous_batching(model):
+def test_paged_scheduling_rejects_none_batching(model):
     specs = make_request_specs(make_prompts([4]), [2])
-    for method in (BatchingMethod.FIXED, BatchingMethod.NONE):
-        with pytest.raises(ValueError, match="仅支持"):
-            run_scheduler(method, model, specs, 1, -1, CPU, paged_cache_config=PagedCacheConfig())
+    with pytest.raises(ValueError, match="仅支持"):
+        run_scheduler(BatchingMethod.NONE, model, specs, 1, -1, CPU, paged_cache_config=PagedCacheConfig())
+
+
+def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
+    """Paged + FIXED 模式下：波次内短请求提前完成后不立即准入新请求，必须等整波排空才准入下一波。"""
+    prompts = make_prompts([4, 6, 5])
+    budgets = [2, 5, 3]
+    specs = make_request_specs(prompts, budgets)
+
+    fixed_res = run_scheduler(
+        BatchingMethod.FIXED,
+        model,
+        specs,
+        2,
+        -1,
+        CPU,
+        stop_on_eos=False,
+        paged_cache_config=PagedCacheConfig(block_size=4),
+    )
+    cont_res = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        2,
+        -1,
+        CPU,
+        stop_on_eos=False,
+        paged_cache_config=PagedCacheConfig(block_size=4),
+    )
+
+    assert fixed_res.is_paged_kv_cache
+    assert fixed_res.batching_method is BatchingMethod.FIXED
+    assert [s.token_ids for s in fixed_res.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in fixed_res.sequences] == [s.token_ids for s in cont_res.sequences]
+    # 请求 0 在第 2 步完成，但请求 1 要到第 5 步才完成；FIXED 波次屏障下，请求 2 必须等请求 1 完成后才准入。
+    assert fixed_res.request_metrics[2].admitted_ms >= fixed_res.request_metrics[1].completion_ms
+    assert cont_res.request_metrics[2].admitted_ms == cont_res.request_metrics[0].completion_ms
 
 
 def test_generate_dispatches_paged_flag_and_result_workload_reports_it(model):
@@ -168,10 +203,16 @@ def test_generate_dispatches_paged_flag_and_result_workload_reports_it(model):
     )
 
     result = generate(PAGED_MODE, model, prompts, [5, 3, 4], options=opts)
+    fixed_paged_mode = Mode({FeatureFlag.KV_CACHE, FeatureFlag.PAGED_KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    fixed_result = generate(fixed_paged_mode, model, prompts, [5, 3, 4], options=opts)
 
     assert result.is_paged_kv_cache
     assert result.workload.mode == PAGED_MODE
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, [5, 3, 4])
+    assert fixed_result.is_paged_kv_cache
+    assert fixed_result.workload.mode == fixed_paged_mode
+    expected = serial_outputs(model, prompts, [5, 3, 4])
+    assert [s.token_ids for s in result.sequences] == expected
+    assert [s.token_ids for s in fixed_result.sequences] == expected
 
 
 def test_generate_validates_paged_flag_dependencies(model):

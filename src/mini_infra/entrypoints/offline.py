@@ -28,13 +28,13 @@ from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 
 
 def resolve_paged_cache(mode: Mode, opts: GenerationOptions) -> PagedCacheConfig | None:
-    """按 Mode 解析 Paged KV Cache 配置：未启用返回 None；启用时校验其依赖 KV Cache 与 Continuous Batching。"""
+    """按 Mode 解析 Paged KV Cache 配置：未启用返回 None；启用时校验其依赖 KV Cache 与批处理模式。"""
     if not mode.is_enabled(FeatureFlag.PAGED_KV_CACHE):
         return None
     if not mode.is_enabled(FeatureFlag.KV_CACHE):
         raise ValueError("paged-kv-cache 依赖 KV Cache，请同时启用 FeatureFlag.KV_CACHE")
-    if mode.batching_method != BatchingMethod.CONTINUOUS:
-        raise ValueError("paged-kv-cache 目前仅支持 continuous-batching")
+    if mode.batching_method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
+        raise ValueError("paged-kv-cache 目前仅支持 continuous-batching 或 fixed-batching")
     return opts.paged_cache_config
 
 
@@ -63,8 +63,8 @@ def generate(
     token_sequences, has_uniform_prompt_len = normalize_token_sequences(prompts, tokenizer=tokenizer)
     budgets = normalize_budgets(max_new_tokens, len(token_sequences))
 
-    # 3. Continuous Batching 分发（不再静默回退到固定批次路径）
-    if mode.batching_method == BatchingMethod.CONTINUOUS:
+    # 3. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
+    if mode.batching_method == BatchingMethod.CONTINUOUS or paged_cache_config is not None:
         return _dispatch_continuous(
             mode,
             model,
@@ -177,7 +177,7 @@ def _dispatch_continuous(
     specs = make_request_specs(token_sequences, budgets)
     max_running_requests = opts.max_running_requests if opts.max_running_requests is not None else len(specs)
     return run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        mode.batching_method,
         model,
         specs,
         max_running_requests,

@@ -149,7 +149,8 @@ def run_scheduler(
         device: 执行目标设备。
         pad_token_id: 填充 Token ID。
         stop_on_eos: 命中 EOS 时是否提前停止生成。
-        paged_cache_config: 非 None 时以 Paged KV Cache（物理块池 + 块表）取代 Dense 槽位 Cache，仅支持 CONTINUOUS。
+        paged_cache_config: 非 None 时以 Paged KV Cache（physical block pool + block table）
+            取代 Dense batch slot Cache，支持 CONTINUOUS 与 FIXED。
 
     Returns:
         ScheduleResult: 调度阶段事件、指标统计与各请求结果。
@@ -172,14 +173,18 @@ def run_scheduler(
 
     backend: ScheduleBackend
     if paged_cache_config is not None:
-        if method is not BatchingMethod.CONTINUOUS:
-            raise ValueError(f"Paged KV Cache 仅支持 {BatchingMethod.CONTINUOUS.value}，实际为 {method.value}")
+        if method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
+            raise ValueError(
+                f"Paged KV Cache 仅支持 {BatchingMethod.CONTINUOUS.value} 或 {BatchingMethod.FIXED.value}，"
+                f"实际为 {method.value}"
+            )
         backend = PagedScheduleBackend(
             model=model,
             device=device,
             request_specs=request_specs,
             max_running_requests=max_running_requests,
             paged_cache_config=paged_cache_config,
+            method=method,
             pad_token_id=pad_token_id,
         )
         effective_max_running_requests = max_running_requests
