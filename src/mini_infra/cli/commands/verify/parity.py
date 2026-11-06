@@ -11,11 +11,17 @@ from mini_infra.model import (
 )
 from mini_infra.verification.parity.compare_cache import execute_compare_cache
 from mini_infra.verification.parity.compare_lockstep_batch import execute_compare_lockstep_batch
-from mini_infra.verification.parity.compare_paged_cache import (
+from mini_infra.verification.parity.compare_paged_cache_logits import (
     DEFAULT_PROMPTS as DEFAULT_PAGED_PROMPTS,
 )
-from mini_infra.verification.parity.compare_paged_cache import (
+from mini_infra.verification.parity.compare_paged_cache_logits import (
     execute_compare_paged_logits,
+)
+from mini_infra.verification.parity.compare_paged_cache_scheduler import (
+    DEFAULT_PROMPTS as DEFAULT_PAGED_SCHEDULER_PROMPTS,
+)
+from mini_infra.verification.parity.compare_paged_cache_scheduler import (
+    execute_compare_paged_cache_scheduler,
 )
 from mini_infra.verification.parity.compare_scheduler_batch import execute_compare_scheduler_batch
 from mini_infra.verification.parity.compare_transformers import execute_compare_transformers
@@ -100,6 +106,34 @@ def add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     return parser
 
 
+def add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--prompts",
+        nargs="+",
+        default=DEFAULT_PAGED_SCHEDULER_PROMPTS,
+        help="待测试的一条或多条 prompt",
+    )
+    parser.add_argument(
+        "--dtype",
+        choices=("float32", "bfloat16"),
+        default="float32",
+        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument(
+        "--block-sizes",
+        type=int,
+        nargs="+",
+        default=[4, 16],
+        help="Paged KV Cache 物理块大小列表（默认: [4, 16]）",
+    )
+    parser.add_argument("--max-running-requests", type=int, default=2, help="调度器最大并发请求数（默认: 2）")
+    parser.add_argument("--output", help="可选 JSON 输出路径")
+    return parser
+
+
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """注册 parity 相关验证命令，直接挂载到 verify 下，同时也挂载到 verify parity 下。"""
     # 1. 直接挂载 mini-infra verify <subcommand>
@@ -126,6 +160,14 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     add_paged_cache_args(p_paged)
     p_paged.set_defaults(func=handle_paged_cache)
+
+    p_paged_sched = subparsers.add_parser(
+        "paged-cache-scheduler",
+        aliases=["paged-scheduler", "paged-outputs"],
+        help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
+    )
+    add_paged_cache_scheduler_args(p_paged_sched)
+    p_paged_sched.set_defaults(func=handle_paged_cache_scheduler)
 
     # 2. 支持分层命令 mini-infra verify parity <subcommand>
     p_parity = subparsers.add_parser("parity", help="模型与特征数值对齐验证")
@@ -156,6 +198,14 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     add_paged_cache_args(p_p_paged)
     p_p_paged.set_defaults(func=handle_paged_cache)
+
+    p_p_paged_sched = parity_subs.add_parser(
+        "paged-cache-scheduler",
+        aliases=["paged-scheduler", "paged-outputs"],
+        help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
+    )
+    add_paged_cache_scheduler_args(p_p_paged_sched)
+    p_p_paged_sched.set_defaults(func=handle_paged_cache_scheduler)
 
 
 def handle_transformers(args: argparse.Namespace) -> int:
@@ -213,5 +263,18 @@ def handle_paged_cache(args: argparse.Namespace) -> int:
         block_size=args.block_size,
         dtype=args.dtype,
         logits_atol=args.logits_atol,
+        output=args.output,
+    )
+
+
+def handle_paged_cache_scheduler(args: argparse.Namespace) -> int:
+    return execute_compare_paged_cache_scheduler(
+        model=args.model,
+        revision=args.revision,
+        prompts=args.prompts,
+        max_new_tokens=args.max_new_tokens,
+        block_sizes=args.block_sizes,
+        max_running_requests=args.max_running_requests,
+        dtype=args.dtype,
         output=args.output,
     )

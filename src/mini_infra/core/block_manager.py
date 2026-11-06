@@ -57,6 +57,9 @@ class FreeKVCacheBlockQueue:
             raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
         self.num_blocks = num_blocks
         self._free_block_ids: deque[int] = deque(range(NULL_BLOCK_ID + 1, num_blocks))
+        self._ever_allocated_block_ids: set[int] = set()
+        self.allocation_count: int = 0
+        self.reuse_count: int = 0
 
     @property
     def num_free_blocks(self) -> int:
@@ -71,7 +74,16 @@ class FreeKVCacheBlockQueue:
         """取出 num_blocks 个空闲块；调用方须先确认容量充足。"""
         if num_blocks > len(self._free_block_ids):
             raise RuntimeError(f"空闲块不足：需要 {num_blocks}，剩余 {len(self._free_block_ids)}")
-        return [self._free_block_ids.popleft() for _ in range(num_blocks)]
+        allocated = []
+        for _ in range(num_blocks):
+            block_id = self._free_block_ids.popleft()
+            if block_id in self._ever_allocated_block_ids:
+                self.reuse_count += 1
+            else:
+                self._ever_allocated_block_ids.add(block_id)
+                self.allocation_count += 1
+            allocated.append(block_id)
+        return allocated
 
     def free(self, block_ids: Sequence[int]) -> None:
         self._free_block_ids.extend(block_ids)
@@ -95,6 +107,14 @@ class KVCacheManager:
     @property
     def num_used_blocks(self) -> int:
         return self.free_block_queue.num_used_blocks
+
+    @property
+    def block_allocation_count(self) -> int:
+        return self.free_block_queue.allocation_count
+
+    @property
+    def block_reuse_count(self) -> int:
+        return self.free_block_queue.reuse_count
 
     def block_table(self, request_idx: int) -> list[int]:
         """请求当前的 Block Table（逻辑块号 -> 物理块号），只读使用。"""
