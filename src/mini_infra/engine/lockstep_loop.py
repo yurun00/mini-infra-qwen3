@@ -1,7 +1,7 @@
 """齐步自回归生成主循环（Lockstep Generation Loop）。
 
 不做请求队列调度（Scheduler），所有请求在 t=0 同时入场、打包进同一批次齐步执行（1 步 Prefill + N 步 Decode）。
-面向算子基准测试与数值等价性校验（支持 use_cache=False 全量重算对照、capture_logits=True 逐步 Logits 采集
+面向算子基准测试与数值等价性校验（支持 CachingMethod.NONE 全量重算对照、capture_logits=True 逐步 Logits 采集
 以及 CUDA Event 全异步计时）。
 作为协调层编排者，内部通过纯 CPU 状态机 LockstepState 驱动生命周期与完成判定，
 GPU 张量组装、物理 KV Cache 更新与采样由 Worker 层的 LockstepRunner 内部自治闭环。
@@ -14,7 +14,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.types import SequenceOutput
+from mini_infra.core.types import CachingMethod, SequenceOutput
 from mini_infra.device import PendingStepLatencies, synchronize
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -122,9 +122,9 @@ def run_lockstep(
     token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
-    use_cache: bool,
     device: torch.device,
     *,
+    caching_method: CachingMethod,
     pad_token_id: int = 0,
     eos_token_id: int | None = None,
     stop_on_eos: bool = True,
@@ -138,6 +138,10 @@ def run_lockstep(
     内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在数据面自治流转 GPU 输入与 KV Cache，
     直接构建并返回由核心共享值对象组成的 GenerationResult。
     """
+    if caching_method is CachingMethod.PAGED:
+        raise ValueError("lockstep 暂不支持 PAGED KV Cache，请使用 CachingMethod.NONE 或 CachingMethod.DENSE")
+    use_cache = caching_method is CachingMethod.DENSE
+
     is_cuda = device.type == "cuda"
     synchronize(device)
     baseline_allocated_bytes = torch.cuda.memory_allocated(device) if is_cuda else 0

@@ -23,11 +23,11 @@ class DenseScheduleBackend(ScheduleBackend):
         model: torch.nn.Module,
         device: torch.device,
         max_running_requests: int,
-        method: BatchingMethod,
+        batching_method: BatchingMethod,
         pad_token_id: int = 0,
     ) -> None:
-        super().__init__(model, device, max_running_requests, method)
-        self.is_continuous = method is BatchingMethod.CONTINUOUS
+        super().__init__(model, device, max_running_requests, batching_method)
+        self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
         self.runner = SlotRunner(model, device, pad_token_id)
         self.dense_slot_cache = DenseSlotCache(max_running_requests, device)
 

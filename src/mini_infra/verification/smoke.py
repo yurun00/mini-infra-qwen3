@@ -183,9 +183,15 @@ def check_continuous_batching(model):
 
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     specs = make_request_specs(sequences, budgets)
-    fixed = run_scheduler(BatchingMethod.FIXED, model, specs, 2, -1, device, stop_on_eos=False)
-    continuous = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, -1, device, stop_on_eos=False)
-    serialized = run_scheduler(BatchingMethod.NONE, model, specs, 1, -1, device, stop_on_eos=False)
+    fixed = run_scheduler(
+        BatchingMethod.FIXED, model, specs, 2, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
+    continuous = run_scheduler(
+        BatchingMethod.CONTINUOUS, model, specs, 2, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
+    serialized = run_scheduler(
+        BatchingMethod.NONE, model, specs, 1, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
 
     assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
     assert [s.token_ids for s in continuous.sequences] == [s.token_ids for s in serialized.sequences]
@@ -207,13 +213,31 @@ def check_continuous_batching(model):
 
     # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)
     staggered_specs = make_request_specs(sequences[:2], [4, 2], arrival_times_ms=[0.0, 5.0])
-    staggered = run_scheduler(BatchingMethod.CONTINUOUS, model, staggered_specs, 2, -1, device, stop_on_eos=False)
+    staggered = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        staggered_specs,
+        2,
+        -1,
+        device,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
     assert [len(s.token_ids) for s in staggered.sequences] == [4, 2]
     assert staggered.request_metrics[1].admitted_ms >= 5.0
 
     # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
     same_arrival_specs = make_request_specs([sequences[0]] * 12, 1)
-    same_arrival = run_scheduler(BatchingMethod.CONTINUOUS, model, same_arrival_specs, 3, -1, device, stop_on_eos=False)
+    same_arrival = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        same_arrival_specs,
+        3,
+        -1,
+        device,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
     flattened_admissions = [request_idx for event in same_arrival.events for request_idx in event.admitted_request_ids]
     assert flattened_admissions == list(range(12))
 

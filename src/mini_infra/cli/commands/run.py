@@ -211,7 +211,7 @@ def run_mode(
 ) -> GenerationResult:
     """执行单个 mode：via_scheduler 为 True 时统一由 run_scheduler 产出；否则沿用 generate。"""
     if via_scheduler:
-        if not mode.use_kv_cache:
+        if mode.caching_method is CachingMethod.NONE:
             raise ValueError("调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache")
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
@@ -228,6 +228,7 @@ def run_mode(
             effective_max_running_requests,
             options.eos_token_id,
             options.device or torch.device("cuda"),
+            caching_method=mode.caching_method,
             pad_token_id=options.pad_token_id,
             stop_on_eos=options.stop_on_eos,
             paged_cache_config=resolve_paged_cache(mode, options),

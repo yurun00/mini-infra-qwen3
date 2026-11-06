@@ -25,7 +25,7 @@ from mini_infra.core.scheduler import RunningQueue, WaitingQueue, prepare_schedu
 from mini_infra.device import peak_memory_mb, synchronize
 from mini_infra.engine.dense_schedule_backend import DenseScheduleBackend
 from mini_infra.engine.metrics import ScheduleEvent, SchedulePhase, summarize_schedule
-from mini_infra.engine.mode import BatchingMethod
+from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
 from mini_infra.engine.results import ScheduleResult
 from mini_infra.engine.schedule_backend import ScheduleBackend
@@ -114,7 +114,7 @@ def _run_schedule_loop(
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000.0
 
     return summarize_schedule(
-        backend.method,
+        backend.batching_method,
         states,
         events,
         max_running_requests,
@@ -128,12 +128,14 @@ def _run_schedule_loop(
 
 @torch.inference_mode()
 def run_scheduler(
-    batching_method: str | BatchingMethod,
+    batching_method: BatchingMethod,
     model: torch.nn.Module,
     request_specs: Sequence[RequestSpec],
     max_running_requests: int,
     eos_token_id: int | None,
     device: torch.device,
+    *,
+    caching_method: CachingMethod,
     pad_token_id: int = 0,
     stop_on_eos: bool = True,
     paged_cache_config: PagedCacheConfig | None = None,
@@ -141,7 +143,8 @@ def run_scheduler(
     """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
     Args:
-        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED / NONE 或对应字符串）。
+        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED / NONE）。
+        caching_method: KV Cache 策略（CachingMethod.DENSE 或 PAGED；NONE 不支持）。
         model: 因果语言模型。
         request_specs: 待调度的请求规格列表。
         max_running_requests: 调度队列最大并发数（NONE 模式下自动约束为 1）。
@@ -149,8 +152,7 @@ def run_scheduler(
         device: 执行目标设备。
         pad_token_id: 填充 Token ID。
         stop_on_eos: 命中 EOS 时是否提前停止生成。
-        paged_cache_config: 非 None 时以 Paged KV Cache（physical block pool + block table）
-            取代 Dense batch slot Cache，支持 CONTINUOUS 与 FIXED。
+        paged_cache_config: PAGED 的 physical block pool 配置（仅当 caching_method=PAGED 时提供）。
 
     Returns:
         ScheduleResult: 调度阶段事件、指标统计与各请求结果。
@@ -158,25 +160,17 @@ def run_scheduler(
     if max_running_requests < 1:
         raise ValueError("max_running_requests 必须大于 0")
 
-    if isinstance(batching_method, str):
-        normalized = batching_method.strip().lower()
-        if normalized == "fixed":
-            method = BatchingMethod.FIXED
-        elif normalized == "continuous":
-            method = BatchingMethod.CONTINUOUS
-        elif normalized == "none":
-            method = BatchingMethod.NONE
-        else:
-            method = BatchingMethod.from_str(normalized)
-    else:
-        method = BatchingMethod.from_str(batching_method)
+    if caching_method is CachingMethod.NONE:
+        raise ValueError("scheduler 不支持无 KV Cache，请改用 CachingMethod.DENSE 或 CachingMethod.PAGED")
 
     backend: ScheduleBackend
-    if paged_cache_config is not None:
-        if method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
+    if caching_method is CachingMethod.PAGED:
+        if paged_cache_config is None:
+            raise ValueError("PAGED 必须提供 paged_cache_config")
+        if batching_method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
             raise ValueError(
                 f"Paged KV Cache 仅支持 {BatchingMethod.CONTINUOUS.value} 或 {BatchingMethod.FIXED.value}，"
-                f"实际为 {method.value}"
+                f"实际为 {batching_method.value}"
             )
         backend = PagedScheduleBackend(
             model=model,
@@ -184,19 +178,21 @@ def run_scheduler(
             request_specs=request_specs,
             max_running_requests=max_running_requests,
             paged_cache_config=paged_cache_config,
-            batching_method=method,
+            batching_method=batching_method,
             pad_token_id=pad_token_id,
         )
         effective_max_running_requests = max_running_requests
     else:
+        if paged_cache_config is not None:
+            raise ValueError("DENSE 不应传 paged_cache_config")
         effective_max_running_requests = (
-            1 if (method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
+            1 if (batching_method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
         )
         backend = DenseScheduleBackend(
             model=model,
             device=device,
             max_running_requests=effective_max_running_requests,
-            method=method,
+            batching_method=batching_method,
             pad_token_id=pad_token_id,
         )
 

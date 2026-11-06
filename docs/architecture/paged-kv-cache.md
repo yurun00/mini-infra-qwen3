@@ -10,7 +10,7 @@
 | ④ Worker（GPU） | [`worker/paged_kv_cache.py`](../../src/mini_infra/worker/paged_kv_cache.py) | `PagedKVCachePool`：逐层 physical block pool，只认 `physical_block_id` / physical slot（token 级物理位）。 |
 | ④ Worker（GPU） | [`worker/paged_runner.py`](../../src/mini_infra/worker/paged_runner.py) | `PagedRunner`：Host 侧批量组装 `slot_mapping` / `block_tables` / `context_lens`，单次 H2D；Prefill 后散写 physical block pool。 |
 | ⑤ Model | [`model/qwen3.py`](../../src/mini_infra/model/qwen3.py) | `forward`（支持 `attn_metadata=PagedAttentionMetadata`）：只接收裸张量（physical block pool + `PagedAttentionMetadata`），就地写入新 K/V、按 block table 读取历史。 |
-| ② Engine | [`engine/scheduler_loop.py`](../../src/mini_infra/engine/scheduler_loop.py) | `PagedExecutionStrategy` 与统一调度主循环：与 Dense 路径共享三级队列与 FCFS/Prefill 优先规则，仅替换 KV 存储与读取方式。 |
+| ② Engine | [`engine/paged_schedule_backend.py`](../../src/mini_infra/engine/paged_schedule_backend.py) | `PagedScheduleBackend`：与 Dense 路径共享统一调度主循环（三级队列 + FCFS/Prefill 优先规则），仅替换 KV 存储与读取方式。 |
 
 ## 二、张量契约
 

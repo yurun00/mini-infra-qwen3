@@ -108,10 +108,25 @@ class Mode:
         return "+".join(parts)
 
 
+def validate_mode(mode: Mode) -> None:
+    """校验 Mode 的 (caching_method, batching_method) 是否落在合法组合内，非法即抛错。
+
+    只编码与具体驱动无关的硬约束；run_scheduler / run_lockstep 再各自校验自身边界。
+    """
+    if mode.caching_method is CachingMethod.PAGED and mode.batching_method not in (
+        BatchingMethod.CONTINUOUS,
+        BatchingMethod.FIXED,
+    ):
+        raise ValueError("paged-kv-cache 仅支持 continuous-batching 或 fixed-batching")
+    if mode.batching_method is BatchingMethod.CONTINUOUS and mode.caching_method is CachingMethod.NONE:
+        raise ValueError("continuous-batching 依赖 KV Cache，请将 caching_method 设为 DENSE 或 PAGED")
+
+
 __all__ = [
     "BatchingMethod",
     "FeatureDimension",
     "FeatureFlag",
     "CachingMethod",
     "Mode",
+    "validate_mode",
 ]

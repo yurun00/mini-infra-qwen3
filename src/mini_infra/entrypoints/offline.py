@@ -13,7 +13,7 @@ import torch
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine.lockstep_loop import run_lockstep
-from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
+from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode, validate_mode
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
     normalize_token_sequences,
@@ -28,11 +28,9 @@ from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 
 
 def resolve_paged_cache(mode: Mode, opts: GenerationOptions) -> PagedCacheConfig | None:
-    """按 Mode 解析 Paged KV Cache 配置：未启用返回 None；启用时校验其批处理模式。"""
+    """按 Mode 提取 Paged KV Cache 配置：未启用 PAGED 返回 None；启用则返回其配置。"""
     if mode.caching_method is not CachingMethod.PAGED:
         return None
-    if mode.batching_method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
-        raise ValueError("paged-kv-cache 目前仅支持 continuous-batching 或 fixed-batching")
     return opts.paged_cache_config
 
 
@@ -51,6 +49,7 @@ def generate(
     不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
     """
     opts = options or GenerationOptions()
+    validate_mode(mode)
     paged_cache_config = resolve_paged_cache(mode, opts)
 
     # 1. 规约设备
@@ -62,7 +61,7 @@ def generate(
     budgets = normalize_budgets(max_new_tokens, len(token_sequences))
 
     # 3. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
-    if mode.batching_method == BatchingMethod.CONTINUOUS or paged_cache_config is not None:
+    if mode.batching_method == BatchingMethod.CONTINUOUS or mode.caching_method is CachingMethod.PAGED:
         return _dispatch_continuous(
             mode,
             model,
@@ -111,7 +110,7 @@ def _dispatch_lockstep(
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
-        use_cache=mode.use_kv_cache,
+        caching_method=mode.caching_method,
         device=device,
         pad_token_id=opts.pad_token_id,
         eos_token_id=opts.eos_token_id,
@@ -165,7 +164,7 @@ def _dispatch_continuous(
     paged_cache_config: PagedCacheConfig | None,
 ) -> ScheduleResult:
     """以 Continuous Batching 执行（支持自定义并发上限），直接返回 ScheduleResult。"""
-    if not mode.use_kv_cache:
+    if mode.caching_method is CachingMethod.NONE:
         raise ValueError("continuous-batching 依赖 KV Cache，请将 caching_method 设为 CachingMethod.DENSE 或 PAGED")
     if opts.capture_logits or opts.profile:
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
@@ -180,6 +179,7 @@ def _dispatch_continuous(
         max_running_requests,
         opts.eos_token_id,
         device,
+        caching_method=mode.caching_method,
         pad_token_id=opts.pad_token_id,
         stop_on_eos=opts.stop_on_eos,
         paged_cache_config=paged_cache_config,

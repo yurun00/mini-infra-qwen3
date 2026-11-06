@@ -13,7 +13,7 @@ import torch
 
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
-from mini_infra.engine import BatchingMethod, Qwen3Tokenizer, run_scheduler
+from mini_infra.engine import BatchingMethod, CachingMethod, Qwen3Tokenizer, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -51,6 +51,7 @@ def run_compare_scheduler_batch(
         max_running_requests=1,
         eos_token_id=eos_token_id,
         device=device,
+        caching_method=CachingMethod.DENSE,
         stop_on_eos=False,
     )
 
@@ -62,6 +63,7 @@ def run_compare_scheduler_batch(
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
+        caching_method=CachingMethod.DENSE,
         stop_on_eos=False,
     )
 
@@ -73,6 +75,7 @@ def run_compare_scheduler_batch(
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
+        caching_method=CachingMethod.DENSE,
         stop_on_eos=False,
     )
 
@@ -84,6 +87,7 @@ def run_compare_scheduler_batch(
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
+        caching_method=CachingMethod.PAGED,
         stop_on_eos=False,
         paged_cache_config=PagedCacheConfig(block_size=4),
     )

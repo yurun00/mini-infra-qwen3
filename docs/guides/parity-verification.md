@@ -114,7 +114,7 @@ pytest tests/gpu/parity/test_lockstep_batch_parity.py
 ### 4. scheduler 批调度一致性测试（Fixed vs Continuous vs Paged vs 串行）
 
 * **对应源码**：[`src/mini_infra/verification/parity/compare_scheduler_batch.py`](../../src/mini_infra/verification/parity/compare_scheduler_batch.py)
-* **核心目标**：验证在底层通用调度循环（三级队列 + `DenseExecutionStrategy` / `PagedExecutionStrategy`）下：
+* **核心目标**：验证在底层通用调度循环（三级队列 + `DenseScheduleBackend` / `PagedScheduleBackend`）下：
   1. **Fixed Batching（波次准入）** 与单请求串行调度（`max_running_requests=1`）输出完全一致；
   2. **Continuous Batching（空 batch slot 即准入，DenseSlotCache）** 与单请求串行调度输出完全一致；
   3. **Continuous Batching + Paged KV Cache（physical block pool + block table）** 与单请求串行调度输出完全一致；

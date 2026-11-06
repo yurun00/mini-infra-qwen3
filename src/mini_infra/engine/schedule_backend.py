@@ -38,12 +38,12 @@ class ScheduleBackend(abc.ABC):
         model: torch.nn.Module,
         device: torch.device,
         max_running_requests: int,
-        method: BatchingMethod,
+        batching_method: BatchingMethod,
     ) -> None:
         self.model = model
         self.device = device
         self.max_running_requests = max_running_requests
-        self.method = method
+        self.batching_method = batching_method
         synchronize(device)
         self.baseline_mb = allocated_memory_mb(device)
         reset_peak_memory(device)
