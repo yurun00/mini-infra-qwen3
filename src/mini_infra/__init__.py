@@ -16,6 +16,7 @@ from mini_infra.device import (
 from mini_infra.engine import (
     BatchingMethod,
     BatchScheduleInfo,
+    CachingMethod,
     FeatureDimension,
     FeatureFlag,
     GenerationResult,
@@ -76,6 +77,7 @@ __all__ = [
     "GenerationTrace",
     "KERNEL_CATEGORIES",
     "KVCache",
+    "CachingMethod",
     "KernelInfo",
     "MODULE_SCOPES",
     "MemoryProfile",

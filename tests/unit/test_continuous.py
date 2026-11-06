@@ -12,7 +12,7 @@ from mini_infra.core import (
 )
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     GenerationResult,
     Mode,
@@ -23,7 +23,7 @@ from mini_infra.engine import (
 )
 
 CPU = torch.device("cpu")
-KV_MODE = Mode({FeatureFlag.KV_CACHE})
+KV_MODE = Mode(CachingMethod.DENSE)
 RUNNERS = {
     BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(BatchingMethod.FIXED, *args, **kwargs),
     BatchingMethod.CONTINUOUS: lambda *args, **kwargs: run_scheduler(BatchingMethod.CONTINUOUS, *args, **kwargs),
@@ -216,8 +216,8 @@ class TestGenerateDispatch:
     def test_continuous_mode_matches_serial_and_fixed(self, model):
         prompts = make_prompts([3, 6, 4])
         budgets = [5, 2, 4]
-        continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
-        fixed = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        fixed = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
 
         opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
         result = generate(continuous, model, prompts, budgets, options=opts)
@@ -250,14 +250,14 @@ class TestGenerateDispatch:
 
     @pytest.mark.parametrize("kwargs", [{"capture_logits": True}, {"profile": True}])
     def test_continuous_mode_rejects_unsupported_options(self, model, kwargs):
-        mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+        mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="暂不支持"):
             generate(mode, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU, **kwargs))
 
     def test_continuous_mode_respects_max_running_requests(self, model):
         prompts = make_prompts([3, 5, 4, 6])
         budgets = [3, 2, 4, 1]
-        continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         # 4 个离线请求，并发上限限制为 2，触发槽位排队复用
         result = generate(
             continuous,
@@ -276,7 +276,7 @@ class TestGenerateDispatch:
         assert result.batch_size == 4
 
     def test_continuous_mode_rejects_invalid_max_running_requests(self, model):
-        continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="必须大于 0"):
             generate(
                 continuous,

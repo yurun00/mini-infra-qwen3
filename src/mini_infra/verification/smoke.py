@@ -8,7 +8,7 @@ import torch
 from mini_infra.core import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
     SchedulePhase,
@@ -114,7 +114,7 @@ def check_fixed_batching(model):
     assert lengths.tolist() == [4, 2]
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
-    fixed_batching_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    fixed_batching_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     logits_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
     single = generate(fixed_batching_mode, model, [request_a], 4, options=logits_opts)
     paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], options=logits_opts)
@@ -136,7 +136,7 @@ def check_fixed_batching(model):
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。
     serial = generate(
-        Mode({FeatureFlag.KV_CACHE}),
+        Mode(CachingMethod.DENSE),
         model,
         [request_a, request_b],
         [2, 4],
@@ -173,8 +173,8 @@ def check_continuous_batching(model):
     budgets = [2, 4, 3, 2]
 
     # 1. 统一 generate 接口分发验证（多请求异构预算）
-    continuous_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
-    serial_mode = Mode({FeatureFlag.KV_CACHE})
+    continuous_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    serial_mode = Mode(CachingMethod.DENSE)
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
 
     cont_gen = generate(continuous_mode, model, sequences, budgets, options=base_opts)

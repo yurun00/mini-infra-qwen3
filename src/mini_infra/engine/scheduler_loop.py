@@ -122,7 +122,7 @@ def _run_schedule_loop(
         baseline_mb=backend.baseline_mb,
         e2e_wall_ms=e2e_wall_ms,
         is_cuda=device.type == "cuda",
-        is_paged_kv_cache=backend.is_paged,
+        caching_method=backend.caching_method,
     )
 
 
@@ -184,7 +184,7 @@ def run_scheduler(
             request_specs=request_specs,
             max_running_requests=max_running_requests,
             paged_cache_config=paged_cache_config,
-            method=method,
+            batching_method=method,
             pad_token_id=pad_token_id,
         )
         effective_max_running_requests = max_running_requests

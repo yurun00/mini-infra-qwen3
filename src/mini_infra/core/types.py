@@ -1,4 +1,4 @@
-"""控制面基础数据结构体（BatchingMethod、SequenceOutput、RequestMetrics、collapse_uniform）。
+"""控制面基础数据结构体（CachingMethod、BatchingMethod、SequenceOutput、RequestMetrics、collapse_uniform）。
 
 注意：此模块处于纯 CPU 控制面，严禁 import torch 或引入任何 GPU 张量操作。
 """
@@ -7,6 +7,28 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+
+class CachingMethod(str, Enum):
+    """互斥的 KV Cache 策略。"""
+
+    NONE = "none"
+    DENSE = "dense-kv-cache"
+    PAGED = "paged-kv-cache"
+
+    @classmethod
+    def from_str(cls, value: "str | CachingMethod | None") -> "CachingMethod":
+        if value is None:
+            return cls.NONE
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(value)
+        except ValueError as err:
+            raise ValueError(f"未知 KV Cache 策略: {value}，可选策略: {[m.value for m in cls]}") from err
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class BatchingMethod(str, Enum):
@@ -84,6 +106,7 @@ def collapse_uniform(values: Sequence[Any]) -> Any:
 
 __all__ = [
     "BatchingMethod",
+    "CachingMethod",
     "RequestMetrics",
     "SequenceOutput",
     "collapse_uniform",

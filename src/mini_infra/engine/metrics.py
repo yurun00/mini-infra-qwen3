@@ -10,6 +10,7 @@ import torch
 from mini_infra.core.request import RequestState
 from mini_infra.core.types import (
     BatchingMethod,
+    CachingMethod,
 )
 from mini_infra.utils import percentile
 
@@ -247,7 +248,7 @@ def summarize_schedule(
     baseline_mb: float = 0.0,
     e2e_wall_ms: float | None = None,
     is_cuda: bool = False,
-    is_paged_kv_cache: bool = False,
+    caching_method: CachingMethod = CachingMethod.DENSE,
 ) -> Any:
     """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
     from mini_infra.engine.results import ScheduleResult
@@ -349,7 +350,7 @@ def summarize_schedule(
         events=list(events),
         request_metrics=requests,
         batching_method=batching_method,
-        is_paged_kv_cache=is_paged_kv_cache,
+        caching_method=caching_method,
     )
 
 

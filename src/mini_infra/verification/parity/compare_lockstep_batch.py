@@ -11,7 +11,7 @@ import torch
 
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
     Qwen3Tokenizer,
@@ -129,7 +129,7 @@ def run_compare_lockstep_batch(
         ("pair_long_second", [target, long], 0),
     ]
 
-    fixed_batch_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    fixed_batch_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     gen_opts = GenerationOptions(
         eos_token_id=eos_token_id,
         device=device,

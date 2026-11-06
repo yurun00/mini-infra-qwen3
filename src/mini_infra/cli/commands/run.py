@@ -12,6 +12,7 @@ import torch
 from mini_infra.core import PagedCacheConfig, make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
+    CachingMethod,
     FeatureFlag,
     GenerationOptions,
     GenerationResult,
@@ -58,16 +59,16 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument(
-        "--kv-cache",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="是否启用 KV Cache 特性（默认: True）",
+        "--caching-method",
+        default=CachingMethod.DENSE.value,
+        choices=[m.value for m in CachingMethod],
+        help="指定基准 KV Cache 策略（默认: %(default)s）",
     )
     parser.add_argument(
         "--kv-block-size",
         type=int,
         default=PagedCacheConfig.block_size,
-        help="Paged KV Cache 每个物理块容纳的 Token 数，仅在启用 paged-kv-cache 特性时生效（默认: %(default)s）",
+        help="Paged KV Cache 每个物理块容纳的 Token 数，仅在 paged-kv-cache 策略下生效（默认: %(default)s）",
     )
     parser.add_argument(
         "--num-kv-blocks",
@@ -86,7 +87,11 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         nargs="+",
         default=None,
         metavar="FEATURE",
-        help="指定 1 个（与基准对比）或 2 个 feature（相互对比，如 fixed-batching continuous-batching）",
+        help=(
+            "指定单个对比项：1 个 FeatureFlag 值（对比 disable vs enable），"
+            "或 Enum 类名（CachingMethod / BatchingMethod）加 2 个枚举值"
+            "（如 BatchingMethod fixed-batching continuous-batching）"
+        ),
     )
     parser.add_argument(
         "--profile",
@@ -117,43 +122,56 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     return parser
 
 
-def resolve_feature(name: str) -> FeatureFlag | BatchingMethod:
-    """将名称解析为 FeatureFlag 或作为 feature 之一的 BatchingMethod（兼容下划线与常见简写）。"""
-    normalized = name.strip().replace("_", "-").lower()
+ENUM_COMPARE_DIMENSIONS: dict[str, type[CachingMethod] | type[BatchingMethod]] = {
+    "CachingMethod": CachingMethod,
+    "BatchingMethod": BatchingMethod,
+}
+
+
+def resolve_compare_feature(base_mode: Mode, raw_args: Sequence[str]) -> tuple[tuple[Mode, Mode], str]:
+    """解析 --compare-feature 参数并返回对比的 (mode1, mode2) 与特性描述名称。
+
+    raw_args 接受以下两种格式之一：
+    1. 单个 FeatureFlag 值（长度为 1）：
+       例如: ["placeholder"]
+       语义: 对比该特性的 disable 与 enable 两种模式。
+    2. Enum 类名后跟随两个合法的枚举值（长度为 3）：
+       例如: ["CachingMethod", "dense-kv-cache", "paged-kv-cache"]
+       或:   ["BatchingMethod", "fixed-batching", "continuous-batching"]
+       语义: 对比指定 Enum 类对应的两个枚举值模式。
+    """
+    if not raw_args:
+        raise ValueError("--compare-feature 不能为空")
+
+    head = raw_args[0]
+    if head in ENUM_COMPARE_DIMENSIONS:
+        if len(raw_args) != 3:
+            raise ValueError(f"--compare-feature 指定 {head} 时必须紧跟 2 个枚举值，当前传入: {list(raw_args)}")
+        enum_cls = ENUM_COMPARE_DIMENSIONS[head]
+        val1 = enum_cls.from_str(raw_args[1])
+        val2 = enum_cls.from_str(raw_args[2])
+        if val1 == val2:
+            raise ValueError(f"--compare-feature 传入了两个相同的枚举值: '{val1.value}'")
+        if enum_cls is CachingMethod:
+            modes = (base_mode.with_caching_method(val1), base_mode.with_caching_method(val2))
+        else:
+            modes = (base_mode.with_batching_method(val1), base_mode.with_batching_method(val2))
+        return modes, f"{val1.value} vs {val2.value}"
+
     try:
-        return FeatureFlag.from_str(normalized)
-    except ValueError:
-        pass
-    try:
-        return BatchingMethod.from_str(normalized)
-    except ValueError:
-        pass
-    if normalized == "fixed":
-        return BatchingMethod.FIXED
-    if normalized == "continuous":
-        return BatchingMethod.CONTINUOUS
-    if normalized == "none":
-        return BatchingMethod.NONE
+        flag = FeatureFlag.from_str(head)
+    except ValueError as err:
+        valid_flags = [f.value for f in FeatureFlag]
+        valid_enums = list(ENUM_COMPARE_DIMENSIONS)
+        raise ValueError(
+            f"--compare-feature 参数 '{head}' 未知。可选 FeatureFlag: {valid_flags}，或 Enum 类名: {valid_enums}"
+        ) from err
 
-    valid_features = [f.value for f in FeatureFlag] + [b.value for b in BatchingMethod]
-    raise ValueError(f"--compare-feature 参数 '{name}' 未知。可选 feature: {valid_features}")
-
-
-def resolve_compare_features_string(mode: Mode, compare_features: Sequence[str] | None) -> str:
-    """根据 compare_feature 从 mode 中查找对应值并拼接为字符串。"""
-    if not compare_features:
-        return ""
-    features: list[str] = []
-    for f in compare_features:
-        feat = resolve_feature(f)
-        val = (
-            mode.batching_method.value
-            if isinstance(feat, BatchingMethod)
-            else (feat.value if mode.is_enabled(feat) else f"no-{feat.value}")
+    if len(raw_args) != 1:
+        raise ValueError(
+            f"--compare-feature 指定 FeatureFlag '{flag.value}' 时不接受额外参数，当前传入: {list(raw_args)}"
         )
-        if val not in features:
-            features.append(val)
-    return "_".join(features)
+    return (base_mode.with_flag(flag, False), base_mode.with_flag(flag, True)), flag.value
 
 
 def resolve_budgets(max_new_tokens: Sequence[int], num_prompts: int) -> int | list[int]:
@@ -179,9 +197,7 @@ def shrink_budgets(budgets: int | list[int], limit: int) -> int | list[int]:
 
 def uses_scheduler(modes: Sequence[Mode]) -> bool:
     """只要任一 mode 使用 continuous batching 或 paged-kv-cache，所有结果都统一由 run_scheduler 产出（指标可比）。"""
-    return any(
-        m.batching_method is BatchingMethod.CONTINUOUS or m.is_enabled(FeatureFlag.PAGED_KV_CACHE) for m in modes
-    )
+    return any(m.batching_method is BatchingMethod.CONTINUOUS or m.caching_method is CachingMethod.PAGED for m in modes)
 
 
 def run_mode(
@@ -195,8 +211,8 @@ def run_mode(
 ) -> GenerationResult:
     """执行单个 mode：via_scheduler 为 True 时统一由 run_scheduler 产出；否则沿用 generate。"""
     if via_scheduler:
-        if not mode.is_enabled(FeatureFlag.KV_CACHE):
-            raise ValueError("调度路径依赖 KV Cache，请启用 --kv-cache")
+        if not mode.use_kv_cache:
+            raise ValueError("调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache")
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
         specs = make_request_specs(sequences, budgets)
@@ -308,43 +324,11 @@ def handle_run(args: argparse.Namespace) -> int:
     budgets = resolve_budgets(args.max_new_tokens, len(sequences))
     model = load_model(model_directory, device)
 
-    flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
-    base_mode = Mode(flags, batching_method=args.batching_method)
+    base_mode = Mode(args.caching_method, batching_method=args.batching_method)
 
     compare_feature_name = None
     if args.compare_feature:
-        items = [resolve_feature(x) for x in args.compare_feature]
-        if len(items) == 1:
-            item = items[0]
-            if isinstance(item, FeatureFlag):
-                mode_disable = base_mode.with_flag(item, False)
-                mode_enable = base_mode.with_flag(item, True)
-                compare_feature_name = item.value
-            else:
-                if item == BatchingMethod.NONE:
-                    raise ValueError("不能将 'none' 作为单个对比 feature")
-                mode_disable = base_mode.with_batching_method(BatchingMethod.NONE)
-                mode_enable = base_mode.with_batching_method(item)
-                compare_feature_name = item.value
-            modes = (mode_disable, mode_enable)
-        elif len(items) == 2:
-            item1, item2 = items[0], items[1]
-            if item1 == item2:
-                raise ValueError(f"--compare-feature 传入了两个相同的对比 feature: '{item1.value}'")
-
-            def apply_feature(mode: Mode, feature: FeatureFlag | BatchingMethod) -> Mode:
-                if isinstance(feature, FeatureFlag):
-                    return mode.with_flag(feature, True)
-                return mode.with_batching_method(feature)
-
-            mode1 = apply_feature(base_mode, item1)
-            mode2 = apply_feature(base_mode, item2)
-            compare_feature_name = f"{item1.value} vs {item2.value}"
-            modes = (mode1, mode2)
-        else:
-            raise ValueError(
-                f"--compare-feature 最多支持传入 2 个 feature，当前传入了 {len(items)} 个: {args.compare_feature}"
-            )
+        modes, compare_feature_name = resolve_compare_feature(base_mode, args.compare_feature)
     else:
         modes = (base_mode,)
 
@@ -377,8 +361,7 @@ def handle_run(args: argparse.Namespace) -> int:
     results = {}
     for mode in modes:
         if do_profile and args.tensorboard_dir is not None:
-            compare_features_str = resolve_compare_features_string(mode, args.compare_feature)
-            tb_dir = args.tensorboard_dir / compare_features_str if compare_features_str else args.tensorboard_dir
+            tb_dir = args.tensorboard_dir / str(mode) if args.compare_feature else args.tensorboard_dir
             tb_options = TensorBoardOptions(log_dir=tb_dir)
         else:
             tb_dir = None

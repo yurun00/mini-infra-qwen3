@@ -13,7 +13,7 @@ import torch
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine.lockstep_loop import run_lockstep
-from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
     normalize_token_sequences,
@@ -28,11 +28,9 @@ from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 
 
 def resolve_paged_cache(mode: Mode, opts: GenerationOptions) -> PagedCacheConfig | None:
-    """按 Mode 解析 Paged KV Cache 配置：未启用返回 None；启用时校验其依赖 KV Cache 与批处理模式。"""
-    if not mode.is_enabled(FeatureFlag.PAGED_KV_CACHE):
+    """按 Mode 解析 Paged KV Cache 配置：未启用返回 None；启用时校验其批处理模式。"""
+    if mode.caching_method is not CachingMethod.PAGED:
         return None
-    if not mode.is_enabled(FeatureFlag.KV_CACHE):
-        raise ValueError("paged-kv-cache 依赖 KV Cache，请同时启用 FeatureFlag.KV_CACHE")
     if mode.batching_method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
         raise ValueError("paged-kv-cache 目前仅支持 continuous-batching 或 fixed-batching")
     return opts.paged_cache_config
@@ -108,13 +106,12 @@ def _dispatch_lockstep(
     opts: GenerationOptions,
 ) -> GenerationResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
-    use_cache = mode.is_enabled(FeatureFlag.KV_CACHE)
     return run_lockstep(
         model=model,
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
-        use_cache=use_cache,
+        use_cache=mode.use_kv_cache,
         device=device,
         pad_token_id=opts.pad_token_id,
         eos_token_id=opts.eos_token_id,
@@ -168,8 +165,8 @@ def _dispatch_continuous(
     paged_cache_config: PagedCacheConfig | None,
 ) -> ScheduleResult:
     """以 Continuous Batching 执行（支持自定义并发上限），直接返回 ScheduleResult。"""
-    if not mode.is_enabled(FeatureFlag.KV_CACHE):
-        raise ValueError("continuous-batching 依赖 KV Cache，请启用 FeatureFlag.KV_CACHE")
+    if not mode.use_kv_cache:
+        raise ValueError("continuous-batching 依赖 KV Cache，请将 caching_method 设为 CachingMethod.DENSE 或 PAGED")
     if opts.capture_logits or opts.profile:
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
     if opts.max_running_requests is not None and opts.max_running_requests < 1:

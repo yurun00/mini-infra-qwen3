@@ -21,7 +21,7 @@ from mini_infra.bench.workloads import (
 )
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
     generate,
@@ -126,7 +126,7 @@ def test_variable_length_prompt_generation_smoke():
     # Generate unequal length prompts (e.g. lengths 4 and 2)
     prompts = make_prompt(vocab_size, [4, 2])
 
-    mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     res = generate(
         mode=mode,
         model=model,

@@ -23,7 +23,7 @@ class GenerationOptions:
     top_kernels: int = 10
     tensorboard_options: TensorBoardOptions | None = None
     max_running_requests: int | None = None
-    # 仅 FeatureFlag.PAGED_KV_CACHE 启用时生效
+    # 仅 CachingMethod.PAGED 时生效
     paged_cache_config: PagedCacheConfig = field(default_factory=PagedCacheConfig)
     tokenizer: Any | None = None
 

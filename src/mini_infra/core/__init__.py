@@ -23,6 +23,7 @@ from mini_infra.core.scheduler import (
 )
 from mini_infra.core.types import (
     BatchingMethod,
+    CachingMethod,
     RequestMetrics,
     SequenceOutput,
     collapse_uniform,
@@ -34,6 +35,7 @@ __all__ = [
     "BatchingMethod",
     "FreeKVCacheBlockQueue",
     "KVCacheManager",
+    "CachingMethod",
     "PagedCacheConfig",
     "RequestMetrics",
     "RequestSpec",

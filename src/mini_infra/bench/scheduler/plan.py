@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
-from mini_infra.engine import BatchingMethod, FeatureDimension, FeatureFlag, Mode
+from mini_infra.bench.scheduler.suites import INTERLEAVE_DIMENSIONS, SchedulerSuiteCase
+from mini_infra.engine import BatchingMethod, FeatureDimension, Mode
 
 SUPPORTED_FEATURES = set(Mode.FEATURE_DIMENSIONS)
 ALL_FEATURE_DIMENSIONS = Mode.FEATURE_DIMENSIONS
@@ -36,11 +36,9 @@ class PlannedRun:
 def parse_interleave_dimension(name: str) -> FeatureDimension:
     """将 CLI 字符串参数解析为强类型 FeatureDimension。"""
     cleaned = name.strip()
-    if cleaned == "batching_method":
-        return BatchingMethod
-    if cleaned == FeatureFlag.KV_CACHE.value:
-        return FeatureFlag.KV_CACHE
-    raise ValueError(f"未知的 interleave 特征: {name}，可选: ['batching_method', '{FeatureFlag.KV_CACHE.value}']")
+    if cleaned not in INTERLEAVE_DIMENSIONS:
+        raise ValueError(f"未知的 interleave 特征: {name}，可选: {list(INTERLEAVE_DIMENSIONS)}")
+    return INTERLEAVE_DIMENSIONS[cleaned]
 
 
 def extract_case_feature(case: SchedulerSuiteCase, feature: FeatureDimension) -> Any:

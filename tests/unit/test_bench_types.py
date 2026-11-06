@@ -11,7 +11,7 @@ from mini_infra.bench.lockstep.types import (
     WorkloadSpec,
     summarize_samples,
 )
-from mini_infra.engine import FeatureFlag, Mode
+from mini_infra.engine import CachingMethod, Mode
 from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
@@ -49,7 +49,7 @@ def test_distribution_stats_computation_and_immutability():
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
     workload = WorkloadSpec(
-        mode=Mode({FeatureFlag.KV_CACHE}),
+        mode=Mode(CachingMethod.DENSE),
         batch_size=2,
         prompt_len=(16, 32),
         max_new_tokens=16,
@@ -125,7 +125,7 @@ def test_lockstep_case_result_structure_and_dot_access():
 
     # 4. 验证 to_record_dict() 字典导出结构
     rec = case_result.to_record_dict()
-    assert rec["mode"] == "kv-cache"
+    assert rec["mode"] == "dense-kv-cache"
     assert rec["batch_size"] == 2
     assert rec["prompt_len"] == [16, 32]
     assert rec["max_new_tokens"] == 16

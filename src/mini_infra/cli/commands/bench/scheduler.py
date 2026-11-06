@@ -39,7 +39,7 @@ from mini_infra.bench.scheduler.suites import (
 )
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, Qwen3Tokenizer
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 
 
@@ -81,7 +81,7 @@ def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--interleave",
         nargs="*",
         default=None,
-        help="选择交替轮换的特征维度（如 batching_method kv-cache，或 none 关闭交替；默认使用 Suite 的配置）",
+        help="选择交替轮换的特征维度（如 batching_method caching_method，或 none 关闭交替；默认使用 Suite 的配置）",
     )
     p.add_argument(
         "--dry-run",
@@ -127,7 +127,7 @@ def handle_case(args: argparse.Namespace) -> int:
     vocab = model.config.vocab_size
 
     method = BatchingMethod(args.batching_method)
-    target_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=method)
+    target_mode = Mode(CachingMethod.DENSE, batching_method=method)
 
     correctness = check_correctness(model, tokenizer, target_mode, device, update_golden=False)
     if correctness["passed"] is False and not args.allow_mismatch:

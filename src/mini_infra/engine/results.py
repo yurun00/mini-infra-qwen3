@@ -8,6 +8,7 @@ import torch
 
 from mini_infra.core.types import (
     BatchingMethod,
+    CachingMethod,
     RequestMetrics,
     SequenceOutput,
     collapse_uniform,
@@ -100,7 +101,7 @@ class ScheduleResult(GenerationResult):
     events: list[ScheduleEvent] = field(kw_only=True)
     request_metrics: list[RequestMetrics] = field(kw_only=True)
     batching_method: BatchingMethod = BatchingMethod.CONTINUOUS
-    is_paged_kv_cache: bool = False
+    caching_method: CachingMethod = CachingMethod.DENSE
 
     @property
     def step_agg_metrics(self) -> StepAggregatedMetrics[float]:
@@ -111,14 +112,13 @@ class ScheduleResult(GenerationResult):
     def workload(self) -> "WorkloadSpec":
         """从单次调度结果提取负载规格 WorkloadSpec（相等比较时忽略 repeats 与 warmup）。"""
         from mini_infra.bench.workloads import WorkloadSpec
-        from mini_infra.engine.mode import FeatureFlag, Mode
+        from mini_infra.engine.mode import Mode
 
-        flags = {FeatureFlag.KV_CACHE, FeatureFlag.PAGED_KV_CACHE} if self.is_paged_kv_cache else {FeatureFlag.KV_CACHE}
         prompt_lengths = [s.prompt_len for s in self.sequences]
         output_budgets = [r.num_output_tokens for r in self.request_metrics]
         arrivals = [r.arrival_ms for r in self.request_metrics]
         return WorkloadSpec(
-            mode=Mode(flags, batching_method=self.batching_method),
+            mode=Mode(self.caching_method, self.batching_method),
             batch_size=self.schedule_metrics.request_count,
             prompt_len=collapse_uniform(prompt_lengths),
             max_new_tokens=collapse_uniform(output_budgets),

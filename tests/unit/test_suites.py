@@ -12,7 +12,7 @@ from mini_infra.bench.lockstep.suites import (
     UniformVsVariablePromptPaddingSuite,
     get_suite,
 )
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -34,9 +34,7 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
         (2, BatchingMethod.NONE),
         (2, BatchingMethod.FIXED),
     ]
-    assert all(
-        c.prompt_len == 128 and c.max_new_tokens == 32 and c.mode.is_enabled(FeatureFlag.KV_CACHE) for c in cases
-    )
+    assert all(c.prompt_len == 128 and c.max_new_tokens == 32 and c.mode.use_kv_cache for c in cases)
 
 
 def test_serial_vs_fixed_batch_throughput_to_dict_is_json_serializable():
@@ -44,6 +42,7 @@ def test_serial_vs_fixed_batch_throughput_to_dict_is_json_serializable():
 
     data = get_suite("serial-vs-fixed-batch-throughput").to_dict()
     assert data["batching_methods"] == ["none", "fixed-batching"]
+    assert data["cache_methods"] == ["dense-kv-cache"]
     json.dumps(data)
 
 
@@ -57,6 +56,7 @@ def test_serial_vs_fixed_batch_throughput_to_dict_is_json_serializable():
         {"repeats": 0},
         {"warmup": -1},
         {"batching_methods": ()},
+        {"cache_methods": ()},
     ],
 )
 def test_serial_vs_fixed_batch_throughput_rejects_invalid_config(kwargs):
@@ -121,10 +121,10 @@ def test_registered_suites_run_end_to_end_on_cpu():
     ]
 
     assert [(r.workload.mode, r.workload.batch_size) for r in results] == [
-        (Mode({FeatureFlag.KV_CACHE}), 1),
-        (Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED), 1),
-        (Mode({FeatureFlag.KV_CACHE}), 2),
-        (Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED), 2),
+        (Mode(CachingMethod.DENSE), 1),
+        (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 1),
+        (Mode(CachingMethod.DENSE), 2),
+        (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 2),
     ]
     for r in results:
         assert r.workload.prompt_len == 4 and r.workload.max_new_tokens == 2
@@ -144,7 +144,7 @@ def test_uniform_vs_variable_prompt_padding_defaults():
     assert suite.max_prompt_length == 128
     assert suite.max_new_tokens == 32
     assert (suite.warmup, suite.repeats) == (1, 3)
-    assert suite.kv_cache is True
+    assert suite.cache_methods == (CachingMethod.DENSE,)
     assert suite.batching_method == BatchingMethod.FIXED
     assert suite.name == "uniform-vs-variable-prompt-padding"
 
@@ -160,7 +160,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
     assert homo.prompt_len == (128, 128, 128, 128)
     assert homo.max_new_tokens == 32
     assert homo.mode.batching_method == BatchingMethod.FIXED
-    assert homo.mode.is_enabled(FeatureFlag.KV_CACHE) is True
+    assert homo.mode.use_kv_cache is True
 
     # Case 1: variable (不等长)
     mixed = cases[1]
@@ -168,7 +168,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
     assert mixed.prompt_len == (16, 32, 64, 128)
     assert mixed.max_new_tokens == 32
     assert mixed.mode.batching_method == BatchingMethod.FIXED
-    assert mixed.mode.is_enabled(FeatureFlag.KV_CACHE) is True
+    assert mixed.mode.use_kv_cache is True
 
 
 def test_uniform_vs_variable_prompt_padding_to_dict_is_json_serializable():
@@ -247,7 +247,7 @@ def test_uniform_vs_variable_budget_slots_defaults():
     assert suite.prompt_length == 128
     assert suite.max_new_tokens == 64
     assert (suite.warmup, suite.repeats) == (1, 3)
-    assert suite.kv_cache is True
+    assert suite.cache_methods == (CachingMethod.DENSE,)
     assert suite.batching_method == BatchingMethod.FIXED
     assert suite.name == "uniform-vs-variable-budget-slots"
 
@@ -262,7 +262,7 @@ def test_uniform_vs_variable_budget_slots_cases():
     assert homo.prompt_len == (128, 128, 128, 128)
     assert homo.max_new_tokens == (64, 64, 64, 64)
     assert homo.mode.batching_method == BatchingMethod.FIXED
-    assert homo.mode.is_enabled(FeatureFlag.KV_CACHE) is True
+    assert homo.mode.use_kv_cache is True
 
     # Case 1: variable length budget
     mixed = cases[1]
@@ -270,7 +270,7 @@ def test_uniform_vs_variable_budget_slots_cases():
     assert mixed.prompt_len == (128, 128, 128, 128)
     assert mixed.max_new_tokens == (8, 16, 32, 64)
     assert mixed.mode.batching_method == BatchingMethod.FIXED
-    assert mixed.mode.is_enabled(FeatureFlag.KV_CACHE) is True
+    assert mixed.mode.use_kv_cache is True
 
 
 def test_uniform_vs_variable_budget_slots_to_dict_is_json_serializable():

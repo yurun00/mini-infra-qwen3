@@ -28,7 +28,7 @@ from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import SUITES, SuiteCase, get_suite
 from mini_infra.bench.schema import build_benchmark_record
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode, Qwen3Tokenizer
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
 
@@ -115,8 +115,8 @@ def handle_case(args: argparse.Namespace) -> int:
         args.prompt_lens, args.max_new_tokens, args.batch_size
     )
 
-    flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
-    mode = Mode(flags, batching_method=args.batching_method)
+    caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
+    mode = Mode(caching_method, batching_method=args.batching_method)
     case = SuiteCase(mode, target_bs, resolved_prompt_len, resolved_max_new_tokens)
 
     model_dir = resolve_model_directory(args.model, args.revision)

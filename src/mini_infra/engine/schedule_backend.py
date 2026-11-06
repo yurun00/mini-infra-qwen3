@@ -14,7 +14,7 @@ import torch
 from mini_infra.core.request import RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import allocated_memory_mb, reset_peak_memory, synchronize
-from mini_infra.engine.mode import BatchingMethod
+from mini_infra.engine.mode import BatchingMethod, CachingMethod
 
 __all__ = ["ScheduleBackend", "ScheduleStepOutput"]
 
@@ -50,8 +50,8 @@ class ScheduleBackend(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def is_paged(self) -> bool:
-        """标记该后端是否采用分页 KV Cache（Paged KV Cache）。"""
+    def caching_method(self) -> CachingMethod:
+        """该后端采用的 KV Cache 策略（DENSE 或 PAGED）。"""
         ...
 
     @abc.abstractmethod

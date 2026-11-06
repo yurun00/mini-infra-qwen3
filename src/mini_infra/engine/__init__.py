@@ -20,6 +20,7 @@ from mini_infra.engine.metrics import (
 )
 from mini_infra.engine.mode import (
     BatchingMethod,
+    CachingMethod,
     FeatureDimension,
     FeatureFlag,
     Mode,
@@ -53,6 +54,7 @@ __all__ = [
     "GenerationOptions",
     "GenerationResult",
     "GenerationTrace",
+    "CachingMethod",
     "MemoryProfile",
     "Mode",
     "PRE_TOKEN_PATTERN",

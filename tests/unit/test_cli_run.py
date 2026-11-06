@@ -9,12 +9,14 @@ from mini_infra.cli.commands.run import (
     add_run_args,
     print_result,
     resolve_budgets,
+    resolve_compare_feature,
     run_mode,
     shrink_budgets,
     uses_scheduler,
 )
 from mini_infra.engine import (
     BatchingMethod,
+    CachingMethod,
     FeatureFlag,
     GenerationOptions,
     GenerationResult,
@@ -23,7 +25,7 @@ from mini_infra.engine import (
 )
 
 CPU = torch.device("cpu")
-KV = {FeatureFlag.KV_CACHE}
+KV = CachingMethod.DENSE
 SEQS = [[3, 5, 7, 9], [11, 13], [2, 4, 6], [8, 10, 12, 14, 16]]
 
 
@@ -114,3 +116,35 @@ def test_print_result_lockstep_has_no_schedule_metrics(diverse_model, capsys):
     print_result(fixed, res, FakeTokenizer())
     out = capsys.readouterr().out
     assert "Cache 管理耗时占比" not in out
+
+
+def test_resolve_compare_feature():
+    base = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+
+    modes, name = resolve_compare_feature(base, ["placeholder"])
+    assert name == "placeholder"
+    assert not modes[0].is_enabled(FeatureFlag.PLACEHOLDER)
+    assert modes[1].is_enabled(FeatureFlag.PLACEHOLDER)
+
+    modes, name = resolve_compare_feature(base, ["CachingMethod", "none", "paged-kv-cache"])
+    assert name == "none vs paged-kv-cache"
+    assert modes[0].caching_method is CachingMethod.NONE
+    assert modes[1].caching_method is CachingMethod.PAGED
+
+    modes, name = resolve_compare_feature(base, ["BatchingMethod", "fixed-batching", "continuous-batching"])
+    assert name == "fixed-batching vs continuous-batching"
+    assert modes[0].batching_method is BatchingMethod.FIXED
+    assert modes[1].batching_method is BatchingMethod.CONTINUOUS
+
+    for invalid in (
+        [],
+        ["unknown"],
+        ["dense-kv-cache"],
+        ["placeholder", "extra"],
+        ["CachingMethod", "dense-kv-cache"],
+        ["CachingMethod", "dense-kv-cache", "dense-kv-cache"],
+        ["CachingMethod", "dense-kv-cache", "invalid"],
+        ["BatchingMethod", "fixed", "continuous"],
+    ):
+        with pytest.raises(ValueError):
+            resolve_compare_feature(base, invalid)

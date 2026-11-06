@@ -9,7 +9,7 @@ from typing import Literal
 import torch
 
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 
 WorkloadScale = Literal["small", "medium", "large"]
 WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
@@ -139,7 +139,7 @@ def make_lockstep_workload(
     bs = cfg["batch_size"]
     prompt_lens = _sample_log_uniform_lengths(rng, bs, cfg["min_prompt"], cfg["max_prompt"])
     out_budgets = _sample_log_uniform_lengths(rng, bs, cfg["min_out"], cfg["max_out"])
-    target_mode = mode or Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    target_mode = mode or Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     return WorkloadSpec(
         mode=target_mode,
         batch_size=bs,
@@ -170,7 +170,7 @@ def make_scheduler_workload(
     prompt_lens = _sample_log_uniform_lengths(rng, bs, int(cfg["min_prompt"]), int(cfg["max_prompt"]))
     out_budgets = _sample_log_uniform_lengths(rng, bs, int(cfg["min_out"]), int(cfg["max_out"]))
     arrivals = _sample_poisson_arrivals(rng, bs, int(cfg["initial_burst"]), float(cfg["mean_interval_ms"]))
-    target_mode = mode or Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    target_mode = mode or Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     return WorkloadSpec(
         mode=target_mode,
         batch_size=bs,

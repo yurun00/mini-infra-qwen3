@@ -8,7 +8,7 @@ import torch
 from mini_infra.core.request import RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import synchronize
-from mini_infra.engine.mode import BatchingMethod
+from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
 from mini_infra.worker import DenseSlotCache, SlotRunner
 
@@ -32,8 +32,8 @@ class DenseScheduleBackend(ScheduleBackend):
         self.dense_slot_cache = DenseSlotCache(max_running_requests, device)
 
     @property
-    def is_paged(self) -> bool:
-        return False
+    def caching_method(self) -> CachingMethod:
+        return CachingMethod.DENSE
 
     def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
         can_admit = running_queue.can_admit() if self.is_continuous else not running_queue

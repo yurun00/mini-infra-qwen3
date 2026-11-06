@@ -29,13 +29,13 @@ context_lens:          [batch]              long   含本步新 Token 的有效�
 ## 三、使用
 
 ```python
-Mode({FeatureFlag.KV_CACHE, FeatureFlag.PAGED_KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
 GenerationOptions(paged_cache_config=PagedCacheConfig(block_size=16, num_blocks=None))  # None：按工作负载推导
 ```
 
 ```bash
 # Dense batch slot vs Paged（同一调度策略，唯一变量是 KV 存储）
-mini-infra run --batching-method continuous-batching --compare-feature paged-kv-cache --kv-block-size 16
+mini-infra run --batching-method continuous-batching --compare-feature CachingMethod dense-kv-cache paged-kv-cache --kv-block-size 16
 ```
 
 默认 physical block pool 大小为「最长的 `max_running_requests` 个请求的峰值 Token（`prompt + max_new - 1`）所需 physical block 数之和 + null block」，保证不会耗尽。
@@ -43,7 +43,7 @@ mini-infra run --batching-method continuous-batching --compare-feature paged-kv-
 ## 四、与 vLLM 的差异（已知限制）
 
 - 未实现抢占（Preemption）与 Prefix Caching：显式指定过小的 `num_blocks` 时，入场按「Prompt 所需 physical block」受限（FCFS 前缀），但并发增长耗尽 physical block pool 会抛出 `RuntimeError`，不会静默出错。
-- 仅支持 `continuous-batching`；Fixed / None 批处理与 `paged-kv-cache` 组合会被拒绝。
+- 当前仅支持 `continuous-batching` 与 `fixed-batching`；None 批处理与 `paged-kv-cache` 组合会被拒绝。
 - Attention 为纯 PyTorch 的「按 block table gather 后做稠密 Attention」，无融合 Paged Attention Kernel；每层会拷贝一次上下文。
 - Bench 套件（`mini-infra bench`）与 `benchmarks/` 历史数据未纳入 paged 模式，评测基准另行变更。
 

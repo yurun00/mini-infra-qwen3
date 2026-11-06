@@ -11,7 +11,7 @@ from mini_infra.bench.scheduler.plan import (
 )
 from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
 from mini_infra.core.request import RequestSpec
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
 def make_dummy_case(
@@ -20,8 +20,8 @@ def make_dummy_case(
     suite_name: str = "test-suite",
     case_id: str | None = None,
 ) -> SchedulerSuiteCase:
-    flags = {FeatureFlag.KV_CACHE} if kv_cache else set()
-    mode = Mode(flags, batching_method=batching_method)
+    caching_method = CachingMethod.DENSE if kv_cache else CachingMethod.NONE
+    mode = Mode(caching_method, batching_method=batching_method)
     spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     cid = case_id or ("continuous" if batching_method == BatchingMethod.CONTINUOUS else "fixed")
     return SchedulerSuiteCase(
@@ -35,14 +35,14 @@ def make_dummy_case(
 
 def test_parse_interleave_dimension():
     assert parse_interleave_dimension("batching_method") is BatchingMethod
-    assert parse_interleave_dimension("kv-cache") is FeatureFlag.KV_CACHE
+    assert parse_interleave_dimension("caching_method") is CachingMethod
 
     with pytest.raises(ValueError, match="未知的 interleave 特征"):
         parse_interleave_dimension("batch_method")
     with pytest.raises(ValueError, match="未知的 interleave 特征"):
         parse_interleave_dimension("batching-method")
     with pytest.raises(ValueError, match="未知的 interleave 特征"):
-        parse_interleave_dimension("kv_cache")
+        parse_interleave_dimension("kv-cache")
     with pytest.raises(ValueError, match="未知的 interleave 特征"):
         parse_interleave_dimension("none")
     with pytest.raises(ValueError, match="未知的 interleave 特征"):
@@ -52,7 +52,7 @@ def test_parse_interleave_dimension():
 def test_extract_case_feature():
     case = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
     assert extract_case_feature(case, BatchingMethod) == BatchingMethod.CONTINUOUS
-    assert extract_case_feature(case, FeatureFlag.KV_CACHE) is True
+    assert extract_case_feature(case, CachingMethod) == CachingMethod.DENSE
 
     with pytest.raises(TypeError, match="未知的特征维度类型"):
         extract_case_feature(case, "batching_method")  # type: ignore[arg-type]
@@ -146,9 +146,7 @@ def test_interleave_all_features():
     c2 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
     c3 = make_dummy_case(BatchingMethod.FIXED, kv_cache=False)
 
-    plan = build_scheduler_run_plan(
-        [c1, c2, c3], warmup=0, repeats=2, interleave=(BatchingMethod, FeatureFlag.KV_CACHE)
-    )
+    plan = build_scheduler_run_plan([c1, c2, c3], warmup=0, repeats=2, interleave=(BatchingMethod, CachingMethod))
     assert len(plan) == 6
     assert all(p.group_id == 0 for p in plan)
 

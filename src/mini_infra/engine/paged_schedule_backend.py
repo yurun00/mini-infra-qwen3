@@ -14,7 +14,7 @@ from mini_infra.core.block_manager import (
 from mini_infra.core.request import RequestSpec, RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import synchronize
-from mini_infra.engine.mode import BatchingMethod
+from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
 from mini_infra.worker import PagedKVCachePool, PagedRunner
 
@@ -31,7 +31,7 @@ class PagedScheduleBackend(ScheduleBackend):
         request_specs: Sequence[RequestSpec],
         max_running_requests: int,
         paged_cache_config: PagedCacheConfig,
-        method: BatchingMethod = BatchingMethod.CONTINUOUS,
+        batching_method: BatchingMethod = BatchingMethod.CONTINUOUS,
         pad_token_id: int = 0,
     ) -> None:
         self.block_size = paged_cache_config.block_size
@@ -46,8 +46,8 @@ class PagedScheduleBackend(ScheduleBackend):
                 f"num_blocks={num_blocks} 无法容纳单个请求所需的 {largest_request_blocks} "
                 "个物理块（另需 1 个 null block）"
             )
-        super().__init__(model, device, max_running_requests, method)
-        self.is_continuous = method is BatchingMethod.CONTINUOUS
+        super().__init__(model, device, max_running_requests, batching_method)
+        self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
         config = model.config  # type: ignore[attr-defined]
         self.runner = PagedRunner(model, device, pad_token_id)
         self.pool = PagedKVCachePool(
@@ -62,8 +62,8 @@ class PagedScheduleBackend(ScheduleBackend):
         self.kv_cache_manager = KVCacheManager(self.block_size, num_blocks)
 
     @property
-    def is_paged(self) -> bool:
-        return True
+    def caching_method(self) -> CachingMethod:
+        return CachingMethod.PAGED
 
     def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
         can_admit = running_queue.can_admit() if self.is_continuous else not running_queue

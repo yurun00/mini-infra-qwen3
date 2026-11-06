@@ -12,7 +12,7 @@ from mini_infra.bench.scheduler import (
 )
 from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite, SchedulerSuiteCase
 from mini_infra.core.request import make_request_specs
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -85,7 +85,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     model = build_tiny_model()
     device = torch.device("cpu")
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
-    mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = SchedulerSuiteCase(
         id="continuous",
         suite_name="test-cont-case",

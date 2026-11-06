@@ -13,7 +13,7 @@ from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
     Qwen3Tokenizer,
@@ -83,7 +83,7 @@ def test_continuous_batching_gpu_parity() -> None:
     )
 
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
-    single_mode = Mode({FeatureFlag.KV_CACHE})
+    single_mode = Mode(CachingMethod.DENSE)
     single_opts = GenerationOptions(eos_token_id=eos_token_id, device=cuda, stop_on_eos=False)
     golden_tokens: list[list[int]] = []
     for p_tokens, budget in zip(prompt_tokens, budgets):

@@ -54,7 +54,7 @@ from mini_infra.bench.workloads import (
     make_lockstep_workload,
     make_scheduler_workload,
 )
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
 @dataclass(frozen=True)
@@ -93,7 +93,7 @@ def build_lockstep_case_cmd(
         tag,
         "--release-feature",
         release_feature,
-        "--kv-cache" if workload.mode.is_enabled(FeatureFlag.KV_CACHE) else "--no-kv-cache",
+        "--kv-cache" if workload.mode.use_kv_cache else "--no-kv-cache",
         "--batching-method",
         workload.mode.batching_method.value,
         "--batch-size",
@@ -278,14 +278,14 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
     """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 WorkloadSpec 字段保持一致）。"""
     steps: list[ReleaseStep] = []
-    flags = {FeatureFlag.KV_CACHE} if args.kv_cache else set()
+    caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
     scales: list[WorkloadScale] = list(getattr(args, "scales", None) or WORKLOAD_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
 
     if args.engine == "lockstep":
         default_bm = BENCH_LOCKSTEP_WORKLOAD["medium"].mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
-        mode = Mode(flags, batching_method=bm)
+        mode = Mode(caching_method, batching_method=bm)
         prof = args.profile_mode if args.profile_mode is not None else "extra-profile"
 
         for sc in scales:
@@ -317,7 +317,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
     else:
         default_bm = BENCH_SCHEDULER_WORKLOAD["medium"].mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
-        target_mode = Mode(flags, batching_method=bm)
+        target_mode = Mode(caching_method, batching_method=bm)
 
         for sc in scales:
             target_wl = (
