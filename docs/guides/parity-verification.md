@@ -36,7 +36,8 @@ mini-infra verify transformers
 mini-infra verify transformers \
   --prompt "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32 \
-  --logits-atol 0.25
+  --logits-atol 0.25 \
+  --output tmp/parity_transformers.json
 ```
 
 #### Pytest 运行指令
@@ -67,7 +68,8 @@ mini-infra verify cache \
   --prompt "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32 \
   --dtype float32 \
-  --logits-atol 1e-4
+  --logits-atol 1e-4 \
+  --output tmp/parity_cache.json
 ```
 
 #### Pytest 运行指令

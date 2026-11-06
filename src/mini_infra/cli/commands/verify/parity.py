@@ -9,10 +9,10 @@ from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )
-from mini_infra.verification.parity.compare_cache import run_compare_cache
+from mini_infra.verification.parity.compare_cache import execute_compare_cache
 from mini_infra.verification.parity.compare_lockstep_batch import execute_compare_lockstep_batch
 from mini_infra.verification.parity.compare_scheduler_batch import execute_compare_scheduler_batch
-from mini_infra.verification.parity.compare_transformers import run_compare_transformers
+from mini_infra.verification.parity.compare_transformers import execute_compare_transformers
 
 
 def add_transformers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -21,6 +21,7 @@ def add_transformers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument("--logits-atol", type=float, default=0.25, help="Logits 最大绝对误差阈值")
+    parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
@@ -36,6 +37,7 @@ def add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
     parser.add_argument("--logits-atol", type=float, default=1e-4, help="允许的最大 Logits 绝对误差")
+    parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
@@ -117,23 +119,25 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def handle_transformers(args: argparse.Namespace) -> int:
-    return run_compare_transformers(
+    return execute_compare_transformers(
         model=args.model,
         revision=args.revision,
         prompt=args.prompt,
         max_new_tokens=args.max_new_tokens,
         logits_atol=args.logits_atol,
+        output=args.output,
     )
 
 
 def handle_cache(args: argparse.Namespace) -> int:
-    return run_compare_cache(
+    return execute_compare_cache(
         model=args.model,
         revision=args.revision,
         prompt=args.prompt,
         max_new_tokens=args.max_new_tokens,
         dtype=args.dtype,
         logits_atol=args.logits_atol,
+        output=args.output,
     )
 
 
@@ -158,8 +162,3 @@ def handle_scheduler_batch(args: argparse.Namespace) -> int:
         max_running_requests=args.max_running_requests,
         output=args.output,
     )
-
-
-# 保持别名兼容
-handle_batch = handle_lockstep_batch
-handle_continuous = handle_scheduler_batch

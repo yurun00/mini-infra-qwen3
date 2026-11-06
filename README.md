@@ -80,6 +80,7 @@ mini-infra-qwen3/
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
 │       │   └── parity/                # 精度与等价性对齐核心库
+│       │       ├── _common.py         # 各比对模块共享的 CUDA 引导、环境元数据、logits 比对与 JSON 输出工具
 │       │       ├── compare_cache.py   # KV Cache 前后逐步 Logits 对齐
 │       │       ├── compare_transformers.py # 与 Transformers 对齐
 │       │       ├── compare_lockstep_batch.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐

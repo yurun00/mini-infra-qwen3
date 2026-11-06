@@ -9,26 +9,8 @@ import torch
 from mini_infra.verification.parity.compare_scheduler_batch import (
     DEFAULT_PROMPTS,
     execute_compare_scheduler_batch,
-    parse_args,
     run_compare_scheduler_batch,
 )
-
-
-def test_parse_args():
-    """验证参数解析默认值及自定义选项。"""
-    defaults = parse_args([])
-    assert defaults.max_new_tokens == 8
-    assert defaults.max_running_requests == 2
-    assert defaults.dtype == "float32"
-    assert defaults.output is None
-
-    custom = parse_args(
-        ["--max-new-tokens", "12", "--max-running-requests", "3", "--dtype", "bfloat16", "--output", "/tmp/out.json"]
-    )
-    assert custom.max_new_tokens == 12
-    assert custom.max_running_requests == 3
-    assert custom.dtype == "bfloat16"
-    assert custom.output == "/tmp/out.json"
 
 
 def test_run_compare_scheduler_batch_on_cpu(diverse_model, tmp_path):
