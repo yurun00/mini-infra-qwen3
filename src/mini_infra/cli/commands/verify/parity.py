@@ -11,6 +11,12 @@ from mini_infra.model import (
 )
 from mini_infra.verification.parity.compare_cache import execute_compare_cache
 from mini_infra.verification.parity.compare_lockstep_batch import execute_compare_lockstep_batch
+from mini_infra.verification.parity.compare_paged_cache import (
+    DEFAULT_PROMPTS as DEFAULT_PAGED_PROMPTS,
+)
+from mini_infra.verification.parity.compare_paged_cache import (
+    execute_compare_paged_logits,
+)
 from mini_infra.verification.parity.compare_scheduler_batch import execute_compare_scheduler_batch
 from mini_infra.verification.parity.compare_transformers import execute_compare_transformers
 
@@ -72,6 +78,28 @@ def add_scheduler_batch_args(parser: argparse.ArgumentParser) -> argparse.Argume
     return parser
 
 
+def add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--prompts",
+        nargs="+",
+        default=DEFAULT_PAGED_PROMPTS,
+        help="待测试的一条或多条 prompt",
+    )
+    parser.add_argument(
+        "--dtype",
+        choices=("float32", "bfloat16"),
+        default="float32",
+        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
+    parser.add_argument("--logits-atol", type=float, default=None, help="允许的最大 Logits 绝对误差")
+    parser.add_argument("--output", help="可选 JSON 输出路径")
+    return parser
+
+
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """注册 parity 相关验证命令，直接挂载到 verify 下，同时也挂载到 verify parity 下。"""
     # 1. 直接挂载 mini-infra verify <subcommand>
@@ -92,6 +120,12 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     add_scheduler_batch_args(p_cont)
     p_cont.set_defaults(func=handle_scheduler_batch)
+
+    p_paged = subparsers.add_parser(
+        "paged-cache", aliases=["paged-logits"], help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐"
+    )
+    add_paged_cache_args(p_paged)
+    p_paged.set_defaults(func=handle_paged_cache)
 
     # 2. 支持分层命令 mini-infra verify parity <subcommand>
     p_parity = subparsers.add_parser("parity", help="模型与特征数值对齐验证")
@@ -116,6 +150,12 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     add_scheduler_batch_args(p_p_cont)
     p_p_cont.set_defaults(func=handle_scheduler_batch)
+
+    p_p_paged = parity_subs.add_parser(
+        "paged-cache", aliases=["paged-logits"], help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐"
+    )
+    add_paged_cache_args(p_p_paged)
+    p_p_paged.set_defaults(func=handle_paged_cache)
 
 
 def handle_transformers(args: argparse.Namespace) -> int:
@@ -160,5 +200,18 @@ def handle_scheduler_batch(args: argparse.Namespace) -> int:
         dtype=args.dtype,
         max_new_tokens=args.max_new_tokens,
         max_running_requests=args.max_running_requests,
+        output=args.output,
+    )
+
+
+def handle_paged_cache(args: argparse.Namespace) -> int:
+    return execute_compare_paged_logits(
+        model=args.model,
+        revision=args.revision,
+        prompts=args.prompts,
+        max_new_tokens=args.max_new_tokens,
+        block_size=args.block_size,
+        dtype=args.dtype,
+        logits_atol=args.logits_atol,
         output=args.output,
     )

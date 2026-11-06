@@ -75,13 +75,14 @@ mini-infra-qwen3/
 │       │   ├── main.py                # 根命令 mini-infra 注册与分发
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
-│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch)
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch / paged-cache)
 │       │       └── bench/             # mini-infra bench (lockstep / scheduler / plot / check-regression / release)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
 │       │   └── parity/                # 精度与等价性对齐核心库
 │       │       ├── _common.py         # 各比对模块共享的 CUDA 引导、环境元数据、logits 比对与 JSON 输出工具
 │       │       ├── compare_cache.py   # KV Cache 前后逐步 Logits 对齐
+│       │       ├── compare_paged_cache.py # Dense 与 Paged KV Cache 逐 Token Logits 对齐
 │       │       ├── compare_transformers.py # 与 Transformers 对齐
 │       │       ├── compare_lockstep_batch.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
 │       │       └── compare_scheduler_batch.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
