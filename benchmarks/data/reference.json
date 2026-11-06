@@ -115,7 +115,7 @@
         "dynamic_peak_mb": 205.380859375,
         "peak_reserved_mb": 1424.0,
         "fragmentation_mb": 73.599609375,
-        "kv_cache_mb": 59.390625
+        "kv_cache": {"kv_cache_mb": 59.390625}
       },
       "efficiency": {
         "prefill_mfu": 0.12655835664918152,

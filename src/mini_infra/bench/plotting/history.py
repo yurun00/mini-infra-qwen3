@@ -623,7 +623,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         itl_p95 = float((sched.get("itl_ms_p95") or {}).get("median", 0.0))
         itl_max = float((sched.get("itl_ms_max") or {}).get("median", 0.0))
         cache_frac = float((sched.get("cache_management_fraction") or {}).get("median", 0.0))
-        kv_mb = float(mem.get("kv_cache_mb") or 0.0)
+        kv_mb = float((mem.get("kv_cache") or {}).get("kv_cache_mb") or 0.0)
         dyn_mb = float(mem.get("dynamic_peak_mb") or 0.0)
         frag_mb = float(mem.get("fragmentation_mb") or 0.0)
 

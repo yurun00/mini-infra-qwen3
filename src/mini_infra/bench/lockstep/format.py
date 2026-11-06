@@ -23,7 +23,7 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
         f"{w.metrics.e2e_model_ms.mean:.3f}",
         f"{(w.memory.prefill_mb or 0.0):.2f}",
         f"{w.memory.peak_allocated_mb:.2f}",
-        f"{w.memory.kv_cache_mb:.2f}",
+        f"{w.memory.kv_cache.kv_cache_mb:.2f}",
     ]
     pack = w.packing
     if has_packing:

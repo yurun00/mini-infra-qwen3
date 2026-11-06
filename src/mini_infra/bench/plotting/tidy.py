@@ -212,8 +212,8 @@ def records_to_wide_df(
         extra_cols["peak_allocated_mb.median"] = wide_df["memory.peak_allocated_mb"]
         extra_cols["peak_allocated_mb.std"] = 0.0
 
-    if "memory.kv_cache_mb" in wide_df.columns:
-        extra_cols["kv_cache_mb.median"] = wide_df["memory.kv_cache_mb"]
+    if "memory.kv_cache.kv_cache_mb" in wide_df.columns:
+        extra_cols["kv_cache_mb.median"] = wide_df["memory.kv_cache.kv_cache_mb"]
         extra_cols["kv_cache_mb.std"] = 0.0
 
     if "slot_utilization.median" in extra_cols:

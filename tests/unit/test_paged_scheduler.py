@@ -119,7 +119,7 @@ def test_timeline_and_event_invariants(model):
     assert all(e.physical_batch_size == e.num_active_requests for e in decode_events)
     assert result.batch_info.execution_slot_utilization == pytest.approx(1.0)
     assert result.schedule_metrics.busy_ms == pytest.approx(sum(e.step_ms for e in result.events))
-    assert result.memory.kv_cache_mb > 0
+    assert result.memory.kv_cache.kv_cache_mb > 0
 
 
 def test_live_kv_bytes_track_used_blocks_and_stay_within_pool(model):

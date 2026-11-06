@@ -131,7 +131,7 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert result.step_agg_metrics.ttft_ms is None
     assert result.step_agg_metrics.mean_tpot_ms is None
     assert result.memory.prefill_mb is None
-    assert result.memory.peak_live_cache_mb == result.memory.kv_cache_mb
+    assert result.memory.peak_live_cache_mb == result.memory.kv_cache.kv_cache_mb
     assert result.batch_info is not None
     assert result.batch_info.slot_utilization == result.batch_info.execution_slot_utilization
     assert result.batch_info.running_capacity_utilization is not None

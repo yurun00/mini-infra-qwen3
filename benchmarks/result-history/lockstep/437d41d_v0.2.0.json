@@ -125,7 +125,7 @@
         "dynamic_peak_mb": 23.267578125,
         "peak_reserved_mb": 1202.0,
         "fragmentation_mb": 33.71533203125,
-        "kv_cache_mb": 9.515625
+        "kv_cache": {"kv_cache_mb": 9.515625}
       },
       "efficiency": {
         "prefill_mfu": 0.025874962106601365,
@@ -877,7 +877,7 @@
         "dynamic_peak_mb": 92.66357421875,
         "peak_reserved_mb": 1326.0,
         "fragmentation_mb": 88.310546875,
-        "kv_cache_mb": 32.921875
+        "kv_cache": {"kv_cache_mb": 32.921875}
       },
       "efficiency": {
         "prefill_mfu": 0.2034446451316738,
@@ -1006,7 +1006,7 @@
         "dynamic_peak_mb": 381.30126953125,
         "peak_reserved_mb": 1840.0,
         "fragmentation_mb": 313.61279296875,
-        "kv_cache_mb": 119.4375
+        "kv_cache": {"kv_cache_mb": 119.4375}
       },
       "efficiency": {
         "prefill_mfu": 1.5170038031979296,

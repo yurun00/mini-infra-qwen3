@@ -16,6 +16,7 @@ from mini_infra.core.types import (
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     GenerationTrace,
+    KVCacheProfile,
     MemoryProfile,
     ScheduleEvent,
     ScheduleMetrics,
@@ -254,7 +255,7 @@ def aggregate_generation_results(
         prefill_mb=prefill_mb_fn(prefill_vals) if prefill_vals else None,
         peak_allocated_mb=peak_allocated_mb_fn([r.memory.peak_allocated_mb for r in runs]),
         peak_reserved_mb=peak_reserved_mb_fn([r.memory.peak_reserved_mb for r in runs]),
-        kv_cache_mb=kv_cache_mb_fn([r.memory.kv_cache_mb for r in runs]),
+        kv_cache=KVCacheProfile(kv_cache_mb=kv_cache_mb_fn([r.memory.kv_cache.kv_cache_mb for r in runs])),
     )
 
     op_breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]

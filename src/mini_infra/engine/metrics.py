@@ -1,7 +1,7 @@
 """生成性能度量、显存画像与批调度明细结构体及聚合函数。"""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Generic, TypeVar
 
@@ -37,6 +37,52 @@ class GenerationTrace:
 
 
 @dataclass(frozen=True)
+class PagedCacheProfile:
+    """Paged KV Cache 专属块池画像。"""
+
+    block_size: int = 0
+    bytes_per_block: int = 0
+    num_blocks: int = 0
+    peak_used_blocks: int = 0
+    block_allocation_count: int = 0
+    block_reuse_count: int = 0
+    block_release_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "block_size": self.block_size,
+            "bytes_per_block": self.bytes_per_block,
+            "num_blocks": self.num_blocks,
+            "peak_used_blocks": self.peak_used_blocks,
+            "block_allocation_count": self.block_allocation_count,
+            "block_reuse_count": self.block_reuse_count,
+            "block_release_count": self.block_release_count,
+        }
+
+
+@dataclass(frozen=True)
+class KVCacheProfile:
+    """KV Cache 画像：活跃/池容量、扩容搬移、带宽访问，及 Paged 专属块池明细。"""
+
+    kv_cache_mb: float = 0.0
+    peak_pool_cache_bytes: int = 0
+    cache_resize_moved_bytes: int = 0
+    visited_kv_token_slots: int = 0
+    paged_cache: PagedCacheProfile | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "kv_cache_mb": self.kv_cache_mb,
+            "peak_pool_cache_bytes": self.peak_pool_cache_bytes,
+            "cache_resize_moved_bytes": self.cache_resize_moved_bytes,
+            "visited_kv_token_slots": self.visited_kv_token_slots,
+        }
+        if self.paged_cache is not None:
+            data["paged_cache"] = self.paged_cache.to_dict()
+        return data
+
+
+@dataclass(frozen=True)
 class MemoryProfile:
     """显存监控强类型结构体（统一单位 MB，Offline、Serving 与 Benchmark 共享）。"""
 
@@ -44,8 +90,8 @@ class MemoryProfile:
     prefill_mb: float | None = 0.0
     peak_allocated_mb: float = 0.0
     peak_reserved_mb: float = 0.0
-    kv_cache_mb: float = 0.0
     weights_mb: float | None = None
+    kv_cache: KVCacheProfile = field(default_factory=KVCacheProfile)
 
     @property
     def dynamic_peak_mb(self) -> float:
@@ -57,8 +103,8 @@ class MemoryProfile:
 
     @property
     def peak_live_cache_mb(self) -> float:
-        """Serving 口径下的活跃 KV Cache 峰值别名（与 kv_cache_mb 等价）。"""
-        return self.kv_cache_mb
+        """Serving 口径下的活跃 KV Cache 峰值别名（与 kv_cache.kv_cache_mb 等价）。"""
+        return self.kv_cache.kv_cache_mb
 
     def to_dict(self) -> dict[str, Any]:
         """导出为标准评测记录字典结构。"""
@@ -70,7 +116,7 @@ class MemoryProfile:
             "dynamic_peak_mb": self.dynamic_peak_mb,
             "peak_reserved_mb": self.peak_reserved_mb,
             "fragmentation_mb": self.fragmentation_mb,
-            "kv_cache_mb": self.kv_cache_mb,
+            "kv_cache": self.kv_cache.to_dict(),
         }
 
 
@@ -89,7 +135,7 @@ def build_memory_profile(
         prefill_mb=memory_after_prefill_bytes / mib,
         peak_allocated_mb=peak_allocated_bytes / mib,
         peak_reserved_mb=peak_reserved_bytes / mib,
-        kv_cache_mb=cache_bytes / mib,
+        kv_cache=KVCacheProfile(kv_cache_mb=cache_bytes / mib),
         weights_mb=weights_mb,
     )
 
@@ -310,7 +356,7 @@ def summarize_schedule(
         prefill_mb=None,
         peak_allocated_mb=peak_allocated_mb,
         peak_reserved_mb=peak_reserved_mb,
-        kv_cache_mb=peak_live_kv_cache_mb,
+        kv_cache=KVCacheProfile(kv_cache_mb=peak_live_kv_cache_mb),
     )
     batch_info: BatchScheduleInfo[float] = BatchScheduleInfo(
         padding_efficiency=padding_efficiency,
@@ -357,7 +403,9 @@ def summarize_schedule(
 __all__ = [
     "BatchScheduleInfo",
     "GenerationTrace",
+    "KVCacheProfile",
     "MemoryProfile",
+    "PagedCacheProfile",
     "ScheduleEvent",
     "ScheduleMetrics",
     "SchedulePhase",

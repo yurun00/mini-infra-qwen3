@@ -131,7 +131,7 @@ def check_fixed_batching(model):
     assert [s.completion_step for s in batched.sequences] == [2, 4]
     assert abs(batched.batch_info.slot_utilization - 0.75) < 1e-12
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
-    assert abs(batched.memory.kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
+    assert abs(batched.memory.kv_cache.kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
     print("Batched KV Cache、完成槽位和利用率检查通过")
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。

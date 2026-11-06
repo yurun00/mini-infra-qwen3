@@ -111,6 +111,28 @@ class DistributionStatsRecord(_DictAccessModel):
     max: float = 0.0
 
 
+class PagedCacheProfileRecord(_DictAccessModel):
+    """Paged KV Cache 专属块池画像 Schema（对应 `engine.metrics.PagedCacheProfile.to_dict()`）。"""
+
+    block_size: int = 0
+    bytes_per_block: int = 0
+    num_blocks: int = 0
+    peak_used_blocks: int = 0
+    block_allocation_count: int = 0
+    block_reuse_count: int = 0
+    block_release_count: int = 0
+
+
+class KVCacheProfileRecord(_DictAccessModel):
+    """KV Cache 画像 Schema（对应 `engine.metrics.KVCacheProfile.to_dict()`）。"""
+
+    kv_cache_mb: float = 0.0
+    peak_pool_cache_bytes: int = 0
+    cache_resize_moved_bytes: int = 0
+    visited_kv_token_slots: int = 0
+    paged_cache: PagedCacheProfileRecord | None = None
+
+
 class MemoryProfileRecord(_DictAccessModel):
     """显存监控剖析 Schema，单位 MiB（对应 `engine.metrics.MemoryProfile.to_dict()`）。"""
 
@@ -121,7 +143,7 @@ class MemoryProfileRecord(_DictAccessModel):
     dynamic_peak_mb: float = 0.0
     peak_reserved_mb: float = 0.0
     fragmentation_mb: float = 0.0
-    kv_cache_mb: float = 0.0
+    kv_cache: KVCacheProfileRecord = Field(default_factory=KVCacheProfileRecord)
 
 
 class PackingInfoRecord(_DictAccessModel):
@@ -388,10 +410,12 @@ __all__ = [
     "BenchmarkEnvelopeBase",
     "DistributionStatsRecord",
     "EfficiencyMetricsRecord",
+    "KVCacheProfileRecord",
     "LockstepBenchmarkRecord",
     "LockstepCaseRecord",
     "MemoryProfileRecord",
     "PackingInfoRecord",
+    "PagedCacheProfileRecord",
     "ScheduleMetricsRecord",
     "SchedulerBenchmarkRecord",
     "SchedulerCaseRecord",
