@@ -6,14 +6,33 @@ from mini_infra.bench.scheduler.types import MetricComparison, SchedulerCaseResu
 from mini_infra.bench.schema import build_benchmark_record
 
 
+def _abbreviate_workload_id(wid: str) -> str:
+    """提取 workload_id 各词首字母缩写（保留纯数字段，如 length_ratio_128 -> lr128）。"""
+    if not wid:
+        return ""
+    parts = [p for p in wid.replace("-", "_").split("_") if p]
+    return "".join(p if p.isdigit() else p[0] for p in parts)
+
+
+def _abbreviate_mode(mode_str: str) -> str:
+    """提取 mode 各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。"""
+    if not mode_str:
+        return ""
+    abbr_parts: list[str] = []
+    for part in mode_str.split("+"):
+        words = [w for w in part.replace("_", "-").split("-") if w]
+        abbr_parts.append("".join(w[0] for w in words))
+    return "+".join(abbr_parts)
+
+
 def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
-    """渲染单个 Scheduler 用例的一行 CSV 字段。"""
+    """渲染单个 Scheduler 用例的一行表格字段。"""
     slot_util = res.packing.slot_utilization.mean if res.packing is not None else 0.0
     block_size_str = str(res.key.paged_cache_config.block_size) if res.key.paged_cache_config is not None else ""
     return [
         suite_name,
-        res.key.workload_id,
-        str(res.key.mode),
+        _abbreviate_workload_id(res.key.workload_id),
+        _abbreviate_mode(str(res.key.mode)),
         str(res.key.max_running_requests),
         block_size_str,
         f"{res.schedule_metrics.makespan_ms.mean:.3f}",
@@ -29,7 +48,7 @@ def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
 
 
 def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = "custom") -> str:
-    """将 Scheduler 用例结果列表格式化为标准 CSV 文本。"""
+    """将 Scheduler 用例结果列表格式化为列对齐的终端展示表格。"""
     header = [
         "suite",
         "workload_id",
@@ -46,10 +65,17 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
         "peak_kv_cache_pool_mb",
         "accessed_kv_cache_tokens",
     ]
-    lines = [",".join(header)]
-    for res in case_results:
-        lines.append(",".join(_format_case_row(res, suite_name)))
-    return "\n".join(lines)
+    rows = [_format_case_row(res, suite_name) for res in case_results]
+    all_rows = [header, *rows]
+    col_widths = [max(len(row[i]) for row in all_rows) for i in range(len(header))]
+
+    def align(cell: str, i: int) -> str:
+        return cell.ljust(col_widths[i]) if i < 3 else cell.rjust(col_widths[i])
+
+    header_line = " | ".join(align(h, i) for i, h in enumerate(header))
+    sep_line = "-+-".join("-" * col_widths[i] for i in range(len(header)))
+    data_lines = [" | ".join(align(val, i) for i, val in enumerate(r)) for r in rows]
+    return "\n".join([header_line, sep_line, *data_lines])
 
 
 def format_case_summary(result: SchedulerCaseResult) -> str:

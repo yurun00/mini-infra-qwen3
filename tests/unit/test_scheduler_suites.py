@@ -587,5 +587,27 @@ def test_compute_comparisons():
     assert "pool 1000.0 MB" in summary_str
 
     full_csv = format_table(cases, suite_name="test-suite")
-    assert "workload_A" in full_csv
+    assert "wA" in full_csv
+    assert "dkc+cb" in full_csv
+    assert "pkc+cb" in full_csv
     assert "1000.00" in full_csv
+
+
+def test_format_table_abbreviations():
+    from mini_infra.bench.scheduler.format import _abbreviate_mode, _abbreviate_workload_id
+
+    assert _abbreviate_workload_id("variable_output_length") == "vol"
+    assert _abbreviate_workload_id("uniform_output_length") == "uol"
+    assert _abbreviate_workload_id("staggered_arrivals") == "sa"
+    assert _abbreviate_workload_id("prefill_interference") == "pi"
+    assert _abbreviate_workload_id("long_short_stress") == "lss"
+    assert _abbreviate_workload_id("length_ratio_128") == "lr128"
+    assert _abbreviate_workload_id("block_size_sweep") == "bss"
+    assert _abbreviate_workload_id("workload_A") == "wA"
+    assert _abbreviate_workload_id("") == ""
+
+    assert _abbreviate_mode("dense-kv-cache+continuous-batching") == "dkc+cb"
+    assert _abbreviate_mode("dense-kv-cache+fixed-batching") == "dkc+fb"
+    assert _abbreviate_mode("paged-kv-cache+continuous-batching") == "pkc+cb"
+    assert _abbreviate_mode("no-cache") == "nc"
+    assert _abbreviate_mode("") == ""

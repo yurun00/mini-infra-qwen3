@@ -33,6 +33,7 @@ from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
 
 CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | PagedCacheConfig | None
 
+
 class CaseDimension(str, Enum):
     """用例身份键（CaseKey）的正交特征维度枚举。"""
 
