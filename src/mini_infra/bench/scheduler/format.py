@@ -2,16 +2,25 @@
 
 from collections.abc import Sequence
 
+from mini_infra.bench.scheduler.suites import CaseKey
 from mini_infra.bench.scheduler.types import MetricComparison, SchedulerCaseResult
 from mini_infra.bench.schema import build_benchmark_record
 
 
 def _abbreviate_workload_id(wid: str) -> str:
-    """提取 workload_id 各词首字母缩写（保留纯数字段，如 length_ratio_128 -> lr128）。"""
+    """提取 workload_id 各词前 3 个字符缩写，保留 '_' 分隔符（如 long_short_stress -> lon_sho_str）。"""
     if not wid:
         return ""
     parts = [p for p in wid.replace("-", "_").split("_") if p]
-    return "".join(p if p.isdigit() else p[0] for p in parts)
+    return "_".join(p if p.isdigit() else p[:3] for p in parts)
+
+
+def _abbreviate_suite_name(name: str) -> str:
+    """提取 suite name 各词前 3 个字符缩写，保留 '-' 分隔符（如 dense-vs-paged-throughput -> den-vs-pag-thr）。"""
+    if not name:
+        return ""
+    parts = [p for p in name.replace("_", "-").split("-") if p]
+    return "-".join(p if p.isdigit() else p[:3] for p in parts)
 
 
 def _abbreviate_mode(mode_str: str) -> str:
@@ -30,7 +39,7 @@ def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     slot_util = res.packing.slot_utilization.mean if res.packing is not None else 0.0
     block_size_str = str(res.key.paged_cache_config.block_size) if res.key.paged_cache_config is not None else ""
     return [
-        suite_name,
+        _abbreviate_suite_name(suite_name),
         _abbreviate_workload_id(res.key.workload_id),
         _abbreviate_mode(str(res.key.mode)),
         str(res.key.max_running_requests),
@@ -78,6 +87,18 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
     return "\n".join([header_line, sep_line, *data_lines])
 
 
+def _abbreviate_case_key(key: CaseKey) -> str:
+    """提取用例键的缩写显示名（如 [vol] | dkc+cb | mrr=16 或 [lss] | pkc+cb | mrr=16 | blk-sz=16）。"""
+    parts = [
+        f"[{_abbreviate_workload_id(key.workload_id)}]",
+        _abbreviate_mode(str(key.mode)),
+        f"mrr={key.max_running_requests}",
+    ]
+    if key.paged_cache_config is not None:
+        parts.append(f"blk-sz={key.paged_cache_config.block_size}")
+    return " | ".join(parts)
+
+
 def format_case_summary(result: SchedulerCaseResult) -> str:
     """格式化单用例的延迟/吞吐/槽位利用率摘要行（与 lockstep.format.format_case_summary 对齐）。"""
     cache_frac = result.schedule_metrics.cache_management_fraction.mean
@@ -89,7 +110,7 @@ def format_case_summary(result: SchedulerCaseResult) -> str:
         else ""
     )
     return (
-        f"  {result.key.display_name:<32}: makespan {result.schedule_metrics.makespan_ms.mean:.2f} ms | "
+        f"  {_abbreviate_case_key(result.key):<32}: makespan {result.schedule_metrics.makespan_ms.mean:.2f} ms | "
         f"{result.metrics.throughput_tok_s.mean:.1f} tok/s | "
         f"{result.metrics.throughput_req_s.mean:.2f} req/s | "
         f"slot_util {slot_util * 100:.1f}% | "
@@ -101,14 +122,18 @@ def format_case_summary(result: SchedulerCaseResult) -> str:
 
 def format_comparison(comp: MetricComparison) -> str:
     """格式化单条基准对比摘要行。"""
-    prefix = f"  [{comp.candidate_key.workload_id}]"
-    cand_info = f"{comp.candidate_key.mode}"
+    prefix = f"  [{_abbreviate_workload_id(comp.candidate_key.workload_id)}]"
+    cand_info = _abbreviate_mode(str(comp.candidate_key.mode))
     if comp.candidate_key.paged_cache_config is not None:
         cand_info += f" (block={comp.candidate_key.paged_cache_config.block_size})"
     return f"{prefix} {comp.metric_name} ({cand_info} vs baseline): {comp.formatted_value()}"
 
 
 __all__ = [
+    "_abbreviate_case_key",
+    "_abbreviate_mode",
+    "_abbreviate_suite_name",
+    "_abbreviate_workload_id",
     "_format_case_row",
     "build_benchmark_record",
     "format_case_summary",

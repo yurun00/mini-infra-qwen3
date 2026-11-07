@@ -557,6 +557,8 @@ def test_compute_comparisons():
 
     # 验证 format_comparison
     comp_line = format_comparison(c0)
+    assert "[wor_A]" in comp_line
+    assert "pkc+cb" in comp_line
     assert "speedup 1.25x" in comp_line
 
     # 验证 baseline 找不到时报错
@@ -583,31 +585,55 @@ def test_compute_comparisons():
 
     # 验证 format_case_summary 与 format_table
     summary_str = format_case_summary(paged_16)
-    assert "[workload_A]" in summary_str
+    assert "[wor_A]" in summary_str
+    assert "pkc+cb" in summary_str
     assert "pool 1000.0 MB" in summary_str
 
     full_csv = format_table(cases, suite_name="test-suite")
-    assert "wA" in full_csv
+    assert "tes-sui" in full_csv
+    assert "wor_A" in full_csv
     assert "dkc+cb" in full_csv
     assert "pkc+cb" in full_csv
     assert "1000.00" in full_csv
 
 
 def test_format_table_abbreviations():
-    from mini_infra.bench.scheduler.format import _abbreviate_mode, _abbreviate_workload_id
+    from mini_infra.bench.scheduler.format import (
+        _abbreviate_case_key,
+        _abbreviate_mode,
+        _abbreviate_suite_name,
+        _abbreviate_workload_id,
+    )
+    from mini_infra.bench.scheduler.suites import CaseKey
+    from mini_infra.core.block_manager import PagedCacheConfig
+    from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 
-    assert _abbreviate_workload_id("variable_output_length") == "vol"
-    assert _abbreviate_workload_id("uniform_output_length") == "uol"
-    assert _abbreviate_workload_id("staggered_arrivals") == "sa"
-    assert _abbreviate_workload_id("prefill_interference") == "pi"
-    assert _abbreviate_workload_id("long_short_stress") == "lss"
-    assert _abbreviate_workload_id("length_ratio_128") == "lr128"
-    assert _abbreviate_workload_id("block_size_sweep") == "bss"
-    assert _abbreviate_workload_id("workload_A") == "wA"
+    assert _abbreviate_workload_id("variable_output_length") == "var_out_len"
+    assert _abbreviate_workload_id("uniform_output_length") == "uni_out_len"
+    assert _abbreviate_workload_id("staggered_arrivals") == "sta_arr"
+    assert _abbreviate_workload_id("prefill_interference") == "pre_int"
+    assert _abbreviate_workload_id("long_short_stress") == "lon_sho_str"
+    assert _abbreviate_workload_id("length_ratio_128") == "len_rat_128"
+    assert _abbreviate_workload_id("block_size_sweep") == "blo_siz_swe"
+    assert _abbreviate_workload_id("workload_A") == "wor_A"
     assert _abbreviate_workload_id("") == ""
+
+    assert _abbreviate_suite_name("dense-vs-paged-long-short-stress") == "den-vs-pag-lon-sho-str"
+    assert _abbreviate_suite_name("dense-vs-paged-throughput") == "den-vs-pag-thr"
+    assert _abbreviate_suite_name("test-suite") == "tes-sui"
+    assert _abbreviate_suite_name("custom") == "cus"
+    assert _abbreviate_suite_name("") == ""
 
     assert _abbreviate_mode("dense-kv-cache+continuous-batching") == "dkc+cb"
     assert _abbreviate_mode("dense-kv-cache+fixed-batching") == "dkc+fb"
     assert _abbreviate_mode("paged-kv-cache+continuous-batching") == "pkc+cb"
     assert _abbreviate_mode("no-cache") == "nc"
     assert _abbreviate_mode("") == ""
+
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    dense_key = CaseKey("variable_output_length", dense_mode, 16)
+    assert _abbreviate_case_key(dense_key) == "[var_out_len] | dkc+cb | mrr=16"
+
+    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    paged_key = CaseKey("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
+    assert _abbreviate_case_key(paged_key) == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
