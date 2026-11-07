@@ -1,15 +1,17 @@
 """核心批处理调度循环（Core Scheduler Loop）。
 
-作为底座引擎核心，串联三类组件驱动“调度 → 执行 → 槽位更新”的迭代循环：
-- 调度策略（入场、槽位分配、退场与 EOS/预算判定）：core/scheduler.py
-- 模型执行（单步 Prefill / 槽位 Decode 前向与计时）：engine/runner.py (ModelRunner)
-- KV Cache 槽位管理：memory/slot_cache.py (DenseSlotCache)
+作为底座引擎核心，串联三类组件驱动“调度 → 执行 → 槽位/块表更新”的迭代循环：
+- 调度后端（入场、槽位/块表分配、退场与 EOS/预算判定）：engine/{dense,paged}_schedule_backend.py
+- 模型执行（单步 Prefill / Decode 前向与计时）：worker/slot_runner.py 与 worker/paged_runner.py
+- KV Cache 物理显存管理：worker/dense_slot_cache.py (DenseSlotCache) 与 worker/paged_kv_cache.py (PagedKVCachePool)
 
-对外通过 run_scheduler 统一驱动两类批处理调度策略，共享同一套三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）
-与 ModelRunner 执行协议，仅在准入时机与槽位绑定策略上区分：
-- CONTINUOUS（连续批处理）：只要 RunningQueue 有空闲槽位即准入新请求，并将 Prefill Cache 拷入持久化槽位；
-- FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空（当前波次全部完成）才准入下一波请求，零拷贝直接绑定波次 Cache。
-在逻辑时间线上精确追踪模型与搬移耗时，输出 ScheduleResult（含 TTFT/TPOT/makespan 等事件流）。
+后端接口与单步产出契约见 engine/schedule_backend.py（ScheduleBackend / ScheduleStepOutput）；
+Dense / Paged 两个具体实现分别位于 engine/dense_schedule_backend.py 与 engine/paged_schedule_backend.py。
+
+本模块只保留调度主循环（_run_schedule_loop）与统一入口（run_scheduler），对外通过 run_scheduler 驱动三类批处理调度策略：
+- CONTINUOUS（连续批处理 Dense 路径）：有空闲 batch slot 即准入，并将 Prefill Cache 拷入持久化 batch slot；
+- FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空时准入下一波请求，零拷贝直接接管波次 Cache；
+- PAGED（连续批处理 Paged 路径）：以物理块池与 Block Table 映射驱动，按需按块分配，消除最长序列预留碎片。
 """
 
 import time
@@ -17,63 +19,33 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.core.request import (
-    RequestSpec,
-    RequestState,
-)
-from mini_infra.core.scheduler import (
-    RunningQueue,
-    WaitingQueue,
-    prepare_schedule,
-)
-from mini_infra.device import allocated_memory_mb, peak_memory_mb, reset_peak_memory, synchronize
-from mini_infra.engine.mode import BatchingMethod
-from mini_infra.engine.runner import ModelRunner
-from mini_infra.engine.types import (
-    ScheduleEvent,
-    SchedulePhase,
-    ScheduleResult,
-    summarize_schedule,
-)
-from mini_infra.memory.slot_cache import DenseSlotCache
+from mini_infra.core.block_manager import PagedCacheConfig
+from mini_infra.core.request import RequestSpec
+from mini_infra.core.scheduler import RunningQueue, WaitingQueue, prepare_schedule
+from mini_infra.device import peak_memory_mb, synchronize
+from mini_infra.engine.dense_schedule_backend import DenseScheduleBackend
+from mini_infra.engine.metrics import ScheduleEvent, SchedulePhase, summarize_schedule
+from mini_infra.engine.mode import BatchingMethod, CachingMethod
+from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
+from mini_infra.engine.results import ScheduleResult
+from mini_infra.engine.schedule_backend import ScheduleBackend
 
 __all__ = ["run_scheduler"]
 
 
-def _retire(
-    finished: Sequence[RequestState],
-    running_queue: RunningQueue,
-    slots: DenseSlotCache,
-) -> None:
-    """释放已结束请求的槽位（调度侧归还槽位号，Cache 侧清 mask）；若没有运行中请求则整块回收 Cache。"""
-    for state in finished:
-        slots.release(state)
-    running_queue.retire(finished)
-    if not running_queue:
-        slots.reset()
-
-
 @torch.inference_mode()
-def _run_schedule(
-    method: BatchingMethod,
-    model: torch.nn.Module,
+def _run_schedule_loop(
+    backend: ScheduleBackend,
     request_specs: Sequence[RequestSpec],
     max_running_requests: int,
     eos_token_id: int | None,
     device: torch.device,
-    pad_token_id: int = 0,
     stop_on_eos: bool = True,
 ) -> ScheduleResult:
-    """采用三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）统一驱动 CONTINUOUS 与 FIXED 调度。"""
-    is_continuous = method is BatchingMethod.CONTINUOUS
+    """采用三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）驱动统一的调度主循环。"""
     states, arrival_queue, clock_ms = prepare_schedule(request_specs, max_running_requests)
-    synchronize(device)
-    baseline_mb = allocated_memory_mb(device)
-    reset_peak_memory(device)
-    runner = ModelRunner(model, device, pad_token_id)
     waiting_queue = WaitingQueue()
     running_queue = RunningQueue(max_running_requests)
-    slots_cache = DenseSlotCache(max_running_requests, device)
     events: list[ScheduleEvent] = []
     wall_start = time.perf_counter()
 
@@ -82,103 +54,104 @@ def _run_schedule(
         arrived = arrival_queue.pop_arrived(clock_ms)
         waiting_queue.extend(arrived)
 
-        # 2. 调度入场：Continuous 有空槽即入场；Fixed 必须等当前波次全部完成（running_queue 为空）才入场
-        can_admit = running_queue.can_admit() if is_continuous else not running_queue
-        if can_admit and waiting_queue:
-            batch = waiting_queue.pop_batch(running_queue.num_free_slots)
-            admitted = running_queue.admit(batch, clock_ms)
-            token_ids, prefill_cache, model_ms = runner.prefill_requests(admitted)
-            if is_continuous:
-                cache_ms = slots_cache.admit(admitted, prefill_cache)
-            else:
-                slots_cache.bind_wave(admitted, prefill_cache)
-                cache_ms = 0.0
-            del prefill_cache
-            step_ms = model_ms + cache_ms
+        # 2. 调度入场：Prefill 阶段
+        num_admit = backend.determine_admission(waiting_queue, running_queue)
+        if num_admit:
+            admitted = running_queue.admit(waiting_queue.pop_batch(num_admit), clock_ms)
+            step_output = backend.execute_prefill(admitted)
+            step_ms = step_output.model_ms + step_output.cache_ms
             clock_ms += step_ms
-            finished = running_queue.step(token_ids, clock_ms, eos_token_id, stop_on_eos, states=admitted)
+            finished = running_queue.process_step_output(
+                step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos, states=admitted
+            )
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.PREFILL,
-                    admitted_request_ids=tuple(s.spec.request_index for s in admitted),
-                    finished_request_ids=tuple(s.spec.request_index for s in finished),
-                    physical_batch_size=len(admitted),
+                    admitted_request_ids=tuple(s.spec.request_idx for s in admitted),
+                    finished_request_ids=tuple(s.spec.request_idx for s in finished),
+                    physical_batch_size=step_output.physical_batch_size,
                     num_active_requests=len(running_queue),
                     num_generated_tokens=len(admitted),
                     step_ms=step_ms,
-                    model_ms=model_ms,
-                    cache_management_ms=cache_ms,
-                    live_kv_cache_bytes=slots_cache.total_bytes,
+                    model_ms=step_output.model_ms,
+                    cache_management_ms=step_output.cache_ms,
+                    live_kv_cache_bytes=step_output.live_kv_cache_bytes,
+                    kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
+                    cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
+                    accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
                 )
             )
-            _retire(finished, running_queue, slots_cache)
+            backend.retire(finished, running_queue)
             continue
 
         # 3. 运行中请求 Decode
         if running_queue:
             active_before = len(running_queue)
-            decode_result = runner.decode_slots(slots_cache, running_queue.requests)
+            step_output = backend.execute_decode(running_queue)
             for state in running_queue:
                 state.cache_length += 1
-            cache_ms = decode_result.prepare_ms if is_continuous else 0.0
-            step_ms = decode_result.model_ms + cache_ms
+            step_ms = step_output.model_ms + step_output.cache_ms
             clock_ms += step_ms
-            finished = running_queue.step(
-                [decode_result.slot_tokens[s.slot_index] for s in running_queue],
-                clock_ms,
-                eos_token_id,
-                stop_on_eos,
-            )
+            finished = running_queue.process_step_output(step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
             events.append(
                 ScheduleEvent(
                     phase=SchedulePhase.DECODE,
                     admitted_request_ids=(),
-                    finished_request_ids=tuple(s.spec.request_index for s in finished),
-                    physical_batch_size=slots_cache.capacity,
+                    finished_request_ids=tuple(s.spec.request_idx for s in finished),
+                    physical_batch_size=step_output.physical_batch_size,
                     num_active_requests=active_before,
                     num_generated_tokens=active_before,
                     step_ms=step_ms,
-                    model_ms=decode_result.model_ms,
-                    cache_management_ms=cache_ms,
-                    live_kv_cache_bytes=slots_cache.total_bytes,
+                    model_ms=step_output.model_ms,
+                    cache_management_ms=step_output.cache_ms,
+                    live_kv_cache_bytes=step_output.live_kv_cache_bytes,
+                    kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
+                    cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
+                    accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
                 )
             )
-            _retire(finished, running_queue, slots_cache)
+            backend.retire(finished, running_queue)
             continue
 
-        # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）。
+        # 4. 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）
         clock_ms = arrival_queue.next_arrival_ms()
 
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000.0
 
     return summarize_schedule(
-        method,
+        backend.batching_method,
         states,
         events,
         max_running_requests,
         *peak_memory_mb(device),
-        baseline_mb=baseline_mb,
+        baseline_mb=backend.baseline_mb,
         e2e_wall_ms=e2e_wall_ms,
         is_cuda=device.type == "cuda",
+        caching_method=backend.caching_method,
+        paged_cache_profile=backend.collect_paged_cache_profile(),
     )
 
 
 @torch.inference_mode()
 def run_scheduler(
-    batching_method: str | BatchingMethod,
+    batching_method: BatchingMethod,
     model: torch.nn.Module,
     request_specs: Sequence[RequestSpec],
     max_running_requests: int,
     eos_token_id: int | None,
     device: torch.device,
+    *,
+    caching_method: CachingMethod,
     pad_token_id: int = 0,
     stop_on_eos: bool = True,
+    paged_cache_config: PagedCacheConfig | None = None,
 ) -> ScheduleResult:
     """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
     Args:
-        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED / NONE 或对应字符串）。
+        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED / NONE）。
+        caching_method: KV Cache 策略（CachingMethod.DENSE 或 PAGED；NONE 不支持）。
         model: 因果语言模型。
         request_specs: 待调度的请求规格列表。
         max_running_requests: 调度队列最大并发数（NONE 模式下自动约束为 1）。
@@ -186,31 +159,55 @@ def run_scheduler(
         device: 执行目标设备。
         pad_token_id: 填充 Token ID。
         stop_on_eos: 命中 EOS 时是否提前停止生成。
+        paged_cache_config: PAGED 的 physical block pool 配置（仅当 caching_method=PAGED 时提供）。
 
     Returns:
         ScheduleResult: 调度阶段事件、指标统计与各请求结果。
     """
-    if isinstance(batching_method, str):
-        normalized = batching_method.strip().lower()
-        if normalized == "fixed":
-            method = BatchingMethod.FIXED
-        elif normalized == "continuous":
-            method = BatchingMethod.CONTINUOUS
-        elif normalized == "none":
-            method = BatchingMethod.NONE
-        else:
-            method = BatchingMethod.from_str(normalized)
-    else:
-        method = BatchingMethod.from_str(batching_method)
+    if max_running_requests < 1:
+        raise ValueError("max_running_requests 必须大于 0")
 
-    concurrency = 1 if (method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
-    return _run_schedule(
-        method=method,
-        model=model,
+    if caching_method is CachingMethod.NONE:
+        raise ValueError("scheduler 不支持无 KV Cache，请改用 CachingMethod.DENSE 或 CachingMethod.PAGED")
+
+    backend: ScheduleBackend
+    if caching_method is CachingMethod.PAGED:
+        if paged_cache_config is None:
+            raise ValueError("PAGED 必须提供 paged_cache_config")
+        if batching_method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
+            raise ValueError(
+                f"Paged KV Cache 仅支持 {BatchingMethod.CONTINUOUS.value} 或 {BatchingMethod.FIXED.value}，"
+                f"实际为 {batching_method.value}"
+            )
+        backend = PagedScheduleBackend(
+            model=model,
+            device=device,
+            request_specs=request_specs,
+            max_running_requests=max_running_requests,
+            paged_cache_config=paged_cache_config,
+            batching_method=batching_method,
+            pad_token_id=pad_token_id,
+        )
+        effective_max_running_requests = max_running_requests
+    else:
+        if paged_cache_config is not None:
+            raise ValueError("DENSE 不应传 paged_cache_config")
+        effective_max_running_requests = (
+            1 if (batching_method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
+        )
+        backend = DenseScheduleBackend(
+            model=model,
+            device=device,
+            max_running_requests=effective_max_running_requests,
+            batching_method=batching_method,
+            pad_token_id=pad_token_id,
+        )
+
+    return _run_schedule_loop(
+        backend=backend,
         request_specs=request_specs,
-        max_running_requests=concurrency,
+        max_running_requests=effective_max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
-        pad_token_id=pad_token_id,
         stop_on_eos=stop_on_eos,
     )

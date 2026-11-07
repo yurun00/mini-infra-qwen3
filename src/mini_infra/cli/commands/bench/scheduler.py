@@ -39,8 +39,8 @@ from mini_infra.bench.scheduler.suites import (
 )
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
-from mini_infra.model import Qwen3Tokenizer, load_model, resolve_model_directory
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
+from mini_infra.model import load_model, resolve_model_directory
 
 
 def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -81,7 +81,7 @@ def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--interleave",
         nargs="*",
         default=None,
-        help="选择交替轮换的特征维度（如 batching_method kv-cache，或 none 关闭交替；默认使用 Suite 的配置）",
+        help="选择交替轮换的特征维度（如 batching_method caching_method，或 none 关闭交替；默认使用 Suite 的配置）",
     )
     p.add_argument(
         "--dry-run",
@@ -127,7 +127,7 @@ def handle_case(args: argparse.Namespace) -> int:
     vocab = model.config.vocab_size
 
     method = BatchingMethod(args.batching_method)
-    target_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=method)
+    target_mode = Mode(CachingMethod.DENSE, batching_method=method)
 
     correctness = check_correctness(model, tokenizer, target_mode, device, update_golden=False)
     if correctness["passed"] is False and not args.allow_mismatch:
@@ -157,7 +157,7 @@ def handle_case(args: argparse.Namespace) -> int:
         max_running_requests=max_running,
         arrival_times_ms=arrivals,
     )
-    specs = tuple(build_scheduler_request_specs(workload, vocab, device=device))
+    specs = tuple(build_scheduler_request_specs(workload, vocab))
     case_name = "custom"
 
     case_variant_id = "continuous" if method == BatchingMethod.CONTINUOUS else "fixed"
@@ -175,8 +175,8 @@ def handle_case(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    def on_case_step(phase: str, idx: int, total: int) -> None:
-        print(f"  [{phase} {idx}/{total}] mode={target_mode} requests={len(specs)} ...", flush=True)
+    def on_case_step(phase: str, step_number: int, total_steps: int) -> None:
+        print(f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={len(specs)} ...", flush=True)
 
     result = run_case(
         model=model,
@@ -260,11 +260,11 @@ def handle_suite(args: argparse.Namespace) -> int:
         flush=True,
     )
 
-    def on_suite_step(idx: int, total: int, planned_run: PlannedRun) -> None:
-        rep = f"repeat {planned_run.repeat_index + 1}" if planned_run.repeat_index is not None else "warmup"
+    def on_suite_step(step_number: int, total_steps: int, planned_run: PlannedRun) -> None:
+        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
         print(
-            f"  [{idx:02d}/{total:02d}] {planned_run.phase.value:<7} | {rep:<10} | "
+            f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | "
             f"case_id={case.id} mode={case.mode} max_running={case.max_running_requests} ...",
             flush=True,
         )

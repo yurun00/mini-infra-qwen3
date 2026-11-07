@@ -58,9 +58,9 @@ def run_suite(
     # 驱动执行计划，按用例 ID 归集测量结果
     runs_by_case_id: dict[str, list[ScheduleResult]] = {case.id: [] for case in cases}
     total_steps = len(plan)
-    for idx, planned_run in enumerate(plan, 1):
+    for step_number, planned_run in enumerate(plan, 1):
         if on_step_progress is not None:
-            on_step_progress(idx, total_steps, planned_run)
+            on_step_progress(step_number, total_steps, planned_run)
         res = run_case_once(model, device, planned_run.case)
         if planned_run.phase == RunPhase.MEASURE:
             runs_by_case_id[planned_run.case.id].append(res)

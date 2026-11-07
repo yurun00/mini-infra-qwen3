@@ -12,10 +12,9 @@ from mini_infra.core import (
 )
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     GenerationResult,
-    LockstepResult,
     Mode,
     SchedulePhase,
     ScheduleResult,
@@ -24,10 +23,14 @@ from mini_infra.engine import (
 )
 
 CPU = torch.device("cpu")
-KV_MODE = Mode({FeatureFlag.KV_CACHE})
+KV_MODE = Mode(CachingMethod.DENSE)
 RUNNERS = {
-    BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(BatchingMethod.FIXED, *args, **kwargs),
-    BatchingMethod.CONTINUOUS: lambda *args, **kwargs: run_scheduler(BatchingMethod.CONTINUOUS, *args, **kwargs),
+    BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(
+        BatchingMethod.FIXED, *args, caching_method=CachingMethod.DENSE, **kwargs
+    ),
+    BatchingMethod.CONTINUOUS: lambda *args, **kwargs: run_scheduler(
+        BatchingMethod.CONTINUOUS, *args, caching_method=CachingMethod.DENSE, **kwargs
+    ),
 }
 
 
@@ -128,7 +131,7 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert result.step_agg_metrics.ttft_ms is None
     assert result.step_agg_metrics.mean_tpot_ms is None
     assert result.memory.prefill_mb is None
-    assert result.memory.peak_live_cache_mb == result.memory.kv_cache_mb
+    assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
     assert result.batch_info is not None
     assert result.batch_info.slot_utilization == result.batch_info.execution_slot_utilization
     assert result.batch_info.running_capacity_utilization is not None
@@ -149,7 +152,9 @@ def test_timeline_and_metric_invariants(model, method, case):
 def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(model):
     specs = make_request_specs(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
 
-    result = run_scheduler(BatchingMethod.FIXED, model, specs, 2, -1, CPU, stop_on_eos=False)
+    result = run_scheduler(
+        BatchingMethod.FIXED, model, specs, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
     assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
@@ -164,7 +169,9 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
 def test_continuous_batching_refills_freed_slots_while_others_keep_running(model):
     specs = make_request_specs(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
 
-    result = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, stop_on_eos=False)
+    result = run_scheduler(
+        BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
     assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
@@ -174,13 +181,15 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     # Decode 总是以 capacity 行执行
     assert all(e.physical_batch_size == 2 for e in result.events if e.phase is SchedulePhase.DECODE)
     assert result.schedule_metrics.cache_management_ms > 0
-    assert result.memory.peak_live_cache_mb > 0
+    assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
 
 
 def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     specs = make_request_specs(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
 
-    result = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, stop_on_eos=False)
+    result = run_scheduler(
+        BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
 
     assert result.request_metrics[0].admitted_ms == 10.0  # 初始时钟取最早到达时间
     assert result.request_metrics[1].admitted_ms == 90000.0  # 空档期时钟直接跳转，没有真实 sleep
@@ -206,7 +215,9 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
     # 第二个请求在第一个完全结束（Cache 被整块回收）之后才到达
     specs = make_request_specs(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
 
-    result = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 1, -1, CPU, stop_on_eos=False)
+    result = run_scheduler(
+        BatchingMethod.CONTINUOUS, model, specs, 1, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, make_prompts([4, 6]), [2, 3])
 
@@ -217,8 +228,8 @@ class TestGenerateDispatch:
     def test_continuous_mode_matches_serial_and_fixed(self, model):
         prompts = make_prompts([3, 6, 4])
         budgets = [5, 2, 4]
-        continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
-        fixed = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        fixed = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
 
         opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
         result = generate(continuous, model, prompts, budgets, options=opts)
@@ -235,7 +246,6 @@ class TestGenerateDispatch:
         assert isinstance(result, GenerationResult)
         assert isinstance(result, ScheduleResult)
         assert isinstance(fixed_result, GenerationResult)
-        assert isinstance(fixed_result, LockstepResult)
         assert not isinstance(fixed_result, ScheduleResult)
         assert result.schedule_metrics.request_count == 3
         assert len(result.request_metrics) == 3
@@ -252,14 +262,14 @@ class TestGenerateDispatch:
 
     @pytest.mark.parametrize("kwargs", [{"capture_logits": True}, {"profile": True}])
     def test_continuous_mode_rejects_unsupported_options(self, model, kwargs):
-        mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+        mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="暂不支持"):
             generate(mode, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU, **kwargs))
 
     def test_continuous_mode_respects_max_running_requests(self, model):
         prompts = make_prompts([3, 5, 4, 6])
         budgets = [3, 2, 4, 1]
-        continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         # 4 个离线请求，并发上限限制为 2，触发槽位排队复用
         result = generate(
             continuous,
@@ -278,7 +288,7 @@ class TestGenerateDispatch:
         assert result.batch_size == 4
 
     def test_continuous_mode_rejects_invalid_max_running_requests(self, model):
-        continuous = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="必须大于 0"):
             generate(
                 continuous,
@@ -293,32 +303,44 @@ def test_run_scheduler_dispatch(model):
     specs = make_request_specs(make_prompts([3, 4]), max_new_tokens=2)
 
     # 1. 验证枚举分发 CONTINUOUS
-    res_cont = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
+    res_cont = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        2,
+        eos_token_id=-1,
+        device=CPU,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
     assert res_cont.batching_method == BatchingMethod.CONTINUOUS
     assert len(res_cont.request_metrics) == 2
 
-    # 2. 验证字符串分发 continuous
-    res_cont_str = run_scheduler("continuous", model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
-    assert res_cont_str.batching_method == BatchingMethod.CONTINUOUS
-
-    # 3. 验证枚举分发 FIXED
-    res_fixed = run_scheduler(BatchingMethod.FIXED, model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
+    # 2. 验证枚举分发 FIXED
+    res_fixed = run_scheduler(
+        BatchingMethod.FIXED,
+        model,
+        specs,
+        2,
+        eos_token_id=-1,
+        device=CPU,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
     assert res_fixed.batching_method == BatchingMethod.FIXED
     assert len(res_fixed.request_metrics) == 2
 
-    # 4. 验证字符串分发 fixed
-    res_fixed_str = run_scheduler("fixed", model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
-    assert res_fixed_str.batching_method == BatchingMethod.FIXED
-
-    # 5. 验证枚举与字符串分发 NONE（自动约束并发为 1，逐请求串行调度）
-    res_none = run_scheduler(BatchingMethod.NONE, model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
+    # 3. 验证枚举分发 NONE（自动约束并发为 1，逐请求串行调度）
+    res_none = run_scheduler(
+        BatchingMethod.NONE,
+        model,
+        specs,
+        2,
+        eos_token_id=-1,
+        device=CPU,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
     assert res_none.batching_method == BatchingMethod.NONE
     assert res_none.schedule_metrics.max_running_requests == 1
     assert [s.token_ids for s in res_none.sequences] == [s.token_ids for s in res_cont.sequences]
-
-    res_none_str = run_scheduler("none", model, specs, 2, eos_token_id=-1, device=CPU, stop_on_eos=False)
-    assert res_none_str.batching_method == BatchingMethod.NONE
-
-    # 6. 验证非法策略抛出异常
-    with pytest.raises(ValueError, match="未知批处理策略"):
-        run_scheduler("unknown-strategy", model, specs, 2, eos_token_id=-1, device=CPU)

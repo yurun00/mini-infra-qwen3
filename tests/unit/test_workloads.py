@@ -21,7 +21,7 @@ from mini_infra.bench.workloads import (
 )
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
     generate,
@@ -46,17 +46,17 @@ def test_make_sequence_shape_and_range():
     length = 64
     seq = make_sequence(length, vocab_size)
 
-    assert isinstance(seq, torch.Tensor)
-    assert seq.shape == (length,)
-    assert seq.dtype == torch.long
-    assert seq.min().item() >= 1000
-    assert seq.max().item() < min(vocab_size, 100000)
+    assert isinstance(seq, list)
+    assert len(seq) == length
+    assert all(isinstance(x, int) for x in seq)
+    assert min(seq) >= 1000
+    assert max(seq) < min(vocab_size, 100000)
 
     # Small vocab_size case
     small_vocab = 500
     seq_small = make_sequence(16, small_vocab)
-    assert seq_small.min().item() >= 1
-    assert seq_small.max().item() < small_vocab
+    assert min(seq_small) >= 1
+    assert max(seq_small) < small_vocab
 
 
 def test_make_sequence_determinism_and_salt():
@@ -65,10 +65,10 @@ def test_make_sequence_determinism_and_salt():
 
     seq1 = make_sequence(length, vocab_size, salt=0)
     seq2 = make_sequence(length, vocab_size, salt=0)
-    assert torch.equal(seq1, seq2)
+    assert seq1 == seq2
 
     seq_salted = make_sequence(length, vocab_size, salt=23)
-    assert not torch.equal(seq1, seq_salted)
+    assert seq1 != seq_salted
 
 
 def test_make_sequences_variable_lengths():
@@ -79,14 +79,15 @@ def test_make_sequences_variable_lengths():
     assert isinstance(seqs, list)
     assert len(seqs) == len(lengths)
     for s, expected_len in zip(seqs, lengths):
-        assert isinstance(s, torch.Tensor)
-        assert s.shape == (expected_len,)
+        assert isinstance(s, list)
+        assert len(s) == expected_len
+        assert all(isinstance(x, int) for x in s)
 
     # Different sequences in batch should have distinct tokens
-    assert not torch.equal(seqs[0], seqs[1][:16])
+    assert seqs[0] != seqs[1][:16]
 
 
-def test_make_prompt_int_tensor():
+def test_make_prompt_int_lengths():
     vocab_size = 151936
     length = 128
     batch_size = 3
@@ -94,11 +95,11 @@ def test_make_prompt_int_tensor():
     generator = torch.Generator(device="cpu").manual_seed(1234 + length)
     low = 1000 if vocab_size > 1000 else 1
     high = min(vocab_size, 100000)
-    expected = torch.randint(low, high, (batch_size, length), generator=generator)
+    expected = torch.randint(low, high, (batch_size, length), generator=generator).tolist()
 
     actual = make_prompt(vocab_size, length, batch_size=batch_size)
-    assert isinstance(actual, torch.Tensor)
-    assert torch.equal(actual, expected)
+    assert isinstance(actual, list)
+    assert actual == expected
 
 
 def test_make_prompt_sequence_lengths():
@@ -108,7 +109,7 @@ def test_make_prompt_sequence_lengths():
 
     assert isinstance(prompts, list)
     assert len(prompts) == 3
-    assert [p.shape[0] for p in prompts] == [10, 20, 30]
+    assert [len(p) for p in prompts] == [10, 20, 30]
 
 
 def test_golden_prompt_defaults():
@@ -123,20 +124,20 @@ def test_variable_length_prompt_generation_smoke():
     vocab_size = model.config.vocab_size
 
     # Generate unequal length prompts (e.g. lengths 4 and 2)
-    prompts = make_prompt(vocab_size, [4, 2], device=device)
+    prompts = make_prompt(vocab_size, [4, 2])
 
-    mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     res = generate(
         mode=mode,
         model=model,
-        input_ids=prompts,
+        prompts=prompts,
         max_new_tokens=4,
         options=GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False),
     )
     assert res.padded_output_tokens().shape == (2, 4)
     assert len(res.sequences) == 2
-    assert res.sequences[0].request_index == 0
-    assert res.sequences[1].request_index == 1
+    assert res.sequences[0].request_idx == 0
+    assert res.sequences[1].request_idx == 1
     assert len(res.sequences[0].token_ids) == 4
     assert len(res.sequences[1].token_ids) == 4
 

@@ -52,14 +52,14 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 ### 2. 端到端精度对齐测试 (GPU)
 *需要 GPU 环境，下载固定版本 `Qwen/Qwen3-0.6B`（若受限可配置 `export HF_ENDPOINT=https://hf-mirror.com`）。更详尽的指令与参数说明见 **[docs/guides/parity-verification.md](docs/guides/parity-verification.md)**：*
 
-* **Scheduler 批调度（Fixed 与 Continuous）动态对齐**：
+* **Scheduler 批调度（Fixed、Continuous 与 Paged KV Cache）动态对齐**：
   ```bash
   mini-infra verify scheduler-batch \
     --max-new-tokens 8 \
     --max-running-requests 2
   # 或使用 pytest：pytest tests/gpu/parity/test_scheduler_batch_parity.py
   ```
-  在 float32 下验证 Continuous Batching、Fixed Batching 与串行单请求生成 100% 逐 Token 严格对齐，覆盖动态槽位绑定、历史 Mask 管理与长短请求动态进出。
+  在 float32 下验证 Continuous Batching、Paged KV Cache、Fixed Batching 与串行单请求生成 100% 逐 Token 严格对齐，覆盖动态 batch slot / block table 绑定、history mask / `context_lens` 管理与长短请求动态进出。
 
 * **固定批处理请求隔离与数值对齐**：
   ```bash

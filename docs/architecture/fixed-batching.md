@@ -1,6 +1,6 @@
 # 固定批处理与左填充机制 (Fixed Batching & Left-Padding Architecture)
 
-在推理系统从单请求单序列向多并发演进的过程中，**固定批处理（Fixed Batching / Lockstep Batching）** 是最基础且至关重要的批处理形态。本项目在 [`src/mini_infra/engine/preprocessing.py`](../../src/mini_infra/engine/preprocessing.py) 与 [`src/mini_infra/engine/lockstep_loop.py`](../../src/mini_infra/engine/lockstep_loop.py) 中，完整实现了基于**左填充（Left Padding）** 的因果解码对齐、动态完成槽位管理与严格的请求隔离机制。
+在推理系统从单请求单序列向多并发演进的过程中，**固定批处理（Fixed Batching / Lockstep Batching）** 是最基础且至关重要的批处理形态。本项目在 [`src/mini_infra/worker/base_runner.py`](../../src/mini_infra/worker/base_runner.py)、[`src/mini_infra/worker/lockstep_runner.py`](../../src/mini_infra/worker/lockstep_runner.py) 与 [`src/mini_infra/engine/lockstep_loop.py`](../../src/mini_infra/engine/lockstep_loop.py) 中，完整实现了基于**左填充（Left Padding）** 的因果解码对齐、动态完成 batch slot 管理与严格的 Request Isolation 机制。
 
 ---
 
@@ -42,28 +42,28 @@ flowchart TD
 * **左填充（Left Padding）的天然优势**：
   在左侧填充占位符后，**所有请求的最后一个有效 Token 天然对齐在张量的最右边界（列索引为 $L_{\max}-1$）**。后续自回归生成时，模型仅需在最右侧统一追加新 Token，所有请求在物理张量与自注意力缓存中的生成边界完全对齐。
 
-### 2. `left_pad_sequences` 的张量构造实现
-在 [`src/mini_infra/engine/preprocessing.py`](../../src/mini_infra/engine/preprocessing.py#L9) 中，提供了严谨的张量构造逻辑：
+### 2. `_left_pad_sequences` 的张量构造实现
+在 [`src/mini_infra/worker/base_runner.py`](../../src/mini_infra/worker/base_runner.py#L26) 中，提供了严谨的张量构造逻辑：
 
 ```python
-def left_pad_sequences(token_sequences, pad_token_id, device):
+def _left_pad_sequences(token_sequences, pad_token_id, device):
     # 1. 计算最大序列长度并初始化张量
-    max_length = max(lengths)
-    batch_size = len(token_sequences)
-    input_ids = torch.full((batch_size, max_length), pad_token_id, dtype=torch.long, device=device)
-    attention_mask = torch.zeros((batch_size, max_length), dtype=torch.bool, device=device)
+    padded_prompt_length = max(prompt_lengths)
+    batch_size = len(normalized)
+    input_ids = torch.full((batch_size, padded_prompt_length), pad_token_id, dtype=torch.long, device=device)
+    attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
 
     # 2. 靠右放置真实 Token 序列，左侧保留 pad_token_id
-    for row, sequence in enumerate(token_sequences):
-        length = sequence.numel()
-        input_ids[row, max_length - length :] = sequence
-        attention_mask[row, max_length - length :] = True
+    for row_idx, sequence in enumerate(normalized):
+        prompt_length = sequence.numel()
+        input_ids[row_idx, padded_prompt_length - prompt_length :] = sequence
+        attention_mask[row_idx, padded_prompt_length - prompt_length :] = True
 
     # 3. 构造相对位置编码 Position IDs
     # 真实 Token 逻辑位置严格从 0 开始递增；左侧 Padding 位置 clamp 为 0
     position_ids = attention_mask.long().cumsum(dim=-1) - 1
     position_ids.clamp_(min=0)
-    return input_ids, attention_mask, position_ids, torch.tensor(lengths)
+    return input_ids, attention_mask, position_ids, torch.tensor(prompt_lengths, dtype=torch.long, device=device)
 ```
 
 #### 逐值示例
@@ -100,18 +100,18 @@ $$M_{i, j, k} = \begin{cases} 0, & \text{if } j \ge k \text{ 且 } \text{mask}_{
 
 在 [`src/mini_infra/engine/lockstep_loop.py`](../../src/mini_infra/engine/lockstep_loop.py) 中，`LockstepState` 向量化状态机驱动自回归循环：
 
-### 1. 动态退出与槽位空转
-每个请求拥有独立的输出预算（`budgets: torch.Tensor`）：
-* 某请求生成结束时，`curr_active[req_idx]` 被置为 `False`；
+### 1. 动态退出与 batch slot 空转
+每个请求拥有独立的输出预算（`budgets: list[int]`）：
+* 某请求生成结束时，`curr_active[request_idx]` 被置为 `False`；
 * 记录该请求的实际完成步数（`SequenceOutput.completion_step`）；
-* 已完成的请求在后续 Decode 步中将以 Dummy Token 占位，其槽位进入**空转（Idle）状态**，直到批内所有请求全部完成。
+* 已完成的请求在后续 Decode 步中将以 Padding Token（`pad_token_id`）占位，其 batch slot 进入**空转（Idle）状态**，直到批内所有请求全部完成。
 
 ### 2. 核心效率指标
 * **填充效率（Padding Efficiency）**：
   衡量 Prefill 阶段有效 Prompt Token 占总输入矩形面积的比例：
   $$\text{Padding Efficiency} = \frac{\sum_{i=1}^B \text{prompt\_len}_i}{B \times \max_{i=1}^B(\text{prompt\_len}_i)}$$
-* **执行槽位利用率（Slot Utilization）**：
-  衡量 Decode 阶段有效生成的 Token 数占总执行槽位行数的比例：
+* **执行 batch slot 利用率（Slot Utilization）**：
+  衡量 Decode 阶段有效生成的 Token 数占总执行 batch slot 行数的比例：
   $$\text{Slot Utilization} = \frac{\sum_{i=1}^B \text{output\_tokens}_i}{\sum_{t=1}^{T} \text{executed\_batch\_size}_t} = \frac{\sum_{i=1}^B \text{output\_tokens}_i}{B \times \max_{i=1}^B(\text{output\_tokens}_i)}$$
 
 ---
@@ -121,9 +121,9 @@ $$M_{i, j, k} = \begin{cases} 0, & \text{if } j \ge k \text{ 且 } \text{mask}_{
 固定批处理相比单请求串行大幅提升了 GPU 算力利用率，但在在线服务化（Serving）场景下暴露出难以克服的结构性瓶颈：
 
 1. **计算空泡（Bubble）与木桶效应**：
-   * 若批次中请求 1 输出 2 个 Token，请求 2 输出 64 个 Token，批次必须持续执行 64 步。前者的槽位在后 62 步完全处于闲置浪费状态（槽位利用率甚至不足 50%）。
+   * 若批次中请求 1 输出 2 个 Token，请求 2 输出 64 个 Token，批次必须持续执行 64 步。前者的 batch slot 在后 62 步完全处于闲置浪费状态（Slot Utilization 甚至不足 50%）。
 2. **队头阻塞与排队恶化**：
-   * 批次锁定了全部显存与槽位，外部新到达的请求无法在当前批次执行途中加入，只能等待前一波整批结束，造成极大的排队与首字延迟（TTFT）。
+   * 批次锁定了全部显存与 batch slot，外部新到达的请求无法在当前批次执行途中加入，只能等待前一波整批结束，造成极大的排队与首字延迟（TTFT）。
 
 为了打破固定批次的同步约束，系统进一步演进出将调度细化到每一步步级粒度的解决方案：详见 [连续批处理架构与调度原理 (continuous-batching.md)](continuous-batching.md)。
 

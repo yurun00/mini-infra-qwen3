@@ -8,6 +8,12 @@ repos:
         args: [--fix]
   - repo: local
     hooks:
+      - id: sync-agent-rules
+        name: sync .agents/rules -> .trae/rules
+        entry: .agents/scripts/sync_rules.sh
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: perf-regression
         name: performance regression check (>5%)
         entry: bash -c 'PATH="${PWD}/.venv/bin:${PATH}" mini-infra bench check-regression "$@"' --

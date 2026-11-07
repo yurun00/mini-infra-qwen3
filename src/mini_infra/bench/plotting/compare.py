@@ -52,10 +52,18 @@ def resolve_label(rec: Any, custom: str | None = None) -> str:
     return resolve_record_label(rec, custom)
 
 
+# 显存容量类指标（以 MiB 绝对增量展示变化）
+_MEMORY_MB_KEYS = {"peak_allocated_mb", "peak_live_kv_cache_mb", "peak_kv_cache_pool_mb"}
+# 占比类指标（tidy 阶段已 *100，以百分点绝对增量展示变化）
+_FRACTION_KEYS = {"cache_management_fraction"}
+
+
 def _format_delta(metric_key: str, val_a: float, val_b: float) -> str:
     """根据指标物理性质格式化 A -> B 的相对变化（加速比或显存增量）。"""
-    if metric_key == "peak_allocated_mb":
+    if metric_key in _MEMORY_MB_KEYS:
         return f"{val_b - val_a:+.1f} MiB"
+    if metric_key in _FRACTION_KEYS:
+        return f"{val_b - val_a:+.2f} pp"
     if metric_key in _LATENCY_KEYS:
         ratio = val_a / val_b if val_b > 0 else 1.0
         return f"**{ratio:.2f}x**"
@@ -138,8 +146,8 @@ def plot_mode_comparison(
     flat_axes = axes.flatten()
     palette = ["#e74c3c", "#2ecc71"]
 
-    for idx, spec in enumerate(specs):
-        ax = flat_axes[idx]
+    for spec_idx, spec in enumerate(specs):
+        ax = flat_axes[spec_idx]
         sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
         if sub.empty:
             ax.set_axis_off()
@@ -201,7 +209,7 @@ def plot_mode_comparison(
                     fontsize=8.5,
                 )
 
-        ax.set_title(f"{idx + 1}. {spec.title}", fontsize=10.5)
+        ax.set_title(f"{spec_idx + 1}. {spec.title}", fontsize=10.5)
         ax.set_xlabel("")
         ax.set_ylabel(spec.ylabel)
         ax.grid(True, linestyle="--", alpha=0.45)

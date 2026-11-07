@@ -8,16 +8,16 @@ import torch
 from mini_infra.core import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
     SchedulePhase,
     generate,
-    left_pad_sequences,
     run_scheduler,
 )
-from mini_infra.memory import KVCache, cache_size_bytes
-from mini_infra.model import Qwen3Config, Qwen3ForCausalLM
+from mini_infra.model import DenseAttentionMetadata, Qwen3Config, Qwen3ForCausalLM
+from mini_infra.worker import KVCache, cache_size_bytes
+from mini_infra.worker.base_runner import _left_pad_sequences
 
 
 def build_tiny_model():
@@ -42,7 +42,7 @@ def build_tiny_model():
 
 def check_output_shape_and_tied_weights(model):
     with torch.inference_mode():
-        logits = model(torch.tensor([[1, 2, 3]]))
+        logits, _ = model(torch.tensor([[1, 2, 3]]))
 
     assert logits.shape == (1, 3, model.config.vocab_size)
     assert model.lm_head.weight.data_ptr() == model.model.embed_tokens.weight.data_ptr()
@@ -52,25 +52,24 @@ def check_causal_mask(model):
     # 两个输入只有最后一个 Token 不同。若 causal mask 正确，前两个位置
     # 的输出不应该受最后一个 Token 影响。
     with torch.inference_mode():
-        first = model(torch.tensor([[1, 2, 3]]))
-        second = model(torch.tensor([[1, 2, 4]]))
+        first, _ = model(torch.tensor([[1, 2, 3]]))
+        second, _ = model(torch.tensor([[1, 2, 4]]))
 
     assert torch.allclose(first[:, :2, :], second[:, :2, :], atol=1e-6)
 
 
 def check_kv_cache_correctness(model):
-    """验证显式 KVCache 容器与全量重算路径输出完全一致。"""
+    """验证 Dense KV Cache 增量路径与全量重算路径输出完全一致。"""
     prompt = torch.tensor([[1, 2, 3]])
     config = model.config
 
+    # attn_metadata=None 即 Prefill：Logits 与全量重算天然一致，同时产出可复用的历史键值。
     with torch.inference_mode():
-        baseline_logits = model(prompt)
-        cache = KVCache()
-        prefill_logits = model(prompt, kv_cache=cache)
+        baseline_logits, present = model(prompt)
+    cache = KVCache(present)
 
-    assert torch.allclose(baseline_logits, prefill_logits, atol=1e-6)
     assert len(cache) == config.num_hidden_layers
-    assert cache.get_seq_length() == 3
+    assert cache.length == 3
     expected_shape = (1, config.num_key_value_heads, 3, config.head_dim)
     for key, value in cache:
         assert tuple(key.shape) == expected_shape
@@ -85,17 +84,19 @@ def check_kv_cache_correctness(model):
         * torch.tensor([], dtype=torch.float32).element_size()
     )
     assert cache_size_bytes(cache) == expected_bytes
-    assert cache.total_bytes() == expected_bytes
+    assert cache.total_bytes == expected_bytes
+    assert baseline_logits.shape == (1, 3, config.vocab_size)
 
-    # 单步 Decode 验证：传入 cache 自动追加
+    # 单步 Decode 验证：把上一步的 present_key_values 包成 DenseAttentionMetadata 喂回去即可增量追加。
     next_input = torch.tensor([[4]])
     full_context = torch.cat((prompt, next_input), dim=1)
     with torch.inference_mode():
-        full_logits = model(full_context)
-        cached_logits = model(next_input, kv_cache=cache)
+        full_logits, _ = model(full_context)
+        cached_logits, present = model(next_input, attn_metadata=DenseAttentionMetadata(tuple(cache.past_key_values)))
+    cache = KVCache(present)
 
     assert torch.allclose(full_logits[:, -1, :], cached_logits[:, -1, :], atol=1e-5)
-    assert cache.get_seq_length() == 4
+    assert cache.length == 4
 
 
 def check_fixed_batching(model):
@@ -106,14 +107,14 @@ def check_fixed_batching(model):
     request_b = [11, 13]
     request_c = [17, 19]
 
-    padded, mask, positions, lengths = left_pad_sequences([request_a, request_b], 0, device)
+    padded, mask, positions, lengths = _left_pad_sequences([request_a, request_b], 0, device)
     assert padded.tolist() == [[3, 5, 7, 9], [0, 0, 11, 13]]
     assert mask.tolist() == [[True] * 4, [False, False, True, True]]
     assert positions.tolist() == [[0, 1, 2, 3], [0, 0, 0, 1]]
     assert lengths.tolist() == [4, 2]
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
-    fixed_batching_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    fixed_batching_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     logits_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
     single = generate(fixed_batching_mode, model, [request_a], 4, options=logits_opts)
     paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], options=logits_opts)
@@ -125,32 +126,35 @@ def check_fixed_batching(model):
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
-    slots = generate(fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts)
-    assert slots.trace.num_active_tokens_per_step == [2, 2, 1, 1]
-    assert [s.completion_step for s in slots.sequences] == [2, 4]
-    assert abs(slots.batch_info.slot_utilization - 0.75) < 1e-12
+    batched = generate(fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts)
+    assert batched.trace.num_active_tokens_per_step == [2, 2, 1, 1]
+    assert [s.completion_step for s in batched.sequences] == [2, 4]
+    assert abs(batched.batch_info.slot_utilization - 0.75) < 1e-12
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
-    assert abs(slots.memory.kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
+    assert abs(batched.memory.kv_cache.peak_live_kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
     print("Batched KV Cache、完成槽位和利用率检查通过")
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。
     serial = generate(
-        Mode({FeatureFlag.KV_CACHE}),
+        Mode(CachingMethod.DENSE),
         model,
         [request_a, request_b],
         [2, 4],
         options=base_opts,
     )
-    assert [s.token_ids for s in serial.sequences] == [s.token_ids for s in slots.sequences]
+    assert [s.token_ids for s in serial.sequences] == [s.token_ids for s in batched.sequences]
     print("Batch 与串行输出一致性检查通过")
 
     # 非法 Cache batch 维和错误长度的 Attention Mask 必须被拒绝。
-    cache = KVCache()
     prefill_ids = torch.tensor([request_a])
     with torch.inference_mode():
-        model(prefill_ids, kv_cache=cache)
+        _, present = model(prefill_ids)
         try:
-            model(prefill_ids[:, -1:], kv_cache=cache, attention_mask=torch.ones((1, 1), dtype=torch.bool))
+            model(
+                prefill_ids[:, -1:],
+                attention_mask=torch.ones((1, 1), dtype=torch.bool),
+                attn_metadata=DenseAttentionMetadata(tuple(present)),
+            )
         except ValueError:
             pass
         else:
@@ -169,8 +173,8 @@ def check_continuous_batching(model):
     budgets = [2, 4, 3, 2]
 
     # 1. 统一 generate 接口分发验证（多请求异构预算）
-    continuous_mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
-    serial_mode = Mode({FeatureFlag.KV_CACHE})
+    continuous_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    serial_mode = Mode(CachingMethod.DENSE)
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
 
     cont_gen = generate(continuous_mode, model, sequences, budgets, options=base_opts)
@@ -179,9 +183,15 @@ def check_continuous_batching(model):
 
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     specs = make_request_specs(sequences, budgets)
-    fixed = run_scheduler(BatchingMethod.FIXED, model, specs, 2, -1, device, stop_on_eos=False)
-    continuous = run_scheduler(BatchingMethod.CONTINUOUS, model, specs, 2, -1, device, stop_on_eos=False)
-    serialized = run_scheduler(BatchingMethod.NONE, model, specs, 1, -1, device, stop_on_eos=False)
+    fixed = run_scheduler(
+        BatchingMethod.FIXED, model, specs, 2, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
+    continuous = run_scheduler(
+        BatchingMethod.CONTINUOUS, model, specs, 2, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
+    serialized = run_scheduler(
+        BatchingMethod.NONE, model, specs, 1, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+    )
 
     assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
     assert [s.token_ids for s in continuous.sequences] == [s.token_ids for s in serialized.sequences]
@@ -203,14 +213,32 @@ def check_continuous_batching(model):
 
     # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)
     staggered_specs = make_request_specs(sequences[:2], [4, 2], arrival_times_ms=[0.0, 5.0])
-    staggered = run_scheduler(BatchingMethod.CONTINUOUS, model, staggered_specs, 2, -1, device, stop_on_eos=False)
+    staggered = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        staggered_specs,
+        2,
+        -1,
+        device,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
     assert [len(s.token_ids) for s in staggered.sequences] == [4, 2]
     assert staggered.request_metrics[1].admitted_ms >= 5.0
 
     # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
     same_arrival_specs = make_request_specs([sequences[0]] * 12, 1)
-    same_arrival = run_scheduler(BatchingMethod.CONTINUOUS, model, same_arrival_specs, 3, -1, device, stop_on_eos=False)
-    flattened_admissions = [req_idx for event in same_arrival.events for req_idx in event.admitted_request_ids]
+    same_arrival = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        same_arrival_specs,
+        3,
+        -1,
+        device,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
+    flattened_admissions = [request_idx for event in same_arrival.events for request_idx in event.admitted_request_ids]
     assert flattened_admissions == list(range(12))
 
     print("Continuous Batching 动态加入退出、FCFS 与输出一致性检查通过")

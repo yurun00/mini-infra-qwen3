@@ -8,11 +8,12 @@
 
 | 一级分类 | 子命令 | 核心执行函数 / 模块 | 核心用途 | 默认输出路径 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Lockstep 齐步** | `mini-infra bench lockstep case` | `run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/result-history/` 或 `--output` |
-| | `mini-infra bench lockstep suite` | `run_suite.py` | 运行预设齐步批处理对比套件（吞吐扫描、Padding 损耗、槽位浪费） | `benchmarks/suites/<suite>/` |
-| **Scheduler 调度器** | `mini-infra bench scheduler case` | `run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous，支持并发与错峰到达） | 控制台输出或 `--output` |
-| | `mini-infra bench scheduler suite` | `run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰） | `benchmarks/suites/scheduler/<name>/` |
-| **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/` |
+| **Lockstep 齐步** | `mini-infra bench lockstep case` | `lockstep/run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/result-history/lockstep/` 或 `--output` |
+| | `mini-infra bench lockstep suite` | `lockstep/run_suite.py` | 运行预设齐步批处理对比套件（吞吐扫描、Padding 损耗、batch slot 浪费） | `benchmarks/suites/lockstep/<suite>/` |
+| **scheduler 调度器** | `mini-infra bench scheduler case` | `scheduler/run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous，支持并发与错峰到达） | 控制台输出或 `--output` |
+| | `mini-infra bench scheduler suite` | `scheduler/run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰） | `benchmarks/suites/scheduler/<name>/` |
+| **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/result-history/{lockstep,scheduler}/` |
+| **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/{lockstep,scheduler}/` |
 | | `mini-infra bench plot compare` | `plotting/compare.py` | 对比任意两个独立 JSON 实验结果，绘制柱状对比图与 Markdown 差异表 | `./benchmark_comparison.png` |
 | **Regression 守门** | `mini-infra bench check-regression` | `check_regression.py` | 1 分钟轻量级冒烟比对，拦截 TTFT/TPOT 劣化超过 5% 的代码变更 | `benchmarks/candidate.local.json` |
 
@@ -66,7 +67,7 @@ mini-infra bench lockstep case \
 #### 注册套件清单
 1. **`serial-vs-fixed-batch-throughput`**：扫描 Batch Size 1, 2, 4, 8, 16，对比单请求串行与固定批处理的吞吐与显存增长曲线。
 2. **`uniform-vs-variable-prompt-padding`**：固定 Batch Size 4，对比等长 Prompt 与阶梯变长 Prompt（16, 32, 64, 128），测量 Padding 有效率与 Prefill 算力浪费。
-3. **`uniform-vs-variable-budget-slots`**：固定 Batch Size 4，对比等长生成预算与阶梯变长预算（8, 16, 32, 64），测量短请求提前退出导致的槽位闲置浪费。
+3. **`uniform-vs-variable-budget-slots`**：固定 Batch Size 4，对比等长生成预算与阶梯变长预算（8, 16, 32, 64），测量短请求提前退出导致的 batch slot 闲置浪费。
 
 #### 常用命令样例
 ```bash
@@ -80,7 +81,7 @@ mini-infra bench lockstep suite \
   --tag dev \
   --suite uniform-vs-variable-prompt-padding
 
-# 运行变长输出预算的槽位利用率套件
+# 运行变长输出预算的 batch slot 利用率套件
 mini-infra bench lockstep suite \
   --tag dev \
   --suite uniform-vs-variable-budget-slots
@@ -88,9 +89,9 @@ mini-infra bench lockstep suite \
 
 ---
 
-## 三、Scheduler 调度器基准测试 (`bench scheduler`)
+## 三、scheduler 调度器基准测试 (`bench scheduler`)
 
-面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出与 DenseSlotCache 槽位管理。
+面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出与 `DenseSlotCache` batch slot 管理。
 
 ### 1. 单用例服务化测试 (`scheduler case`)
 模拟带有并发上限（Concurrency Limit）与请求到达时序的服务端负载。
@@ -130,10 +131,10 @@ mini-infra bench scheduler case \
 评估连续批处理在复杂线上工况相对固定批处理的加速比与调度优势。
 
 #### 注册套件清单
-1. **`fixed-vs-continuous-variable-output-length`**：长短请求混跑（输出长度极不均衡）。连续批处理在短请求退出后立即释放槽位并接纳新请求，展现最大吞吐优势。
+1. **`fixed-vs-continuous-variable-output-length`**：长短请求混跑（输出长度极不均衡）。连续批处理在短请求退出后立即释放 batch slot 并接纳新请求，展现最大吞吐优势。
 2. **`fixed-vs-continuous-uniform-output-length`**：所有请求输出等长基准，作为无长尾效应时的底线对比。
 3. **`fixed-vs-continuous-staggered-arrivals`**：请求按时间阶梯陆续到达，考察连续批处理的即到即调度能力 vs 固定批处理的攒批排队延迟。
-4. **`fixed-vs-continuous-prefill-interference`**：运行中 Decode 槽位受新入场请求 Prefill 插入时的 ITL 抖动与打断开销。
+4. **`fixed-vs-continuous-prefill-interference`**：运行中 Decode batch slot 受新入场请求 Prefill 插入时的 ITL 抖动与打断开销。
 
 #### 常用命令样例
 ```bash
@@ -163,16 +164,16 @@ mini-infra bench scheduler suite \
 ## 四、性能图表绘制与对比分析 (`bench plot`)
 
 ### 1. 跨版本演化全景图 (`plot history`)
-读取 `benchmarks/result-history/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
+读取 `benchmarks/result-history/{lockstep,scheduler}/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
 
 ```bash
 # 读取历史数据并生成汇总报表与两大演进图
 mini-infra bench plot history
 
-# 产出文件：
-# 1. benchmarks/reports/SUMMARY.md (Markdown 全景汇总表)
-# 2. benchmarks/reports/evolution_and_scaling.png (跨版本加速比与长度扩展曲线)
-# 3. benchmarks/reports/profiling_and_optimization.png (当前最新版本的 MBU/MFU 与算子剖析)
+# 产出文件（按 lockstep 与 scheduler 分域生成）：
+# 1. benchmarks/reports/{lockstep,scheduler}/SUMMARY.md (Markdown 全景汇总表)
+# 2. benchmarks/reports/{lockstep,scheduler}/evolution_and_scaling.png (跨版本加速比与长度扩展曲线)
+# 3. benchmarks/reports/{lockstep,scheduler}/profiling_and_optimization.png (当前最新版本的 MBU/MFU 与算子剖析)
 ```
 
 ---
@@ -183,7 +184,7 @@ mini-infra bench plot history
 ```bash
 # 对比当前实验结果与 Baseline
 mini-infra bench plot compare \
-  benchmarks/result-history/a497386_baseline.json \
+  benchmarks/result-history/lockstep/915b0d9_v0.1.0.json \
   tmp/profile.json \
   --output-figure tmp/comparison.png \
   --output-markdown tmp/comparison.md \

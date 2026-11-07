@@ -14,7 +14,7 @@ from mini_infra.bench.scheduler.suites import (
     get_all_scheduler_suites,
     get_scheduler_suite,
 )
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, Mode
 
 
 def test_scheduler_suites_registry():
@@ -101,6 +101,8 @@ def test_prefill_interference_suite():
         FixedVsContinuousPrefillInterferenceSuite(interference_arrival_ms=-10.0)
     with pytest.raises(ValueError):
         FixedVsContinuousPrefillInterferenceSuite(batching_methods=())
+    with pytest.raises(ValueError):
+        FixedVsContinuousPrefillInterferenceSuite(cache_methods=())
 
 
 def test_suite_cases_expansion():
@@ -109,7 +111,7 @@ def test_suite_cases_expansion():
         modes = suite.modes()
         assert len(modes) == 2
         assert all(isinstance(m, Mode) for m in modes)
-        assert all(m.is_enabled(FeatureFlag.KV_CACHE) for m in modes)
+        assert all(m.use_kv_cache for m in modes)
 
         cases = suite.cases(vocab_size=500)
         assert len(cases) == 2

@@ -1,15 +1,11 @@
 from mini_infra.core import (
     ArrivalQueue,
-    BatchScheduleInfo,
-    MemoryProfile,
     RequestMetrics,
     RequestSpec,
     RequestState,
     RequestStatus,
     SequenceOutput,
-    build_memory_profile,
     make_request_specs,
-    pad_output_tokens,
     validate_request_specs,
 )
 from mini_infra.device import (
@@ -19,34 +15,34 @@ from mini_infra.device import (
 )
 from mini_infra.engine import (
     BatchingMethod,
+    BatchScheduleInfo,
+    CachingMethod,
     FeatureDimension,
     FeatureFlag,
     GenerationResult,
     GenerationTrace,
-    LockstepResult,
-    LockstepState,
+    KVCacheProfile,
+    MemoryProfile,
     Mode,
+    PagedCacheProfile,
+    Qwen3Tokenizer,
     ScheduleEvent,
     ScheduleMetrics,
     SchedulePhase,
     ScheduleResult,
     StepAggregatedMetrics,
+    build_memory_profile,
+    pad_output_tokens,
     run_lockstep,
     run_scheduler,
     summarize_schedule,
 )
-from mini_infra.entrypoints import GenerationOptions, generate
-from mini_infra.memory import (
-    DenseSlotCache,
-    KVCache,
-    cache_size_bytes,
-)
+from mini_infra.entrypoints import GenerationOptions, PromptInput, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     Qwen3Config,
     Qwen3ForCausalLM,
-    Qwen3Tokenizer,
     load_model,
     model_dtype_from_config,
     resolve_model_directory,
@@ -63,6 +59,11 @@ from mini_infra.profiling import (
     profile_scope,
 )
 from mini_infra.utils import percentile
+from mini_infra.worker import (
+    DenseSlotCache,
+    KVCache,
+    cache_size_bytes,
+)
 
 __all__ = [
     "ArrivalQueue",
@@ -78,13 +79,15 @@ __all__ = [
     "GenerationTrace",
     "KERNEL_CATEGORIES",
     "KVCache",
+    "CachingMethod",
+    "KVCacheProfile",
     "KernelInfo",
-    "LockstepResult",
-    "LockstepState",
     "MODULE_SCOPES",
     "MemoryProfile",
     "Mode",
     "OpLatencyBreakdown",
+    "PagedCacheProfile",
+    "PromptInput",
     "Qwen3Config",
     "Qwen3ForCausalLM",
     "Qwen3Tokenizer",

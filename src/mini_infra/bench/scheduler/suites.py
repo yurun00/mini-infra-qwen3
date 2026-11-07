@@ -21,7 +21,12 @@ from mini_infra.bench.workloads import (
     make_sequences,
 )
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.engine import BatchingMethod, FeatureDimension, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, FeatureDimension, FeatureFlag, Mode
+
+INTERLEAVE_DIMENSIONS: dict[str, FeatureDimension] = {
+    "batching_method": BatchingMethod,
+    "caching_method": CachingMethod,
+}
 
 
 @dataclass(frozen=True)
@@ -85,7 +90,8 @@ class SchedulerSuite(Protocol):
 
 def _serialize_interleave(interleave: Sequence[FeatureDimension]) -> list[str]:
     """序列化 interleave 特征维度列表供 JSON 结果记录。"""
-    return [d.value if isinstance(d, FeatureFlag) else "batching_method" for d in interleave]
+    names = {dim: name for name, dim in INTERLEAVE_DIMENSIONS.items()}
+    return [d.value if isinstance(d, FeatureFlag) else names[d] for d in interleave]
 
 
 def _case_id_for_mode(mode: Mode) -> str:
@@ -122,7 +128,7 @@ class FixedVsContinuousVariableOutputLengthSuite:
     short_output: int = 8
     long_output: int = 32
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
     warmup: int = 1
     repeats: int = 3
@@ -136,14 +142,15 @@ class FixedVsContinuousVariableOutputLengthSuite:
             raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
         if not self.batching_methods:
             raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=bm) for bm in self.batching_methods]
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length] * self.request_count
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = make_alternating_budgets(self.request_count, self.short_output, self.long_output)
         return make_request_specs(sequences, budgets)
 
@@ -153,6 +160,7 @@ class FixedVsContinuousVariableOutputLengthSuite:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
         return data
 
@@ -167,7 +175,7 @@ class FixedVsContinuousUniformOutputLengthSuite:
     prompt_length: int = 128
     output_budget: int = 20
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
     warmup: int = 1
     repeats: int = 3
@@ -181,14 +189,15 @@ class FixedVsContinuousUniformOutputLengthSuite:
             raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
         if not self.batching_methods:
             raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=bm) for bm in self.batching_methods]
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length] * self.request_count
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = [self.output_budget] * self.request_count
         return make_request_specs(sequences, budgets)
 
@@ -198,6 +207,7 @@ class FixedVsContinuousUniformOutputLengthSuite:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
         return data
 
@@ -214,7 +224,7 @@ class FixedVsContinuousStaggeredArrivalsSuite:
     long_output: int = 32
     arrival_interval_ms: float = 150.0
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
     warmup: int = 1
     repeats: int = 3
@@ -230,14 +240,15 @@ class FixedVsContinuousStaggeredArrivalsSuite:
             raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
         if not self.batching_methods:
             raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=bm) for bm in self.batching_methods]
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length] * self.request_count
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = make_alternating_budgets(self.request_count, self.short_output, self.long_output)
         arrivals = make_arrival_times(self.request_count, self.arrival_interval_ms)
         return make_request_specs(sequences, budgets, arrivals)
@@ -248,6 +259,7 @@ class FixedVsContinuousStaggeredArrivalsSuite:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
         return data
 
@@ -264,7 +276,7 @@ class FixedVsContinuousPrefillInterferenceSuite:
     long_output: int = 32
     interference_arrival_ms: float = 250.0
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
     warmup: int = 1
     repeats: int = 3
@@ -282,14 +294,15 @@ class FixedVsContinuousPrefillInterferenceSuite:
             raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
         if not self.batching_methods:
             raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=bm) for bm in self.batching_methods]
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
 
     def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
         lengths = [self.prompt_length, self.prompt_length, self.interference_prompt_length]
-        sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+        sequences = make_sequences(lengths, vocab_size)
         budgets = [self.long_output, self.long_output, self.short_output]
         arrivals = [0.0, 0.0, self.interference_arrival_ms]
         return make_request_specs(sequences, budgets, arrivals)
@@ -300,6 +313,7 @@ class FixedVsContinuousPrefillInterferenceSuite:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
         return data
 
@@ -332,6 +346,7 @@ __all__ = [
     "FixedVsContinuousStaggeredArrivalsSuite",
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
+    "INTERLEAVE_DIMENSIONS",
     "SCHEDULER_SUITES",
     "SUITES",
     "SchedulerSuite",

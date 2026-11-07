@@ -10,9 +10,9 @@
 
 1. **`mini-infra bench lockstep`（齐步推理基准，无队列调度器）**：
    * **涵盖范围**：包含单请求串行生成（`batch_size=1`，如 Baseline、KV Cache）以及固定批处理（Fixed Batching）。
-   * **命名由来**：所有请求在同一逻辑时刻同步推进，不走三级队列与槽位生命周期管理，统一由 `generate` / `lockstep_loop` 驱动。
-2. **`mini-infra bench scheduler`（调度器推理基准，含队列与槽位管理）**：
-   * **涵盖范围**：涵盖 Continuous Batching 与 Fixed Batching 在服务化场景下的队列排队、动态准入、EOS 提前退场与 DenseSlotCache 槽位管理。
+   * **命名由来**：所有请求在同一逻辑时刻同步推进，不走三级队列与 batch slot 生命周期管理，统一由 `generate` / `lockstep_loop` 驱动。
+2. **`mini-infra bench scheduler`（调度器推理基准，含队列与 batch slot 管理）**：
+   * **涵盖范围**：涵盖 Continuous Batching 与 Fixed Batching 在服务化场景下的队列排队、动态准入、EOS 提前退场与 `DenseSlotCache` batch slot 管理。
    * **命名由来**：由调度循环（`run_scheduler`）统一驱动，用于测量请求在动态到达场景下的 TTFT、ITL、Makespan 与并发容量利用率。
 
 ---
@@ -127,6 +127,6 @@ git push origin main --tags
 * **`benchmarks/result-history/{lockstep,scheduler}/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，按 `lockstep` 与 `scheduler` 分域持久化存储）。
 * **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
 * **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
-* **`benchmarks/reports/{lockstep,scheduler}/SUMMARY.md`**：分别记录齐步（Lockstep）与调度器（Scheduler）各历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
-* **`benchmarks/reports/{lockstep,scheduler}/evolution_and_scaling.png`**：各域跨版本演化趋势大图（自动绘制延迟、吞吐、显存、排队分位数与槽位利用率演进曲线）。
+* **`benchmarks/reports/{lockstep,scheduler}/SUMMARY.md`**：分别记录齐步（Lockstep）与调度器（scheduler）各历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
+* **`benchmarks/reports/{lockstep,scheduler}/evolution_and_scaling.png`**：各域跨版本演化趋势大图（自动绘制延迟、吞吐、显存、排队分位数与 `slot_utilization` 演进曲线）。
 * **`benchmarks/reports/{lockstep,scheduler}/profiling_and_optimization.png`**：各域当前版本深度剖析与优化指引大图（涵盖 MBU/MFU、算子归因、迭代步轨迹、P50/P95 分位数与显存碎片剖析）。

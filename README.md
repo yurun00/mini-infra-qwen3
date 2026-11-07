@@ -10,14 +10,15 @@
 - **手写 Qwen3-0.6B 模型架构**：基于纯原生 PyTorch 实现完整前向计算，不依赖 Transformers 模型代码，不引入黑盒优化，清晰展示每一层计算逻辑。
 - **轻量原生 Tokenizer**：纯 Python + regex 实现的 Byte-level BPE Tokenizer，直接解析权重目录下的 `tokenizer.json`，内建 non-thinking Chat Template，不依赖 tokenizers / Transformers。
 - **KV Cache 显存与计算优化**：实现原生显式 `KVCache` 容器，Prefill 阶段建立缓存，自回归 Decode 每步只计算增量 Token，消除历史重复前向计算；支持精确显存占用统计与逐步延迟分位数（P50/P95）分析。
-- **单请求与固定批处理（Fixed Batching）自回归推理**：支持 greedy decoding 逐 Token 生成与左填充（Left Padding）对齐，支持 `--compare-feature` 对比特性标志（如 `kv-cache`）或批处理策略（如 `fixed-batching`）并自动计算加速比。
+- **单请求与固定批处理（Fixed Batching）自回归推理**：支持 greedy decoding 逐 Token 生成与左填充（Left Padding）对齐，支持 `--compare-feature` 对比 KV Cache 策略（如 `dense-kv-cache`）或批处理策略（如 `fixed-batching`）并自动计算加速比。
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
-- **Continuous Batching 调度与并发调度基准**：实现原生 `DenseSlotCache` 显存槽位管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占空槽，消除队头阻塞；内建 `mini-infra bench scheduler` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
+- **Continuous Batching 调度与并发调度基准**：实现原生 `DenseSlotCache` batch slot 管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占 free batch slot，消除队头阻塞；内建 `mini-infra bench scheduler` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
+- **Paged KV Cache（PagedAttention 内存管理）**：基于 `PagedKVCachePool`（physical block pool）与 `KVCacheManager`（请求级 block table）的非连续显存分页分配，按需按块申请与即时归还，彻底消除最长序列预留造成的内部碎片与左侧扩容拷贝开销。
 
 ### 规划中特性 (Roadmap)
 - [x] **Continuous Batching 调度**：支持多请求动态并发与动态组批（DenseSlotCache + `mini-infra bench scheduler`）
-- [ ] **PagedAttention 内存管理**：非连续显存分页分配与碎片消除
+- [x] **Paged KV Cache（PagedAttention 内存管理）**：physical block pool + block table 的非连续显存分页分配与碎片消除
 - [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
 - [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
 - [ ] **Tensor Parallelism (TP)**：张量并行分布式推理
@@ -33,27 +34,39 @@ mini-infra-qwen3/
 │       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, Mode, load_model 等
 │       ├── device.py                  # 通用硬件设备同步与显存统计工具
 │       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
-│       ├── model/                     # 统一模型与 Tokenizer 域
+│       ├── model/                     # 统一模型算子面（Pure Tensor-In, Tensor-Out）
 │       │   ├── config.py              # Qwen3Config 模型配置
-│       │   ├── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
-│       │   └── tokenizer.py           # Qwen3Tokenizer
-│       ├── memory/                    # 显存与 KV Cache 管理体系
-│       │   ├── kv_cache.py            # KVCache 键值缓存容器与显存统计
-│       │   └── slot_cache.py          # DenseSlotCache 连续批处理槽位管理器
-│       ├── core/                      # 调度与请求核心领域域（纯 CPU 逻辑，无 GPU/模型依赖）
+│       │   ├── loader.py              # 模型目录解析与 safetensors 权重加载（resolve_model_directory, load_model）
+│       │   └── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
+│       ├── worker/                    # GPU data plane：专职执行器与物理 KV Cache 池（纯物理索引与张量）
+│       │   ├── base_runner.py         # BaseModelRunner 基础无状态模型执行器（持有模型/设备与左填充 Prefill）
+│       │   ├── sampler.py             # greedy_sample 设备端贪心采样算子
+│       │   ├── lockstep_runner.py     # LockstepRunner 与 LockstepInputBatch 齐步批处理执行器
+│       │   ├── slot_runner.py         # SlotRunner 连续批处理 batch slot 专职执行器（Prefill / Decode）
+│       │   ├── dense_slot_cache.py    # DenseSlotCache 连续批处理 batch slot 显存池
+│       │   ├── paged_runner.py        # PagedRunner 分页 KV 专职执行器（Prefill 散写 block pool / Decode 按 block table 寻址）
+│       │   ├── paged_kv_cache.py      # PagedKVCachePool 逐层 physical block pool
+│       │   └── kv_cache.py            # KVCache 键值缓存容器与显存统计
+│       ├── inputs/                    # 输入协议共享层（PromptInput：纯 Python，无 torch，不含 tokenize）
+│       ├── core/                      # 调度与请求核心 control plane（纯 CPU 逻辑，无 GPU/模型依赖）
+│       │   ├── block_manager.py       # FreeKVCacheBlockQueue（free block queue）、KVCacheManager（请求级 block table）与 PagedCacheConfig
 │       │   ├── request.py             # RequestSpec, RequestState (append_token), RequestStatus 请求生命周期模型
 │       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）
-│       │   └── types.py               # SequenceOutput, RequestMetrics, MemoryProfile, BatchScheduleInfo 跨层共享基础类型
+│       │   └── types.py               # CachingMethod, BatchingMethod, SequenceOutput, RequestMetrics 基础 control plane 类型
 │       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）
 │       │   ├── offline.py             # 离线文本生成薄入口（Offline Entrypoint）：generate
-│       │   └── types.py               # GenerationOptions, GenerationResult, aggregate_generation_results
+│       │   └── types.py               # GenerationOptions 专用配置结构体
 │       ├── engine/                    # 推理与调度执行引擎域
-│       │   ├── runner.py              # 模型执行器 ModelRunner（step_forward / prefill_requests / decode_slots）
+│       │   ├── tokenizer.py           # 纯原生 Python Qwen3Tokenizer
 │       │   ├── lockstep_loop.py       # 齐步自回归生成主循环（run_lockstep：所有请求同时开始，无调度器）与状态机 LockstepState
-│       │   ├── scheduler_loop.py      # 请求队列调度主循环（run_scheduler：统一驱动 CONTINUOUS 与 FIXED）
-│       │   ├── mode.py                # Mode、FeatureFlag 与 BatchingMethod 模式定义
+│       │   ├── scheduler_loop.py      # 请求队列调度主循环（run_scheduler：统一驱动 CONTINUOUS、FIXED 与 PAGED）
+│       │   ├── schedule_backend.py    # 调度后端抽象基类（ScheduleBackend）与单步产出（ScheduleStepOutput）
+│       │   ├── dense_schedule_backend.py # 稠密 batch slot 调度后端（DenseScheduleBackend）
+│       │   ├── paged_schedule_backend.py # 分页 KV Cache 调度后端（PagedScheduleBackend）
+│       │   ├── mode.py                # Mode、FeatureFlag、CachingMethod 与 BatchingMethod 模式定义
 │       │   ├── preprocessing.py       # Prompt 规约、左填充（Left Padding）与 Batch 张量初始化
-│       │   └── types.py               # LockstepResult, ScheduleResult, ScheduleMetrics, ScheduleEvent 引擎层结果类型
+│       │   ├── results.py             # GenerationResult, ScheduleResult 引擎层结果容器与聚合
+│       │   └── metrics.py             # MemoryProfile, BatchScheduleInfo, ScheduleMetrics, GenerationTrace, ScheduleEvent 指标与统计画像
 │       ├── profiling/                 # 算子耗时剖析域
 │       │   ├── tracer.py              # PyTorch Profiler 打点、Scope 注入与 ProfileCollector
 │       │   ├── analyzer.py            # 耗时统计、Kernel 分类与跨 run 聚合
@@ -62,12 +75,15 @@ mini-infra-qwen3/
 │       │   ├── main.py                # 根命令 mini-infra 注册与分发
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
-│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch)
-│       │       └── bench/             # mini-infra bench (lockstep / scheduler / plot / check-regression)
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch / paged-cache)
+│       │       └── bench/             # mini-infra bench (lockstep / scheduler / plot / check-regression / release)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
 │       │   └── parity/                # 精度与等价性对齐核心库
+│       │       ├── _common.py         # 各比对模块共享的 CUDA 引导、环境元数据、logits 比对与 JSON 输出工具
 │       │       ├── compare_cache.py   # KV Cache 前后逐步 Logits 对齐
+│       │       ├── compare_paged_cache_logits.py # Dense 与 Paged KV Cache 逐 Token Logits 对齐
+│       │       ├── compare_paged_cache_scheduler.py # Scheduler 调度环境下 Dense 与 Paged 输出一致性
 │       │       ├── compare_transformers.py # 与 Transformers 对齐
 │       │       ├── compare_lockstep_batch.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
 │       │       └── compare_scheduler_batch.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
@@ -104,7 +120,7 @@ mini-infra-qwen3/
 │   └── reports/                       # 按 {lockstep,scheduler}/ 分域存储 SUMMARY.md 与演进/剖析图表（生成物）
 ├── docs/                              # 技术文档中心
 │   ├── index.md                       # 文档导航主页
-│   ├── architecture/                  # 系统架构原理（KV Cache、Fixed Batching、Continuous Batching）
+│   ├── architecture/                  # 系统架构原理（KV Cache、Fixed Batching、Continuous Batching、Paged KV Cache）
 │   ├── guides/                        # 实践指南（数值对齐验证、算子 Profiling 与 Trace）
 │   └── benchmarks/                    # 性能基准与评测全景指南
 ├── .github/workflows/
@@ -187,9 +203,9 @@ mini-infra verify smoke
 ### 运行推理与计时
 
 ```bash
-# 1. 比较指定特性的 enable 与 disable 对照（如 KV Cache 开启/关闭）
+# 1. 比较 KV Cache 开启与关闭（CachingMethod: none vs dense-kv-cache）
 mini-infra run \
-  --compare-feature kv-cache \
+  --compare-feature CachingMethod none dense-kv-cache \
   --prompts "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
 
@@ -201,13 +217,22 @@ mini-infra run \
 
 # 3. 对比两种批处理策略（如串行 none 与固定批处理 fixed-batching）
 mini-infra run \
-  --compare-feature none fixed-batching \
+  --compare-feature BatchingMethod none fixed-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
 
 # 4. 对比 Fixed 与 Continuous Batching（逐请求输出预算 + 并发上限）
 mini-infra run \
-  --compare-feature fixed-batching continuous-batching \
+  --compare-feature BatchingMethod fixed-batching continuous-batching \
+  --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
+  --max-new-tokens 8 24 8 24 \
+  --max-running-requests 2
+
+# 5. 在 Continuous Batching 下对比 Dense batch slot 与 Paged KV Cache
+mini-infra run \
+  --batching-method continuous-batching \
+  --compare-feature CachingMethod dense-kv-cache paged-kv-cache \
+  --kv-block-size 16 \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
   --max-new-tokens 8 24 8 24 \
   --max-running-requests 2
@@ -221,9 +246,9 @@ mini-infra run \
 
 ## 性能评估与基准演进 (Benchmarks)
 
-本项目采用严格的数据驱动与时间线演进追踪，按 **齐步推理（Lockstep）** 与 **服务化队列调度（Scheduler）** 两大阶段分别建立标准 Traffic 工作负载（`LOCKSTEP_WORKLOAD` 与 `SCHEDULER_WORKLOAD`）并维护演进报告：
+本项目采用严格的数据驱动与时间线演进追踪，按 **齐步推理（Lockstep）** 与 **服务化队列调度（scheduler）** 两大阶段分别建立标准 Traffic 工作负载（`LOCKSTEP_WORKLOAD` 与 `SCHEDULER_WORKLOAD`）并维护演进报告：
 
-### 1. 服务化队列调度基准演进 (Scheduler Benchmarks: Fixed vs Continuous Batching)
+### 1. 服务化队列调度基准演进 (scheduler benchmarks: Fixed vs Continuous Batching)
 完整的调度器多版本评测数据表、加速比对比与轨迹剖析详见 [Scheduler SUMMARY.md](./benchmarks/reports/scheduler/SUMMARY.md)。
 
 ![Scheduler Evolution & Scaling](./benchmarks/reports/scheduler/evolution_and_scaling.png)
@@ -249,8 +274,8 @@ mini-infra run \
   * GPU 端到端精度对齐（[数值对齐与等价性验证指南 (docs/guides/parity-verification.md)](docs/guides/parity-verification.md)）
   * 零性能倒退守护（Zero-Regression Guard：`mini-infra bench check-regression`）与独立全量基准对比测量
 * 📊 **[基准测试与性能评测指南 (docs/benchmarks/overview.md)](docs/benchmarks/overview.md)**
-  * Lockstep 齐步基准（单用例与批处理吞吐/Padding/槽位扩展套件）
-  * Scheduler 调度器基准（Continuous vs Fixed 动态准入与长短请求压测套件）
+  * Lockstep 齐步基准（单用例与批处理吞吐/Padding/batch slot 扩展套件）
+  * scheduler 调度器基准（Continuous vs Fixed 动态准入与长短请求压测套件）
   * 跨版本演进时间线图（`bench plot history`）与独立对比分析（`bench plot compare`）
 * 🔍 **[算子性能剖析与 Trace 指南 (docs/guides/profiling.md)](docs/guides/profiling.md)**
   * 使用 `mini-infra bench lockstep case` 采样生成详细性能诊断数据

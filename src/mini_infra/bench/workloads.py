@@ -9,7 +9,7 @@ from typing import Literal
 import torch
 
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.engine.mode import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 
 WorkloadScale = Literal["small", "medium", "large"]
 WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
@@ -139,7 +139,7 @@ def make_lockstep_workload(
     bs = cfg["batch_size"]
     prompt_lens = _sample_log_uniform_lengths(rng, bs, cfg["min_prompt"], cfg["max_prompt"])
     out_budgets = _sample_log_uniform_lengths(rng, bs, cfg["min_out"], cfg["max_out"])
-    target_mode = mode or Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.FIXED)
+    target_mode = mode or Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     return WorkloadSpec(
         mode=target_mode,
         batch_size=bs,
@@ -170,7 +170,7 @@ def make_scheduler_workload(
     prompt_lens = _sample_log_uniform_lengths(rng, bs, int(cfg["min_prompt"]), int(cfg["max_prompt"]))
     out_budgets = _sample_log_uniform_lengths(rng, bs, int(cfg["min_out"]), int(cfg["max_out"]))
     arrivals = _sample_poisson_arrivals(rng, bs, int(cfg["initial_burst"]), float(cfg["mean_interval_ms"]))
-    target_mode = mode or Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    target_mode = mode or Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     return WorkloadSpec(
         mode=target_mode,
         batch_size=bs,
@@ -200,8 +200,7 @@ def make_sequence(
     length: int,
     vocab_size: int,
     salt: int = 0,
-    device: torch.device | str | None = None,
-) -> torch.Tensor:
+) -> list[int]:
     """生成单条指定长度与词表大小的合成 prompt sequence。
 
     基于 CPU Generator 与固定 seed 生成确定性 randint 序列。
@@ -210,23 +209,21 @@ def make_sequence(
         length: 序列长度。
         vocab_size: 词表大小。
         salt: 随机盐值偏移量，默认 0。
-        device: 放置张量的目标设备（可选）。
 
     Returns:
-        一维 long 类型 Tensor，形状为 [length]。
+        包含 Python int 的序列列表，长度为 length。
     """
     generator = torch.Generator(device="cpu").manual_seed(1234 + length + salt)
     low = 1000 if vocab_size > 1000 else 1
     high = min(vocab_size, 100000)
     ids = torch.randint(low, high, (length,), generator=generator)
-    return ids.to(device) if device is not None else ids
+    return ids.tolist()
 
 
 def make_sequences(
     lengths: Sequence[int],
     vocab_size: int,
-    device: torch.device | str | None = None,
-) -> list[torch.Tensor]:
+) -> list[list[int]]:
     """批量生成指定长度列表的合成 prompt sequences（支持等长或不等长）。
 
     每条 sequence 按照固定 salt 规则 (23 * (index + 1)) 传入，
@@ -235,44 +232,36 @@ def make_sequences(
     Args:
         lengths: 各序列长度列表，如 [128, 128] 或 [16, 32, 64, 128]。
         vocab_size: 词表大小。
-        device: 放置张量的目标设备（可选）。
 
     Returns:
-        包含各序列一维 Tensor 的列表。
+        包含各序列 Python int 列表的列表。
     """
-    return [
-        make_sequence(length, vocab_size, salt=23 * (index + 1), device=device) for index, length in enumerate(lengths)
-    ]
+    return [make_sequence(length, vocab_size, salt=23 * (index + 1)) for index, length in enumerate(lengths)]
 
 
 def make_prompt(
     vocab_size: int,
     length: int | Sequence[int],
     batch_size: int = 1,
-    device: torch.device | str | None = None,
-) -> torch.Tensor | list[torch.Tensor]:
-    """合成 prompt 生成函数（支持等长矩形张量或不等长变长序列列表）。
+) -> list[list[int]]:
+    """合成 prompt 生成函数（支持等长或不等长变长序列列表）。
 
     Args:
         vocab_size: 词表大小。
         length: 单个序列长度 int，或各序列长度列表 Sequence[int]。
         batch_size: 当 length 为 int 时的批大小，默认 1。
-        device: 目标设备。
 
     Returns:
-        若 length 为 int:
-            返回形状为 [batch_size, length] 的 2D 矩形 Tensor。
-        若 length 为 Sequence[int]:
-            返回包含各序列的 1D Tensor 列表（不等长 prompt 规约形式，可直接供 generate 引擎左 Padding 处理）。
+        嵌套 Python int 列表，形状为 [batch_size, length] 或对应不等长列表。
     """
     if isinstance(length, int):
         generator = torch.Generator(device="cpu").manual_seed(1234 + length)
         low = 1000 if vocab_size > 1000 else 1
         high = min(vocab_size, 100000)
         ids = torch.randint(low, high, (batch_size, length), generator=generator)
-        return ids.to(device) if device is not None else ids
+        return ids.tolist()
 
-    return make_sequences(length, vocab_size, device=device)
+    return make_sequences(length, vocab_size)
 
 
 def make_variable_prompt_lengths(max_prompt_length: int) -> list[int]:
@@ -322,7 +311,6 @@ def make_alternating_budgets(count: int, short_budget: int, long_budget: int) ->
 def build_scheduler_request_specs(
     workload: WorkloadSpec,
     vocab_size: int,
-    device: torch.device | str | None = None,
 ) -> list[RequestSpec]:
     """根据 WorkloadSpec 构建 Scheduler 评测所需的 RequestSpec 列表。"""
     n = workload.batch_size
@@ -342,7 +330,7 @@ def build_scheduler_request_specs(
             f"WorkloadSpec 长度不匹配: batch_size={n}, len(prompt_len)={len(lengths)}, "
             f"len(max_new_tokens)={len(budgets)}, len(arrival_times_ms)={len(arrivals)}"
         )
-    sequences = [t.tolist() for t in make_sequences(lengths, vocab_size, device=device)]
+    sequences = make_sequences(lengths, vocab_size)
     return make_request_specs(sequences, budgets, arrivals)
 
 

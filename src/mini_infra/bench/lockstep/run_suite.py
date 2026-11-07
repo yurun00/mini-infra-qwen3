@@ -35,9 +35,9 @@ def run_suite(
     repeats_val = repeats if repeats is not None else suite.repeats
 
     case_results: list[LockstepCaseResult] = []
-    for idx, case in enumerate(cases, 1):
+    for case_number, case in enumerate(cases, 1):
         if on_case_progress is not None:
-            on_case_progress(idx, len(cases), case)
+            on_case_progress(case_number, len(cases), case)
 
         try:
             case_result = run_case(

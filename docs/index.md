@@ -10,14 +10,15 @@
 深入剖析推理引擎的设计理念、状态流转与核心调度算法。
 * [KV Cache 架构与显式状态管理 (KV Cache)](architecture/kv-cache.md)：详解自回归解码时间复杂度危机、显式 `KVCache` 容器设计、RoPE 位置偏置处理与显存带宽理论建模。
 * [固定批处理与左填充机制 (Fixed Batching)](architecture/fixed-batching.md)：详解解码器左填充原理、因果掩码隔离保证、`LockstepState` 向量化状态机与利用率度量模型。
-* [连续批处理架构与调度原理 (Continuous Batching)](architecture/continuous-batching.md)：详解 Iteration-level Scheduling、槽位动态管理、Prefill 插队与请求生命周期状态机。
+* [连续批处理架构与调度原理 (Continuous Batching)](architecture/continuous-batching.md)：详解 Iteration-level Scheduling、batch slot 动态管理、Prefill 插队与请求生命周期状态机。
+* [Paged KV Cache](architecture/paged-kv-cache.md)：physical block pool、block table、`slot_mapping` 寻址与 vLLM 对照及已知限制。
 
 ### 2. 实践与操作指南 (Guides)
 面向日常开发、调试与正确性验证的操作指引。
-* [数值对齐与等价性验证指南 (Parity Verification)](guides/parity-verification.md)：涵盖 Hugging Face Transformers、显式 KV Cache、Lockstep 批处理与动态 Scheduler 批处理的四级严格精度验证方案。
+* [数值对齐与等价性验证指南 (Parity Verification)](guides/parity-verification.md)：涵盖 Hugging Face Transformers、显式 KV Cache、Lockstep 批处理与动态 scheduler 批处理的四级严格精度验证方案。
 * [算子性能剖析与 Trace 指南 (Profiling & Traces)](guides/profiling.md)：使用 PyTorch Profiler 采集算子细粒度耗时，导出 Chrome/Perfetto Trace，并利用 TensorBoard 进行 MBU/MFU 带宽利用率诊断。
 
 ### 3. 基准测试与性能评测 (Benchmarks)
 面向服务化评测、吞吐/延迟测量与质量守门。
-* [基准测试与性能评测全景指南 (Benchmarking Overview)](benchmarks/overview.md)：系统汇总 Lockstep 齐步测试、Scheduler 动态调度评测、历史演进趋势图绘制与 CI 零性能回归守护。
+* [基准测试与性能评测全景指南 (Benchmarking Overview)](benchmarks/overview.md)：系统汇总 Lockstep 齐步测试、scheduler 动态调度评测、历史演进趋势图绘制与 CI 零性能回归守护。
 

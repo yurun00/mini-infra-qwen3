@@ -9,19 +9,20 @@ from __future__ import annotations
 import pytest
 import torch
 
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     GenerationOptions,
     Mode,
+    Qwen3Tokenizer,
     generate,
     run_scheduler,
 )
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    Qwen3Tokenizer,
     load_model,
     resolve_model_directory,
 )
@@ -56,6 +57,7 @@ def test_continuous_batching_gpu_parity() -> None:
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
+        caching_method=CachingMethod.DENSE,
         stop_on_eos=False,
     )
 
@@ -67,11 +69,24 @@ def test_continuous_batching_gpu_parity() -> None:
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
+        caching_method=CachingMethod.DENSE,
         stop_on_eos=False,
     )
 
+    paged_result = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        max_running_requests=2,
+        eos_token_id=eos_token_id,
+        device=cuda,
+        caching_method=CachingMethod.PAGED,
+        stop_on_eos=False,
+        paged_cache_config=PagedCacheConfig(block_size=16),
+    )
+
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
-    single_mode = Mode({FeatureFlag.KV_CACHE})
+    single_mode = Mode(CachingMethod.DENSE)
     single_opts = GenerationOptions(eos_token_id=eos_token_id, device=cuda, stop_on_eos=False)
     golden_tokens: list[list[int]] = []
     for p_tokens, budget in zip(prompt_tokens, budgets):
@@ -85,14 +100,17 @@ def test_continuous_batching_gpu_parity() -> None:
         golden_tokens.append(gen_res.sequences[0].token_ids)
 
     # 4. 严格逐 Token 比对
-    for idx, expected in enumerate(golden_tokens):
-        cont_tokens = cont_result.sequences[idx].token_ids
-        fixed_tokens = fixed_result.sequences[idx].token_ids
+    for request_idx, expected in enumerate(golden_tokens):
+        cont_tokens = cont_result.sequences[request_idx].token_ids
+        fixed_tokens = fixed_result.sequences[request_idx].token_ids
         assert cont_tokens == expected, (
-            f"Continuous batching output divergence for req {idx}: got {cont_tokens}, expected {expected}"
+            f"Continuous batching output divergence for req {request_idx}: got {cont_tokens}, expected {expected}"
+        )
+        assert paged_result.sequences[request_idx].token_ids == expected, (
+            f"Paged continuous batching output divergence for req {request_idx}"
         )
         assert fixed_tokens == expected, (
-            f"Fixed batching output divergence for req {idx}: got {fixed_tokens}, expected {expected}"
+            f"Fixed batching output divergence for req {request_idx}: got {fixed_tokens}, expected {expected}"
         )
 
     # 5. 指标健康检查

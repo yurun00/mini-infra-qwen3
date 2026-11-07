@@ -32,7 +32,7 @@ from mini_infra.bench.workloads import (
 )
 from mini_infra.engine import (
     BatchingMethod,
-    FeatureFlag,
+    CachingMethod,
     Mode,
 )
 
@@ -75,7 +75,7 @@ class SerialVsFixedBatchThroughputSuite:
         max_new_tokens: 每条请求生成的 Token 数（忽略 EOS，必须 >= 2 才能测量 Decode）。
         warmup / repeats: 每个用例的预热与正式测量次数。
         batching_methods: 要对比的执行路径；NONE 对应 serial，FIXED 对应 fixed-batching。
-        kv_cache: 是否启用 KV Cache（两条路径均默认启用 KV Cache）。
+        cache_methods: 要对比或采用的 KV Cache 策略。
     """
 
     name: str = "serial-vs-fixed-batch-throughput"
@@ -83,7 +83,7 @@ class SerialVsFixedBatchThroughputSuite:
     prompt_length: int = 128
     max_new_tokens: int = 32
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.NONE, BatchingMethod.FIXED)
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     warmup: int = 1
     repeats: int = 3
 
@@ -96,10 +96,11 @@ class SerialVsFixedBatchThroughputSuite:
             raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
         if not self.batching_methods:
             raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=bm) for bm in self.batching_methods]
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
 
     def cases(self) -> list[SuiteCase]:
         # 嵌套顺序：外层 batch size，内层执行路径。
@@ -112,6 +113,7 @@ class SerialVsFixedBatchThroughputSuite:
     def to_dict(self) -> dict:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
         return data
 
 
@@ -129,7 +131,7 @@ class UniformVsVariablePromptPaddingSuite:
         batch_size: 批大小，固定为 4（对应 1/8, 1/4, 1/2, 1 阶梯）。
         max_prompt_length: 基准最长 Prompt Token 数，默认 128。
         max_new_tokens: 生成 Token 数，默认 32。
-        kv_cache: 是否启用 KV Cache（默认 True）。
+        cache_methods: 采用的 KV Cache 策略（默认 DENSE）。
         batching_method: 批处理策略（默认 FIXED）。
         warmup / repeats: 预热与正式测量次数（默认 1 / 3）。
     """
@@ -138,7 +140,7 @@ class UniformVsVariablePromptPaddingSuite:
     batch_size: int = 4
     max_prompt_length: int = 128
     max_new_tokens: int = 32
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     batching_method: BatchingMethod = BatchingMethod.FIXED
     warmup: int = 1
     repeats: int = 3
@@ -154,10 +156,11 @@ class UniformVsVariablePromptPaddingSuite:
             raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
         if self.batching_method != BatchingMethod.FIXED:
             raise ValueError("uniform-vs-variable-prompt-padding 套件仅支持 fixed-batching")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=self.batching_method)]
+        return [Mode(cm, batching_method=self.batching_method) for cm in self.cache_methods]
 
     def cases(self) -> list[SuiteCase]:
         mode = self.modes()[0]
@@ -169,7 +172,9 @@ class UniformVsVariablePromptPaddingSuite:
         ]
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
+        return data
 
 
 @dataclass(frozen=True)
@@ -186,7 +191,7 @@ class UniformVsVariableBudgetSlotsSuite:
         batch_size: 批大小，固定为 4（对应 1/8, 1/4, 1/2, 1 预算阶梯）。
         prompt_length: 每条 Prompt 的 Token 数（等长，默认 128）。
         max_new_tokens: 最大生成 Token 数（默认 64）。
-        kv_cache: 是否启用 KV Cache（默认 True）。
+        cache_methods: 采用的 KV Cache 策略（默认 DENSE）。
         batching_method: 批处理策略（默认 FIXED）。
         warmup / repeats: 预热与正式测量次数（默认 1 / 3）。
     """
@@ -195,7 +200,7 @@ class UniformVsVariableBudgetSlotsSuite:
     batch_size: int = 4
     prompt_length: int = 128
     max_new_tokens: int = 64
-    kv_cache: bool = True
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
     batching_method: BatchingMethod = BatchingMethod.FIXED
     warmup: int = 1
     repeats: int = 3
@@ -209,10 +214,11 @@ class UniformVsVariableBudgetSlotsSuite:
             raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
         if self.batching_method != BatchingMethod.FIXED:
             raise ValueError("uniform-vs-variable-budget-slots 套件仅支持 fixed-batching")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
 
     def modes(self) -> list[Mode]:
-        flags = {FeatureFlag.KV_CACHE} if self.kv_cache else set()
-        return [Mode(flags, batching_method=self.batching_method)]
+        return [Mode(cm, batching_method=self.batching_method) for cm in self.cache_methods]
 
     def cases(self) -> list[SuiteCase]:
         mode = self.modes()[0]
@@ -225,7 +231,9 @@ class UniformVsVariableBudgetSlotsSuite:
         ]
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
+        return data
 
 
 SUITES: dict[str, Suite] = {

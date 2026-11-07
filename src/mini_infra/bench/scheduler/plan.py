@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
-from mini_infra.engine import BatchingMethod, FeatureDimension, FeatureFlag, Mode
+from mini_infra.bench.scheduler.suites import INTERLEAVE_DIMENSIONS, SchedulerSuiteCase
+from mini_infra.engine import BatchingMethod, FeatureDimension, Mode
 
 SUPPORTED_FEATURES = set(Mode.FEATURE_DIMENSIONS)
 ALL_FEATURE_DIMENSIONS = Mode.FEATURE_DIMENSIONS
@@ -29,18 +29,16 @@ class PlannedRun:
 
     case: SchedulerSuiteCase
     phase: RunPhase
-    repeat_index: int | None
+    repeat_idx: int | None
     group_id: int
 
 
 def parse_interleave_dimension(name: str) -> FeatureDimension:
     """将 CLI 字符串参数解析为强类型 FeatureDimension。"""
     cleaned = name.strip()
-    if cleaned == "batching_method":
-        return BatchingMethod
-    if cleaned == FeatureFlag.KV_CACHE.value:
-        return FeatureFlag.KV_CACHE
-    raise ValueError(f"未知的 interleave 特征: {name}，可选: ['batching_method', '{FeatureFlag.KV_CACHE.value}']")
+    if cleaned not in INTERLEAVE_DIMENSIONS:
+        raise ValueError(f"未知的 interleave 特征: {name}，可选: {list(INTERLEAVE_DIMENSIONS)}")
+    return INTERLEAVE_DIMENSIONS[cleaned]
 
 
 def extract_case_feature(case: SchedulerSuiteCase, feature: FeatureDimension) -> Any:
@@ -99,7 +97,7 @@ def build_scheduler_run_plan(
                         PlannedRun(
                             case=case,
                             phase=RunPhase.WARMUP,
-                            repeat_index=None,
+                            repeat_idx=None,
                             group_id=group_id,
                         )
                     )
@@ -120,7 +118,7 @@ def build_scheduler_run_plan(
                     PlannedRun(
                         case=case,
                         phase=RunPhase.MEASURE,
-                        repeat_index=r,
+                        repeat_idx=r,
                         group_id=group_id,
                     )
                 )
@@ -134,7 +132,7 @@ def format_scheduler_run_plan(plan: Sequence[PlannedRun]) -> str:
         return "执行计划为空。"
     lines = [f"Scheduler 基准评测执行计划（共 {len(plan)} 步）："]
     for i, planned_run in enumerate(plan, 1):
-        rep = f"repeat {planned_run.repeat_index + 1}" if planned_run.repeat_index is not None else "warmup"
+        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
         lines.append(
             f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | "

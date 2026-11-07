@@ -12,21 +12,22 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.core.types import (
+from mini_infra.core.types import SequenceOutput
+from mini_infra.engine.metrics import (
     BatchScheduleInfo,
-    MemoryProfile,
-    SequenceOutput,
-    build_memory_profile,
-)
-from mini_infra.entrypoints.types import (
-    AggregationOptions,
-    GenerationOptions,
-    GenerationResult,
     GenerationTrace,
+    KVCacheProfile,
+    MemoryProfile,
     StepAggregatedMetrics,
-    aggregate_generation_results,
+    build_memory_profile,
     compute_step_aggregated_metrics,
 )
+from mini_infra.engine.results import (
+    AggregationOptions,
+    GenerationResult,
+    aggregate_generation_results,
+)
+from mini_infra.entrypoints.types import GenerationOptions
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 from mini_infra.utils import percentile
 
@@ -49,7 +50,7 @@ def test_frozen_dataclass_contract():
         assert is_dataclass(cls), f"{cls.__name__} 应当是 dataclass"
 
     seq = SequenceOutput(
-        request_index=0,
+        request_idx=0,
         token_ids=[1, 2, 3],
         prompt_len=4,
         output_len=3,
@@ -63,7 +64,7 @@ def test_frozen_dataclass_contract():
         prefill_mb=150.0,
         peak_allocated_mb=200.0,
         peak_reserved_mb=250.0,
-        kv_cache_mb=30.0,
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=30.0),
     )
     with pytest.raises(FrozenInstanceError):
         mem.baseline_mb = 120.0  # type: ignore[misc]
@@ -72,7 +73,7 @@ def test_frozen_dataclass_contract():
 def test_no_subscript_or_dynamic_attr_proxy():
     """验证彻底移除了字典访问与 __getattr__ 代理。"""
     seq = SequenceOutput(
-        request_index=0,
+        request_idx=0,
         token_ids=[10, 20],
         prompt_len=2,
         output_len=2,
@@ -94,7 +95,7 @@ def test_no_subscript_or_dynamic_attr_proxy():
         prefill_mb=120.0,
         peak_allocated_mb=150.0,
         peak_reserved_mb=200.0,
-        kv_cache_mb=10.0,
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
     )
     trace = GenerationTrace(
         step_latencies_ms=[10.0, 5.0, 5.0],
@@ -140,7 +141,7 @@ def test_memory_profile_properties():
         prefill_mb=140.0,
         peak_allocated_mb=180.0,
         peak_reserved_mb=220.0,
-        kv_cache_mb=25.0,
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=25.0),
     )
     assert mem.dynamic_peak_mb == pytest.approx(80.0)  # 180 - 100
     assert mem.fragmentation_mb == pytest.approx(40.0)  # 220 - 180
@@ -151,7 +152,7 @@ def test_memory_profile_properties():
         prefill_mb=150.0,
         peak_allocated_mb=150.0,
         peak_reserved_mb=100.0,
-        kv_cache_mb=10.0,
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
     )
     assert mem_low.dynamic_peak_mb == 0.0
     assert mem_low.fragmentation_mb == 0.0
@@ -171,7 +172,7 @@ def test_build_memory_profile():
     assert mem.prefill_mb == 150.0
     assert mem.peak_allocated_mb == 200.0
     assert mem.peak_reserved_mb == 300.0
-    assert mem.kv_cache_mb == 50.0
+    assert mem.kv_cache.peak_live_kv_cache_mb == 50.0
     assert mem.dynamic_peak_mb == 100.0
     assert mem.fragmentation_mb == 100.0
 
@@ -202,7 +203,7 @@ def test_compute_step_aggregated_metrics():
 def test_aggregate_generation_results():
     """验证多 Run 结果聚合逻辑。"""
     res1 = GenerationResult(
-        sequences=[SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=3, output_len=2, finish_reason="stop")],
+        sequences=[SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=3, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
             mean_tpot_ms=5.0,
@@ -219,7 +220,7 @@ def test_aggregate_generation_results():
             prefill_mb=120.0,
             peak_allocated_mb=150.0,
             peak_reserved_mb=200.0,
-            kv_cache_mb=10.0,
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
         ),
         trace=GenerationTrace(
             step_latencies_ms=[10.0, 4.0, 4.0],
@@ -230,7 +231,7 @@ def test_aggregate_generation_results():
 
     res2 = GenerationResult(
         sequences=[
-            SequenceOutput(request_index=0, token_ids=[3, 4, 5], prompt_len=4, output_len=3, finish_reason="max_tokens")
+            SequenceOutput(request_idx=0, token_ids=[3, 4, 5], prompt_len=4, output_len=3, finish_reason="max_tokens")
         ],
         metrics=StepAggregatedMetrics(
             ttft_ms=12.0,
@@ -248,7 +249,7 @@ def test_aggregate_generation_results():
             prefill_mb=130.0,
             peak_allocated_mb=180.0,
             peak_reserved_mb=220.0,
-            kv_cache_mb=15.0,
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=15.0),
         ),
         trace=GenerationTrace(
             step_latencies_ms=[12.0, 6.0, 6.0, 4.0],
@@ -262,9 +263,9 @@ def test_aggregate_generation_results():
     # 1. 验证 Sequences 与 Padded Tokens
     assert merged.batch_size == 2
     assert len(merged.sequences) == 2
-    assert merged.sequences[0].request_index == 0
+    assert merged.sequences[0].request_idx == 0
     assert merged.sequences[0].token_ids == [1, 2]
-    assert merged.sequences[1].request_index == 1
+    assert merged.sequences[1].request_idx == 1
     assert merged.sequences[1].token_ids == [3, 4, 5]
     assert merged.padded_output_tokens().shape == (2, 3)
     assert merged.padded_output_tokens().tolist() == [[1, 2, 0], [3, 4, 5]]
@@ -274,7 +275,7 @@ def test_aggregate_generation_results():
     assert merged.memory.prefill_mb == 130.0
     assert merged.memory.peak_allocated_mb == 180.0
     assert merged.memory.peak_reserved_mb == 220.0
-    assert merged.memory.kv_cache_mb == 15.0
+    assert merged.memory.kv_cache.peak_live_kv_cache_mb == 15.0
 
     # 3. 验证 Metrics（默认 mean 聚合）
     assert merged.metrics.e2e_wall_ms == 25.0  # (20 + 30) / 2
@@ -295,7 +296,7 @@ def test_aggregate_generation_results():
 def test_aggregate_generation_results_with_options():
     """验证 aggregate_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
     res1 = GenerationResult(
-        sequences=[SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop")],
+        sequences=[SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
             mean_tpot_ms=4.0,
@@ -312,13 +313,13 @@ def test_aggregate_generation_results_with_options():
             prefill_mb=120.0,
             peak_allocated_mb=150.0,
             peak_reserved_mb=200.0,
-            kv_cache_mb=10.0,
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
         ),
         trace=GenerationTrace(step_latencies_ms=[10.0, 4.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
     )
     res2 = GenerationResult(
-        sequences=[SequenceOutput(request_index=0, token_ids=[3, 4], prompt_len=2, output_len=2, finish_reason="stop")],
+        sequences=[SequenceOutput(request_idx=0, token_ids=[3, 4], prompt_len=2, output_len=2, finish_reason="stop")],
         metrics=StepAggregatedMetrics(
             ttft_ms=20.0,
             mean_tpot_ms=8.0,
@@ -335,7 +336,7 @@ def test_aggregate_generation_results_with_options():
             prefill_mb=140.0,
             peak_allocated_mb=180.0,
             peak_reserved_mb=250.0,
-            kv_cache_mb=20.0,
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=20.0),
         ),
         trace=GenerationTrace(step_latencies_ms=[20.0, 8.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
@@ -353,7 +354,7 @@ def test_aggregate_generation_results_with_options():
     assert merged_mean.metrics.gpu_time_ratio == pytest.approx(27.0 / 30.0)  # 派生自 e2e_model_ms / e2e_wall_ms
     assert merged_mean.memory.baseline_mb == 100.0  # min(100, 120)
     assert merged_mean.memory.peak_allocated_mb == 150.0  # min(150, 180)
-    assert merged_mean.memory.kv_cache_mb == 10.0  # min(10, 20)
+    assert merged_mean.memory.kv_cache.peak_live_kv_cache_mb == 10.0  # min(10, 20)
 
     # 2. 字段级精确覆盖：metrics 默认为 sum，但 ttft_ms="min", peak_allocated_mb="mean"
     opt_field = AggregationOptions(metrics="sum", ttft_ms="min", peak_allocated_mb="mean")
@@ -387,9 +388,9 @@ def test_padded_output_tokens_method():
     """验证 padded_output_tokens 方法在单请求、多请求、默认及自定义 pad_token_id 场景下的正确性。"""
     # 1. 变长 sequences
     seqs = [
-        SequenceOutput(request_index=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop"),
-        SequenceOutput(request_index=1, token_ids=[3, 4, 5, 6], prompt_len=4, output_len=4, finish_reason="max_tokens"),
-        SequenceOutput(request_index=2, token_ids=[7], prompt_len=1, output_len=1, finish_reason="stop"),
+        SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop"),
+        SequenceOutput(request_idx=1, token_ids=[3, 4, 5, 6], prompt_len=4, output_len=4, finish_reason="max_tokens"),
+        SequenceOutput(request_idx=2, token_ids=[7], prompt_len=1, output_len=1, finish_reason="stop"),
     ]
     res = GenerationResult(
         sequences=seqs,
@@ -522,3 +523,42 @@ def test_generation_options_immutability_and_defaults(diverse_model):
     # 4. 不再支持平铺多余关键字参数（严格单一 options 结构体入口）
     with pytest.raises(TypeError):
         generate(mode, diverse_model, prompt, 3, device=CPU)  # type: ignore[call-arg]
+
+
+def test_generation_trace_enforces_cpu_tensors():
+    """验证 GenerationTrace 强制检查 logits_trace 必须为 CPU 张量契约。"""
+    # 1. 正常 CPU 张量传入成功
+    cpu_tensor = torch.randn(2, 10, device="cpu")
+    trace = GenerationTrace(
+        step_latencies_ms=[1.0],
+        num_active_tokens_per_step=[2],
+        logits_trace=[cpu_tensor],
+    )
+    assert trace.logits_trace is not None
+    assert trace.logits_trace[0].device.type == "cpu"
+
+    # 2. 非 Tensor 对象被拒绝
+    with pytest.raises(TypeError, match="torch.Tensor"):
+        GenerationTrace(
+            step_latencies_ms=[1.0],
+            num_active_tokens_per_step=[2],
+            logits_trace=[[1.0, 2.0]],  # type: ignore[list-item]
+        )
+
+    # 3. 若有 GPU/Meta 等非 CPU 设备，必须抛出 ValueError 拒绝
+    meta_tensor = torch.randn(2, 10, device="meta")
+    with pytest.raises(ValueError, match="CPU"):
+        GenerationTrace(
+            step_latencies_ms=[1.0],
+            num_active_tokens_per_step=[2],
+            logits_trace=[meta_tensor],
+        )
+
+
+def test_generation_options_accepts_str_and_torch_device():
+    """验证 GenerationOptions 支持字符串与 torch.device 类型的 device 参数。"""
+    opts_str = GenerationOptions(device="cpu")
+    assert opts_str.device == "cpu"
+
+    opts_dev = GenerationOptions(device=torch.device("cpu"))
+    assert opts_dev.device == torch.device("cpu")

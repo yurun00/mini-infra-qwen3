@@ -33,6 +33,7 @@ SHARED_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
     MetricPlotSpec("throughput_req_s", "Request Throughput (req/s)", "Throughput (req/s)"),
     MetricPlotSpec("e2e_wall_ms", "End-to-End Wall Latency (ms)", "E2E Latency (ms)"),
     MetricPlotSpec("peak_allocated_mb", "Peak Allocated Memory (MiB)", "Peak Memory (MiB)"),
+    MetricPlotSpec("peak_live_kv_cache_mb", "Peak Live KV Cache Memory (MiB)", "KV Cache (MiB)"),
     MetricPlotSpec(
         "slot_utilization",
         "Execution Slot Utilization (%)",
@@ -54,6 +55,12 @@ SCHEDULER_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
         "running_capacity_utilization",
         "Running Capacity Utilization (%)",
         "Capacity Utilization (%)",
+        scale=100.0,
+    ),
+    MetricPlotSpec(
+        "cache_management_fraction",
+        "Cache Management Overhead (% of busy time)",
+        "Cache Mgmt Fraction (%)",
         scale=100.0,
     ),
 )
@@ -113,11 +120,12 @@ def records_to_wide_df(
 
     case_dicts: list[dict[str, Any]] = []
     order_idx = 0
-    for rec_idx, (rec, lbl) in enumerate(zip(validated, resolved_labels)):
+    for release_idx, (rec, lbl) in enumerate(zip(validated, resolved_labels)):
         for case_obj in rec.cases:
             c_dict = case_obj.to_dict()
+            # "order_idx" / "release_idx" 是绘图端冻结的列名契约（规则 §七），改名需同步 history.py 读取点。
             c_dict["order_idx"] = order_idx
-            c_dict["release_idx"] = rec_idx
+            c_dict["release_idx"] = release_idx
             order_idx += 1
             c_dict["label"] = lbl
             c_dict["tag"] = rec.tag
@@ -199,10 +207,15 @@ def records_to_wide_df(
             if src in wide_df.columns:
                 extra_cols[dst] = wide_df[src]
 
-    # 4. 统一标量/分布混合指标：peak_allocated_mb 与无 packing 单请求记录的 slot_utilization 默认回退
+    # 4. 统一标量/分布混合指标：peak_allocated_mb、peak_live_kv_cache_mb
+    # 与无 packing 单请求记录的 slot_utilization 默认回退
     if "memory.peak_allocated_mb" in wide_df.columns:
         extra_cols["peak_allocated_mb.median"] = wide_df["memory.peak_allocated_mb"]
         extra_cols["peak_allocated_mb.std"] = 0.0
+
+    if "memory.kv_cache.peak_live_kv_cache_mb" in wide_df.columns:
+        extra_cols["peak_live_kv_cache_mb.median"] = wide_df["memory.kv_cache.peak_live_kv_cache_mb"]
+        extra_cols["peak_live_kv_cache_mb.std"] = 0.0
 
     if "slot_utilization.median" in extra_cols:
         extra_cols["slot_utilization.median"] = extra_cols["slot_utilization.median"].fillna(1.0)

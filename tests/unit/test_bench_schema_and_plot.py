@@ -86,7 +86,7 @@ def _make_single_case_scheduler_dict(tag: str, case_id: str, mode: str, makespan
                     "dynamic_peak_mb": 120.0,
                     "peak_reserved_mb": 1300.0,
                     "fragmentation_mb": 40.0,
-                    "kv_cache_mb": 45.0,
+                    "kv_cache": {"peak_live_kv_cache_mb": 45.0},
                 },
                 "packing": {
                     "padding_efficiency": stat(1.0),

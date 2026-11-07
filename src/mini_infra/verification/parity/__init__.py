@@ -2,6 +2,8 @@
 
 包含：
 - compare_cache：KV Cache 前后逐步 Logits 对齐与数值等价性验证
+- compare_paged_cache_logits：Dense 与 Paged KV Cache 逐 Token Logits 对齐与数值等价性验证
+- compare_paged_cache_scheduler：Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证
 - compare_transformers：手写模型实现与 Hugging Face 参考实现的黄金基准对齐
 - compare_lockstep_batch：Lockstep 齐步批处理不同 Batch Size / 排列 / Padding 变种的请求隔离与数值等价性验证
 - compare_scheduler_batch：Scheduler 批处理（Fixed 与 Continuous）动态请求归属与输出一致性验证

@@ -12,7 +12,7 @@ from mini_infra.bench.scheduler import (
 )
 from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite, SchedulerSuiteCase
 from mini_infra.core.request import make_request_specs
-from mini_infra.engine import BatchingMethod, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -85,7 +85,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     model = build_tiny_model()
     device = torch.device("cpu")
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
-    mode = Mode({FeatureFlag.KV_CACHE}, batching_method=BatchingMethod.CONTINUOUS)
+    mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = SchedulerSuiteCase(
         id="continuous",
         suite_name="test-cont-case",
@@ -117,7 +117,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     assert case_res.metrics.e2e_wall_ms.mean > 0
     assert case_res.metrics.throughput_req_s.mean > 0
     assert case_res.schedule_metrics.ttft_ms_p95.mean > 0
-    assert case_res.memory.kv_cache_mb > 0
+    assert case_res.memory.kv_cache.peak_live_kv_cache_mb > 0
     assert case_res.packing is not None
     assert case_res.packing.slot_utilization.mean > 0
     assert case_res.packing.running_capacity_utilization is not None

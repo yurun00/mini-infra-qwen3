@@ -81,7 +81,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
@@ -89,7 +89,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Scale | commit | batch | prompt | max_new_tokens | Makespan (ms) "
-                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
@@ -97,7 +97,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Engine | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | 槽位利用率 | 正确性 |",
+                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
@@ -183,8 +183,8 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 4.4 * nrows), squeeze=False)
     flat_axes = axes.flatten()
 
-    for idx, spec in enumerate(specs):
-        ax = flat_axes[idx]
+    for spec_idx, spec in enumerate(specs):
+        ax = flat_axes[spec_idx]
         sub = tidy_df[tidy_df["metric_key"] == spec.metric_key].sort_values("order_idx")
         if sub.empty:
             ax.set_axis_off()
@@ -216,7 +216,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         fontsize=7.5,
                     )
         else:
-            for sc_idx, sc in enumerate(present_scales):
+            for scale_idx, sc in enumerate(present_scales):
                 sub_sc = sub[sub["scale"] == sc].sort_values("release_idx")
                 if sub_sc.empty:
                     continue
@@ -244,7 +244,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                         capsize=3,
                         alpha=0.55,
                     )
-                y_offset = 5 + (sc_idx - 1) * 2 if has_multi_scale else 5
+                y_offset = 5 + (scale_idx - 1) * 2 if has_multi_scale else 5
                 for x_i, y_val in zip(xs, ys):
                     ax.annotate(
                         f"{y_val:.1f}",
@@ -262,7 +262,7 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
             if has_multi_scale:
                 ax.legend(title="Scale", fontsize=7.5, title_fontsize=8)
 
-        ax.set_title(f"{idx + 1}. {spec.title}", fontsize=10.5)
+        ax.set_title(f"{spec_idx + 1}. {spec.title}", fontsize=10.5)
         ax.set_xlabel("")
         ax.set_ylabel(spec.ylabel)
         ax.tick_params(axis="x", rotation=15)
@@ -374,13 +374,15 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
         slot_u = (pack.get("slot_utilization") or {}).get("median", 0.0)
         cap_u = (pack.get("running_capacity_utilization") or {}).get("median", 0.0)
         pad_e = (pack.get("padding_efficiency") or {}).get("median", 0.0)
+        cache_frac = ((w.get("schedule") or {}).get("cache_management_fraction") or {}).get("median", 0.0)
         ceil_items = [
             ("Slot Util", 100.0 * float(slot_u), "#2980b9"),
             ("Capacity Util", 100.0 * float(cap_u), "#8e44ad"),
             ("Padding Eff", 100.0 * float(pad_e), "#e67e22"),
             ("GPU Busy", 100.0 * float(gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
+            ("Cache Mgmt", 100.0 * float(cache_frac), "#e74c3c"),
         ]
-        title_21 = "2.1 Scheduler & GPU Utilization (Slot / Capacity / Padding / Busy)"
+        title_21 = "2.1 Scheduler & GPU Utilization (Slot / Capacity / Padding / Busy / Cache Mgmt)"
     else:
         eff = w.get("efficiency") or {}
         ceil_items = [
@@ -423,13 +425,13 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     intra_step = 0.24 if has_multi_mem_scale else 0.5
     bar_width = 0.22 if has_multi_mem_scale else 0.5
 
-    for g_idx, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
+    for group_idx, (_, g_df) in enumerate(wide_df.groupby("release_idx", sort=False)):
         n_in_group = len(g_df)
-        group_ticks.append(float(g_idx))
+        group_ticks.append(float(group_idx))
         group_labels.append(str(g_df.iloc[0]["label"]))
         for i, (_, r) in enumerate(g_df.iterrows()):
             offset = (i - (n_in_group - 1) / 2.0) * intra_step
-            xs.append(float(g_idx) + offset)
+            xs.append(float(group_idx) + offset)
             sc_name = str(r.get("scale") or "medium")
             bar_scale_tags.append(scale_short.get(sc_name, sc_name[:1].upper()))
 
@@ -511,10 +513,10 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
             float((sched.get("itl_ms_p95") or {}).get("median", 0.0)),
             float((sched.get("end_to_end_ms_p95") or {}).get("median", 0.0)),
         ]
-        x_idx = list(range(len(lat_categories)))
+        x_ticks = list(range(len(lat_categories)))
         bar_w = 0.36
-        bars_50 = ax_cat.bar([x - bar_w / 2 for x in x_idx], p50_vals, width=bar_w, label="P50", color="#3498db")
-        bars_95 = ax_cat.bar([x + bar_w / 2 for x in x_idx], p95_vals, width=bar_w, label="P95", color="#e74c3c")
+        bars_50 = ax_cat.bar([x - bar_w / 2 for x in x_ticks], p50_vals, width=bar_w, label="P50", color="#3498db")
+        bars_95 = ax_cat.bar([x + bar_w / 2 for x in x_ticks], p95_vals, width=bar_w, label="P95", color="#e74c3c")
         for bar in (*bars_50, *bars_95):
             h = bar.get_height()
             ax_cat.annotate(
@@ -526,7 +528,7 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
                 va="bottom",
                 fontsize=7.5,
             )
-        ax_cat.set_xticks(x_idx)
+        ax_cat.set_xticks(x_ticks)
         ax_cat.set_xticklabels(lat_categories)
         ax_cat.set_ylabel("Latency (ms)")
         ax_cat.set_title("2.4 Request Latency Percentiles (P50 vs P95)")
@@ -621,7 +623,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         itl_p95 = float((sched.get("itl_ms_p95") or {}).get("median", 0.0))
         itl_max = float((sched.get("itl_ms_max") or {}).get("median", 0.0))
         cache_frac = float((sched.get("cache_management_fraction") or {}).get("median", 0.0))
-        kv_mb = float(mem.get("kv_cache_mb") or 0.0)
+        kv_mb = float((mem.get("kv_cache") or {}).get("peak_live_kv_cache_mb") or 0.0)
         dyn_mb = float(mem.get("dynamic_peak_mb") or 0.0)
         frag_mb = float(mem.get("fragmentation_mb") or 0.0)
 
@@ -629,9 +631,9 @@ def generate_optimization_guidance(target_rec: Any) -> str:
             f"基于当前调度器版本 `{label(validated_target)}`（`requests={w['batch_size']}, "
             f"max_running={sched.get('max_running_requests', 4)}`）下的基准测量与轨迹剖析，诊断如下：\n"
         )
-        lines.append("### 1. 槽位与并发容量利用率诊断（调度效率）")
+        lines.append("### 1. batch slot 与并发容量利用率诊断（调度效率）")
         lines.append(
-            f"- 🔹 **执行槽位有效率（Slot Utilization）为 {slot_u * 100:.1f}%**，"
+            f"- 🔹 **执行 batch slot 有效率（Slot Utilization）为 {slot_u * 100:.1f}%**，"
             f"**并发容量利用率（Running Capacity Utilization）为 {cap_u * 100:.1f}%**，"
             f"**Prompt Padding 有效率为 {pad_e * 100:.1f}%**。"
         )
@@ -666,7 +668,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         )
         lines.append(
             "- 👉 **下一步核心演进方向**：引入 **Paged KV Cache（分页键值缓存）** 与 **Prefix Cache**，"
-            "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密槽位搬移。"
+            "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密 batch slot 搬移。"
         )
         lines.append("")
         return "\n".join(lines)
@@ -740,10 +742,10 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         lines.append("### 5. 当前 Top 8 热点 Kernel 明细")
         lines.append("| 序号 | Kernel 名称 | 类别 | CUDA 耗时 (ms) | 耗时占比 | 调用次数 |")
         lines.append("| :-: | :--- | :-: | :-: | :-: | :-: |")
-        for idx, k in enumerate(top_kernels[:8], 1):
+        for rank, k in enumerate(top_kernels[:8], 1):
             k_name = k["name"][:40]
             lines.append(
-                f"| {idx} | `{k_name}` | {k['category']} | {k['cuda_ms']:.2f} | "
+                f"| {rank} | `{k_name}` | {k['category']} | {k['cuda_ms']:.2f} | "
                 f"{k['share'] * 100:.1f}% | {k['calls']} |"
             )
         lines.append("")

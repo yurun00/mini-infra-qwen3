@@ -31,8 +31,8 @@ from mini_infra.bench.lockstep.types import (
     summarize_samples,
 )
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.core.types import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.engine import GenerationOptions, Mode, generate
+from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics, merge_kv_cache_profiles
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
@@ -97,7 +97,7 @@ def run_case(
 
     is_variable_prompt_lens = isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str)
     effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
-    input_ids = make_prompt(vocab, prompt_len, effective_batch_size, device)
+    prompts = make_prompt(vocab, prompt_len, effective_batch_size)
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
@@ -108,7 +108,7 @@ def run_case(
         generate(
             mode,
             model,
-            input_ids,
+            prompts,
             max_new_tokens,
             options=warmup_opts,
         )
@@ -125,7 +125,7 @@ def run_case(
         generate(
             mode,
             model,
-            input_ids,
+            prompts,
             max_new_tokens,
             options=run_opts,
         )
@@ -168,7 +168,7 @@ def run_case(
         prefill_mb=max((r.memory.prefill_mb or 0.0 for r in runs), default=0.0),
         peak_allocated_mb=max((r.memory.peak_allocated_mb for r in runs), default=0.0),
         peak_reserved_mb=max((r.memory.peak_reserved_mb for r in runs), default=0.0),
-        kv_cache_mb=max((r.memory.kv_cache_mb for r in runs), default=0.0),
+        kv_cache=merge_kv_cache_profiles([r.memory.kv_cache for r in runs]),
     )
 
     batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
@@ -208,7 +208,7 @@ def run_case(
         prof_res = generate(
             mode=mode,
             model=model,
-            input_ids=input_ids,
+            prompts=prompts,
             max_new_tokens=max_new_tokens,
             options=prof_opts,
         )

@@ -5,14 +5,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-import torch
-
 from mini_infra.core.types import RequestMetrics, SequenceOutput
 
 
-def _require(value: float | None, name: str, request_index: int) -> float:
+def _require(value: float | None, name: str, request_idx: int) -> float:
     if value is None:
-        raise RuntimeError(f"请求 {request_index} 未完成调度，缺少 {name}")
+        raise RuntimeError(f"请求 {request_idx} 未完成调度，缺少 {name}")
     return value
 
 
@@ -31,14 +29,14 @@ class RequestStatus(str, Enum):
 class RequestSpec:
     """单个请求的不可变规格（逻辑时间线上的到达时间，不涉及真实 sleep）。"""
 
-    request_index: int
+    request_idx: int
     token_ids: tuple[int, ...]
     max_new_tokens: int
     arrival_ms: float = 0.0
 
     def __post_init__(self) -> None:
-        if self.request_index < 0:
-            raise ValueError("request_index 不能为负数")
+        if self.request_idx < 0:
+            raise ValueError("request_idx 不能为负数")
         if not self.token_ids:
             raise ValueError("Prompt Token 不能为空")
         if self.max_new_tokens < 1:
@@ -53,12 +51,12 @@ class RequestSpec:
 
 @dataclass
 class RequestState:
-    """请求在调度过程中的可变运行态（槽位、已生成 Token 与关键时间戳）。"""
+    """请求在调度过程中的可变运行态（Batch 槽位、已生成 Token 与关键时间戳）。"""
 
     spec: RequestSpec
     status: RequestStatus = RequestStatus.WAITING
     generated: list[int] = field(default_factory=list)
-    slot_index: int | None = None
+    batch_slot_idx: int | None = None
     cache_length: int = 0
     admitted_ms: float | None = None
     first_token_ms: float | None = None
@@ -89,7 +87,7 @@ class RequestState:
     def to_sequence_output(self, completion_step: int | None = None) -> SequenceOutput:
         """导出为不可变的单请求序列输出 SequenceOutput。"""
         return SequenceOutput(
-            request_index=self.spec.request_index,
+            request_idx=self.spec.request_idx,
             token_ids=list(self.generated),
             prompt_len=self.spec.prompt_len,
             output_len=len(self.generated),
@@ -99,13 +97,13 @@ class RequestState:
 
     def to_request_metrics(self) -> RequestMetrics:
         """导出为不可变的单请求时间线指标 RequestMetrics。"""
-        idx = self.spec.request_index
+        request_idx = self.spec.request_idx
         return RequestMetrics(
-            request_index=idx,
+            request_idx=request_idx,
             arrival_ms=self.spec.arrival_ms,
-            admitted_ms=_require(self.admitted_ms, "admitted_ms", idx),
-            first_token_ms=_require(self.first_token_ms, "first_token_ms", idx),
-            completion_ms=_require(self.completion_ms, "completion_ms", idx),
+            admitted_ms=_require(self.admitted_ms, "admitted_ms", request_idx),
+            first_token_ms=_require(self.first_token_ms, "first_token_ms", request_idx),
+            completion_ms=_require(self.completion_ms, "completion_ms", request_idx),
             num_output_tokens=len(self.generated),
             token_times_ms=tuple(self.token_times_ms),
         )
@@ -116,8 +114,8 @@ def make_request_specs(
     max_new_tokens: int | Sequence[int],
     arrival_times_ms: Sequence[float] | None = None,
 ) -> list[RequestSpec]:
-    """把 Prompt 序列、输出预算与到达时间组装成 RequestSpec 列表（request_index 按提交顺序编号）。"""
-    sequences = [tuple(int(t) for t in torch.as_tensor(seq).tolist()) for seq in token_sequences]
+    """把 Prompt 序列、输出预算与到达时间组装成 RequestSpec 列表（request_idx 按提交顺序编号）。"""
+    sequences = [tuple(int(t) for t in seq) for seq in token_sequences]
     budgets = [max_new_tokens] * len(sequences) if isinstance(max_new_tokens, int) else list(max_new_tokens)
     arrivals = [0.0] * len(sequences) if arrival_times_ms is None else list(arrival_times_ms)
     if len(budgets) != len(sequences) or len(arrivals) != len(sequences):
@@ -129,8 +127,8 @@ def make_request_specs(
 
 
 def validate_request_specs(request_specs: Sequence[RequestSpec]) -> None:
-    """校验请求列表非空且 request_index 唯一（单个规格的合法性已由 RequestSpec 自身保证）。"""
+    """校验请求列表非空且 request_idx 唯一（单个规格的合法性已由 RequestSpec 自身保证）。"""
     if not request_specs:
         raise ValueError("request_specs 不能为空")
-    if len({spec.request_index for spec in request_specs}) != len(request_specs):
-        raise ValueError("request_index 必须唯一")
+    if len({spec.request_idx for spec in request_specs}) != len(request_specs):
+        raise ValueError("request_idx 必须唯一")

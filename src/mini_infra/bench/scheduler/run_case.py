@@ -24,6 +24,7 @@ def run_case_once(
     """执行单一 SchedulerSuiteCase 的单次调度运行（原子操作）。"""
     return run_scheduler(
         batching_method=case.mode.batching_method,
+        caching_method=case.mode.caching_method,
         model=model,
         request_specs=case.specs,
         max_running_requests=case.max_running_requests,

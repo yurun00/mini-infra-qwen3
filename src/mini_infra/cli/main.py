@@ -7,7 +7,8 @@
     mini-infra bench plot history / compare [...]
     mini-infra bench check-regression [...]
     mini-infra verify smoke [...]
-    mini-infra verify transformers / cache / batch [...]
+    mini-infra verify transformers / cache / lockstep-batch / scheduler-batch [...]
+    mini-infra verify paged-cache / paged-cache-scheduler [...]
 """
 
 import argparse
