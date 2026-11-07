@@ -10,8 +10,8 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **Lockstep 齐步** | `mini-infra bench lockstep case` | `lockstep/run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/result-history/lockstep/` 或 `--output` |
 | | `mini-infra bench lockstep suite` | `lockstep/run_suite.py` | 运行预设齐步批处理对比套件（吞吐扫描、Padding 损耗、batch slot 浪费） | `benchmarks/suites/lockstep/<suite>/` |
-| **scheduler 调度器** | `mini-infra bench scheduler case` | `scheduler/run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous，支持并发与错峰到达） | 控制台输出或 `--output` |
-| | `mini-infra bench scheduler suite` | `scheduler/run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰） | `benchmarks/suites/scheduler/<name>/` |
+| **scheduler 调度器** | `mini-infra bench scheduler case` | `scheduler/run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous、Dense vs Paged，支持并发与错峰到达） | 控制台输出或 `--output` |
+| | `mini-infra bench scheduler suite` | `scheduler/run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰、Paged 显存/块大小对比） | `benchmarks/suites/scheduler/<name>/` |
 | **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/result-history/{lockstep,scheduler}/` |
 | **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/{lockstep,scheduler}/` |
 | | `mini-infra bench plot compare` | `plotting/compare.py` | 对比任意两个独立 JSON 实验结果，绘制柱状对比图与 Markdown 差异表 | `./benchmark_comparison.png` |
@@ -91,10 +91,10 @@ mini-infra bench lockstep suite \
 
 ## 三、scheduler 调度器基准测试 (`bench scheduler`)
 
-面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出与 `DenseSlotCache` batch slot 管理。
+面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出、`DenseSlotCache`（batch slot 管理）与 `PagedKVCachePool`（physical block pool 管理）。
 
 ### 1. 单用例服务化测试 (`scheduler case`)
-模拟带有并发上限（Concurrency Limit）与请求到达时序的服务端负载。
+模拟带有并发上限（Concurrency Limit）、请求到达时序与不同 KV Cache 存储方案的服务端负载。
 
 #### 常用命令样例
 ```bash
@@ -123,18 +123,36 @@ mini-infra bench scheduler case \
   --arrival-interval-ms 20.0 \
   --max-running-requests 4 \
   --request-count 12
+
+# 4. Paged KV Cache 单用例测试（指定 physical block 大小为 32，块池自动按负载推导）
+mini-infra bench scheduler case \
+  --tag dev \
+  --caching-method paged-kv-cache \
+  --batching-method continuous-batching \
+  --block-size 32 \
+  --max-running-requests 4 \
+  --request-count 8 \
+  --prompt-length 128 \
+  --output-budget 32
 ```
 
 ---
 
 ### 2. 预设调度器套件 (`scheduler suite`)
-评估连续批处理在复杂线上工况相对固定批处理的加速比与调度优势。
+评估连续批处理在复杂线上工况相对固定批处理的加速比，以及 Paged KV Cache 相对 Dense 路径在显存占用与 KV 访问上的优化收益。
 
 #### 注册套件清单
+
+**Fixed vs Continuous 对比套件（默认交替维度 `interleave=(batching_method,)`）**：
 1. **`fixed-vs-continuous-variable-output-length`**：长短请求混跑（输出长度极不均衡）。连续批处理在短请求退出后立即释放 batch slot 并接纳新请求，展现最大吞吐优势。
 2. **`fixed-vs-continuous-uniform-output-length`**：所有请求输出等长基准，作为无长尾效应时的底线对比。
 3. **`fixed-vs-continuous-staggered-arrivals`**：请求按时间阶梯陆续到达，考察连续批处理的即到即调度能力 vs 固定批处理的攒批排队延迟。
 4. **`fixed-vs-continuous-prefill-interference`**：运行中 Decode batch slot 受新入场请求 Prefill 插入时的 ITL 抖动与打断开销。
+
+**Dense vs Paged 对比套件（默认交替维度 `interleave=(caching_method, paged_cache_config)`）**：
+5. **`dense-vs-paged-long-short-stress`**：长短 Prompt 混杂受控压力测试（long=2048），对比 Dense batch slot 与 Paged 物理块池的峰值显存、KV 读取数与调度延迟。
+6. **`dense-vs-paged-length-ratio`**：长短 Prompt 长度比扫描（长 Prompt 取 128 / 512 / 2048 / 3072），评估非均匀 Prompt 长度分布下 Paged KV Cache 的显存与吞吐收益变化趋势。
+7. **`dense-vs-paged-block-size`**：Paged 物理块大小扫描（8 / 16 / 32 / 64），对比不同 block size 下的显存开销与调度吞吐，共用同一 Dense 基线。
 
 #### 常用命令样例
 ```bash
@@ -143,21 +161,32 @@ mini-infra bench scheduler suite \
   --tag v0.4.0 \
   --suite fixed-vs-continuous-variable-output-length
 
-# 2. 运行流式错峰到达对比套件
+# 2. 运行长短 Prompt 受控压力测试套件（Dense vs Paged 对比）
 mini-infra bench scheduler suite \
-  --tag v0.4.0 \
-  --suite fixed-vs-continuous-staggered-arrivals
+  --tag v0.5.0 \
+  --suite dense-vs-paged-long-short-stress
 
-# 3. 预览执行计划（无需 GPU，Dry-Run 模式毫秒级验证调度计划）
+# 3. 运行 block size 扫描套件
+mini-infra bench scheduler suite \
+  --tag v0.5.0 \
+  --suite dense-vs-paged-block-size
+
+# 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, paged_cache_config）
+mini-infra bench scheduler suite \
+  --tag v0.5.0 \
+  --suite dense-vs-paged-block-size \
+  --interleave caching_method paged_cache_config
+
+# 5. 预览执行计划（无需 GPU，Dry-Run 模式毫秒级验证调度计划）
 mini-infra bench scheduler suite \
   --tag test \
-  --suite fixed-vs-continuous-variable-output-length \
+  --suite dense-vs-paged-block-size \
   --dry-run
 ```
 
 > [!TIP]
-> **热漂移规避（Thermal Drift Mitigation）**：
-> `bench scheduler suite` 默认启用了交替执行机制（Run Alternation，轮流执行 Fixed $\leftrightarrow$ Continuous），避免连续基准测试中 GPU 升温与功耗降频造成的不公平偏差。
+> **热漂移规避（Thermal Drift Mitigation）与声明式对比**：
+> `bench scheduler suite` 内建了基于 `CaseDimension` 的交替执行机制（Run Alternation），在奇偶轮次反转对比维度的执行顺序，并在每次运行间强制调用 `gc.collect()` 与 `torch.cuda.empty_cache()`。套件运行结束后自动计算中位数相对指标（Makespan 加速比、吞吐增益、KV 读取削减、显存削减）并输出列对齐终端摘要。
 
 ---
 

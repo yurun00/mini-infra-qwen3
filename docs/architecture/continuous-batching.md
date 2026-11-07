@@ -88,9 +88,13 @@ mini-infra bench scheduler suite --tag dev --suite fixed-vs-continuous-variable-
 输出示例：
 ```text
 [bench-scheduler-suite] suite=fixed-vs-continuous-variable-output-length max_running=4 warmup=1 repeats=3 ...
-  Fixed     : makespan 2784.10 ms | 57.5 tok/s | 2.87 req/s | slot_util 62.5% | ttft_p95 1431.17 ms | itl_p95 51.22 ms
-  Continuous: makespan 2416.91 ms | 66.2 tok/s | 3.31 req/s | slot_util 74.1% | ttft_p95 1082.18 ms | itl_p95 86.73 ms | cache 0.9% | speedup 1.15x
-结果已写入 benchmarks/suites/scheduler/fixed-vs-continuous-variable-output-length/<commit>_dev.json
+  [vol] | dkc+fb | mrr=4          : makespan 2784.10 ms | 57.5 tok/s | 2.87 req/s | slot_util 62.5% | ttft_p95 1431.17 ms | itl_p95 51.22 ms
+  [vol] | dkc+cb | mrr=4          : makespan 2416.91 ms | 66.2 tok/s | 3.31 req/s | slot_util 74.1% | ttft_p95 1082.18 ms | itl_p95 86.73 ms | cache 0.9%
+
+--- Comparisons (suite: fixed-vs-continuous-variable-output-length) ---
+  [vol] makespan (dkc+cb vs baseline): speedup 1.15x
+  [vol] output_throughput (dkc+cb vs baseline): gain +15.1%
+  [vol] slot_utilization (dkc+cb vs baseline): gain +18.6%
 ```
 
 ### 3. 运行特定受控 scheduler 套件
