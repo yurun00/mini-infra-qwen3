@@ -81,24 +81,26 @@ def markdown_table(records: list[Any], base: Any) -> str:
         lines.extend(
             [
                 "| 版本 | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| TPOT (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
-                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| TPOT (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | batch slot 利用率 | 正确性 |",
+                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
     elif is_pure_scheduler:
         lines.extend(
             [
                 "| 版本 | Scale | commit | batch | prompt | max_new_tokens | Makespan (ms) "
-                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
-                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | KV 块池 (MiB) "
+                "| batch slot 利用率 | 正确性 |",
+                "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
     else:
         lines.extend(
             [
                 "| 版本 | Engine | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
-                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 显存 (MiB) | batch slot 利用率 | 正确性 |",
-                "| :--- | :-: | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
+                "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) "
+                "| batch slot 利用率 | 正确性 |",
+                "| :--- | :-: | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )
 
@@ -115,6 +117,9 @@ def markdown_table(records: list[Any], base: Any) -> str:
         ttft = float(row.get("ttft_ms.median", 0.0))
         thr = float(row.get("throughput_tok_s.median", 0.0))
         mem = float(row.get("peak_allocated_mb.median", 0.0))
+        live_kv = float(row.get("peak_live_kv_cache_mb.median", 0.0))
+        pool = float(row.get("memory.kv_cache.peak_kv_cache_pool_mb", 0.0) or 0.0)
+        pool_str = f"{pool:.1f}" if pool > 0 else "—"
         slot = float(row.get("slot_utilization.median", 1.0)) * 100.0
 
         s_ttft = f" ({b_ttft / ttft:.2f}x)" if b_ttft > 0 and ttft > 0 else ""
@@ -126,7 +131,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
             lines.append(
                 f"| {row['label']} | `{sc}` | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
                 f"{row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | {tpot:.2f}{s_tpot} | "
-                f"{thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
+                f"{thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | {slot:.1f}% | {flag} |"
             )
         elif is_pure_scheduler:
             mksp = float(row.get("makespan_ms.median", 0.0))
@@ -135,7 +140,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
             lines.append(
                 f"| {row['label']} | `{sc}` | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
                 f"{row['max_new_tokens_str']} | {mksp:.2f}{s_mksp} | {ttft:.2f}{s_ttft} | {itl_p95:.2f} | "
-                f"{thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
+                f"{thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | {pool_str} | {slot:.1f}% | {flag} |"
             )
         else:
             tpot = float(row.get("tpot_ms.median", 0.0))
@@ -145,7 +150,8 @@ def markdown_table(records: list[Any], base: Any) -> str:
             lines.append(
                 f"| {row['label']} | `{row['engine']}` | `{sc}` | {row['commit']} | {row['batch_size']} | "
                 f"{row['prompt_len_str']} | {row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | "
-                f"{tpot:.2f}{s_tpot} | {e2e:.2f}{s_e2e} | {thr:.1f}{s_thr} | {mem:.0f} | {slot:.1f}% | {flag} |"
+                f"{tpot:.2f}{s_tpot} | {e2e:.2f}{s_e2e} | {thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | "
+                f"{slot:.1f}% | {flag} |"
             )
 
     return "\n".join(lines)
