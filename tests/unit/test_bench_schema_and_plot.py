@@ -322,3 +322,27 @@ def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: P
     wide_df = records_to_wide_df([rec])
     assert "workload_id" in wide_df.columns
     assert wide_df["workload_id"].iloc[0] == "length_ratio_2048"
+
+
+def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPatch):
+    """验证 gpu_info 返回宿主机 CPU、系统内存、OS 平台与 CUDA 分配器配置。"""
+    from types import SimpleNamespace
+
+    import torch
+
+    from mini_infra.bench.common import gpu_info
+
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_device_properties",
+        lambda _device=0: SimpleNamespace(name="Fake GPU", total_memory=24 * 1024**3),
+    )
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    info = gpu_info(0)
+    assert info["gpu"] == "Fake GPU"
+    assert info["total_memory_mb"] == 24 * 1024.0
+    assert isinstance(info["cpu"], str) and len(info["cpu"]) > 0
+    assert info["system_memory_mb"] is None or info["system_memory_mb"] > 0
+    assert isinstance(info["platform"], str) and len(info["platform"]) > 0
+    assert info["cuda_alloc_conf"] == "expandable_segments:True"

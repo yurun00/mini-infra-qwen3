@@ -381,8 +381,32 @@ def git_info() -> dict[str, Any]:
     }
 
 
+def _cpu_model_name() -> str:
+    """获取宿主机 CPU 型号名称。"""
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        for line in cpuinfo.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.lower().startswith("model name"):
+                _, _, value = line.partition(":")
+                if value.strip():
+                    return value.strip()
+    return platform.processor() or platform.machine() or "unknown"
+
+
+def _system_memory_mb() -> float | None:
+    """获取宿主机物理内存总量（MiB）。"""
+    if hasattr(os, "sysconf"):
+        names = os.sysconf_names
+        if "SC_PAGE_SIZE" in names and "SC_PHYS_PAGES" in names:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            phys_pages = os.sysconf("SC_PHYS_PAGES")
+            if page_size > 0 and phys_pages > 0:
+                return round(page_size * phys_pages / 1024**2, 1)
+    return None
+
+
 def gpu_info(device: torch.device | int = 0) -> dict[str, Any]:
-    """获取测试机 GPU 硬件环境参数。"""
+    """获取测试机 GPU 与宿主机环境参数。"""
     props = torch.cuda.get_device_properties(device)
     info: dict[str, Any] = {
         "gpu": props.name,
@@ -390,6 +414,10 @@ def gpu_info(device: torch.device | int = 0) -> dict[str, Any]:
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "python": platform.python_version(),
+        "cpu": _cpu_model_name(),
+        "system_memory_mb": _system_memory_mb(),
+        "platform": platform.platform(),
+        "cuda_alloc_conf": os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""),
     }
     try:
         out = (
