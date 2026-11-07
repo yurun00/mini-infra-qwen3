@@ -80,8 +80,103 @@ def test_parse_args_scheduler_case():
         ]
     )
     assert args.tag == "dev"
+    assert args.caching_method == "dense-kv-cache"
     assert args.batching_method == "continuous-batching"
+    assert args.block_size == 16
+    assert args.num_blocks is None
     assert args.max_running_requests == 2
+
+    paged_args = parser.parse_args(
+        [
+            "bench",
+            "scheduler",
+            "case",
+            "--tag",
+            "dev",
+            "--caching-method",
+            "paged-kv-cache",
+            "--batching-method",
+            "continuous-batching",
+            "--block-size",
+            "32",
+            "--num-blocks",
+            "128",
+            "--max-running-requests",
+            "4",
+        ]
+    )
+    assert paged_args.caching_method == "paged-kv-cache"
+    assert paged_args.block_size == 32
+    assert paged_args.num_blocks == 128
+    assert paged_args.max_running_requests == 4
+
+
+def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
+    """验证 handle_case 在 paged-kv-cache 模式下透传 PagedCacheConfig 并落盘。"""
+    import json
+
+    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.cli import build_parser
+    from mini_infra.cli.commands.bench import scheduler as sched_cmd
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    tiny_model = build_tiny_model()
+    captured_correctness_kwargs = {}
+
+    def fake_check_correctness(model, tokenizer, mode, device, update_golden=False, paged_cache_config=None):
+        captured_correctness_kwargs["mode"] = mode
+        captured_correctness_kwargs["paged_cache_config"] = paged_cache_config
+        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+
+    monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
+    monkeypatch.setattr(sched_cmd, "resolve_model_directory", lambda model, rev: tmp_path)
+    monkeypatch.setattr(sched_cmd, "Qwen3Tokenizer", lambda model_dir: object())
+    monkeypatch.setattr(sched_cmd, "load_model", lambda model_dir, device: tiny_model)
+    monkeypatch.setattr(sched_cmd, "check_correctness", fake_check_correctness)
+    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+
+    out_path = tmp_path / "paged_case.json"
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "bench",
+            "scheduler",
+            "case",
+            "--tag",
+            "dev",
+            "--caching-method",
+            "paged-kv-cache",
+            "--batching-method",
+            "continuous-batching",
+            "--block-size",
+            "4",
+            "--num-blocks",
+            "32",
+            "--request-count",
+            "2",
+            "--prompt-length",
+            "4",
+            "--output-budget",
+            "2",
+            "--max-running-requests",
+            "2",
+            "--warmup",
+            "0",
+            "--repeats",
+            "1",
+            "--output",
+            str(out_path),
+        ]
+    )
+    ret = sched_cmd.handle_case(args)
+    assert ret == 0
+    assert captured_correctness_kwargs["mode"] == Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    assert captured_correctness_kwargs["paged_cache_config"] == PagedCacheConfig(block_size=4, num_blocks=32)
+    assert out_path.exists()
+    saved = json.loads(out_path.read_text(encoding="utf-8"))
+    assert saved["mode"] == "paged-kv-cache+continuous-batching"
+    assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["block_size"] == 4
+    assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["num_blocks"] == 32
 
 
 def test_run_scheduler_case_and_step_on_cpu():

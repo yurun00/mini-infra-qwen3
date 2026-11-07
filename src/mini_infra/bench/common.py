@@ -19,6 +19,7 @@ import torch
 from pydantic import BaseModel
 
 from mini_infra.bench.workloads import WorkloadSpec
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
@@ -452,15 +453,21 @@ def check_correctness(
     mode: Any,
     device: torch.device,
     update_golden: bool = False,
+    paged_cache_config: PagedCacheConfig | None = None,
 ) -> CorrectnessReport:
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
+    options = (
+        GenerationOptions(device=device, paged_cache_config=paged_cache_config)
+        if paged_cache_config is not None
+        else GenerationOptions(device=device)
+    )
     res = generate(
         mode,
         model,
         ids,
         GOLDEN_MAX_OUTPUT_TOKENS,
-        options=GenerationOptions(device=device),
+        options=options,
     )
     tokens = res.padded_output_tokens(0).tolist()
 

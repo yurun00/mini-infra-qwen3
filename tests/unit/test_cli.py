@@ -93,6 +93,33 @@ def test_cli_scheduler_suite_dry_run(capsys):
     assert "Scheduler 基准评测执行计划" in captured
 
 
+def test_cli_scheduler_paged_suite_dry_run(capsys):
+    """测试 mini-infra bench scheduler suite 对 dense-vs-paged 套件的 --dry-run 执行。"""
+    ret = main(
+        [
+            "bench",
+            "scheduler",
+            "suite",
+            "--tag",
+            "dev",
+            "--dry-run",
+            "--suite",
+            "dense-vs-paged-block-size",
+            "--repeats",
+            "2",
+            "--interleave",
+            "caching_method",
+            "paged_cache_config",
+        ]
+    )
+    assert ret == 0
+    captured = capsys.readouterr().out
+    assert "=== [Dry Run] Suite: dense-vs-paged-block-size ===" in captured
+    assert "Scheduler 基准评测执行计划" in captured
+    assert "block=8" in captured
+    assert "block=64" in captured
+
+
 def test_cli_plot_history_no_records(tmp_path, monkeypatch, capsys):
     """测试 mini-infra bench plot history 在无历史记录时的优雅提示退出。"""
     from mini_infra.cli.commands.bench import plot

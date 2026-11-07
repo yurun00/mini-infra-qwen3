@@ -41,6 +41,7 @@ from mini_infra.bench.scheduler.suites import (
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 
@@ -49,10 +50,28 @@ def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPars
     """向 parser 添加 scheduler case 参数。"""
     add_common_args(p)
     p.add_argument(
+        "--caching-method",
+        choices=[CachingMethod.DENSE.value, CachingMethod.PAGED.value],
+        default=CachingMethod.DENSE.value,
+        help=f"执行的 KV 缓存管理策略（默认: {CachingMethod.DENSE.value}）",
+    )
+    p.add_argument(
         "--batching-method",
         choices=[BatchingMethod.CONTINUOUS.value, BatchingMethod.FIXED.value],
         default=BatchingMethod.CONTINUOUS.value,
         help=f"执行的批处理调度策略（默认: {BatchingMethod.CONTINUOUS.value}）",
+    )
+    p.add_argument(
+        "--block-size",
+        type=int,
+        default=16,
+        help="Paged KV Cache 的 physical block 大小（默认: 16，仅 paged-kv-cache 时生效）",
+    )
+    p.add_argument(
+        "--num-blocks",
+        type=int,
+        default=None,
+        help="Paged KV Cache 的 physical block pool 总块数（可选，默认按负载自动推导，仅 paged-kv-cache 时生效）",
     )
     p.add_argument(
         "--max-running-requests",
@@ -131,10 +150,23 @@ def handle_case(args: argparse.Namespace) -> int:
     model = load_model(model_dir, device)
     vocab = model.config.vocab_size
 
+    caching = CachingMethod(args.caching_method)
     method = BatchingMethod(args.batching_method)
-    target_mode = Mode(CachingMethod.DENSE, batching_method=method)
+    target_mode = Mode(caching, batching_method=method)
+    paged_cache_config = (
+        PagedCacheConfig(block_size=args.block_size, num_blocks=args.num_blocks)
+        if caching is CachingMethod.PAGED
+        else None
+    )
 
-    correctness = check_correctness(model, tokenizer, target_mode, device, update_golden=False)
+    correctness = check_correctness(
+        model,
+        tokenizer,
+        target_mode,
+        device,
+        update_golden=False,
+        paged_cache_config=paged_cache_config,
+    )
     if correctness["passed"] is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
@@ -171,10 +203,12 @@ def handle_case(args: argparse.Namespace) -> int:
         max_running_requests=max_running,
         specs=specs,
         workload_id="custom",
+        paged_cache_config=paged_cache_config,
     )
 
+    block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""
     print(
-        f"[bench-scheduler-case] case={case_name} mode={target_mode} requests={len(specs)} "
+        f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} requests={len(specs)} "
         f"max_running={max_running} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
