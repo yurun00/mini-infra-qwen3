@@ -1,6 +1,6 @@
 ---
 name: Feature Benchmark
-about: Performance benchmark comparison between baseline and target inference/scheduling modes
+about: 对比评估基线与目标推理/调度模式在吞吐、时延与显存等维度的性能表现
 title: "[Bench] Performance benchmark comparison between <target> and <baseline> modes"
 labels: ["type:benchmark"]
 assignees: ""
