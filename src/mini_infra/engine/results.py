@@ -21,7 +21,7 @@ from mini_infra.engine.metrics import (
     ScheduleEvent,
     ScheduleMetrics,
     StepAggregatedMetrics,
-    merge_paged_cache_profiles,
+    summarize_repeated_paged_cache_profiles,
 )
 from mini_infra.profiling import (
     OpLatencyBreakdown,
@@ -261,7 +261,7 @@ def aggregate_generation_results(
             peak_kv_cache_pool_mb=max((r.memory.kv_cache.peak_kv_cache_pool_mb for r in runs), default=0.0),
             cache_realign_moved_bytes=sum(r.memory.kv_cache.cache_realign_moved_bytes for r in runs),
             accessed_kv_cache_tokens=sum(r.memory.kv_cache.accessed_kv_cache_tokens for r in runs),
-            paged_cache=merge_paged_cache_profiles(
+            paged_cache=summarize_repeated_paged_cache_profiles(
                 [r.memory.kv_cache.paged_cache for r in runs if r.memory.kv_cache.paged_cache is not None]
             ),
         ),

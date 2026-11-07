@@ -10,29 +10,158 @@ from mini_infra.bench.common import (
     WorkloadSpec,
     summarize_samples,
 )
+from mini_infra.bench.scheduler.suites import (
+    CaseDimensionValue,
+    CaseKey,
+    ComparisonSpec,
+    MetricKind,
+)
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
     ScheduleEvent,
     ScheduleMetrics,
     StepAggregatedMetrics,
-    merge_kv_cache_profiles,
+    summarize_repeated_kv_cache_profiles,
 )
 from mini_infra.engine.mode import Mode
 from mini_infra.engine.results import ScheduleResult
 
 
 @dataclass(frozen=True)
+class MetricComparison:
+    """通用基准指标相对对比结果项。"""
+
+    baseline_key: CaseKey
+    candidate_key: CaseKey
+    metric_path: str
+    metric_name: str
+    kind: MetricKind
+    baseline_value: float
+    candidate_value: float
+    ratio: float
+    relative_delta: float
+
+    @property
+    def speedup(self) -> float:
+        """baseline / candidate（针对越小越好的指标计算加速比，如 makespan）。"""
+        return self.baseline_value / self.candidate_value if self.candidate_value > 0 else 1.0
+
+    @property
+    def gain(self) -> float:
+        """(candidate - baseline) / baseline（针对越大越好的指标计算相对增益，如吞吐量）。"""
+        return (self.candidate_value - self.baseline_value) / self.baseline_value if self.baseline_value > 0 else 0.0
+
+    @property
+    def reduction(self) -> float:
+        """(baseline - candidate) / baseline（针对越小越好的指标计算相对削减比，如显存/Token）。"""
+        return (self.baseline_value - self.candidate_value) / self.baseline_value if self.baseline_value > 0 else 0.0
+
+    def formatted_value(self) -> str:
+        if self.kind == MetricKind.SPEEDUP:
+            return f"speedup {self.speedup:.2f}x"
+        if self.kind == MetricKind.GAIN:
+            sign = "+" if self.gain >= 0 else ""
+            return f"{self.metric_name} {sign}{self.gain * 100:.1f}%"
+        if self.kind == MetricKind.REDUCTION:
+            sign = "-" if self.reduction >= 0 else "+"
+            return f"{self.metric_name} {sign}{abs(self.reduction) * 100:.1f}%"
+        return f"{self.ratio:.4f}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_key": self.baseline_key.to_dict(),
+            "candidate_key": self.candidate_key.to_dict(),
+            "metric_path": self.metric_path,
+            "metric_name": self.metric_name,
+            "kind": self.kind.value,
+            "baseline_value": round(self.baseline_value, 4),
+            "candidate_value": round(self.candidate_value, 4),
+            "ratio": round(self.ratio, 4),
+            "relative_delta": round(self.relative_delta, 4),
+            "speedup": round(self.speedup, 4),
+            "gain": round(self.gain, 4),
+            "reduction": round(self.reduction, 4),
+            "formatted": self.formatted_value(),
+        }
+
+
+def resolve_metric_value(obj: Any, path: str) -> float:
+    """沿点分路径从对象中解析出目标标量浮点值。"""
+    curr = obj
+    for segment in path.split("."):
+        if not hasattr(curr, segment):
+            raise AttributeError(f"{type(curr).__name__} 不包含属性 '{segment}'（完整路径: '{path}'）")
+        curr = getattr(curr, segment)
+    if hasattr(curr, "mean"):
+        val = curr.mean
+    elif isinstance(curr, (int, float)):
+        val = curr
+    else:
+        raise TypeError(f"指标 '{path}' 解析得到不可转换为数值的对象: {curr!r} ({type(curr)})")
+    return float(val)
+
+
+def compute_comparisons(
+    case_results: Sequence["SchedulerCaseResult"],
+    spec: ComparisonSpec,
+) -> list[MetricComparison]:
+    """根据 ComparisonSpec 将 case_results 分组，在每组中按 baseline 规则选出基线并计算指标对比。"""
+    groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerCaseResult]] = {}
+    for r in case_results:
+        g_key = r.key.project(spec.group_by)
+        groups.setdefault(g_key, []).append(r)
+
+    comparisons: list[MetricComparison] = []
+    for g_key, group in groups.items():
+        matching_baselines = [
+            r for r in group if all(r.key.value(dim) == expected for dim, expected in spec.baseline.items())
+        ]
+        if len(matching_baselines) == 0:
+            raise ValueError(
+                f"分组 {g_key} 内未找到符合 baseline 约束 {spec.baseline} 的基线用例。"
+                f"组内用例 keys: {[r.key.display_name for r in group]}"
+            )
+        if len(matching_baselines) > 1:
+            raise ValueError(
+                f"分组 {g_key} 内找到多个符合 baseline 约束 {spec.baseline} 的候选用例: "
+                f"{[r.key.display_name for r in matching_baselines]}"
+            )
+        baseline_res = matching_baselines[0]
+
+        for candidate_res in group:
+            if candidate_res.key == baseline_res.key:
+                continue
+            for metric in spec.metrics:
+                b_val = resolve_metric_value(baseline_res, metric.path)
+                c_val = resolve_metric_value(candidate_res, metric.path)
+                ratio = c_val / b_val if b_val != 0 else 1.0
+                rel_delta = (c_val - b_val) / b_val if b_val != 0 else 0.0
+
+                comparisons.append(
+                    MetricComparison(
+                        baseline_key=baseline_res.key,
+                        candidate_key=candidate_res.key,
+                        metric_path=metric.path,
+                        metric_name=metric.display_name,
+                        kind=metric.kind,
+                        baseline_value=b_val,
+                        candidate_value=c_val,
+                        ratio=ratio,
+                        relative_delta=rel_delta,
+                    )
+                )
+    return comparisons
+
+
+@dataclass(frozen=True)
 class SchedulerCaseResult:
     """单个 Scheduler 用例在多轮 repeat 测量下的汇总结果。
 
-    直接组合复用 StepAggregatedMetrics[DistributionStats]、ScheduleMetrics[DistributionStats]、
-    MemoryProfile、BatchScheduleInfo[DistributionStats] 与 ScheduleEvent，与 ScheduleResult 保持顶层结构镜像对齐。
-    与 LockstepCaseResult 共享顶层结构（workload, metrics, memory, packing, efficiency），
-    并扩展调度器专属统计（schedule_metrics）。
+    以 CaseKey 作为全局唯一身份键，不再保留非正交的 case_id。
     """
 
-    case_id: str
+    key: CaseKey
     workload: WorkloadSpec
     metrics: StepAggregatedMetrics[DistributionStats]
     schedule_metrics: ScheduleMetrics[DistributionStats]
@@ -44,7 +173,11 @@ class SchedulerCaseResult:
 
     @property
     def mode(self) -> Mode:
-        return self.workload.mode
+        return self.key.mode
+
+    @property
+    def workload_id(self) -> str:
+        return self.key.workload_id
 
     @property
     def step_agg_metrics(self) -> StepAggregatedMetrics[DistributionStats]:
@@ -60,8 +193,8 @@ class SchedulerCaseResult:
         """导出为与 BaseCaseRecord / SchedulerCaseRecord 完全对齐的标准字典结构。"""
         sm = self.schedule_metrics
         rec: dict[str, Any] = {
-            "case_id": self.case_id,
-            "mode": str(self.workload.mode),
+            "workload_id": self.key.workload_id,
+            "mode": str(self.key.mode),
             "batch_size": self.workload.batch_size,
             "prompt_len": (
                 list(self.workload.prompt_len)
@@ -75,7 +208,7 @@ class SchedulerCaseResult:
             ),
             "repeats": self.workload.repeats,
             "warmup": self.workload.warmup,
-            "max_running_requests": self.workload.max_running_requests or sm.max_running_requests,
+            "max_running_requests": self.key.max_running_requests,
             "arrival_times_ms": (
                 list(self.workload.arrival_times_ms)
                 if isinstance(self.workload.arrival_times_ms, tuple)
@@ -117,6 +250,11 @@ class SchedulerCaseResult:
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
         }
+        if self.key.paged_cache_config is not None:
+            rec["paged_cache_config"] = {
+                "block_size": self.key.paged_cache_config.block_size,
+                "num_blocks": self.key.paged_cache_config.num_blocks,
+            }
         if self.workload.scale is not None:
             rec["scale"] = self.workload.scale
         if self.workload.seed is not None:
@@ -128,17 +266,17 @@ class SchedulerCaseResult:
         return rec
 
 
-def summarize_same_workload_runs(
-    case_id: str,
+def summarize_same_case_runs(
+    case_key: CaseKey,
     runs: Sequence[ScheduleResult],
 ) -> SchedulerCaseResult:
-    """把具有相同 WorkloadSpec 的多轮运行聚合为一个包含 DistributionStats 的 SchedulerCaseResult。"""
+    """把具有相同 CaseKey 与 WorkloadSpec 的多轮运行聚合为一个 SchedulerCaseResult。"""
     if not runs:
         raise ValueError("runs 不能为空")
 
     first_run = runs[0]
     if any(r.workload != first_run.workload for r in runs):
-        raise ValueError("summarize_same_workload_runs 中的所有 run 必须具有相同的 WorkloadSpec")
+        raise ValueError("summarize_same_case_runs 中的所有 run 必须具有相同的 WorkloadSpec")
     workload = replace(first_run.workload, repeats=len(runs))
 
     repeat_samples = [
@@ -150,6 +288,7 @@ def summarize_same_workload_runs(
             "ttft_ms_p95": r.schedule_metrics.ttft_ms_p95,
             "itl_ms_p95": r.schedule_metrics.itl_ms_p95,
             "cache_management_fraction": r.schedule_metrics.cache_management_fraction,
+            "peak_allocated_mb": r.memory.peak_allocated_mb,
         }
         for r in runs
     ]
@@ -159,7 +298,7 @@ def summarize_same_workload_runs(
         worst_mem,
         peak_allocated_mb=max(r.memory.peak_allocated_mb for r in runs),
         peak_reserved_mb=max(r.memory.peak_reserved_mb for r in runs),
-        kv_cache=merge_kv_cache_profiles([r.memory.kv_cache for r in runs]),
+        kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
     )
 
     gpu_ratios = [r.step_agg_metrics.gpu_time_ratio for r in runs]
@@ -178,7 +317,6 @@ def summarize_same_workload_runs(
         e2e_model_ms=summarize_samples([r.step_agg_metrics.e2e_model_ms for r in runs]),
         throughput_tok_s=summarize_samples([r.step_agg_metrics.throughput_tok_s for r in runs]),
         throughput_req_s=summarize_samples([r.step_agg_metrics.throughput_req_s for r in runs]),
-        # 对以下指标来说step层级的聚合没有意义。
         gpu_time_ratio=gpu_ratio_stat,
         effective_prompt_tok_s=summarize_samples(eff_prompt_vals) if eff_prompt_vals else None,
         padded_prompt_tok_s=summarize_samples(pad_prompt_vals) if pad_prompt_vals else None,
@@ -217,7 +355,7 @@ def summarize_same_workload_runs(
         )
 
     return SchedulerCaseResult(
-        case_id=case_id,
+        key=case_key,
         workload=workload,
         metrics=step_agg_dist,
         schedule_metrics=sched_dist,
@@ -230,8 +368,11 @@ def summarize_same_workload_runs(
 
 __all__ = [
     "DistributionStats",
+    "MetricComparison",
     "SchedulerCaseResult",
     "WorkloadSpec",
-    "summarize_same_workload_runs",
+    "compute_comparisons",
+    "resolve_metric_value",
+    "summarize_same_case_runs",
     "summarize_samples",
 ]

@@ -7,13 +7,14 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
-from mini_infra.bench.scheduler.suites import INTERLEAVE_DIMENSIONS, SchedulerSuiteCase
-from mini_infra.engine import BatchingMethod, FeatureDimension, Mode
-
-SUPPORTED_FEATURES = set(Mode.FEATURE_DIMENSIONS)
-ALL_FEATURE_DIMENSIONS = Mode.FEATURE_DIMENSIONS
+from mini_infra.bench.scheduler.suites import (
+    CaseDimension,
+    CaseDimensionValue,
+    CaseKey,
+    SchedulerSuiteCase,
+)
+from mini_infra.core.request import RequestSpec
 
 
 class RunPhase(str, Enum):
@@ -33,36 +34,23 @@ class PlannedRun:
     group_id: int
 
 
-def parse_interleave_dimension(name: str) -> FeatureDimension:
-    """将 CLI 字符串参数解析为强类型 FeatureDimension。"""
-    cleaned = name.strip()
-    if cleaned not in INTERLEAVE_DIMENSIONS:
-        raise ValueError(f"未知的 interleave 特征: {name}，可选: {list(INTERLEAVE_DIMENSIONS)}")
-    return INTERLEAVE_DIMENSIONS[cleaned]
-
-
-def extract_case_feature(case: SchedulerSuiteCase, feature: FeatureDimension) -> Any:
-    """从用例的 Mode 中提取指定特征维度的取值。"""
-    return case.mode.feature_value(feature)
-
-
 def build_scheduler_run_plan(
     cases: Sequence[SchedulerSuiteCase],
     warmup: int,
     repeats: int,
-    interleave: Sequence[FeatureDimension] = (BatchingMethod,),
+    interleave: Sequence[CaseDimension] = (CaseDimension.BATCHING_METHOD,),
 ) -> list[PlannedRun]:
     """根据用例列表、预热轮数、测量轮数以及交替特征选项构建执行计划序列。
 
     调度语义：
-    1. 选中的 feature（interleave）：同一分组内按 repeat 轮次轮换执行顺序，以消除热漂移。
-    2. 未选中的 feature：作为外层分组键，每个分组连续跑完所有 repeat 后才切换到下一分组。
+    1. 选中的特征（interleave）：同一分组内按 repeat 轮次轮换执行顺序，以消除热漂移。
+    2. 未选中的特征：作为外层分组键，每个分组连续跑完所有 repeat 后才切换到下一分组。
 
     Args:
         cases: 展开后的 SchedulerSuiteCase 用例列表。
         warmup: 每个用例在测量前执行的预热轮数。
         repeats: 正式测量轮数。
-        interleave: 选中的交替特征序列（如 (BatchingMethod,) 或 ()）。
+        interleave: 选中的交替特征序列（如 (CaseDimension.BATCHING_METHOD,) 或 ()）。
 
     Returns:
         list[PlannedRun]: 有序的计划执行步列表。
@@ -70,26 +58,46 @@ def build_scheduler_run_plan(
     if not cases or repeats < 1:
         return []
 
+    interleaved_dims: list[CaseDimension] = []
     for feat in interleave:
-        if feat not in SUPPORTED_FEATURES:
-            raise TypeError(f"未知的 interleave 特征维度: {feat!r}，必须为 FeatureDimension 类型")
+        if isinstance(feat, CaseDimension):
+            interleaved_dims.append(feat)
+        else:
+            try:
+                interleaved_dims.append(CaseDimension(feat))
+            except ValueError as err:
+                raise TypeError(f"未知的 interleave 特征维度: {feat!r}，必须为 CaseDimension 类型") from err
 
-    # 1. 选中的特征集合
-    interleaved_features = set(interleave)
-
-    # 2. 未选中的特征作为分组键
-    non_interleaved_features = [f for f in ALL_FEATURE_DIMENSIONS if f not in interleaved_features]
-
-    # 3. 按未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
-    groups: dict[tuple[Any, ...], list[SchedulerSuiteCase]] = {}
+    # 1. 守门检查：确保不存在重复的用例全局唯一身份键（CaseKey）
+    seen_keys: set[CaseKey] = set()
     for case in cases:
-        key = tuple(extract_case_feature(case, f) for f in non_interleaved_features)
+        if case.key in seen_keys:
+            raise ValueError(f"存在重复的用例身份键（CaseKey）: {case.key}")
+        seen_keys.add(case.key)
+
+    # 2. 守门检查：同一 workload_id 下的所有用例请求规格（specs）必须一致
+    specs_by_workload: dict[str, tuple[RequestSpec, ...]] = {}
+    for case in cases:
+        if case.workload_id in specs_by_workload:
+            if case.specs != specs_by_workload[case.workload_id]:
+                raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（specs）不一致")
+        else:
+            specs_by_workload[case.workload_id] = case.specs
+
+    # 3. 选中的特征与未选中的特征（作为外层分组键）
+    interleaved_set = set(interleaved_dims)
+    non_interleaved_dims = [d for d in CaseDimension if d not in interleaved_set]
+
+    # 4. 按未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
+    groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerSuiteCase]] = {}
+    for case in cases:
+        key = case.key.project(non_interleaved_dims)
         groups.setdefault(key, []).append(case)
 
-    # 4. 分组依次连续跑完所有 repeat
+    # 5. 分组依次连续跑完所有 repeat
     plan: list[PlannedRun] = []
     for group_id, (_group_key, group_cases) in enumerate(groups.items()):
-        # 4.1 组内用例预热
+        # 5.1 组内用例预热
         if warmup > 0:
             for case in group_cases:
                 for _ in range(warmup):
@@ -102,7 +110,7 @@ def build_scheduler_run_plan(
                         )
                     )
 
-        # 4.2 组内用例正式测量：连续跑完 repeats 轮，每轮轮换顺序
+        # 5.2 组内用例正式测量：连续跑完 repeats 轮，每轮轮换顺序
         n_cases = len(group_cases)
         for r in range(repeats):
             if n_cases <= 1:
@@ -134,20 +142,14 @@ def format_scheduler_run_plan(plan: Sequence[PlannedRun]) -> str:
     for i, planned_run in enumerate(plan, 1):
         rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
-        lines.append(
-            f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | "
-            f"suite={case.suite_name} case_id={case.id} mode={case.mode} max_running={case.max_running_requests}"
-        )
+        details = f"suite={case.suite_name} key={case.key}"
+        lines.append(f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | {details}")
     return "\n".join(lines)
 
 
 __all__ = [
-    "ALL_FEATURE_DIMENSIONS",
     "PlannedRun",
     "RunPhase",
-    "SUPPORTED_FEATURES",
     "build_scheduler_run_plan",
-    "extract_case_feature",
     "format_scheduler_run_plan",
-    "parse_interleave_dimension",
 ]

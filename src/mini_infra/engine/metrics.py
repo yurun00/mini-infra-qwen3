@@ -135,11 +135,18 @@ def build_memory_profile(
     )
 
 
-def merge_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) -> PagedCacheProfile | None:
-    """合并多轮运行的 Paged 物理块池画像：固定配置取首项，峰值取 max，计数取 sum。"""
+def summarize_repeated_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) -> PagedCacheProfile | None:
+    """汇总同一 Case 多轮重复运行的 Paged 物理块池画像：固定配置保持一致，峰值取 max，计数取 sum。"""
     if not paged:
         return None
     first = paged[0]
+    assert all(
+        (p.block_size, p.bytes_per_block, p.num_blocks) == (first.block_size, first.bytes_per_block, first.num_blocks)
+        for p in paged
+    ), (
+        "All paged cache profiles must share identical physical pool configuration "
+        "(block_size, bytes_per_block, num_blocks)"
+    )
     return PagedCacheProfile(
         block_size=first.block_size,
         bytes_per_block=first.bytes_per_block,
@@ -151,14 +158,18 @@ def merge_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) -> PagedCache
     )
 
 
-def merge_kv_cache_profiles(profiles: Sequence[KVCacheProfile]) -> KVCacheProfile:
-    """合并多轮运行的 KV Cache 画像：容量峰值取 max，累计搬移/访问取 sum，Paged 明细用 merge_paged_cache_profiles。"""
+def summarize_repeated_kv_cache_profiles(profiles: Sequence[KVCacheProfile]) -> KVCacheProfile:
+    """汇总同一 Case 多轮重复运行的 KV Cache 画像：容量峰值取 max，累计搬移/访问取 sum，
+    Paged 明细用 summarize_repeated_paged_cache_profiles。
+    """
     return KVCacheProfile(
         peak_live_kv_cache_mb=max((p.peak_live_kv_cache_mb for p in profiles), default=0.0),
         peak_kv_cache_pool_mb=max((p.peak_kv_cache_pool_mb for p in profiles), default=0.0),
         cache_realign_moved_bytes=sum(p.cache_realign_moved_bytes for p in profiles),
         accessed_kv_cache_tokens=sum(p.accessed_kv_cache_tokens for p in profiles),
-        paged_cache=merge_paged_cache_profiles([p.paged_cache for p in profiles if p.paged_cache is not None]),
+        paged_cache=summarize_repeated_paged_cache_profiles(
+            [p.paged_cache for p in profiles if p.paged_cache is not None]
+        ),
     )
 
 
@@ -447,7 +458,7 @@ __all__ = [
     "StepAggregatedMetrics",
     "build_memory_profile",
     "compute_step_aggregated_metrics",
-    "merge_kv_cache_profiles",
-    "merge_paged_cache_profiles",
+    "summarize_repeated_kv_cache_profiles",
+    "summarize_repeated_paged_cache_profiles",
     "summarize_schedule",
 ]

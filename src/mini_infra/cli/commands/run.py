@@ -273,8 +273,14 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         print("槽位利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
     if isinstance(result, ScheduleResult):
         print_schedule_metrics(result)
+    kv_profile = result.memory.kv_cache
     print("峰值显存: %.2f MiB" % result.memory.peak_allocated_mb)
-    print("最终 KV Cache: %.2f MiB" % result.memory.kv_cache.peak_live_kv_cache_mb)
+    print("最终 KV Cache: %.2f MiB" % kv_profile.peak_live_kv_cache_mb)
+    if kv_profile.peak_kv_cache_pool_mb > 0:
+        print("峰值 KV Cache Pool: %.2f MiB" % kv_profile.peak_kv_cache_pool_mb)
+    if kv_profile.paged_cache is not None:
+        pc = kv_profile.paged_cache
+        print("Paged 物理块池: block_size=%d, 峰值使用块=%d/%d" % (pc.block_size, pc.peak_used_blocks, pc.num_blocks))
     decode_times = result.trace.step_latencies_ms[1:]
     if decode_times:
         print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])
@@ -404,5 +410,10 @@ def handle_run(args: argparse.Namespace) -> int:
                     % (bm.makespan_ms, om.makespan_ms, bm.makespan_ms / om.makespan_ms)
                 )
             print("TTFT p95: %.2f ms -> %.2f ms" % (bm.ttft_ms_p95, om.ttft_ms_p95))
+            base_pool = baseline.memory.kv_cache.peak_kv_cache_pool_mb
+            opt_pool = optimized.memory.kv_cache.peak_kv_cache_pool_mb
+            if base_pool > 0 and opt_pool > 0:
+                reduction_pct = (1.0 - opt_pool / base_pool) * 100
+                print("峰值 KV Cache Pool: %.2f MiB -> %.2f MiB（节省 %.1f%%）" % (base_pool, opt_pool, reduction_pct))
     print("说明: 计时不包含 tokenizer、模型下载、模型加载和真实睡眠；默认 greedy decoding。")
     return 0

@@ -2,12 +2,12 @@
 trigger: glob
 alwaysApply: false
 globs: "src/mini_infra/**/*.py"
-description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后缀、私有前缀、property 与方法一致性、落盘契约名联动改名、命名简短与方法名不重复参数语义"
+description: "标识符命名与类型标注纪律：概念唯一名、索引/耗时/布尔后缀、私有前缀、property 与方法一致性、落盘契约名联动改名、命名简短与方法名不重复参数语义、类型标注从严（尽量不用 Any）"
 ---
 
-# 命名纪律专项规则
+# 命名与类型标注纪律专项规则
 
-在 `src/mini_infra/` 下新增或修改任何标识符（变量、参数、字段、方法、属性）时，遵守以下八条纪律。
+在 `src/mini_infra/` 下新增或修改任何标识符（变量、参数、字段、方法、属性）时，遵守以下九条纪律。
 
 ---
 
@@ -66,6 +66,19 @@ description: "标识符命名纪律：概念唯一名、索引/耗时/布尔后�
 - **方法名不重复参数语义**：参数名已表达语义时，方法名不再同义反复。
   - 正例：`dense_slot_cache.release(batch_slot_idx)`、`free_block_queue.allocate(num_blocks)`
   - 反例：`release_slot(batch_slot_idx)`、`allocate_blocks(num_blocks)`
+
+## 九、类型标注从严：尽量不用 `Any`
+
+- 能用精确类型（`str` / `int` / `Optional[T]` / `Union[...]` / `TypeVar` / `Protocol` / Pydantic 模型）时，**严禁**用 `typing.Any` 抹掉静态检查与 IDE 补全/重构。
+- `Any` 仅限以下边界处使用，其余内部一律收窄：
+  1. 反序列化 / 外部输入（JSON、外部 API、配置文件）；
+  2. 与无类型第三方库交互；
+  3. 值类型确实异构、无法用 `Union` 表达；
+  4. 按点分路径反射取值的通用工具。
+- 类型收窄与选择优先级：
+  精确类型/结构（标量/类/Pydantic/`TypedDict`） → 封闭变体（`Union`/`Optional`/`Literal`） → 泛型与协议（`TypeVar`/`Generic`/`Protocol`） → 顶层黑盒（`object`） → 边界逃生（`Any`）。
+  - `@overload`、`TypeGuard`/`TypeIs` 与 `cast` 属类型收窄与签名分派手段，非值类型选项。
+- `-> dict[str, Any]` 之类返回应优先收窄为具体值类型或强类型模型，不得以 `Any` 逃避声明契约。
 
 ---
 

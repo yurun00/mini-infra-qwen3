@@ -5,7 +5,7 @@
 
 import torch
 
-from mini_infra.core import make_request_specs
+from mini_infra.core import KVCacheManager, PagedCacheConfig, make_request_specs
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -16,7 +16,7 @@ from mini_infra.engine import (
     run_scheduler,
 )
 from mini_infra.model import DenseAttentionMetadata, Qwen3Config, Qwen3ForCausalLM
-from mini_infra.worker import KVCache, cache_size_bytes
+from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner, cache_size_bytes
 from mini_infra.worker.base_runner import _left_pad_sequences
 
 
@@ -245,6 +245,139 @@ def check_continuous_batching(model):
     print("固定批次、Continuous Batching 与串行单请求输出一致")
 
 
+def check_paged_kv_cache(model):
+    """验证 Paged KV Cache 的 physical block pool 跨界读写/释放复用与 Continuous Batching 端到端一致性。"""
+    device = torch.device("cpu")
+    config = model.config
+    block_size = 4
+    # num_blocks=4: 1 个 null block (0) + 3 个可分配 physical block (1, 2, 3)
+    manager = KVCacheManager(block_size=block_size, num_blocks=4)
+    pool = PagedKVCachePool(
+        num_layers=config.num_hidden_layers,
+        num_blocks=4,
+        block_size=block_size,
+        num_kv_heads=config.num_key_value_heads,
+        head_dim=config.head_dim,
+        dtype=torch.float32,
+        device=device,
+    )
+    runner = PagedRunner(model, device)
+
+    # 1. Prefill 跨界分配与散写还原（6 个 token，block_size=4 -> 2 个 physical block）
+    num_kv_heads = config.num_key_value_heads
+    head_dim = config.head_dim
+    expected_layers = []
+    for layer_idx in range(config.num_hidden_layers):
+        key = torch.arange(num_kv_heads * 6 * head_dim, dtype=torch.float32).view(1, num_kv_heads, 6, head_dim)
+        key = key + layer_idx * 1000.0
+        value = key + 500.0
+        expected_layers.append((key, value))
+
+    assert manager.allocate_slots(0, 6)
+    old_block_ids = list(manager.block_table(0))
+    assert len(old_block_ids) == 2
+    assert manager.num_used_blocks * block_size == 8
+    runner.store_prefill(pool, KVCache(expected_layers), [old_block_ids], [6])
+
+    for layer_idx, (exp_key, exp_val) in enumerate(expected_layers):
+        key_pool, val_pool = pool.kv_pools[layer_idx]
+        gathered_k = torch.cat([key_pool[b] for b in old_block_ids], dim=0)[:6].transpose(0, 1).unsqueeze(0)
+        gathered_v = torch.cat([val_pool[b] for b in old_block_ids], dim=0)[:6].transpose(0, 1).unsqueeze(0)
+        assert torch.equal(gathered_k, exp_key)
+        assert torch.equal(gathered_v, exp_val)
+
+    # 2. Decode 单步追加寻址与就地写池（位置 6 -> 写入第 2 个 physical block 的 offset 2）
+    assert manager.allocate_slots(0, 1)
+    assert len(manager.block_table(0)) == 2
+    input_ids, position_ids, metadata = runner.prepare_decode_inputs(
+        block_tables=[manager.block_table(0)],
+        last_tokens=[7],
+        positions=[6],
+        block_size=block_size,
+    )
+    assert input_ids.tolist() == [[7]]
+    assert position_ids.tolist() == [[6]]
+    assert metadata.slot_mapping.tolist() == [old_block_ids[1] * block_size + 2]
+    assert metadata.context_lens.tolist() == [7]
+    runner.run_decode_step(input_ids, position_ids, metadata, pool)
+
+    # 3. 释放请求 0 并验证 free block queue 的 FIFO 复用与脏尾部隔离
+    manager.free(0)
+    assert manager.num_used_blocks == 0
+    assert manager.block_release_count == 2
+    # 此时 free block queue 为 [3, 1, 2]；先分配 1 个块给占位请求 99 消费冷块 3，再为请求 1 分配 2 个 token
+    assert manager.allocate_slots(99, 2)
+    assert manager.block_table(99) == [3]
+    assert manager.allocate_slots(1, 2)
+    assert manager.block_table(1)[0] == min(old_block_ids)
+    assert manager.block_reuse_count == 1
+
+    short_layers = [(k[:, :, :2, :], v[:, :, :2, :]) for k, v in expected_layers]
+    runner.store_prefill(pool, KVCache(short_layers), [manager.block_table(1)], [2])
+    for layer_idx, (exp_key, exp_val) in enumerate(short_layers):
+        key_pool, val_pool = pool.kv_pools[layer_idx]
+        b0 = manager.block_table(1)[0]
+        assert torch.equal(key_pool[b0, :2].transpose(0, 1).unsqueeze(0), exp_key)
+        assert torch.equal(val_pool[b0, :2].transpose(0, 1).unsqueeze(0), exp_val)
+
+    # 4. Dense 与 Paged Continuous Batching 端到端对齐与块复用指标验证
+    sequences = [
+        [3, 5, 7],
+        [11, 13, 17, 19, 23, 29],
+        [31, 37],
+        [41, 43, 47, 53, 59],
+    ]
+    budgets = [5, 2, 4, 3]
+    arrivals = [0.0, 0.0, 0.1, 0.2]
+    specs = make_request_specs(sequences, budgets, arrivals)
+    dense = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        2,
+        -1,
+        device,
+        caching_method=CachingMethod.DENSE,
+        stop_on_eos=False,
+    )
+    paged = run_scheduler(
+        BatchingMethod.CONTINUOUS,
+        model,
+        specs,
+        2,
+        -1,
+        device,
+        caching_method=CachingMethod.PAGED,
+        stop_on_eos=False,
+        paged_cache_config=PagedCacheConfig(block_size=block_size),
+    )
+    paged_gen = generate(
+        Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS),
+        model,
+        sequences,
+        budgets,
+        options=GenerationOptions(
+            eos_token_id=-1,
+            device=device,
+            stop_on_eos=False,
+            paged_cache_config=PagedCacheConfig(block_size=block_size),
+        ),
+    )
+
+    assert [s.token_ids for s in dense.sequences] == [s.token_ids for s in paged.sequences]
+    assert [s.token_ids for s in dense.sequences] == [s.token_ids for s in paged_gen.sequences]
+    assert paged.memory.kv_cache.paged_cache is not None
+    assert paged.memory.kv_cache.paged_cache.block_reuse_count > 0
+    assert paged.memory.kv_cache.paged_cache.peak_used_blocks > 0
+    assert dense.memory.kv_cache.accessed_kv_cache_tokens > 0
+    assert paged.memory.kv_cache.accessed_kv_cache_tokens > 0
+    admissions = [request_idx for event in paged.events for request_idx in event.admitted_request_ids]
+    assert admissions == [0, 1, 2, 3]
+
+    print("Physical block 跨界写入、读取、释放和复用检查通过")
+    print("Dense 与 Paged Continuous Batching 输出一致")
+
+
 def run_smoke_test():
     model = build_tiny_model()
     check_output_shape_and_tied_weights(model)
@@ -252,6 +385,7 @@ def run_smoke_test():
     check_kv_cache_correctness(model)
     check_fixed_batching(model)
     check_continuous_batching(model)
+    check_paged_kv_cache(model)
 
 
 __all__ = [
@@ -261,6 +395,7 @@ __all__ = [
     "check_fixed_batching",
     "check_kv_cache_correctness",
     "check_output_shape_and_tied_weights",
+    "check_paged_kv_cache",
     "run_smoke_test",
 ]
 

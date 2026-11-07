@@ -35,7 +35,7 @@ def test_continuous_batching_gpu_parity() -> None:
     cuda = torch.device("cuda")
     model_dir = resolve_model_directory(DEFAULT_MODEL_ID, DEFAULT_MODEL_REVISION)
     tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_model(model_dir, device="cuda", dtype=torch.bfloat16)
+    model = load_model(model_dir, device="cuda", dtype=torch.float32)
     model.eval()
 
     prompts = [

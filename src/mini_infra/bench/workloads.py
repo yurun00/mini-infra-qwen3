@@ -308,6 +308,78 @@ def make_alternating_budgets(count: int, short_budget: int, long_budget: int) ->
     return [short_budget if i % 2 == 0 else long_budget for i in range(count)]
 
 
+def make_long_short_specs(
+    vocab_size: int,
+    short_prompt_length: int = 128,
+    long_prompt_length: int = 2048,
+    initial_short_requests: int = 7,
+    followup_short_requests: int = 9,
+    short_output: int = 96,
+    followup_output: int = 64,
+    long_output: int = 8,
+    long_arrival_ms: float = 200.0,
+    followup_arrival_ms: float = 201.0,
+    max_running_requests: int = 8,
+) -> list[RequestSpec]:
+    """生成长短混合压力测试请求规格列表（对齐 chapter_05 benchmark.py）。
+
+    负载拓扑：
+    - 初始先到达 initial_short_requests 个短请求（短 Prompt、较大输出预算），瞬间占满并发槽位的大部分；
+    - 在 long_arrival_ms 插入 1 个极长 Prompt 请求，测试长 Prefill 对并发队列与显存碎片化的冲击；
+    - 紧接着在 followup_arrival_ms 到达 followup_short_requests 个短请求，
+      测试在长请求占用显存与计算资源下的调度延迟与吞吐表现。
+
+    Args:
+        vocab_size: 词表大小。
+        short_prompt_length: 短请求 Prompt 长度（Token 数），默认 128。
+        long_prompt_length: 长请求 Prompt 长度（Token 数），默认 2048。
+        initial_short_requests: 初始并发短请求数，默认 7。
+        followup_short_requests: 后续追加短请求数，默认 9。
+        short_output: 初始短请求最大生成 Token 数，默认 96。
+        followup_output: 后续短请求最大生成 Token 数，默认 64。
+        long_output: 长请求最大生成 Token 数，默认 8。
+        long_arrival_ms: 长请求逻辑到达时间（毫秒），默认 200.0。
+        followup_arrival_ms: 后续短请求逻辑到达时间（毫秒），默认 201.0。
+        max_running_requests: 调度器并发上限，默认 8。必须严格大于 initial_short_requests，
+            确保留有空闲槽位测试长请求能否被立刻调度或被堵塞。
+
+    Returns:
+        包含 (initial_short_requests + 1 + followup_short_requests) 个 RequestSpec 的有序列表。
+    """
+    if vocab_size < 1:
+        raise ValueError("vocab_size 必须大于 0")
+    if short_prompt_length < 1 or long_prompt_length < 1:
+        raise ValueError("prompt_length 必须大于 0")
+    if initial_short_requests < 1 or followup_short_requests < 1:
+        raise ValueError("请求数量必须大于 0")
+    if max_running_requests < 1:
+        raise ValueError("max_running_requests 必须大于 0")
+    if initial_short_requests >= max_running_requests:
+        raise ValueError(
+            f"initial_short_requests ({initial_short_requests}) 必须小于 max_running_requests ({max_running_requests})"
+        )
+    if short_output < 1 or followup_output < 1 or long_output < 1:
+        raise ValueError("输出预算必须大于 0")
+    if long_arrival_ms < 0.0:
+        raise ValueError("long_arrival_ms 不能小于 0")
+    if followup_arrival_ms < long_arrival_ms:
+        raise ValueError(f"followup_arrival_ms ({followup_arrival_ms}) 不能小于 long_arrival_ms ({long_arrival_ms})")
+
+    lengths = (
+        [short_prompt_length] * initial_short_requests
+        + [long_prompt_length]
+        + [short_prompt_length] * followup_short_requests
+    )
+    budgets = [short_output] * initial_short_requests + [long_output] + [followup_output] * followup_short_requests
+    arrivals = (
+        [0.0] * initial_short_requests
+        + [float(long_arrival_ms)]
+        + [float(followup_arrival_ms)] * followup_short_requests
+    )
+    sequences = make_sequences(lengths, vocab_size)
+    return make_request_specs(sequences, budgets, arrivals)
+
+
 def build_scheduler_request_specs(
     workload: WorkloadSpec,
     vocab_size: int,
@@ -345,6 +417,7 @@ __all__ = [
     "make_alternating_budgets",
     "make_arrival_times",
     "make_lockstep_workload",
+    "make_long_short_specs",
     "make_prompt",
     "make_scheduler_workload",
     "make_sequence",

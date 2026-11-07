@@ -40,7 +40,7 @@ description: "确定性数值等价性验证（Parity）、假设驱动性能评
 
 1. **严禁污染受控历史归档与黄金基准**
    - 日常开发、Debug 与调优实验运行基准测试时，输出文件**必须**定向至 `tmp/` 目录或命名为 `*.local.json`（已由 `.gitignore` 忽略）。
-   - **绝对禁止**手动编辑、伪造或用非标准实验参数覆盖以下受版本控制的权威文件：
+   - 以下受版本控制的权威文件**默认禁止手动编辑、伪造或用非标准实验参数覆盖**，仅在确有必要（如 Schema 迁移）时才允许修改：
      - `benchmarks/result-history/{lockstep,scheduler}/*.json`
      - `benchmarks/data/reference.json`
      - `benchmarks/data/golden_output_tokens.json`

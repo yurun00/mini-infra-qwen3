@@ -106,8 +106,34 @@ def test_print_result_shows_schedule_metrics(diverse_model, capsys):
     res = run_mode(cont, diverse_model, SEQS, SEQS, [3, 2, 4, 1], make_opts(max_running_requests=2), True)
     print_result(cont, res, FakeTokenizer())
     out = capsys.readouterr().out
-    for key in ("Makespan", "TTFT p50/p95", "ITL p50/p95/max", "Cache 管理耗时占比", "并发容量利用率"):
+    for key in (
+        "Makespan",
+        "TTFT p50/p95",
+        "ITL p50/p95/max",
+        "Cache 管理耗时占比",
+        "并发容量利用率",
+        "峰值 KV Cache Pool",
+    ):
         assert key in out
+
+
+def test_run_mode_and_print_result_dense_vs_paged(diverse_model, capsys):
+    from mini_infra.core import PagedCacheConfig
+
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    assert uses_scheduler([dense_mode, paged_mode])
+
+    budgets = [3, 2, 4, 1]
+    opts = make_opts(max_running_requests=2, paged_cache_config=PagedCacheConfig(block_size=4))
+    dense_res = run_mode(dense_mode, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
+    paged_res = run_mode(paged_mode, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
+
+    assert [s.token_ids for s in dense_res.sequences] == [s.token_ids for s in paged_res.sequences]
+    print_result(paged_mode, paged_res, FakeTokenizer())
+    out = capsys.readouterr().out
+    assert "峰值 KV Cache Pool" in out
+    assert "Paged 物理块池: block_size=4" in out
 
 
 def test_print_result_lockstep_has_no_schedule_metrics(diverse_model, capsys):

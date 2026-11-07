@@ -10,7 +10,11 @@ from mini_infra.bench.scheduler import (
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite, SchedulerSuiteCase
+from mini_infra.bench.scheduler.suites import (
+    CaseDimension,
+    FixedVsContinuousVariableOutputLengthSuite,
+    SchedulerSuiteCase,
+)
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
@@ -76,8 +80,103 @@ def test_parse_args_scheduler_case():
         ]
     )
     assert args.tag == "dev"
+    assert args.caching_method == "dense-kv-cache"
     assert args.batching_method == "continuous-batching"
+    assert args.block_size == 16
+    assert args.num_blocks is None
     assert args.max_running_requests == 2
+
+    paged_args = parser.parse_args(
+        [
+            "bench",
+            "scheduler",
+            "case",
+            "--tag",
+            "dev",
+            "--caching-method",
+            "paged-kv-cache",
+            "--batching-method",
+            "continuous-batching",
+            "--block-size",
+            "32",
+            "--num-blocks",
+            "128",
+            "--max-running-requests",
+            "4",
+        ]
+    )
+    assert paged_args.caching_method == "paged-kv-cache"
+    assert paged_args.block_size == 32
+    assert paged_args.num_blocks == 128
+    assert paged_args.max_running_requests == 4
+
+
+def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
+    """验证 handle_case 在 paged-kv-cache 模式下透传 PagedCacheConfig 并落盘。"""
+    import json
+
+    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.cli import build_parser
+    from mini_infra.cli.commands.bench import scheduler as sched_cmd
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    tiny_model = build_tiny_model()
+    captured_correctness_kwargs = {}
+
+    def fake_check_correctness(model, tokenizer, mode, device, update_golden=False, paged_cache_config=None):
+        captured_correctness_kwargs["mode"] = mode
+        captured_correctness_kwargs["paged_cache_config"] = paged_cache_config
+        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+
+    monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
+    monkeypatch.setattr(sched_cmd, "resolve_model_directory", lambda model, rev: tmp_path)
+    monkeypatch.setattr(sched_cmd, "Qwen3Tokenizer", lambda model_dir: object())
+    monkeypatch.setattr(sched_cmd, "load_model", lambda model_dir, device: tiny_model)
+    monkeypatch.setattr(sched_cmd, "check_correctness", fake_check_correctness)
+    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+
+    out_path = tmp_path / "paged_case.json"
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "bench",
+            "scheduler",
+            "case",
+            "--tag",
+            "dev",
+            "--caching-method",
+            "paged-kv-cache",
+            "--batching-method",
+            "continuous-batching",
+            "--block-size",
+            "4",
+            "--num-blocks",
+            "32",
+            "--request-count",
+            "2",
+            "--prompt-length",
+            "4",
+            "--output-budget",
+            "2",
+            "--max-running-requests",
+            "2",
+            "--warmup",
+            "0",
+            "--repeats",
+            "1",
+            "--output",
+            str(out_path),
+        ]
+    )
+    ret = sched_cmd.handle_case(args)
+    assert ret == 0
+    assert captured_correctness_kwargs["mode"] == Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    assert captured_correctness_kwargs["paged_cache_config"] == PagedCacheConfig(block_size=4, num_blocks=32)
+    assert out_path.exists()
+    saved = json.loads(out_path.read_text(encoding="utf-8"))
+    assert saved["mode"] == "paged-kv-cache+continuous-batching"
+    assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["block_size"] == 4
+    assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["num_blocks"] == 32
 
 
 def test_run_scheduler_case_and_step_on_cpu():
@@ -87,7 +186,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = SchedulerSuiteCase(
-        id="continuous",
+        workload_id="test-cont-case",
         suite_name="test-cont-case",
         mode=mode,
         max_running_requests=2,
@@ -110,7 +209,8 @@ def test_run_scheduler_case_and_step_on_cpu():
         repeats=2,
     )
 
-    assert case_res.case_id == "continuous"
+    assert case_res.key.mode == mode
+    assert case_res.key.workload_id == "test-cont-case"
     assert case_res.workload.mode == mode
     assert case_res.workload.repeats == 2
     assert single_res.workload == case_res.workload
@@ -146,11 +246,11 @@ def test_run_scheduler_suite_on_cpu():
         vocab_size=model.config.vocab_size,
         warmup=0,
         repeats=2,
-        interleave=(BatchingMethod,),
+        interleave=(CaseDimension.BATCHING_METHOD,),
     )
 
     assert len(cases) == 2
-    assert {c.case_id for c in cases} == {"fixed", "continuous"}
+    assert {c.key.mode.batching_method for c in cases} == {BatchingMethod.FIXED, BatchingMethod.CONTINUOUS}
 
     # 验证控制台表格打印无异常
     print(format_table(cases, suite_name=suite.name))
@@ -180,6 +280,131 @@ def test_run_scheduler_suite_on_cpu():
     assert record["engine"] == "scheduler"
     assert record["suite"]["request_count"] == 2
     assert len(record["cases"]) == 2
+
+
+def test_run_scheduler_paged_case_on_cpu():
+    """验证 run_case_once 和 run_case 支持 Paged 缓存模式并正确采集 paged_cache 画像。"""
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    model = build_tiny_model()
+    device = torch.device("cpu")
+    specs = tuple(make_request_specs([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
+    mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    paged_config = PagedCacheConfig(block_size=4)
+
+    case = SchedulerSuiteCase(
+        workload_id="stress_case",
+        suite_name="test-paged-case",
+        mode=mode,
+        max_running_requests=2,
+        specs=specs,
+        paged_cache_config=paged_config,
+    )
+
+    # 1. 单次执行
+    single_res = run_case_once(model, device, case)
+    assert single_res.step_agg_metrics.e2e_wall_ms > 0
+    assert len(single_res.sequences) == 2
+    assert single_res.memory.kv_cache.paged_cache is not None
+    assert single_res.memory.kv_cache.paged_cache.block_size == 4
+    assert single_res.memory.kv_cache.paged_cache.peak_used_blocks > 0
+
+    # 2. 多轮执行
+    case_res = run_case(
+        model=model,
+        device=device,
+        case=case,
+        warmup=1,
+        repeats=2,
+    )
+    assert case_res.key.mode == mode
+    assert case_res.key.workload_id == "stress_case"
+    assert case_res.workload.mode == mode
+    assert case_res.memory.kv_cache.paged_cache is not None
+    assert case_res.memory.kv_cache.paged_cache.block_size == 4
+    assert case_res.memory.kv_cache.paged_cache.block_cold_allocation_count > 0
+
+
+def test_run_scheduler_suite_multi_workload_on_cpu():
+    """验证 run_suite 在多 workload_id 情况下能正确归集每个 case 的独立测量结果。"""
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    model = build_tiny_model()
+    device = torch.device("cpu")
+    spec_w0 = tuple(make_request_specs([[1, 2], [3, 4]], [2, 2], [0.0, 0.0]))
+    spec_w1 = tuple(make_request_specs([[5, 6, 7], [8, 9, 10]], [1, 1], [0.0, 0.0]))
+
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    paged_config = PagedCacheConfig(block_size=4)
+
+    cases = [
+        SchedulerSuiteCase(
+            workload_id="workload_0",
+            suite_name="multi-workload-suite",
+            mode=dense_mode,
+            max_running_requests=2,
+            specs=spec_w0,
+        ),
+        SchedulerSuiteCase(
+            workload_id="workload_0",
+            suite_name="multi-workload-suite",
+            mode=paged_mode,
+            max_running_requests=2,
+            specs=spec_w0,
+            paged_cache_config=paged_config,
+        ),
+        SchedulerSuiteCase(
+            workload_id="workload_1",
+            suite_name="multi-workload-suite",
+            mode=dense_mode,
+            max_running_requests=2,
+            specs=spec_w1,
+        ),
+        SchedulerSuiteCase(
+            workload_id="workload_1",
+            suite_name="multi-workload-suite",
+            mode=paged_mode,
+            max_running_requests=2,
+            specs=spec_w1,
+            paged_cache_config=paged_config,
+        ),
+    ]
+
+    class DummyMultiWorkloadSuite:
+        name = "multi-workload-suite"
+        warmup = 0
+        repeats = 2
+        max_running_requests = 2
+        interleave = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
+        comparison = None
+
+        def modes(self):
+            return [dense_mode, paged_mode]
+
+        def cases(self, vocab_size, device=None):
+            return cases
+
+    suite = DummyMultiWorkloadSuite()
+    results = run_suite(
+        model=model,
+        device=device,
+        suite=suite,
+        vocab_size=model.config.vocab_size,
+        warmup=0,
+        repeats=2,
+    )
+
+    assert len(results) == 4
+    # 验证返回顺序与 cases 一致，且负载规格与各 case 匹配
+    assert results[0].workload.prompt_len == 2
+    assert results[0].workload.mode == dense_mode
+    assert results[1].workload.prompt_len == 2
+    assert results[1].workload.mode == paged_mode
+    assert results[2].workload.prompt_len == 3
+    assert results[2].workload.mode == dense_mode
+    assert results[3].workload.prompt_len == 3
+    assert results[3].workload.mode == paged_mode
 
 
 def test_scheduler_suite_dry_run_main(capsys):

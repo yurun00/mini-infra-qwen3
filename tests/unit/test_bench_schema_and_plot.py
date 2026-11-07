@@ -34,7 +34,9 @@ from mini_infra.bench.schema import (
 )
 
 
-def _make_single_case_scheduler_dict(tag: str, case_id: str, mode: str, makespan: float, ttft_p50: float) -> dict:
+def _make_single_case_scheduler_dict(
+    tag: str, mode: str, makespan: float, ttft_p50: float, workload_id: str = "custom"
+) -> dict:
     """构造单 Case 的 SchedulerBenchmarkRecord 字典供测试使用。"""
 
     def stat(v: float) -> dict[str, float]:
@@ -65,7 +67,7 @@ def _make_single_case_scheduler_dict(tag: str, case_id: str, mode: str, makespan
         "suite": None,
         "cases": [
             {
-                "case_id": case_id,
+                "workload_id": workload_id,
                 "mode": mode,
                 "batch_size": 8,
                 "prompt_len": 128,
@@ -153,11 +155,13 @@ def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
         Path("benchmarks/result-history/lockstep/1c21386_v0.3.0.json"), require_single_case=True
     )
     sched_rec_1 = validate_benchmark_record(
-        _make_single_case_scheduler_dict("v0.4.0", "fixed", "kv-cache+fixed-batching", 2800.0, 46.0),
+        _make_single_case_scheduler_dict("v0.4.0", "kv-cache+fixed-batching", 2800.0, 46.0, workload_id="fixed"),
         require_single_case=True,
     )
     sched_rec_2 = validate_benchmark_record(
-        _make_single_case_scheduler_dict("v0.5.0", "continuous", "kv-cache+continuous-batching", 2100.0, 44.0),
+        _make_single_case_scheduler_dict(
+            "v0.5.0", "kv-cache+continuous-batching", 2100.0, 44.0, workload_id="continuous"
+        ),
         require_single_case=True,
     )
     assert isinstance(sched_rec_1, SchedulerBenchmarkRecord)
@@ -201,12 +205,18 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     sched_fixed_path = tmp_path / "sched_fixed.json"
     sched_cont_path = tmp_path / "sched_cont.json"
     sched_fixed_path.write_text(
-        json.dumps(_make_single_case_scheduler_dict("v0.4.0-fixed", "fixed", "kv-cache+fixed-batching", 2800.0, 46.0)),
+        json.dumps(
+            _make_single_case_scheduler_dict(
+                "v0.4.0-fixed", "kv-cache+fixed-batching", 2800.0, 46.0, workload_id="fixed"
+            )
+        ),
         encoding="utf-8",
     )
     sched_cont_path.write_text(
         json.dumps(
-            _make_single_case_scheduler_dict("v0.4.0-cont", "continuous", "kv-cache+continuous-batching", 2100.0, 44.0)
+            _make_single_case_scheduler_dict(
+                "v0.4.0-cont", "kv-cache+continuous-batching", 2100.0, 44.0, workload_id="continuous"
+            )
         ),
         encoding="utf-8",
     )
@@ -256,3 +266,83 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     plot_profiling_and_optimization(records, records[-1], prof_png)
     assert evo_png.exists()
     assert prof_png.exists()
+
+
+def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: Path):
+    """验证含 comparisons 与 workload_id 的 Scheduler 记录在 Pydantic 与 Pandas 宽表中的往返完整性。"""
+    data = _make_single_case_scheduler_dict(
+        "v0.5.0-paged",
+        "paged-kv-cache+continuous-batching",
+        1800.0,
+        40.0,
+        workload_id="length_ratio_2048",
+    )
+    data["cases"][0]["repeat_samples"] = [{"makespan_ms": 1800.0, "peak_allocated_mb": 1234.5}]
+    data["comparisons"] = [
+        {
+            "baseline_key": {
+                "workload_id": "length_ratio_2048",
+                "mode": "dense/continuous",
+                "max_running_requests": 8,
+            },
+            "candidate_key": {
+                "workload_id": "length_ratio_2048",
+                "mode": "paged/continuous",
+                "max_running_requests": 8,
+                "paged_cache_config": {"block_size": 16, "num_blocks": 100},
+            },
+            "metric_path": "schedule_metrics.makespan_ms",
+            "metric_name": "makespan",
+            "kind": "speedup",
+            "baseline_value": 2100.0,
+            "candidate_value": 1800.0,
+            "ratio": 0.8571,
+            "relative_delta": -0.1429,
+            "speedup": 1.1667,
+            "formatted": "speedup 1.17x",
+        }
+    ]
+
+    json_path = tmp_path / "paged_record.json"
+    json_path.write_text(json.dumps(data), encoding="utf-8")
+
+    rec = load_benchmark_record(json_path, require_single_case=True)
+    assert isinstance(rec, SchedulerBenchmarkRecord)
+    assert len(rec.cases) == 1
+    assert rec.cases[0].workload_id == "length_ratio_2048"
+    assert len(rec.cases[0].repeat_samples) == 1
+    assert rec.cases[0].repeat_samples[0]["peak_allocated_mb"] == 1234.5
+    assert len(rec.comparisons) == 1
+    comp = rec.comparisons[0]
+    assert comp.baseline_key.workload_id == "length_ratio_2048"
+    assert comp.speedup == 1.1667
+    assert comp.metric_name == "makespan"
+    assert comp.candidate_key.paged_cache_config.block_size == 16
+
+    wide_df = records_to_wide_df([rec])
+    assert "workload_id" in wide_df.columns
+    assert wide_df["workload_id"].iloc[0] == "length_ratio_2048"
+
+
+def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPatch):
+    """验证 gpu_info 返回宿主机 CPU、系统内存、OS 平台与 CUDA 分配器配置。"""
+    from types import SimpleNamespace
+
+    import torch
+
+    from mini_infra.bench.common import gpu_info
+
+    monkeypatch.setattr(
+        torch.cuda,
+        "get_device_properties",
+        lambda _device=0: SimpleNamespace(name="Fake GPU", total_memory=24 * 1024**3),
+    )
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    info = gpu_info(0)
+    assert info["gpu"] == "Fake GPU"
+    assert info["total_memory_mb"] == 24 * 1024.0
+    assert isinstance(info["cpu"], str) and len(info["cpu"]) > 0
+    assert info["system_memory_mb"] is None or info["system_memory_mb"] > 0
+    assert isinstance(info["platform"], str) and len(info["platform"]) > 0
+    assert info["cuda_alloc_conf"] == "expandable_segments:True"
