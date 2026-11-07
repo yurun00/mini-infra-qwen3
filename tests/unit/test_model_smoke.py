@@ -7,6 +7,7 @@ from mini_infra.verification.smoke import (
     check_fixed_batching,
     check_kv_cache_correctness,
     check_output_shape_and_tied_weights,
+    check_paged_kv_cache,
 )
 
 
@@ -28,3 +29,7 @@ def test_fixed_batching():
 
 def test_continuous_batching():
     check_continuous_batching(build_tiny_model())
+
+
+def test_paged_kv_cache():
+    check_paged_kv_cache(build_tiny_model())
