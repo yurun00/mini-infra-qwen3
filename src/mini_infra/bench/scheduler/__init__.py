@@ -24,6 +24,9 @@ from mini_infra.bench.scheduler.run_suite import (
 from mini_infra.bench.scheduler.suites import (
     SCHEDULER_SUITES,
     SUITES,
+    DenseVsPagedBlockSizeSuite,
+    DenseVsPagedLengthRatioSuite,
+    DenseVsPagedLongShortStressSuite,
     FixedVsContinuousPrefillInterferenceSuite,
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
@@ -43,6 +46,9 @@ from mini_infra.bench.scheduler.types import (
 )
 
 __all__ = [
+    "DenseVsPagedBlockSizeSuite",
+    "DenseVsPagedLengthRatioSuite",
+    "DenseVsPagedLongShortStressSuite",
     "DistributionStats",
     "FixedVsContinuousPrefillInterferenceSuite",
     "FixedVsContinuousStaggeredArrivalsSuite",

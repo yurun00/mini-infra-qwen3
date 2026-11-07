@@ -18,6 +18,7 @@ import torch
 from mini_infra.bench.workloads import (
     make_alternating_budgets,
     make_arrival_times,
+    make_long_short_specs,
     make_sequences,
 )
 from mini_infra.core.block_manager import PagedCacheConfig
@@ -332,11 +333,323 @@ class FixedVsContinuousPrefillInterferenceSuite:
         return data
 
 
+@dataclass(frozen=True)
+class DenseVsPagedLongShortStressSuite:
+    """Dense 与 Paged KV Cache 在长短请求混杂压力负载下的对比评测套件。"""
+
+    name: str = "dense-vs-paged-long-short-stress"
+    max_running_requests: int = 8
+    short_prompt_length: int = 128
+    long_prompt_length: int = 2048
+    initial_short_requests: int = 7
+    followup_short_requests: int = 9
+    short_output: int = 96
+    followup_output: int = 64
+    long_output: int = 8
+    long_arrival_ms: float = 200.0
+    followup_arrival_ms: float = 201.0
+    block_size: int = 16
+    batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.CONTINUOUS,)
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE, CachingMethod.PAGED)
+    interleave: tuple[FeatureDimension, ...] = (CachingMethod,)
+    warmup: int = 1
+    repeats: int = 3
+
+    def __post_init__(self) -> None:
+        if self.max_running_requests < 1:
+            raise ValueError("max_running_requests 必须大于 0")
+        if self.initial_short_requests < 1 or self.followup_short_requests < 1:
+            raise ValueError("请求数量必须大于 0")
+        if self.initial_short_requests >= self.max_running_requests:
+            raise ValueError("initial_short_requests 必须小于 max_running_requests")
+        if self.short_prompt_length < 1 or self.long_prompt_length < 1:
+            raise ValueError("prompt_length 必须大于 0")
+        if self.short_output < 1 or self.followup_output < 1 or self.long_output < 1:
+            raise ValueError("输出预算必须大于 0")
+        if self.long_arrival_ms < 0 or self.followup_arrival_ms < self.long_arrival_ms:
+            raise ValueError("到达时间非法")
+        if self.block_size < 1:
+            raise ValueError("block_size 必须大于 0")
+        if self.warmup < 0 or self.repeats < 1:
+            raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
+        if not self.batching_methods:
+            raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
+
+    def modes(self) -> list[Mode]:
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
+
+    def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
+        return make_long_short_specs(
+            vocab_size=vocab_size,
+            short_prompt_length=self.short_prompt_length,
+            long_prompt_length=self.long_prompt_length,
+            initial_short_requests=self.initial_short_requests,
+            followup_short_requests=self.followup_short_requests,
+            short_output=self.short_output,
+            followup_output=self.followup_output,
+            long_output=self.long_output,
+            long_arrival_ms=self.long_arrival_ms,
+            followup_arrival_ms=self.followup_arrival_ms,
+            max_running_requests=self.max_running_requests,
+        )
+
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
+        specs = tuple(self.build_specs(vocab_size=vocab_size, device=device))
+        dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+        return [
+            SchedulerSuiteCase(
+                id="dense",
+                suite_name=self.name,
+                mode=dense_mode,
+                max_running_requests=self.max_running_requests,
+                specs=specs,
+            ),
+            SchedulerSuiteCase(
+                id="paged",
+                suite_name=self.name,
+                mode=paged_mode,
+                max_running_requests=self.max_running_requests,
+                specs=specs,
+                paged_cache_config=PagedCacheConfig(block_size=self.block_size),
+            ),
+        ]
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
+        data["interleave"] = _serialize_interleave(self.interleave)
+        return data
+
+
+@dataclass(frozen=True)
+class DenseVsPagedLengthRatioSuite:
+    """Dense 与 Paged KV Cache 在不同长 Prompt 长度下的对比评测套件（扫描长/短长度比）。"""
+
+    name: str = "dense-vs-paged-length-ratio"
+    max_running_requests: int = 8
+    short_prompt_length: int = 128
+    long_prompt_lengths: tuple[int, ...] = (128, 512, 2048, 3072)
+    initial_short_requests: int = 7
+    followup_short_requests: int = 9
+    short_output: int = 96
+    followup_output: int = 64
+    long_output: int = 8
+    long_arrival_ms: float = 200.0
+    followup_arrival_ms: float = 201.0
+    block_size: int = 16
+    batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.CONTINUOUS,)
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE, CachingMethod.PAGED)
+    interleave: tuple[FeatureDimension, ...] = (CachingMethod,)
+    warmup: int = 1
+    repeats: int = 3
+
+    def __post_init__(self) -> None:
+        if self.max_running_requests < 1:
+            raise ValueError("max_running_requests 必须大于 0")
+        if self.initial_short_requests < 1 or self.followup_short_requests < 1:
+            raise ValueError("请求数量必须大于 0")
+        if self.initial_short_requests >= self.max_running_requests:
+            raise ValueError("initial_short_requests 必须小于 max_running_requests")
+        if self.short_prompt_length < 1:
+            raise ValueError("short_prompt_length 必须大于 0")
+        if not self.long_prompt_lengths or any(length < 1 for length in self.long_prompt_lengths):
+            raise ValueError("long_prompt_lengths 必须包含大于 0 的整数")
+        if self.short_output < 1 or self.followup_output < 1 or self.long_output < 1:
+            raise ValueError("输出预算必须大于 0")
+        if self.long_arrival_ms < 0 or self.followup_arrival_ms < self.long_arrival_ms:
+            raise ValueError("到达时间非法")
+        if self.block_size < 1:
+            raise ValueError("block_size 必须大于 0")
+        if self.warmup < 0 or self.repeats < 1:
+            raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
+        if not self.batching_methods:
+            raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
+
+    def modes(self) -> list[Mode]:
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
+
+    def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
+        long_len = self.long_prompt_lengths[0] if self.long_prompt_lengths else 2048
+        return make_long_short_specs(
+            vocab_size=vocab_size,
+            short_prompt_length=self.short_prompt_length,
+            long_prompt_length=long_len,
+            initial_short_requests=self.initial_short_requests,
+            followup_short_requests=self.followup_short_requests,
+            short_output=self.short_output,
+            followup_output=self.followup_output,
+            long_output=self.long_output,
+            long_arrival_ms=self.long_arrival_ms,
+            followup_arrival_ms=self.followup_arrival_ms,
+            max_running_requests=self.max_running_requests,
+        )
+
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
+        dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+        suite_cases: list[SchedulerSuiteCase] = []
+        for long_len in self.long_prompt_lengths:
+            workload_id = f"length_ratio_{long_len}"
+            specs = tuple(
+                make_long_short_specs(
+                    vocab_size=vocab_size,
+                    short_prompt_length=self.short_prompt_length,
+                    long_prompt_length=long_len,
+                    initial_short_requests=self.initial_short_requests,
+                    followup_short_requests=self.followup_short_requests,
+                    short_output=self.short_output,
+                    followup_output=self.followup_output,
+                    long_output=self.long_output,
+                    long_arrival_ms=self.long_arrival_ms,
+                    followup_arrival_ms=self.followup_arrival_ms,
+                    max_running_requests=self.max_running_requests,
+                )
+            )
+            suite_cases.append(
+                SchedulerSuiteCase(
+                    id="dense",
+                    suite_name=self.name,
+                    mode=dense_mode,
+                    max_running_requests=self.max_running_requests,
+                    specs=specs,
+                    workload_id=workload_id,
+                )
+            )
+            suite_cases.append(
+                SchedulerSuiteCase(
+                    id="paged",
+                    suite_name=self.name,
+                    mode=paged_mode,
+                    max_running_requests=self.max_running_requests,
+                    specs=specs,
+                    workload_id=workload_id,
+                    paged_cache_config=PagedCacheConfig(block_size=self.block_size),
+                )
+            )
+        return suite_cases
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
+        data["interleave"] = _serialize_interleave(self.interleave)
+        data["long_prompt_lengths"] = list(self.long_prompt_lengths)
+        return data
+
+
+@dataclass(frozen=True)
+class DenseVsPagedBlockSizeSuite:
+    """Dense 与不同 block_size 的 Paged KV Cache 的对比评测套件（扫描块大小）。"""
+
+    name: str = "dense-vs-paged-block-size"
+    max_running_requests: int = 8
+    short_prompt_length: int = 128
+    long_prompt_length: int = 2048
+    initial_short_requests: int = 7
+    followup_short_requests: int = 9
+    short_output: int = 96
+    followup_output: int = 64
+    long_output: int = 8
+    long_arrival_ms: float = 200.0
+    followup_arrival_ms: float = 201.0
+    block_sizes: tuple[int, ...] = (8, 16, 32, 64)
+    batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.CONTINUOUS,)
+    cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE, CachingMethod.PAGED)
+    interleave: tuple[FeatureDimension, ...] = (CachingMethod,)
+    warmup: int = 1
+    repeats: int = 3
+
+    def __post_init__(self) -> None:
+        if self.max_running_requests < 1:
+            raise ValueError("max_running_requests 必须大于 0")
+        if self.initial_short_requests < 1 or self.followup_short_requests < 1:
+            raise ValueError("请求数量必须大于 0")
+        if self.initial_short_requests >= self.max_running_requests:
+            raise ValueError("initial_short_requests 必须小于 max_running_requests")
+        if self.short_prompt_length < 1 or self.long_prompt_length < 1:
+            raise ValueError("prompt_length 必须大于 0")
+        if self.short_output < 1 or self.followup_output < 1 or self.long_output < 1:
+            raise ValueError("输出预算必须大于 0")
+        if self.long_arrival_ms < 0 or self.followup_arrival_ms < self.long_arrival_ms:
+            raise ValueError("到达时间非法")
+        if not self.block_sizes or any(bs < 1 for bs in self.block_sizes):
+            raise ValueError("block_sizes 必须包含大于 0 的整数")
+        if self.warmup < 0 or self.repeats < 1:
+            raise ValueError("warmup 不能小于 0，repeats 必须大于 0")
+        if not self.batching_methods:
+            raise ValueError("batching_methods 不能为空")
+        if not self.cache_methods:
+            raise ValueError("cache_methods 不能为空")
+
+    def modes(self) -> list[Mode]:
+        return [Mode(cm, batching_method=bm) for bm in self.batching_methods for cm in self.cache_methods]
+
+    def build_specs(self, vocab_size: int, device: torch.device | None = None) -> list[RequestSpec]:
+        return make_long_short_specs(
+            vocab_size=vocab_size,
+            short_prompt_length=self.short_prompt_length,
+            long_prompt_length=self.long_prompt_length,
+            initial_short_requests=self.initial_short_requests,
+            followup_short_requests=self.followup_short_requests,
+            short_output=self.short_output,
+            followup_output=self.followup_output,
+            long_output=self.long_output,
+            long_arrival_ms=self.long_arrival_ms,
+            followup_arrival_ms=self.followup_arrival_ms,
+            max_running_requests=self.max_running_requests,
+        )
+
+    def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
+        specs = tuple(self.build_specs(vocab_size=vocab_size, device=device))
+        dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+        suite_cases: list[SchedulerSuiteCase] = [
+            SchedulerSuiteCase(
+                id="dense",
+                suite_name=self.name,
+                mode=dense_mode,
+                max_running_requests=self.max_running_requests,
+                specs=specs,
+                workload_id="block_size_sweep",
+            )
+        ]
+        for bs in self.block_sizes:
+            suite_cases.append(
+                SchedulerSuiteCase(
+                    id=f"paged-block-{bs}",
+                    suite_name=self.name,
+                    mode=paged_mode,
+                    max_running_requests=self.max_running_requests,
+                    specs=specs,
+                    workload_id="block_size_sweep",
+                    paged_cache_config=PagedCacheConfig(block_size=bs),
+                )
+            )
+        return suite_cases
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["batching_methods"] = [str(m) for m in self.batching_methods]
+        data["cache_methods"] = [str(m) for m in self.cache_methods]
+        data["interleave"] = _serialize_interleave(self.interleave)
+        data["block_sizes"] = list(self.block_sizes)
+        return data
+
+
 SCHEDULER_SUITES: dict[str, SchedulerSuite] = {
     "fixed-vs-continuous-variable-output-length": FixedVsContinuousVariableOutputLengthSuite(),
     "fixed-vs-continuous-uniform-output-length": FixedVsContinuousUniformOutputLengthSuite(),
     "fixed-vs-continuous-staggered-arrivals": FixedVsContinuousStaggeredArrivalsSuite(),
     "fixed-vs-continuous-prefill-interference": FixedVsContinuousPrefillInterferenceSuite(),
+    "dense-vs-paged-long-short-stress": DenseVsPagedLongShortStressSuite(),
+    "dense-vs-paged-length-ratio": DenseVsPagedLengthRatioSuite(),
+    "dense-vs-paged-block-size": DenseVsPagedBlockSizeSuite(),
 }
 
 
@@ -356,6 +669,9 @@ def get_all_scheduler_suites() -> Sequence[SchedulerSuite]:
 
 
 __all__ = [
+    "DenseVsPagedBlockSizeSuite",
+    "DenseVsPagedLengthRatioSuite",
+    "DenseVsPagedLongShortStressSuite",
     "FixedVsContinuousPrefillInterferenceSuite",
     "FixedVsContinuousStaggeredArrivalsSuite",
     "FixedVsContinuousUniformOutputLengthSuite",

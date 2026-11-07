@@ -253,7 +253,9 @@ def test_multi_workload_id_grouping_and_interleaving():
 def test_existing_suites_plan_golden_invariance():
     from mini_infra.bench.scheduler.suites import get_all_scheduler_suites
 
-    for suite in get_all_scheduler_suites():
+    fixed_suites = [s for s in get_all_scheduler_suites() if s.name.startswith("fixed-vs-continuous")]
+    assert len(fixed_suites) == 4
+    for suite in fixed_suites:
         cases = suite.cases(vocab_size=100)
         plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=suite.interleave)
         # 既有 4 个 suite 全部为单 workload（workload_id=None），2 cases，只有 1 个 Group
@@ -262,3 +264,38 @@ def test_existing_suites_plan_golden_invariance():
         assert all(p.case.workload_id is None for p in plan)
         formatted = format_scheduler_run_plan(plan)
         assert "workload=" not in formatted
+
+
+def test_dense_vs_paged_suites_plan():
+    from mini_infra.bench.scheduler.suites import get_scheduler_suite
+
+    # 1. dense-vs-paged-long-short-stress: 1 workload, 2 cases (dense, paged)
+    stress_suite = get_scheduler_suite("dense-vs-paged-long-short-stress")
+    cases = stress_suite.cases(vocab_size=100)
+    assert len(cases) == 2
+    assert [c.id for c in cases] == ["dense", "paged"]
+    plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=stress_suite.interleave)
+    assert all(p.group_id == 0 for p in plan)
+    assert len(plan) == 8
+
+    # 2. dense-vs-paged-length-ratio: 4 workloads (length_ratio_128, 512, 2048, 3072), 8 cases, 4 groups
+    ratio_suite = get_scheduler_suite("dense-vs-paged-length-ratio")
+    cases = ratio_suite.cases(vocab_size=100)
+    assert len(cases) == 8
+    plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=ratio_suite.interleave)
+    assert len(plan) == 32
+    assert {p.group_id for p in plan} == {0, 1, 2, 3}
+    formatted = format_scheduler_run_plan(plan)
+    assert "workload=length_ratio_128" in formatted
+    assert "workload=length_ratio_3072" in formatted
+
+    # 3. dense-vs-paged-block-size: 1 workload (block_size_sweep), 5 cases (dense + 4 paged), 1 group
+    bs_suite = get_scheduler_suite("dense-vs-paged-block-size")
+    cases = bs_suite.cases(vocab_size=100)
+    assert len(cases) == 5
+    assert [c.id for c in cases] == ["dense", "paged-block-8", "paged-block-16", "paged-block-32", "paged-block-64"]
+    plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=bs_suite.interleave)
+    assert all(p.group_id == 0 for p in plan)
+    assert len(plan) == 20
+    formatted = format_scheduler_run_plan(plan)
+    assert "workload=block_size_sweep" in formatted
