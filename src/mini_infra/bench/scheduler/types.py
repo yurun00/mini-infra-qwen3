@@ -16,7 +16,7 @@ from mini_infra.engine.metrics import (
     ScheduleEvent,
     ScheduleMetrics,
     StepAggregatedMetrics,
-    merge_kv_cache_profiles,
+    summarize_repeated_kv_cache_profiles,
 )
 from mini_infra.engine.mode import Mode
 from mini_infra.engine.results import ScheduleResult
@@ -159,7 +159,7 @@ def summarize_same_workload_runs(
         worst_mem,
         peak_allocated_mb=max(r.memory.peak_allocated_mb for r in runs),
         peak_reserved_mb=max(r.memory.peak_reserved_mb for r in runs),
-        kv_cache=merge_kv_cache_profiles([r.memory.kv_cache for r in runs]),
+        kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
     )
 
     gpu_ratios = [r.step_agg_metrics.gpu_time_ratio for r in runs]

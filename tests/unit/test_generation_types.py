@@ -18,9 +18,12 @@ from mini_infra.engine.metrics import (
     GenerationTrace,
     KVCacheProfile,
     MemoryProfile,
+    PagedCacheProfile,
     StepAggregatedMetrics,
     build_memory_profile,
     compute_step_aggregated_metrics,
+    summarize_repeated_kv_cache_profiles,
+    summarize_repeated_paged_cache_profiles,
 )
 from mini_infra.engine.results import (
     AggregationOptions,
@@ -175,6 +178,71 @@ def test_build_memory_profile():
     assert mem.kv_cache.peak_live_kv_cache_mb == 50.0
     assert mem.dynamic_peak_mb == 100.0
     assert mem.fragmentation_mb == 100.0
+
+
+def test_summarize_repeated_cache_profiles():
+    """验证多轮同构 KV Cache 与 Paged Cache 画像的汇总与断言。"""
+    assert summarize_repeated_paged_cache_profiles([]) is None
+
+    p1 = PagedCacheProfile(
+        block_size=16,
+        bytes_per_block=4096,
+        num_blocks=100,
+        peak_used_blocks=20,
+        block_cold_allocation_count=20,
+        block_reuse_count=5,
+        block_release_count=10,
+    )
+    p2 = PagedCacheProfile(
+        block_size=16,
+        bytes_per_block=4096,
+        num_blocks=100,
+        peak_used_blocks=25,
+        block_cold_allocation_count=22,
+        block_reuse_count=8,
+        block_release_count=12,
+    )
+
+    merged_paged = summarize_repeated_paged_cache_profiles([p1, p2])
+    assert merged_paged is not None
+    assert merged_paged.block_size == 16
+    assert merged_paged.bytes_per_block == 4096
+    assert merged_paged.num_blocks == 100
+    assert merged_paged.peak_used_blocks == 25
+    assert merged_paged.block_cold_allocation_count == 42
+    assert merged_paged.block_reuse_count == 13
+    assert merged_paged.block_release_count == 22
+
+    # 异构配置断言失败
+    p_diff_block_size = PagedCacheProfile(block_size=32, bytes_per_block=4096, num_blocks=100)
+    with pytest.raises(AssertionError, match="identical physical pool configuration"):
+        summarize_repeated_paged_cache_profiles([p1, p_diff_block_size])
+
+    p_diff_num_blocks = PagedCacheProfile(block_size=16, bytes_per_block=4096, num_blocks=128)
+    with pytest.raises(AssertionError, match="identical physical pool configuration"):
+        summarize_repeated_paged_cache_profiles([p1, p_diff_num_blocks])
+
+    # KVCacheProfile 聚合
+    kv1 = KVCacheProfile(
+        peak_live_kv_cache_mb=10.0,
+        peak_kv_cache_pool_mb=50.0,
+        cache_realign_moved_bytes=100,
+        accessed_kv_cache_tokens=500,
+        paged_cache=p1,
+    )
+    kv2 = KVCacheProfile(
+        peak_live_kv_cache_mb=12.0,
+        peak_kv_cache_pool_mb=50.0,
+        cache_realign_moved_bytes=200,
+        accessed_kv_cache_tokens=600,
+        paged_cache=p2,
+    )
+    merged_kv = summarize_repeated_kv_cache_profiles([kv1, kv2])
+    assert merged_kv.peak_live_kv_cache_mb == 12.0
+    assert merged_kv.peak_kv_cache_pool_mb == 50.0
+    assert merged_kv.cache_realign_moved_bytes == 300
+    assert merged_kv.accessed_kv_cache_tokens == 1100
+    assert merged_kv.paged_cache == merged_paged
 
 
 def test_compute_step_aggregated_metrics():
