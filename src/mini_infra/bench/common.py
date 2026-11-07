@@ -457,11 +457,7 @@ def check_correctness(
 ) -> CorrectnessReport:
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    options = (
-        GenerationOptions(device=device, paged_cache_config=paged_cache_config)
-        if paged_cache_config is not None
-        else GenerationOptions(device=device)
-    )
+    options = GenerationOptions(device=device, paged_cache_config=paged_cache_config)
     res = generate(
         mode,
         model,

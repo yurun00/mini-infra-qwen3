@@ -28,10 +28,10 @@ from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 
 
 def resolve_paged_cache(mode: Mode, opts: GenerationOptions) -> PagedCacheConfig | None:
-    """按 Mode 提取 Paged KV Cache 配置：未启用 PAGED 返回 None；启用则返回其配置。"""
+    """按 Mode 提取 Paged KV Cache 配置：未启用 PAGED 返回 None；启用则返回其配置（默认 PagedCacheConfig()）。"""
     if mode.caching_method is not CachingMethod.PAGED:
         return None
-    return opts.paged_cache_config
+    return opts.paged_cache_config or PagedCacheConfig()
 
 
 @torch.inference_mode()
