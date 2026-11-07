@@ -201,7 +201,7 @@
           "max": 0.6578354371033901
         }
       },
-      "case_id": "fixed",
+      "workload_id": "fixed",
       "max_running_requests": 4,
       "arrival_times_ms": [
         0.0,
@@ -1902,7 +1902,7 @@
           "max": 0.7145580681865942
         }
       },
-      "case_id": "fixed",
+      "workload_id": "fixed",
       "max_running_requests": 8,
       "arrival_times_ms": [
         0.0,
@@ -6407,7 +6407,7 @@
           "max": 0.6747678567853826
         }
       },
-      "case_id": "fixed",
+      "workload_id": "fixed",
       "max_running_requests": 16,
       "arrival_times_ms": [
         0.0,

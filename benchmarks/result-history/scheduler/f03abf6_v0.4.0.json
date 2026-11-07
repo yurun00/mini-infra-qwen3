@@ -201,7 +201,7 @@
           "max": 0.9352962029836207
         }
       },
-      "case_id": "continuous",
+      "workload_id": "continuous",
       "max_running_requests": 4,
       "arrival_times_ms": [
         0.0,
@@ -1647,7 +1647,7 @@
           "max": 0.872846916440474
         }
       },
-      "case_id": "continuous",
+      "workload_id": "continuous",
       "max_running_requests": 8,
       "arrival_times_ms": [
         0.0,
@@ -5700,7 +5700,7 @@
           "max": 0.8474971547810406
         }
       },
-      "case_id": "continuous",
+      "workload_id": "continuous",
       "max_running_requests": 16,
       "arrival_times_ms": [
         0.0,

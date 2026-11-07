@@ -17,7 +17,8 @@ pydantic.BaseModel
       │         ├── LockstepCaseRecord     <-> bench.lockstep.types.LockstepCaseResult
       │         │                              (扩展 ttft_ms, tpot_ms, op_latency_breakdown)
       │         └── SchedulerCaseRecord    <-> bench.scheduler.types.SchedulerCaseResult
-      │                                        (扩展 case_id, max_running_requests, arrival_times_ms, schedule 等)
+      │                                        (扩展 workload_id, max_running_requests,
+      │                                         arrival_times_ms, schedule, paged_cache_config 等)
       │
       └── 第三层：顶层文件信封层 (Envelope Level) + 判别式联合 (Discriminated Union)
            └── BenchmarkEnvelopeBase       # 共享顶层元数据 (schema_version, tag, git, env, config, correctness, suite)
@@ -46,7 +47,7 @@ from mini_infra.bench.common import (
 
 if TYPE_CHECKING:
     from mini_infra.bench.lockstep.types import LockstepCaseResult
-    from mini_infra.bench.scheduler.types import SchedulerCaseResult
+    from mini_infra.bench.scheduler.types import MetricComparison, SchedulerCaseResult
 
 
 # ============================================================================
@@ -224,15 +225,50 @@ class LockstepCaseRecord(BaseCaseRecord):
     op_latency_breakdown: dict[str, Any] | None = None
 
 
+class PagedCacheConfigRecord(_DictAccessModel):
+    """Paged KV Cache 配置记录。"""
+
+    block_size: int = 16
+    num_blocks: int | None = None
+
+
+class CaseKeyRecord(_DictAccessModel):
+    """用例身份键记录。"""
+
+    workload_id: str
+    mode: str
+    max_running_requests: int
+    paged_cache_config: PagedCacheConfigRecord | None = None
+
+
 class SchedulerCaseRecord(BaseCaseRecord):
     """Scheduler 单用例评测结果记录（对应 `bench.scheduler.types.SchedulerCaseResult.to_record_dict()`）。"""
 
-    case_id: str
+    workload_id: str
     max_running_requests: int
     arrival_times_ms: float | list[float] = 0.0
     schedule: ScheduleMetricsRecord
     repeat_samples: list[dict[str, Any]] = Field(default_factory=list)
     sample_event_trace: list[dict[str, Any]] = Field(default_factory=list)
+    paged_cache_config: PagedCacheConfigRecord | None = None
+
+
+class MetricComparisonRecord(_DictAccessModel):
+    """通用基准指标相对对比统计。"""
+
+    baseline_key: CaseKeyRecord
+    candidate_key: CaseKeyRecord
+    metric_path: str
+    metric_name: str
+    kind: str
+    baseline_value: float
+    candidate_value: float
+    ratio: float
+    relative_delta: float
+    speedup: float | None = None
+    gain: float | None = None
+    reduction: float | None = None
+    formatted: str | None = None
 
 
 # ============================================================================
@@ -269,6 +305,7 @@ class SchedulerBenchmarkRecord(BenchmarkEnvelopeBase):
 
     engine: Literal["scheduler"] = "scheduler"
     cases: list[SchedulerCaseRecord]
+    comparisons: list[MetricComparisonRecord] = Field(default_factory=list)
 
 
 AnyBenchmarkRecord = Annotated[
@@ -295,6 +332,7 @@ def build_benchmark_record(
     repeats: int,
     suite_info: dict[str, Any] | None = None,
     engine: Literal["lockstep", "scheduler"] | None = None,
+    comparisons: Sequence["MetricComparison"] | None = None,
 ) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
     """统一构建 Lockstep 或 Scheduler 标准评测结果信封（由 Pydantic 校验并返回模型）。"""
     if engine is None:
@@ -344,6 +382,13 @@ def build_benchmark_record(
     }
     if suite_info is not None:
         payload["suite"] = suite_info
+
+    if engine == "scheduler":
+        if comparisons is not None:
+            comp_list = [c.to_dict() for c in comparisons]
+        else:
+            comp_list = []
+        payload["comparisons"] = comp_list
 
     return _BENCHMARK_RECORD_ADAPTER.validate_python(payload)
 
@@ -408,13 +453,16 @@ __all__ = [
     "AnyBenchmarkRecord",
     "BaseCaseRecord",
     "BenchmarkEnvelopeBase",
+    "CaseKeyRecord",
     "DistributionStatsRecord",
     "EfficiencyMetricsRecord",
     "KVCacheProfileRecord",
     "LockstepBenchmarkRecord",
     "LockstepCaseRecord",
     "MemoryProfileRecord",
+    "MetricComparisonRecord",
     "PackingInfoRecord",
+    "PagedCacheConfigRecord",
     "PagedCacheProfileRecord",
     "ScheduleMetricsRecord",
     "SchedulerBenchmarkRecord",

@@ -22,8 +22,8 @@ from mini_infra.bench.common import (
     save_benchmark_record,
 )
 from mini_infra.bench.scheduler.format import (
-    compute_continuous_makespan_speedup,
     format_case_summary,
+    format_comparison,
     format_table,
 )
 from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
@@ -34,9 +34,11 @@ from mini_infra.bench.scheduler.run_suite import (
 )
 from mini_infra.bench.scheduler.suites import (
     SCHEDULER_SUITES,
+    CaseDimension,
     SchedulerSuiteCase,
     get_suite,
 )
+from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
@@ -81,7 +83,10 @@ def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--interleave",
         nargs="*",
         default=None,
-        help="选择交替轮换的特征维度（如 batching_method caching_method，或 none 关闭交替；默认使用 Suite 的配置）",
+        help=(
+            f"选择交替轮换的特征维度（可选: {[d.value for d in CaseDimension]}，"
+            "或 none 关闭交替；默认使用 Suite 的配置）"
+        ),
     )
     p.add_argument(
         "--dry-run",
@@ -160,13 +165,12 @@ def handle_case(args: argparse.Namespace) -> int:
     specs = tuple(build_scheduler_request_specs(workload, vocab))
     case_name = "custom"
 
-    case_variant_id = "continuous" if method == BatchingMethod.CONTINUOUS else "fixed"
     case = SchedulerSuiteCase(
-        id=case_variant_id,
         suite_name=case_name,
         mode=target_mode,
         max_running_requests=max_running,
         specs=specs,
+        workload_id="custom",
     )
 
     print(
@@ -264,8 +268,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
         print(
-            f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | "
-            f"case_id={case.id} mode={case.mode} max_running={case.max_running_requests} ...",
+            f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | {case.key} ...",
             flush=True,
         )
 
@@ -280,9 +283,16 @@ def handle_suite(args: argparse.Namespace) -> int:
         on_step_progress=on_suite_step,
     )
 
-    speedup = compute_continuous_makespan_speedup(results)
     for res in results:
-        print(format_case_summary(res, speedup=speedup))
+        print(format_case_summary(res))
+
+    comparisons: list[MetricComparison] = []
+    if suite.comparison is not None:
+        comparisons = compute_comparisons(results, suite.comparison)
+        if comparisons:
+            print(f"\n--- Comparisons (suite: {suite.name}) ---")
+            for comp in comparisons:
+                print(format_comparison(comp))
 
     record = build_benchmark_record(
         args=args,
@@ -298,6 +308,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         repeats=repeats,
         suite_info=suite.to_dict(),
         engine="scheduler",
+        comparisons=comparisons,
     )
 
     scheduler_dir = BENCH_ARTIFACTS_DIR / "suites" / "scheduler"

@@ -2,8 +2,8 @@
 
 from mini_infra.bench.scheduler.format import (
     build_benchmark_record,
-    compute_continuous_makespan_speedup,
     format_case_summary,
+    format_comparison,
     format_table,
 )
 from mini_infra.bench.scheduler.plan import (
@@ -11,7 +11,6 @@ from mini_infra.bench.scheduler.plan import (
     RunPhase,
     build_scheduler_run_plan,
     format_scheduler_run_plan,
-    parse_interleave_dimension,
 )
 from mini_infra.bench.scheduler.run_case import (
     run_case,
@@ -19,11 +18,17 @@ from mini_infra.bench.scheduler.run_case import (
 )
 from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_args,
+    parse_interleave_dimension,
     run_suite,
 )
 from mini_infra.bench.scheduler.suites import (
     SCHEDULER_SUITES,
     SUITES,
+    CaseDimension,
+    CaseDimensionValue,
+    CaseKey,
+    ComparisonMetric,
+    ComparisonSpec,
     DenseVsPagedBlockSizeSuite,
     DenseVsPagedLengthRatioSuite,
     DenseVsPagedLongShortStressSuite,
@@ -31,6 +36,7 @@ from mini_infra.bench.scheduler.suites import (
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
     FixedVsContinuousVariableOutputLengthSuite,
+    MetricKind,
     SchedulerSuite,
     SchedulerSuiteCase,
     get_all_scheduler_suites,
@@ -39,13 +45,21 @@ from mini_infra.bench.scheduler.suites import (
 )
 from mini_infra.bench.scheduler.types import (
     DistributionStats,
+    MetricComparison,
     SchedulerCaseResult,
     WorkloadSpec,
-    summarize_same_workload_runs,
+    compute_comparisons,
+    resolve_metric_value,
+    summarize_same_case_runs,
     summarize_samples,
 )
 
 __all__ = [
+    "CaseDimension",
+    "CaseDimensionValue",
+    "CaseKey",
+    "ComparisonMetric",
+    "ComparisonSpec",
     "DenseVsPagedBlockSizeSuite",
     "DenseVsPagedLengthRatioSuite",
     "DenseVsPagedLongShortStressSuite",
@@ -54,6 +68,8 @@ __all__ = [
     "FixedVsContinuousStaggeredArrivalsSuite",
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
+    "MetricComparison",
+    "MetricKind",
     "PlannedRun",
     "RunPhase",
     "SCHEDULER_SUITES",
@@ -64,8 +80,9 @@ __all__ = [
     "WorkloadSpec",
     "build_benchmark_record",
     "build_scheduler_run_plan",
-    "compute_continuous_makespan_speedup",
+    "compute_comparisons",
     "format_case_summary",
+    "format_comparison",
     "format_scheduler_run_plan",
     "format_table",
     "get_all_scheduler_suites",
@@ -73,9 +90,10 @@ __all__ = [
     "get_suite",
     "parse_interleave_args",
     "parse_interleave_dimension",
+    "resolve_metric_value",
     "run_case",
     "run_case_once",
     "run_suite",
-    "summarize_same_workload_runs",
+    "summarize_same_case_runs",
     "summarize_samples",
 ]

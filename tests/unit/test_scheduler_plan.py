@@ -5,11 +5,10 @@ import pytest
 from mini_infra.bench.scheduler.plan import (
     RunPhase,
     build_scheduler_run_plan,
-    extract_case_feature,
     format_scheduler_run_plan,
-    parse_interleave_dimension,
 )
-from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
+from mini_infra.bench.scheduler.run_suite import parse_interleave_dimension
+from mini_infra.bench.scheduler.suites import CaseDimension, SchedulerSuiteCase
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
@@ -18,14 +17,13 @@ def make_dummy_case(
     batching_method: BatchingMethod,
     kv_cache: bool,
     suite_name: str = "test-suite",
-    case_id: str | None = None,
+    workload_id: str = "test_workload",
 ) -> SchedulerSuiteCase:
     caching_method = CachingMethod.DENSE if kv_cache else CachingMethod.NONE
     mode = Mode(caching_method, batching_method=batching_method)
     spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
-    cid = case_id or ("continuous" if batching_method == BatchingMethod.CONTINUOUS else "fixed")
     return SchedulerSuiteCase(
-        id=cid,
+        workload_id=workload_id,
         suite_name=suite_name,
         mode=mode,
         max_running_requests=2,
@@ -34,28 +32,34 @@ def make_dummy_case(
 
 
 def test_parse_interleave_dimension():
-    assert parse_interleave_dimension("batching_method") is BatchingMethod
-    assert parse_interleave_dimension("caching_method") is CachingMethod
+    assert parse_interleave_dimension("batching_method") == CaseDimension.BATCHING_METHOD
+    assert parse_interleave_dimension("caching_method") == CaseDimension.CACHING_METHOD
+    assert parse_interleave_dimension("paged_cache_config") == CaseDimension.PAGED_CACHE_CONFIG
+    assert parse_interleave_dimension("max_running_requests") == CaseDimension.MAX_RUNNING_REQUESTS
+    assert parse_interleave_dimension("workload_id") == CaseDimension.WORKLOAD_ID
 
-    with pytest.raises(ValueError, match="未知的 interleave 特征"):
+    with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
         parse_interleave_dimension("batch_method")
-    with pytest.raises(ValueError, match="未知的 interleave 特征"):
+    with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
         parse_interleave_dimension("batching-method")
-    with pytest.raises(ValueError, match="未知的 interleave 特征"):
+    with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
         parse_interleave_dimension("kv-cache")
-    with pytest.raises(ValueError, match="未知的 interleave 特征"):
+    with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
         parse_interleave_dimension("none")
-    with pytest.raises(ValueError, match="未知的 interleave 特征"):
+    with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
         parse_interleave_dimension("unsupported_dimension")
 
 
-def test_extract_case_feature():
+def test_case_key_dimension_value():
     case = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
-    assert extract_case_feature(case, BatchingMethod) == BatchingMethod.CONTINUOUS
-    assert extract_case_feature(case, CachingMethod) == CachingMethod.DENSE
+    assert case.key.value(CaseDimension.BATCHING_METHOD) == BatchingMethod.CONTINUOUS
+    assert case.key.value(CaseDimension.CACHING_METHOD) == CachingMethod.DENSE
+    assert case.key.value(CaseDimension.WORKLOAD_ID) == "test_workload"
+    assert case.key.value(CaseDimension.MAX_RUNNING_REQUESTS) == 2
+    assert case.key.value(CaseDimension.PAGED_CACHE_CONFIG) is None
 
-    with pytest.raises(TypeError, match="未知的特征维度类型"):
-        extract_case_feature(case, "batching_method")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="is not a valid CaseDimension"):
+        case.key.value("invalid_dimension")
 
 
 def test_interleave_batching_method_unselected_kv_cache():
@@ -77,7 +81,7 @@ def test_interleave_batching_method_unselected_kv_cache():
     c4 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=False)
     cases = [c1, c2, c3, c4]
 
-    plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=(BatchingMethod,))
+    plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=(CaseDimension.BATCHING_METHOD,))
 
     # 总步数：每个 Group 有 2 cases * 1 warmup + 2 cases * 3 repeats = 8 步，共 2 Groups = 16 步
     assert len(plan) == 16
@@ -146,7 +150,9 @@ def test_interleave_all_features():
     c2 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
     c3 = make_dummy_case(BatchingMethod.FIXED, kv_cache=False)
 
-    plan = build_scheduler_run_plan([c1, c2, c3], warmup=0, repeats=2, interleave=(BatchingMethod, CachingMethod))
+    plan = build_scheduler_run_plan(
+        [c1, c2, c3], warmup=0, repeats=2, interleave=(CaseDimension.BATCHING_METHOD, CaseDimension.CACHING_METHOD)
+    )
     assert len(plan) == 6
     assert all(p.group_id == 0 for p in plan)
 
@@ -160,13 +166,13 @@ def test_interleave_all_features():
 def test_interleave_invalid_type():
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
     with pytest.raises(TypeError, match="未知的 interleave 特征维度"):
-        build_scheduler_run_plan([c1], warmup=1, repeats=2, interleave=("batching_method",))  # type: ignore[arg-type]
+        build_scheduler_run_plan([c1], warmup=1, repeats=2, interleave=("unknown_feature",))  # type: ignore[arg-type]
 
 
 def test_format_scheduler_run_plan():
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
     c2 = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
-    plan = build_scheduler_run_plan([c1, c2], warmup=1, repeats=2, interleave=(BatchingMethod,))
+    plan = build_scheduler_run_plan([c1, c2], warmup=1, repeats=2, interleave=(CaseDimension.BATCHING_METHOD,))
     output = format_scheduler_run_plan(plan)
     assert "共 6 步" in output
     assert "warmup" in output
@@ -188,42 +194,43 @@ def test_multi_workload_id_grouping_and_interleaving():
 
     # 两个不同的 workload，每个 workload 包含 dense 和 paged 两种 caching_method
     w0_dense = SchedulerSuiteCase(
-        id="dense",
+        workload_id="workload_0",
         suite_name="test-multi-workload",
         mode=dense_mode,
         max_running_requests=2,
         specs=(spec,),
-        workload_id="workload_0",
     )
     w0_paged = SchedulerSuiteCase(
-        id="paged",
+        workload_id="workload_0",
         suite_name="test-multi-workload",
         mode=paged_mode,
         max_running_requests=2,
         specs=(spec,),
-        workload_id="workload_0",
         paged_cache_config=PagedCacheConfig(block_size=16),
     )
     w1_dense = SchedulerSuiteCase(
-        id="dense",
+        workload_id="workload_1",
         suite_name="test-multi-workload",
         mode=dense_mode,
         max_running_requests=2,
         specs=(spec,),
-        workload_id="workload_1",
     )
     w1_paged = SchedulerSuiteCase(
-        id="paged",
+        workload_id="workload_1",
         suite_name="test-multi-workload",
         mode=paged_mode,
         max_running_requests=2,
         specs=(spec,),
-        workload_id="workload_1",
         paged_cache_config=PagedCacheConfig(block_size=16),
     )
 
     cases = [w0_dense, w0_paged, w1_dense, w1_paged]
-    plan = build_scheduler_run_plan(cases, warmup=1, repeats=2, interleave=(CachingMethod,))
+    plan = build_scheduler_run_plan(
+        cases,
+        warmup=1,
+        repeats=2,
+        interleave=(CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG),
+    )
 
     # 每个 workload 对应 1 个 Group：2 cases * 1 warmup + 2 cases * 2 repeats = 6 步，共 2 Groups = 12 步
     assert len(plan) == 12
@@ -246,8 +253,8 @@ def test_multi_workload_id_grouping_and_interleaving():
     assert g0_steps[5].repeat_idx == 1 and g0_steps[5].case == w0_dense
 
     formatted = format_scheduler_run_plan(plan)
-    assert "workload=workload_0" in formatted
-    assert "workload=workload_1" in formatted
+    assert "[workload_0]" in formatted
+    assert "[workload_1]" in formatted
 
 
 def test_existing_suites_plan_golden_invariance():
@@ -258,12 +265,11 @@ def test_existing_suites_plan_golden_invariance():
     for suite in fixed_suites:
         cases = suite.cases(vocab_size=100)
         plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=suite.interleave)
-        # 既有 4 个 suite 全部为单 workload（workload_id=None），2 cases，只有 1 个 Group
         assert all(p.group_id == 0 for p in plan)
         assert len(plan) == 8  # 2 warmup + 2*3 measure
-        assert all(p.case.workload_id is None for p in plan)
+        assert all(p.case.workload_id == cases[0].workload_id for p in plan)
         formatted = format_scheduler_run_plan(plan)
-        assert "workload=" not in formatted
+        assert f"[{cases[0].workload_id}]" in formatted
 
 
 def test_dense_vs_paged_suites_plan():
@@ -273,7 +279,6 @@ def test_dense_vs_paged_suites_plan():
     stress_suite = get_scheduler_suite("dense-vs-paged-long-short-stress")
     cases = stress_suite.cases(vocab_size=100)
     assert len(cases) == 2
-    assert [c.id for c in cases] == ["dense", "paged"]
     plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=stress_suite.interleave)
     assert all(p.group_id == 0 for p in plan)
     assert len(plan) == 8
@@ -286,16 +291,33 @@ def test_dense_vs_paged_suites_plan():
     assert len(plan) == 32
     assert {p.group_id for p in plan} == {0, 1, 2, 3}
     formatted = format_scheduler_run_plan(plan)
-    assert "workload=length_ratio_128" in formatted
-    assert "workload=length_ratio_3072" in formatted
+    assert "[length_ratio_128]" in formatted
+    assert "[length_ratio_3072]" in formatted
 
     # 3. dense-vs-paged-block-size: 1 workload (block_size_sweep), 5 cases (dense + 4 paged), 1 group
     bs_suite = get_scheduler_suite("dense-vs-paged-block-size")
     cases = bs_suite.cases(vocab_size=100)
     assert len(cases) == 5
-    assert [c.id for c in cases] == ["dense", "paged-block-8", "paged-block-16", "paged-block-32", "paged-block-64"]
     plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=bs_suite.interleave)
     assert all(p.group_id == 0 for p in plan)
     assert len(plan) == 20
     formatted = format_scheduler_run_plan(plan)
-    assert "workload=block_size_sweep" in formatted
+    assert "[block_size_sweep]" in formatted
+
+
+def test_build_scheduler_run_plan_duplicate_case_key():
+    c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True, workload_id="w0")
+    c2 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True, workload_id="w0")
+    with pytest.raises(ValueError, match="存在重复的用例身份键（CaseKey）"):
+        build_scheduler_run_plan([c1, c2], warmup=1, repeats=2)
+
+
+def test_build_scheduler_run_plan_inconsistent_specs():
+    spec1 = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
+    spec2 = RequestSpec(request_idx=0, token_ids=[1, 2, 3], max_new_tokens=2, arrival_ms=0.0)
+    mode1 = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+    mode2 = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    c1 = SchedulerSuiteCase(workload_id="w0", suite_name="s", mode=mode1, max_running_requests=2, specs=(spec1,))
+    c2 = SchedulerSuiteCase(workload_id="w0", suite_name="s", mode=mode2, max_running_requests=2, specs=(spec2,))
+    with pytest.raises(ValueError, match="同一 workload_id 'w0' 下的用例请求规格（specs）不一致"):
+        build_scheduler_run_plan([c1, c2], warmup=1, repeats=2)

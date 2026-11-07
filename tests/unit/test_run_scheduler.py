@@ -10,7 +10,11 @@ from mini_infra.bench.scheduler import (
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite, SchedulerSuiteCase
+from mini_infra.bench.scheduler.suites import (
+    CaseDimension,
+    FixedVsContinuousVariableOutputLengthSuite,
+    SchedulerSuiteCase,
+)
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
@@ -87,7 +91,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = SchedulerSuiteCase(
-        id="continuous",
+        workload_id="test-cont-case",
         suite_name="test-cont-case",
         mode=mode,
         max_running_requests=2,
@@ -110,7 +114,8 @@ def test_run_scheduler_case_and_step_on_cpu():
         repeats=2,
     )
 
-    assert case_res.case_id == "continuous"
+    assert case_res.key.mode == mode
+    assert case_res.key.workload_id == "test-cont-case"
     assert case_res.workload.mode == mode
     assert case_res.workload.repeats == 2
     assert single_res.workload == case_res.workload
@@ -146,11 +151,11 @@ def test_run_scheduler_suite_on_cpu():
         vocab_size=model.config.vocab_size,
         warmup=0,
         repeats=2,
-        interleave=(BatchingMethod,),
+        interleave=(CaseDimension.BATCHING_METHOD,),
     )
 
     assert len(cases) == 2
-    assert {c.case_id for c in cases} == {"fixed", "continuous"}
+    assert {c.key.mode.batching_method for c in cases} == {BatchingMethod.FIXED, BatchingMethod.CONTINUOUS}
 
     # 验证控制台表格打印无异常
     print(format_table(cases, suite_name=suite.name))
@@ -193,12 +198,11 @@ def test_run_scheduler_paged_case_on_cpu():
     paged_config = PagedCacheConfig(block_size=4)
 
     case = SchedulerSuiteCase(
-        id="paged",
+        workload_id="stress_case",
         suite_name="test-paged-case",
         mode=mode,
         max_running_requests=2,
         specs=specs,
-        workload_id="stress_case",
         paged_cache_config=paged_config,
     )
 
@@ -218,7 +222,8 @@ def test_run_scheduler_paged_case_on_cpu():
         warmup=1,
         repeats=2,
     )
-    assert case_res.case_id == "paged"
+    assert case_res.key.mode == mode
+    assert case_res.key.workload_id == "stress_case"
     assert case_res.workload.mode == mode
     assert case_res.memory.kv_cache.paged_cache is not None
     assert case_res.memory.kv_cache.paged_cache.block_size == 4
@@ -240,37 +245,33 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
     cases = [
         SchedulerSuiteCase(
-            id="dense",
+            workload_id="workload_0",
             suite_name="multi-workload-suite",
             mode=dense_mode,
             max_running_requests=2,
             specs=spec_w0,
-            workload_id="workload_0",
         ),
         SchedulerSuiteCase(
-            id="paged",
+            workload_id="workload_0",
             suite_name="multi-workload-suite",
             mode=paged_mode,
             max_running_requests=2,
             specs=spec_w0,
-            workload_id="workload_0",
             paged_cache_config=paged_config,
         ),
         SchedulerSuiteCase(
-            id="dense",
+            workload_id="workload_1",
             suite_name="multi-workload-suite",
             mode=dense_mode,
             max_running_requests=2,
             specs=spec_w1,
-            workload_id="workload_1",
         ),
         SchedulerSuiteCase(
-            id="paged",
+            workload_id="workload_1",
             suite_name="multi-workload-suite",
             mode=paged_mode,
             max_running_requests=2,
             specs=spec_w1,
-            workload_id="workload_1",
             paged_cache_config=paged_config,
         ),
     ]
@@ -280,7 +281,8 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
         warmup = 0
         repeats = 2
         max_running_requests = 2
-        interleave = (CachingMethod,)
+        interleave = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
+        comparison = None
 
         def modes(self):
             return [dense_mode, paged_mode]

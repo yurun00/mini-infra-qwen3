@@ -12,7 +12,7 @@ import torch
 from mini_infra.bench.scheduler.suites import SchedulerSuiteCase
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
-    summarize_same_workload_runs,
+    summarize_same_case_runs,
 )
 from mini_infra.engine import ScheduleResult, run_scheduler
 
@@ -59,7 +59,7 @@ def run_case(
         if on_step_progress is not None:
             on_step_progress("measure", i, repeats)
         runs.append(run_case_once(model, device, case))
-    res = summarize_same_workload_runs(case.id, runs)
+    res = summarize_same_case_runs(case.key, runs)
     return replace(res, workload=replace(res.workload, warmup=warmup))
 
 

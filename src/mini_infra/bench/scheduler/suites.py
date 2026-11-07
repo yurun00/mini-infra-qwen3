@@ -7,10 +7,16 @@
    两策略耗时差距应收窄。
 3. fixed-vs-continuous-staggered-arrivals: 错峰到达请求。Continuous 随到随接，Fixed 必须等整批结束才能开新波次。
 4. fixed-vs-continuous-prefill-interference: 长 Prompt 在中途插入，引起持续的计算与缓存搬移开销。
+
+以及 Dense 与 Paged KV Cache 的 3 个对比套件：
+5. dense-vs-paged-long-short-stress: 长短 Prompt 混杂并发下的显存与延迟基准对比。
+6. dense-vs-paged-length-ratio: 扫描长短 Prompt 长度比。
+7. dense-vs-paged-block-size: 扫描 Paged 物理块大小（8/16/32/64）。
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
 import torch
@@ -23,31 +29,159 @@ from mini_infra.bench.workloads import (
 )
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.engine import BatchingMethod, CachingMethod, FeatureDimension, FeatureFlag, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
 
-INTERLEAVE_DIMENSIONS: dict[str, FeatureDimension] = {
-    "batching_method": BatchingMethod,
-    "caching_method": CachingMethod,
-}
+CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | PagedCacheConfig | None
+
+class CaseDimension(str, Enum):
+    """用例身份键（CaseKey）的正交特征维度枚举。"""
+
+    WORKLOAD_ID = "workload_id"
+    CACHING_METHOD = "caching_method"
+    BATCHING_METHOD = "batching_method"
+    FLAGS = "flags"
+    MAX_RUNNING_REQUESTS = "max_running_requests"
+    PAGED_CACHE_CONFIG = "paged_cache_config"
+
+
+@dataclass(frozen=True)
+class CaseKey:
+    """用例全局唯一身份键：由工作负载与系统配置正交维度完全确定。"""
+
+    workload_id: str
+    mode: Mode
+    max_running_requests: int
+    paged_cache_config: PagedCacheConfig | None = None
+
+    def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
+        d = dim if isinstance(dim, CaseDimension) else CaseDimension(dim)
+        if d is CaseDimension.WORKLOAD_ID:
+            return self.workload_id
+        if d is CaseDimension.CACHING_METHOD:
+            return self.mode.caching_method
+        if d is CaseDimension.BATCHING_METHOD:
+            return self.mode.batching_method
+        if d is CaseDimension.FLAGS:
+            return self.mode.flags
+        if d is CaseDimension.MAX_RUNNING_REQUESTS:
+            return self.max_running_requests
+        if d is CaseDimension.PAGED_CACHE_CONFIG:
+            return self.paged_cache_config
+        raise ValueError(f"未知维度: {dim}")
+
+    def project(self, dims: Iterable[CaseDimension | str]) -> tuple[CaseDimensionValue, ...]:
+        return tuple(self.value(d) for d in dims)
+
+    @property
+    def display_name(self) -> str:
+        parts = [f"[{self.workload_id}]", str(self.mode), f"mrr={self.max_running_requests}"]
+        if self.paged_cache_config is not None:
+            parts.append(f"block={self.paged_cache_config.block_size}")
+        return " | ".join(parts)
+
+    def __str__(self) -> str:
+        return self.display_name
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "workload_id": self.workload_id,
+            "mode": str(self.mode),
+            "max_running_requests": self.max_running_requests,
+        }
+        if self.paged_cache_config is not None:
+            data["paged_cache_config"] = {
+                "block_size": self.paged_cache_config.block_size,
+                "num_blocks": self.paged_cache_config.num_blocks,
+            }
+        return data
+
+
+class MetricKind(str, Enum):
+    """指标对比相对统计模式。"""
+
+    SPEEDUP = "speedup"  # baseline / candidate（如耗时/makespan 加速比，数值越小越好）
+    GAIN = "gain"  # (candidate - baseline) / baseline（如吞吐量增益，数值越大越好）
+    REDUCTION = "reduction"  # (baseline - candidate) / baseline（如显存/token 削减，数值越小越好）
+
+
+@dataclass(frozen=True)
+class ComparisonMetric:
+    """指定参与对比的指标点分路径与期望统计模式。"""
+
+    path: str
+    kind: MetricKind
+    name: str | None = None
+
+    @property
+    def display_name(self) -> str:
+        return self.name or self.path.rsplit(".", 1)[-1]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "kind": self.kind.value,
+            "name": self.display_name,
+        }
+
+
+@dataclass(frozen=True)
+class ComparisonSpec:
+    """Suite 级泛型对比规范配置。"""
+
+    metrics: tuple[ComparisonMetric, ...]
+    group_by: tuple[CaseDimension, ...]
+    baseline: Mapping[CaseDimension, CaseDimensionValue]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "metrics": [m.to_dict() for m in self.metrics],
+            "group_by": [d.value for d in self.group_by],
+            "baseline": {
+                d.value if isinstance(d, CaseDimension) else str(d): v.value if hasattr(v, "value") else str(v)
+                for d, v in self.baseline.items()
+            },
+        }
+
+
+FIXED_VS_CONTINUOUS_COMPARISON_METRICS: tuple[ComparisonMetric, ...] = (
+    ComparisonMetric("schedule_metrics.makespan_ms", MetricKind.SPEEDUP, "makespan"),
+)
+
+DENSE_VS_PAGED_COMPARISON_METRICS: tuple[ComparisonMetric, ...] = (
+    ComparisonMetric("schedule_metrics.makespan_ms", MetricKind.SPEEDUP, "makespan"),
+    ComparisonMetric("metrics.throughput_tok_s", MetricKind.GAIN, "throughput"),
+    ComparisonMetric("memory.kv_cache.accessed_kv_cache_tokens", MetricKind.REDUCTION, "KV-read"),
+    ComparisonMetric("memory.kv_cache.peak_kv_cache_pool_mb", MetricKind.REDUCTION, "pool"),
+)
 
 
 @dataclass(frozen=True)
 class SchedulerSuiteCase:
-    """Scheduler 评测最小单用例配置：包含用例 ID、套件名、运行模式（Mode）、最大并发数与请求规格。"""
+    """Scheduler 评测最小单用例配置：包含用例身份键（CaseKey）对应的全量维度与请求规格。"""
 
-    id: str
     suite_name: str
     mode: Mode
     max_running_requests: int
     specs: tuple[RequestSpec, ...]
-    workload_id: str | None = None
+    workload_id: str
     paged_cache_config: PagedCacheConfig | None = None
 
     def __post_init__(self) -> None:
+        if not self.workload_id:
+            raise ValueError("workload_id 不能为空")
         if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
             raise ValueError(f"Paged 模式 (mode={self.mode}) 必须提供 paged_cache_config")
         if self.mode.caching_method is not CachingMethod.PAGED and self.paged_cache_config is not None:
             raise ValueError(f"非 Paged 模式 (mode={self.mode}) 不得提供 paged_cache_config")
+
+    @property
+    def key(self) -> CaseKey:
+        return CaseKey(
+            workload_id=self.workload_id,
+            mode=self.mode,
+            max_running_requests=self.max_running_requests,
+            paged_cache_config=self.paged_cache_config,
+        )
 
     @property
     def request_count(self) -> int:
@@ -68,8 +202,8 @@ class SchedulerSuiteCase:
     def to_spec_dict(self) -> dict[str, Any]:
         """导出用例负载规格字典。"""
         data: dict[str, Any] = {
-            "case_id": self.id,
             "suite_name": self.suite_name,
+            "workload_id": self.workload_id,
             "mode": str(self.mode),
             "max_running_requests": self.max_running_requests,
             "request_count": self.request_count,
@@ -77,10 +211,11 @@ class SchedulerSuiteCase:
             "output_budgets": list(self.output_budgets),
             "arrival_times_ms": list(self.arrival_times_ms),
         }
-        if self.workload_id is not None:
-            data["workload_id"] = self.workload_id
         if self.paged_cache_config is not None:
-            data["block_size"] = self.paged_cache_config.block_size
+            data["paged_cache_config"] = {
+                "block_size": self.paged_cache_config.block_size,
+                "num_blocks": self.paged_cache_config.num_blocks,
+            }
         return data
 
 
@@ -92,7 +227,8 @@ class SchedulerSuite(Protocol):
     warmup: int
     repeats: int
     max_running_requests: int
-    interleave: tuple[FeatureDimension, ...]
+    interleave: tuple[CaseDimension, ...]
+    comparison: ComparisonSpec | None
 
     def modes(self) -> list[Mode]: ...
 
@@ -103,30 +239,23 @@ class SchedulerSuite(Protocol):
     def to_dict(self) -> dict[str, Any]: ...
 
 
-def _serialize_interleave(interleave: Sequence[FeatureDimension]) -> list[str]:
+def _serialize_interleave(interleave: Sequence[CaseDimension]) -> list[str]:
     """序列化 interleave 特征维度列表供 JSON 结果记录。"""
-    names = {dim: name for name, dim in INTERLEAVE_DIMENSIONS.items()}
-    return [d.value if isinstance(d, FeatureFlag) else names[d] for d in interleave]
+    return [d.value for d in interleave]
 
 
-def _case_id_for_mode(mode: Mode) -> str:
-    if mode.batching_method == BatchingMethod.FIXED:
-        return "fixed"
-    if mode.batching_method == BatchingMethod.CONTINUOUS:
-        return "continuous"
-    return str(mode)
-
-
-def _expand_suite_cases_by_modes(suite: SchedulerSuite, specs: Sequence[RequestSpec]) -> list[SchedulerSuiteCase]:
+def _expand_suite_cases_by_modes(
+    suite: SchedulerSuite, specs: Sequence[RequestSpec], workload_id: str
+) -> list[SchedulerSuiteCase]:
     """根据 Suite 的 modes() 列表与请求规格展开出具体的用例列表。"""
     specs_tuple = tuple(specs)
     return [
         SchedulerSuiteCase(
-            id=_case_id_for_mode(mode),
             suite_name=suite.name,
             mode=mode,
             max_running_requests=suite.max_running_requests,
             specs=specs_tuple,
+            workload_id=workload_id,
         )
         for mode in suite.modes()
     ]
@@ -144,9 +273,14 @@ class FixedVsContinuousVariableOutputLengthSuite:
     long_output: int = 32
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
-    interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.BATCHING_METHOD,)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=FIXED_VS_CONTINUOUS_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.BATCHING_METHOD: BatchingMethod.FIXED},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 1 or self.request_count < 1 or self.prompt_length < 1:
@@ -170,13 +304,17 @@ class FixedVsContinuousVariableOutputLengthSuite:
         return make_request_specs(sequences, budgets)
 
     def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
-        return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
+        return _expand_suite_cases_by_modes(
+            self, self.build_specs(vocab_size, device=device), workload_id="variable_output_length"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -191,9 +329,14 @@ class FixedVsContinuousUniformOutputLengthSuite:
     output_budget: int = 20
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
-    interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.BATCHING_METHOD,)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=FIXED_VS_CONTINUOUS_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.BATCHING_METHOD: BatchingMethod.FIXED},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 1 or self.request_count < 1 or self.prompt_length < 1:
@@ -217,13 +360,17 @@ class FixedVsContinuousUniformOutputLengthSuite:
         return make_request_specs(sequences, budgets)
 
     def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
-        return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
+        return _expand_suite_cases_by_modes(
+            self, self.build_specs(vocab_size, device=device), workload_id="uniform_output_length"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -240,9 +387,14 @@ class FixedVsContinuousStaggeredArrivalsSuite:
     arrival_interval_ms: float = 150.0
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
-    interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.BATCHING_METHOD,)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=FIXED_VS_CONTINUOUS_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.BATCHING_METHOD: BatchingMethod.FIXED},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 1 or self.request_count < 1 or self.prompt_length < 1:
@@ -269,13 +421,17 @@ class FixedVsContinuousStaggeredArrivalsSuite:
         return make_request_specs(sequences, budgets, arrivals)
 
     def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
-        return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
+        return _expand_suite_cases_by_modes(
+            self, self.build_specs(vocab_size, device=device), workload_id="staggered_arrivals"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -292,9 +448,14 @@ class FixedVsContinuousPrefillInterferenceSuite:
     interference_arrival_ms: float = 250.0
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.FIXED, BatchingMethod.CONTINUOUS)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE,)
-    interleave: tuple[FeatureDimension, ...] = (BatchingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.BATCHING_METHOD,)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=FIXED_VS_CONTINUOUS_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.BATCHING_METHOD: BatchingMethod.FIXED},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 3:
@@ -323,13 +484,17 @@ class FixedVsContinuousPrefillInterferenceSuite:
         return make_request_specs(sequences, budgets, arrivals)
 
     def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
-        return _expand_suite_cases_by_modes(self, self.build_specs(vocab_size, device=device))
+        return _expand_suite_cases_by_modes(
+            self, self.build_specs(vocab_size, device=device), workload_id="prefill_interference"
+        )
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["batching_methods"] = [str(m) for m in self.batching_methods]
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -351,9 +516,14 @@ class DenseVsPagedLongShortStressSuite:
     block_size: int = 16
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.CONTINUOUS,)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE, CachingMethod.PAGED)
-    interleave: tuple[FeatureDimension, ...] = (CachingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=DENSE_VS_PAGED_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.CACHING_METHOD: CachingMethod.DENSE},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 1:
@@ -396,23 +566,24 @@ class DenseVsPagedLongShortStressSuite:
         )
 
     def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
-        specs = tuple(self.build_specs(vocab_size=vocab_size, device=device))
+        specs = tuple(self.build_specs(vocab_size, device=device))
         dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+        workload_id = "long_short_stress"
         return [
             SchedulerSuiteCase(
-                id="dense",
                 suite_name=self.name,
                 mode=dense_mode,
                 max_running_requests=self.max_running_requests,
                 specs=specs,
+                workload_id=workload_id,
             ),
             SchedulerSuiteCase(
-                id="paged",
                 suite_name=self.name,
                 mode=paged_mode,
                 max_running_requests=self.max_running_requests,
                 specs=specs,
+                workload_id=workload_id,
                 paged_cache_config=PagedCacheConfig(block_size=self.block_size),
             ),
         ]
@@ -422,6 +593,8 @@ class DenseVsPagedLongShortStressSuite:
         data["batching_methods"] = [str(m) for m in self.batching_methods]
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -443,9 +616,14 @@ class DenseVsPagedLengthRatioSuite:
     block_size: int = 16
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.CONTINUOUS,)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE, CachingMethod.PAGED)
-    interleave: tuple[FeatureDimension, ...] = (CachingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=DENSE_VS_PAGED_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.CACHING_METHOD: CachingMethod.DENSE},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 1:
@@ -513,7 +691,6 @@ class DenseVsPagedLengthRatioSuite:
             )
             suite_cases.append(
                 SchedulerSuiteCase(
-                    id="dense",
                     suite_name=self.name,
                     mode=dense_mode,
                     max_running_requests=self.max_running_requests,
@@ -523,7 +700,6 @@ class DenseVsPagedLengthRatioSuite:
             )
             suite_cases.append(
                 SchedulerSuiteCase(
-                    id="paged",
                     suite_name=self.name,
                     mode=paged_mode,
                     max_running_requests=self.max_running_requests,
@@ -540,6 +716,8 @@ class DenseVsPagedLengthRatioSuite:
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
         data["long_prompt_lengths"] = list(self.long_prompt_lengths)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -561,9 +739,14 @@ class DenseVsPagedBlockSizeSuite:
     block_sizes: tuple[int, ...] = (8, 16, 32, 64)
     batching_methods: tuple[BatchingMethod, ...] = (BatchingMethod.CONTINUOUS,)
     cache_methods: tuple[CachingMethod, ...] = (CachingMethod.DENSE, CachingMethod.PAGED)
-    interleave: tuple[FeatureDimension, ...] = (CachingMethod,)
+    interleave: tuple[CaseDimension, ...] = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
     warmup: int = 1
     repeats: int = 3
+    comparison: ComparisonSpec | None = ComparisonSpec(
+        metrics=DENSE_VS_PAGED_COMPARISON_METRICS,
+        group_by=(CaseDimension.WORKLOAD_ID,),
+        baseline={CaseDimension.CACHING_METHOD: CachingMethod.DENSE},
+    )
 
     def __post_init__(self) -> None:
         if self.max_running_requests < 1:
@@ -606,28 +789,27 @@ class DenseVsPagedBlockSizeSuite:
         )
 
     def cases(self, vocab_size: int, device: torch.device | None = None) -> list[SchedulerSuiteCase]:
-        specs = tuple(self.build_specs(vocab_size=vocab_size, device=device))
+        specs = tuple(self.build_specs(vocab_size, device=device))
         dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+        workload_id = "block_size_sweep"
         suite_cases: list[SchedulerSuiteCase] = [
             SchedulerSuiteCase(
-                id="dense",
                 suite_name=self.name,
                 mode=dense_mode,
                 max_running_requests=self.max_running_requests,
                 specs=specs,
-                workload_id="block_size_sweep",
+                workload_id=workload_id,
             )
         ]
         for bs in self.block_sizes:
             suite_cases.append(
                 SchedulerSuiteCase(
-                    id=f"paged-block-{bs}",
                     suite_name=self.name,
                     mode=paged_mode,
                     max_running_requests=self.max_running_requests,
                     specs=specs,
-                    workload_id="block_size_sweep",
+                    workload_id=workload_id,
                     paged_cache_config=PagedCacheConfig(block_size=bs),
                 )
             )
@@ -639,6 +821,8 @@ class DenseVsPagedBlockSizeSuite:
         data["cache_methods"] = [str(m) for m in self.cache_methods]
         data["interleave"] = _serialize_interleave(self.interleave)
         data["block_sizes"] = list(self.block_sizes)
+        if self.comparison is not None:
+            data["comparison"] = self.comparison.to_dict()
         return data
 
 
@@ -669,14 +853,21 @@ def get_all_scheduler_suites() -> Sequence[SchedulerSuite]:
 
 
 __all__ = [
+    "CaseDimension",
+    "CaseDimensionValue",
+    "CaseKey",
+    "ComparisonMetric",
+    "ComparisonSpec",
+    "DENSE_VS_PAGED_COMPARISON_METRICS",
     "DenseVsPagedBlockSizeSuite",
     "DenseVsPagedLengthRatioSuite",
     "DenseVsPagedLongShortStressSuite",
+    "FIXED_VS_CONTINUOUS_COMPARISON_METRICS",
     "FixedVsContinuousPrefillInterferenceSuite",
     "FixedVsContinuousStaggeredArrivalsSuite",
     "FixedVsContinuousUniformOutputLengthSuite",
     "FixedVsContinuousVariableOutputLengthSuite",
-    "INTERLEAVE_DIMENSIONS",
+    "MetricKind",
     "SCHEDULER_SUITES",
     "SUITES",
     "SchedulerSuite",

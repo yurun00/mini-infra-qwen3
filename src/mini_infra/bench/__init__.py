@@ -1,11 +1,7 @@
-"""Benchmark 评测模块与领域类型。
+"""推理性能评测套件（bench 模块）。
 
-结构组织（按执行循环场景划分）：
-- mini_infra.bench.lockstep: 齐步（Lockstep）基准评测（run_case, run_suite, suites, types, format）
-- mini_infra.bench.scheduler: 队列调度（Fixed vs Continuous）基准评测（run_case, run_suite, suites, types, format）
-- mini_infra.bench.check_regression: 性能回归质量门禁守门（run_light_benchmark, compare, index）
-- mini_infra.bench.schema: 统一 Pydantic v2 Schema 与多态信封（LockstepBenchmarkRecord, SchedulerBenchmarkRecord）
-- mini_infra.bench.common: 共享基础设施（环境探测、CLI 参数、结果持久化）
+包含模型静态开销、硬件理论峰值上限、动态指标计算与统计聚合标准结构。
+统一承载固定批处理、动态批处理与无 Cache 场景下的吞吐与延迟基准对比。
 """
 
 from mini_infra.bench.common import (
@@ -43,6 +39,10 @@ from mini_infra.bench.lockstep import (
 )
 from mini_infra.bench.scheduler import (
     SCHEDULER_SUITES,
+    CaseDimension,
+    CaseKey,
+    ComparisonMetric,
+    ComparisonSpec,
     DenseVsPagedBlockSizeSuite,
     DenseVsPagedLengthRatioSuite,
     DenseVsPagedLongShortStressSuite,
@@ -50,16 +50,23 @@ from mini_infra.bench.scheduler import (
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
     FixedVsContinuousVariableOutputLengthSuite,
+    MetricComparison,
+    MetricKind,
     SchedulerCaseResult,
     SchedulerSuite,
     SchedulerSuiteCase,
+    compute_comparisons,
+    format_comparison,
     get_all_scheduler_suites,
     get_scheduler_suite,
-    summarize_same_workload_runs,
+    summarize_same_case_runs,
 )
 from mini_infra.bench.schema import (
     AnyBenchmarkRecord,
+    CaseKeyRecord,
     LockstepBenchmarkRecord,
+    MetricComparisonRecord,
+    PagedCacheConfigRecord,
     SchedulerBenchmarkRecord,
     build_benchmark_record,
     load_benchmark_record,
@@ -89,14 +96,15 @@ __all__ = [
     "AnyBenchmarkRecord",
     "BENCH_LOCKSTEP_WORKLOAD",
     "BENCH_SCHEDULER_WORKLOAD",
+    "CaseDimension",
+    "CaseKey",
+    "CaseKeyRecord",
+    "ComparisonMetric",
+    "ComparisonSpec",
+    "CorrectnessReport",
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",
     "DEFAULT_WORKLOAD_SEED",
-    "REPO_ROOT",
-    "SCHEDULER_SUITES",
-    "SUITES",
-    "WORKLOAD_SCALES",
-    "CorrectnessReport",
     "DenseVsPagedBlockSizeSuite",
     "DenseVsPagedLengthRatioSuite",
     "DenseVsPagedLongShortStressSuite",
@@ -109,7 +117,14 @@ __all__ = [
     "HardwarePeakSpecs",
     "LockstepBenchmarkRecord",
     "LockstepCaseResult",
+    "MetricComparison",
+    "MetricComparisonRecord",
+    "MetricKind",
     "ModelCostProfile",
+    "PagedCacheConfigRecord",
+    "REPO_ROOT",
+    "SCHEDULER_SUITES",
+    "SUITES",
     "SchedulerBenchmarkRecord",
     "SchedulerCaseResult",
     "SchedulerSuite",
@@ -119,13 +134,16 @@ __all__ = [
     "SuiteCase",
     "UniformVsVariableBudgetSlotsSuite",
     "UniformVsVariablePromptPaddingSuite",
+    "WORKLOAD_SCALES",
     "WorkloadScale",
     "WorkloadSpec",
     "add_common_args",
     "build_benchmark_record",
     "build_scheduler_request_specs",
     "check_correctness",
+    "compute_comparisons",
     "format_case_summary",
+    "format_comparison",
     "format_lengths",
     "format_table",
     "get_all_scheduler_suites",
@@ -149,7 +167,7 @@ __all__ = [
     "resolve_peak_specs",
     "run_case",
     "save_benchmark_record",
-    "summarize_same_workload_runs",
+    "summarize_same_case_runs",
     "summarize_samples",
     "validate_benchmark_record",
 ]
