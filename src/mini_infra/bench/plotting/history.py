@@ -666,10 +666,21 @@ def generate_optimization_guidance(target_rec: Any) -> str:
             f"- 🔹 **峰值活跃 KV Cache 为 {kv_mb:.1f} MiB**，动态显存峰值增量为 **{dyn_mb:.1f} MiB**，"
             f"Allocator 预留碎片为 **{frag_mb:.1f} MiB**，Cache 搬移开销占比为 **{cache_frac * 100:.2f}%**。"
         )
-        lines.append(
-            "- 👉 **下一步核心演进方向**：引入 **Paged KV Cache（分页键值缓存）** 与 **Prefix Cache**，"
-            "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密 batch slot 搬移。"
+        is_paged = (
+            "paged" in str(w.get("mode", "")).lower()
+            or "paged" in str(getattr(validated_target, "release_feature", "")).lower()
         )
+        if is_paged:
+            lines.append(
+                "- 👉 **下一步核心演进方向**：引入 **Prefix Cache（前缀缓存与物理块复用）** 与 "
+                "**Chunked Prefill / 融合 Paged Attention Kernel**，"
+                "按物理 Block 按需复用长 Prompt 并消除 Prefill 阶段的高峰值激活与跨层 gather 拷贝开销。"
+            )
+        else:
+            lines.append(
+                "- 👉 **下一步核心演进方向**：引入 **Paged KV Cache（分页键值缓存）** 与 **Prefix Cache**，"
+                "按固定大小物理 Block 按需分配与复用，彻底消除按最长序列预分配的显存碎片与稠密 batch slot 搬移。"
+            )
         lines.append("")
         return "\n".join(lines)
 

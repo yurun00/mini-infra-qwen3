@@ -17,6 +17,13 @@
         --batching-method fixed-batching \
         --skip-regression
 
+    # 发布 v0.5.0 (Scheduler: Paged KV Cache)
+    mini-infra bench release \
+        --engine scheduler \
+        --tag v0.5.0 \
+        --release-feature "paged kv cache" \
+        --caching-method paged-kv-cache
+
     # 发布 v0.4.0 (Scheduler: Continuous Batching)
     mini-infra bench release \
         --engine scheduler \
@@ -120,6 +127,7 @@ def build_scheduler_case_cmd(
     workload: WorkloadSpec,
     tag: str,
     release_feature: str,
+    block_size: int | None = None,
 ) -> list[str]:
     """将 WorkloadSpec 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
     cmd = [
@@ -134,6 +142,8 @@ def build_scheduler_case_cmd(
         tag,
         "--release-feature",
         release_feature,
+        "--caching-method",
+        workload.mode.caching_method.value,
         "--batching-method",
         workload.mode.batching_method.value,
         "--request-count",
@@ -145,6 +155,8 @@ def build_scheduler_case_cmd(
         "--repeats",
         str(workload.repeats),
     ]
+    if workload.mode.caching_method == CachingMethod.PAGED and block_size is not None:
+        cmd.extend(["--block-size", str(block_size)])
     if workload.scale is not None:
         cmd.extend(["--scale", str(workload.scale)])
     if workload.seed is not None:
@@ -238,6 +250,18 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="是否启用 KV Cache（默认: True）",
     )
     p.add_argument(
+        "--caching-method",
+        choices=[m.value for m in CachingMethod],
+        default=None,
+        help="覆盖 KV Cache 策略（默认根据 --kv-cache 为 dense-kv-cache 或 none）",
+    )
+    p.add_argument(
+        "--block-size",
+        type=int,
+        default=None,
+        help="Paged KV Cache 的 physical block 大小（默认: 16，仅 paged-kv-cache 时生效）",
+    )
+    p.add_argument(
         "--profile-mode",
         choices=["extra-profile", "full-profile", "none"],
         default=None,
@@ -278,7 +302,10 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
     """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 WorkloadSpec 字段保持一致）。"""
     steps: list[ReleaseStep] = []
-    caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
+    if getattr(args, "caching_method", None):
+        caching_method = CachingMethod(args.caching_method)
+    else:
+        caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
     scales: list[WorkloadScale] = list(getattr(args, "scales", None) or WORKLOAD_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
 
@@ -318,6 +345,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         default_bm = BENCH_SCHEDULER_WORKLOAD["medium"].mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         target_mode = Mode(caching_method, batching_method=bm)
+        block_size = getattr(args, "block_size", None)
 
         for sc in scales:
             target_wl = (
@@ -328,7 +356,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             steps.append(
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
-                    cmd=build_scheduler_case_cmd(target_wl, args.tag, args.release_feature),
+                    cmd=build_scheduler_case_cmd(target_wl, args.tag, args.release_feature, block_size=block_size),
                     artifacts=(SCHEDULER_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
                 )
             )

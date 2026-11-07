@@ -79,6 +79,13 @@ mini-infra bench release \
   --engine scheduler \
   --tag "v0.4.0" \
   --release-feature "continuous batching"
+
+# 3) 若为分页内存管理特性（如 v0.5.0 Paged KV Cache）：
+mini-infra bench release \
+  --engine scheduler \
+  --tag "v0.5.0" \
+  --release-feature "paged kv cache" \
+  --caching-method paged-kv-cache
 ```
 
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。
