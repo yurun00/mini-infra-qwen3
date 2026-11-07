@@ -44,7 +44,7 @@ class PagedCacheProfile:
     bytes_per_block: int = 0
     num_blocks: int = 0
     peak_used_blocks: int = 0
-    block_allocation_count: int = 0
+    block_cold_allocation_count: int = 0
     block_reuse_count: int = 0
     block_release_count: int = 0
 
@@ -54,7 +54,7 @@ class PagedCacheProfile:
             "bytes_per_block": self.bytes_per_block,
             "num_blocks": self.num_blocks,
             "peak_used_blocks": self.peak_used_blocks,
-            "block_allocation_count": self.block_allocation_count,
+            "block_cold_allocation_count": self.block_cold_allocation_count,
             "block_reuse_count": self.block_reuse_count,
             "block_release_count": self.block_release_count,
         }
@@ -64,18 +64,18 @@ class PagedCacheProfile:
 class KVCacheProfile:
     """KV Cache 画像：活跃/池容量、扩容搬移、带宽访问，及 Paged 专属块池明细。"""
 
-    kv_cache_mb: float = 0.0
-    peak_pool_cache_bytes: int = 0
-    cache_resize_moved_bytes: int = 0
-    visited_kv_token_slots: int = 0
+    peak_live_kv_cache_mb: float = 0.0
+    peak_kv_cache_pool_mb: float = 0.0
+    cache_realign_moved_bytes: int = 0
+    accessed_kv_cache_tokens: int = 0
     paged_cache: PagedCacheProfile | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
-            "kv_cache_mb": self.kv_cache_mb,
-            "peak_pool_cache_bytes": self.peak_pool_cache_bytes,
-            "cache_resize_moved_bytes": self.cache_resize_moved_bytes,
-            "visited_kv_token_slots": self.visited_kv_token_slots,
+            "peak_live_kv_cache_mb": self.peak_live_kv_cache_mb,
+            "peak_kv_cache_pool_mb": self.peak_kv_cache_pool_mb,
+            "cache_realign_moved_bytes": self.cache_realign_moved_bytes,
+            "accessed_kv_cache_tokens": self.accessed_kv_cache_tokens,
         }
         if self.paged_cache is not None:
             data["paged_cache"] = self.paged_cache.to_dict()
@@ -100,11 +100,6 @@ class MemoryProfile:
     @property
     def fragmentation_mb(self) -> float:
         return max(0.0, self.peak_reserved_mb - self.peak_allocated_mb)
-
-    @property
-    def peak_live_cache_mb(self) -> float:
-        """Serving 口径下的活跃 KV Cache 峰值别名（与 kv_cache.kv_cache_mb 等价）。"""
-        return self.kv_cache.kv_cache_mb
 
     def to_dict(self) -> dict[str, Any]:
         """导出为标准评测记录字典结构。"""
@@ -135,8 +130,35 @@ def build_memory_profile(
         prefill_mb=memory_after_prefill_bytes / mib,
         peak_allocated_mb=peak_allocated_bytes / mib,
         peak_reserved_mb=peak_reserved_bytes / mib,
-        kv_cache=KVCacheProfile(kv_cache_mb=cache_bytes / mib),
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=cache_bytes / mib),
         weights_mb=weights_mb,
+    )
+
+
+def merge_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) -> PagedCacheProfile | None:
+    """合并多轮运行的 Paged 物理块池画像：固定配置取首项，峰值取 max，计数取 sum。"""
+    if not paged:
+        return None
+    first = paged[0]
+    return PagedCacheProfile(
+        block_size=first.block_size,
+        bytes_per_block=first.bytes_per_block,
+        num_blocks=first.num_blocks,
+        peak_used_blocks=max((p.peak_used_blocks for p in paged), default=0),
+        block_cold_allocation_count=sum(p.block_cold_allocation_count for p in paged),
+        block_reuse_count=sum(p.block_reuse_count for p in paged),
+        block_release_count=sum(p.block_release_count for p in paged),
+    )
+
+
+def merge_kv_cache_profiles(profiles: Sequence[KVCacheProfile]) -> KVCacheProfile:
+    """合并多轮运行的 KV Cache 画像：容量峰值取 max，累计搬移/访问取 sum，Paged 明细用 merge_paged_cache_profiles。"""
+    return KVCacheProfile(
+        peak_live_kv_cache_mb=max((p.peak_live_kv_cache_mb for p in profiles), default=0.0),
+        peak_kv_cache_pool_mb=max((p.peak_kv_cache_pool_mb for p in profiles), default=0.0),
+        cache_realign_moved_bytes=sum(p.cache_realign_moved_bytes for p in profiles),
+        accessed_kv_cache_tokens=sum(p.accessed_kv_cache_tokens for p in profiles),
+        paged_cache=merge_paged_cache_profiles([p.paged_cache for p in profiles if p.paged_cache is not None]),
     )
 
 
@@ -261,6 +283,9 @@ class ScheduleEvent:
     model_ms: float
     cache_management_ms: float
     live_kv_cache_bytes: int
+    kv_cache_pool_bytes: int = 0
+    cache_realign_moved_bytes: int = 0
+    accessed_kv_cache_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -295,6 +320,7 @@ def summarize_schedule(
     e2e_wall_ms: float | None = None,
     is_cuda: bool = False,
     caching_method: CachingMethod = CachingMethod.DENSE,
+    paged_cache_profile: PagedCacheProfile | None = None,
 ) -> Any:
     """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
     from mini_infra.engine.results import ScheduleResult
@@ -325,6 +351,9 @@ def summarize_schedule(
     execution_slot_util = num_output_tokens / total_executed_slots if total_executed_slots else 0.0
     running_capacity_util = capacity_area / (max_running_requests * busy_ms) if busy_ms else 0.0
     peak_live_kv_cache_mb = max((e.live_kv_cache_bytes for e in events), default=0) / mib
+    peak_kv_cache_pool_mb = max((e.kv_cache_pool_bytes for e in events), default=0) / mib
+    cache_realign_moved_bytes = sum(e.cache_realign_moved_bytes for e in events)
+    accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
     prompt_len_by_request_idx = {state.spec.request_idx: state.spec.prompt_len for state in states}
     num_prompt_tokens = sum(state.spec.prompt_len for state in states)
@@ -356,7 +385,13 @@ def summarize_schedule(
         prefill_mb=None,
         peak_allocated_mb=peak_allocated_mb,
         peak_reserved_mb=peak_reserved_mb,
-        kv_cache=KVCacheProfile(kv_cache_mb=peak_live_kv_cache_mb),
+        kv_cache=KVCacheProfile(
+            peak_live_kv_cache_mb=peak_live_kv_cache_mb,
+            peak_kv_cache_pool_mb=peak_kv_cache_pool_mb,
+            cache_realign_moved_bytes=cache_realign_moved_bytes,
+            accessed_kv_cache_tokens=accessed_kv_cache_tokens,
+            paged_cache=paged_cache_profile,
+        ),
     )
     batch_info: BatchScheduleInfo[float] = BatchScheduleInfo(
         padding_efficiency=padding_efficiency,
@@ -412,5 +447,7 @@ __all__ = [
     "StepAggregatedMetrics",
     "build_memory_profile",
     "compute_step_aggregated_metrics",
+    "merge_kv_cache_profiles",
+    "merge_paged_cache_profiles",
     "summarize_schedule",
 ]

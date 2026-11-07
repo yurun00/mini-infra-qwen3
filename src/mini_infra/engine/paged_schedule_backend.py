@@ -14,6 +14,7 @@ from mini_infra.core.block_manager import (
 from mini_infra.core.request import RequestSpec, RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import synchronize
+from mini_infra.engine.metrics import PagedCacheProfile
 from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
 from mini_infra.worker import PagedKVCachePool, PagedRunner
@@ -96,6 +97,9 @@ class PagedScheduleBackend(ScheduleBackend):
             cache_ms=cache_ms,
             physical_batch_size=len(admitted),
             live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.pool.bytes_per_block,
+            kv_cache_pool_bytes=self.pool.total_bytes,
+            cache_realign_moved_bytes=0,
+            accessed_kv_cache_tokens=0,
         )
 
     def execute_decode(self, running_queue: RunningQueue) -> ScheduleStepOutput:
@@ -120,9 +124,23 @@ class PagedScheduleBackend(ScheduleBackend):
             cache_ms=cache_ms,
             physical_batch_size=active_before,
             live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.pool.bytes_per_block,
+            kv_cache_pool_bytes=self.pool.total_bytes,
+            cache_realign_moved_bytes=0,
+            accessed_kv_cache_tokens=sum(s.cache_length + 1 for s in running_queue),
         )
 
     def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
         for state in finished:
             self.kv_cache_manager.free(state.spec.request_idx)
         running_queue.retire(finished)
+
+    def collect_paged_cache_profile(self) -> PagedCacheProfile:
+        return PagedCacheProfile(
+            block_size=self.block_size,
+            bytes_per_block=self.pool.bytes_per_block,
+            num_blocks=self.pool.num_blocks,
+            peak_used_blocks=self.kv_cache_manager.peak_used_blocks,
+            block_cold_allocation_count=self.kv_cache_manager.block_cold_allocation_count,
+            block_reuse_count=self.kv_cache_manager.block_reuse_count,
+            block_release_count=self.kv_cache_manager.block_release_count,
+        )

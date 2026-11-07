@@ -131,7 +131,7 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert result.step_agg_metrics.ttft_ms is None
     assert result.step_agg_metrics.mean_tpot_ms is None
     assert result.memory.prefill_mb is None
-    assert result.memory.peak_live_cache_mb == result.memory.kv_cache.kv_cache_mb
+    assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
     assert result.batch_info is not None
     assert result.batch_info.slot_utilization == result.batch_info.execution_slot_utilization
     assert result.batch_info.running_capacity_utilization is not None
@@ -181,7 +181,7 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     # Decode 总是以 capacity 行执行
     assert all(e.physical_batch_size == 2 for e in result.events if e.phase is SchedulePhase.DECODE)
     assert result.schedule_metrics.cache_management_ms > 0
-    assert result.memory.peak_live_cache_mb > 0
+    assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
 
 
 def test_idle_gap_jumps_logical_clock_to_next_arrival(model):

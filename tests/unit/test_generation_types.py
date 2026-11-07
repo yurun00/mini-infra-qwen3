@@ -64,7 +64,7 @@ def test_frozen_dataclass_contract():
         prefill_mb=150.0,
         peak_allocated_mb=200.0,
         peak_reserved_mb=250.0,
-        kv_cache=KVCacheProfile(kv_cache_mb=30.0),
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=30.0),
     )
     with pytest.raises(FrozenInstanceError):
         mem.baseline_mb = 120.0  # type: ignore[misc]
@@ -95,7 +95,7 @@ def test_no_subscript_or_dynamic_attr_proxy():
         prefill_mb=120.0,
         peak_allocated_mb=150.0,
         peak_reserved_mb=200.0,
-        kv_cache=KVCacheProfile(kv_cache_mb=10.0),
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
     )
     trace = GenerationTrace(
         step_latencies_ms=[10.0, 5.0, 5.0],
@@ -141,7 +141,7 @@ def test_memory_profile_properties():
         prefill_mb=140.0,
         peak_allocated_mb=180.0,
         peak_reserved_mb=220.0,
-        kv_cache=KVCacheProfile(kv_cache_mb=25.0),
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=25.0),
     )
     assert mem.dynamic_peak_mb == pytest.approx(80.0)  # 180 - 100
     assert mem.fragmentation_mb == pytest.approx(40.0)  # 220 - 180
@@ -152,7 +152,7 @@ def test_memory_profile_properties():
         prefill_mb=150.0,
         peak_allocated_mb=150.0,
         peak_reserved_mb=100.0,
-        kv_cache=KVCacheProfile(kv_cache_mb=10.0),
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
     )
     assert mem_low.dynamic_peak_mb == 0.0
     assert mem_low.fragmentation_mb == 0.0
@@ -172,7 +172,7 @@ def test_build_memory_profile():
     assert mem.prefill_mb == 150.0
     assert mem.peak_allocated_mb == 200.0
     assert mem.peak_reserved_mb == 300.0
-    assert mem.kv_cache.kv_cache_mb == 50.0
+    assert mem.kv_cache.peak_live_kv_cache_mb == 50.0
     assert mem.dynamic_peak_mb == 100.0
     assert mem.fragmentation_mb == 100.0
 
@@ -220,7 +220,7 @@ def test_aggregate_generation_results():
             prefill_mb=120.0,
             peak_allocated_mb=150.0,
             peak_reserved_mb=200.0,
-            kv_cache=KVCacheProfile(kv_cache_mb=10.0),
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
         ),
         trace=GenerationTrace(
             step_latencies_ms=[10.0, 4.0, 4.0],
@@ -249,7 +249,7 @@ def test_aggregate_generation_results():
             prefill_mb=130.0,
             peak_allocated_mb=180.0,
             peak_reserved_mb=220.0,
-            kv_cache=KVCacheProfile(kv_cache_mb=15.0),
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=15.0),
         ),
         trace=GenerationTrace(
             step_latencies_ms=[12.0, 6.0, 6.0, 4.0],
@@ -275,7 +275,7 @@ def test_aggregate_generation_results():
     assert merged.memory.prefill_mb == 130.0
     assert merged.memory.peak_allocated_mb == 180.0
     assert merged.memory.peak_reserved_mb == 220.0
-    assert merged.memory.kv_cache.kv_cache_mb == 15.0
+    assert merged.memory.kv_cache.peak_live_kv_cache_mb == 15.0
 
     # 3. 验证 Metrics（默认 mean 聚合）
     assert merged.metrics.e2e_wall_ms == 25.0  # (20 + 30) / 2
@@ -313,7 +313,7 @@ def test_aggregate_generation_results_with_options():
             prefill_mb=120.0,
             peak_allocated_mb=150.0,
             peak_reserved_mb=200.0,
-            kv_cache=KVCacheProfile(kv_cache_mb=10.0),
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
         ),
         trace=GenerationTrace(step_latencies_ms=[10.0, 4.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
@@ -336,7 +336,7 @@ def test_aggregate_generation_results_with_options():
             prefill_mb=140.0,
             peak_allocated_mb=180.0,
             peak_reserved_mb=250.0,
-            kv_cache=KVCacheProfile(kv_cache_mb=20.0),
+            kv_cache=KVCacheProfile(peak_live_kv_cache_mb=20.0),
         ),
         trace=GenerationTrace(step_latencies_ms=[20.0, 8.0], num_active_tokens_per_step=[1, 1]),
         batch_size=1,
@@ -354,7 +354,7 @@ def test_aggregate_generation_results_with_options():
     assert merged_mean.metrics.gpu_time_ratio == pytest.approx(27.0 / 30.0)  # 派生自 e2e_model_ms / e2e_wall_ms
     assert merged_mean.memory.baseline_mb == 100.0  # min(100, 120)
     assert merged_mean.memory.peak_allocated_mb == 150.0  # min(150, 180)
-    assert merged_mean.memory.kv_cache.kv_cache_mb == 10.0  # min(10, 20)
+    assert merged_mean.memory.kv_cache.peak_live_kv_cache_mb == 10.0  # min(10, 20)
 
     # 2. 字段级精确覆盖：metrics 默认为 sum，但 ttft_ms="min", peak_allocated_mb="mean"
     opt_field = AggregationOptions(metrics="sum", ttft_ms="min", peak_allocated_mb="mean")

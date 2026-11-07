@@ -13,9 +13,8 @@
 | **1. 参考实现对齐** | `compare_transformers.py` | `mini-infra verify transformers` | `pytest tests/gpu/parity/test_transformers_parity.py` | FP16/BF16 | 验证手写 Qwen3 与 Hugging Face 官方分词、Logits 与输出 100% 对齐 |
 | **2. KV Cache 等价** | `compare_cache.py` | `mini-infra verify cache` | `pytest tests/gpu/parity/test_cache_parity.py` | `float32` | 验证引入 KV Cache 增量 Decode 与无 Cache 全量重算的数值完全一致 |
 | **3. Lockstep 批隔离** | `compare_lockstep_batch.py` | `mini-infra verify lockstep-batch` | `pytest tests/gpu/parity/test_lockstep_batch_parity.py` | `float32` | 验证固定批处理在不同 Batch Size、顺序与 Padding 长度下的严格请求隔离 |
-| **4. Paged KV Cache 对照** | `compare_paged_cache_logits.py` | `mini-infra verify paged-cache` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token 的 Logits 误差在容差内且 Greedy 输出完全一致 |
-| **5. Paged KV Cache 调度器输出对照** | `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k scheduler` | `float32` | 验证在 Scheduler 连续批处理环境下 Dense 与多 Block Size Paged KV Cache 输出一致性与入场轨迹 |
-| **6. Scheduler 批调度** | `compare_scheduler_batch.py` | `mini-infra verify scheduler-batch` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
+| **4. Scheduler 批调度** | `compare_scheduler_batch.py` | `mini-infra verify scheduler-batch` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
+| **5. Paged KV Cache 对照** | `compare_paged_cache_logits.py` / `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache` / `paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` / `-k scheduler` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token Logits 误差在容差内、Greedy 输出一致，以及 Scheduler 环境下多 Block Size 输出一致性与入场轨迹 |
 
 > [!NOTE]
 > 所有命令既支持直接平铺调用（如 `mini-infra verify cache`），也支持语义分层调用（如 `mini-infra verify parity cache`）。
@@ -102,7 +101,6 @@ mini-infra verify lockstep-batch \
   --dtype float32 \
   --output tmp/parity_lockstep.json
 ```
-*(注：支持向后兼容别名 `mini-infra verify batch`)*
 
 #### Pytest 运行指令
 ```bash
@@ -136,7 +134,6 @@ mini-infra verify scheduler-batch \
   --dtype float32 \
   --output tmp/parity_scheduler.json
 ```
-*(注：支持向后兼容别名 `mini-infra verify continuous`)*
 
 #### Pytest 运行指令
 ```bash
@@ -158,14 +155,80 @@ pytest tests/unit/test_compare_scheduler_batch.py
 
 ---
 
+### 5. Paged KV Cache 对照（Logits + 调度器输出）
+
+Paged KV Cache 提供两个互补的对齐验证：单 prompt 的逐步 Logits 对照，以及 Scheduler 环境下的多请求输出对照。
+
+**① Logits 逐 Token 对照**
+
+* **对应源码**：[`src/mini_infra/verification/parity/compare_paged_cache_logits.py`](../../src/mini_infra/verification/parity/compare_paged_cache_logits.py)
+* **核心目标**：以 Dense KV Cache 为基准，逐 Token 比对同一 prompt 在 Paged KV Cache（physical block pool + block table 寻址）路径下每一步 Decode 的 Logits 与 Greedy Token，验证 Paged 物理块写盘、按块读盘与 block table 映射的数值等价性。
+
+#### CLI 运行指令
+```bash
+# 默认参数运行（2 条内置 prompt，生成 8 tokens，block_size=16）
+mini-infra verify paged-cache
+
+# 自定义参数与精度阈值
+mini-infra verify paged-cache \
+  --prompt "用一句话解释 Paged KV Cache。" \
+  --max-new-tokens 8 \
+  --block-size 4 \
+  --dtype float32 \
+  --logits-atol 1e-4 \
+  --output tmp/parity_paged_logits.json
+```
+
+#### Pytest 运行指令
+```bash
+pytest tests/gpu/parity/test_paged_cache_parity.py -k logits
+```
+
+* **判定标准**：
+  - 每一步 Decode 选出的 Greedy Token 与 Dense 完全一致；
+  - 各步 Logits 的最大绝对误差 ≤ `--logits-atol`（`float32` 默认 `1e-4`，`bfloat16` 默认 `1.0`）。
+
+**② 调度器输出对照**
+
+* **对应源码**：[`src/mini_infra/verification/parity/compare_paged_cache_scheduler.py`](../../src/mini_infra/verification/parity/compare_paged_cache_scheduler.py)
+* **核心目标**：在 Scheduler 连续批处理环境下，比对 Dense 与多个 Block Size 的 Paged KV Cache 在动态入场/退场、block table 追加与复用下的逐请求输出一致性与入场轨迹。
+
+#### CLI 运行指令
+```bash
+# 默认参数运行（4 条内置 prompt，并发 2，block_size ∈ {4, 16}）
+mini-infra verify paged-cache-scheduler
+
+# 自定义参数并导出 JSON
+mini-infra verify paged-cache-scheduler \
+  --max-new-tokens 8 \
+  --block-sizes 4 16 \
+  --max-running-requests 2 \
+  --dtype float32 \
+  --output tmp/parity_paged_scheduler.json
+```
+
+#### Pytest 运行指令
+```bash
+pytest tests/gpu/parity/test_paged_cache_parity.py -k scheduler
+```
+
+* **判定标准**：
+  - `all_match_dense` 为 `True`（每个 Block Size 的 Paged 输出均与 Dense 一致）；
+  - 每个 Block Size 的 `admission_trace`（动态入场轨迹）非空；
+  - 每个 Block Size 的 `block_reuse_count`（物理块复用计数）存在且 ≥ 0。
+
+---
+
 ## 三、一键运行全部验证
 
 ### 1. 使用 CLI 依次执行全部对齐命令
 ```bash
-# 执行全部 4 项精度对齐命令
+# 执行全部 6 项精度对齐命令
 mini-infra verify transformers
 mini-infra verify cache
 mini-infra verify lockstep-batch
+mini-infra verify paged-cache
+mini-infra verify paged-cache-scheduler
 mini-infra verify scheduler-batch
 ```
 

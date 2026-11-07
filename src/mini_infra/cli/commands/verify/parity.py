@@ -145,25 +145,20 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     add_cache_args(p_cache)
     p_cache.set_defaults(func=handle_cache)
 
-    p_batch = subparsers.add_parser("lockstep-batch", aliases=["batch"], help="Lockstep 齐步批处理数值与请求隔离对齐")
+    p_batch = subparsers.add_parser("lockstep-batch", help="Lockstep 齐步批处理数值与请求隔离对齐")
     add_lockstep_batch_args(p_batch)
     p_batch.set_defaults(func=handle_lockstep_batch)
 
-    p_cont = subparsers.add_parser(
-        "scheduler-batch", aliases=["continuous"], help="Scheduler 批处理动态请求归属与输出一致性验证"
-    )
+    p_cont = subparsers.add_parser("scheduler-batch", help="Scheduler 批处理动态请求归属与输出一致性验证")
     add_scheduler_batch_args(p_cont)
     p_cont.set_defaults(func=handle_scheduler_batch)
 
-    p_paged = subparsers.add_parser(
-        "paged-cache", aliases=["paged-logits"], help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐"
-    )
+    p_paged = subparsers.add_parser("paged-cache", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
     add_paged_cache_args(p_paged)
     p_paged.set_defaults(func=handle_paged_cache)
 
     p_paged_sched = subparsers.add_parser(
         "paged-cache-scheduler",
-        aliases=["paged-scheduler", "paged-outputs"],
         help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
     )
     add_paged_cache_scheduler_args(p_paged_sched)
@@ -181,27 +176,20 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     add_cache_args(p_p_cache)
     p_p_cache.set_defaults(func=handle_cache)
 
-    p_p_batch = parity_subs.add_parser(
-        "lockstep-batch", aliases=["batch"], help="Lockstep 齐步批处理数值与请求隔离对齐"
-    )
+    p_p_batch = parity_subs.add_parser("lockstep-batch", help="Lockstep 齐步批处理数值与请求隔离对齐")
     add_lockstep_batch_args(p_p_batch)
     p_p_batch.set_defaults(func=handle_lockstep_batch)
 
-    p_p_cont = parity_subs.add_parser(
-        "scheduler-batch", aliases=["continuous"], help="Scheduler 批处理动态请求归属与输出一致性验证"
-    )
+    p_p_cont = parity_subs.add_parser("scheduler-batch", help="Scheduler 批处理动态请求归属与输出一致性验证")
     add_scheduler_batch_args(p_p_cont)
     p_p_cont.set_defaults(func=handle_scheduler_batch)
 
-    p_p_paged = parity_subs.add_parser(
-        "paged-cache", aliases=["paged-logits"], help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐"
-    )
+    p_p_paged = parity_subs.add_parser("paged-cache", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
     add_paged_cache_args(p_p_paged)
     p_p_paged.set_defaults(func=handle_paged_cache)
 
     p_p_paged_sched = parity_subs.add_parser(
         "paged-cache-scheduler",
-        aliases=["paged-scheduler", "paged-outputs"],
         help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
     )
     add_paged_cache_scheduler_args(p_p_paged_sched)

@@ -48,18 +48,24 @@ class DenseScheduleBackend(ScheduleBackend):
         if self.is_continuous:
             synchronize(self.device)
             cache_start = time.perf_counter()
-            self.dense_slot_cache.absorb_prefill(batch_slot_indices, cache_lengths, prefill_out.prefill_cache)
+            moved_bytes = self.dense_slot_cache.absorb_prefill(
+                batch_slot_indices, cache_lengths, prefill_out.prefill_cache
+            )
             synchronize(self.device)
             cache_ms = (time.perf_counter() - cache_start) * 1000
         else:
             self.dense_slot_cache.adopt_prefill(batch_slot_indices, cache_lengths, prefill_out.prefill_cache)
             cache_ms = 0.0
+            moved_bytes = 0
         return ScheduleStepOutput(
             next_tokens=prefill_out.next_tokens,
             model_ms=prefill_out.model_ms,
             cache_ms=cache_ms,
             physical_batch_size=len(admitted),
             live_kv_cache_bytes=self.dense_slot_cache.total_bytes,
+            kv_cache_pool_bytes=self.dense_slot_cache.total_bytes,
+            cache_realign_moved_bytes=moved_bytes,
+            accessed_kv_cache_tokens=0,
         )
 
     def execute_decode(self, running_queue: RunningQueue) -> ScheduleStepOutput:
@@ -85,6 +91,9 @@ class DenseScheduleBackend(ScheduleBackend):
             cache_ms=cache_ms,
             physical_batch_size=self.dense_slot_cache.capacity,
             live_kv_cache_bytes=self.dense_slot_cache.total_bytes,
+            kv_cache_pool_bytes=self.dense_slot_cache.total_bytes,
+            cache_realign_moved_bytes=0,
+            accessed_kv_cache_tokens=self.dense_slot_cache.capacity * self.dense_slot_cache.length,
         )
 
     def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:

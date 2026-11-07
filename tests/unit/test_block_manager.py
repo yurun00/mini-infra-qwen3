@@ -102,3 +102,28 @@ def test_paged_cache_config_validates():
         PagedCacheConfig(block_size=0)
     with pytest.raises(ValueError, match="num_blocks"):
         PagedCacheConfig(num_blocks=1)
+
+
+def test_block_manager_tracks_cold_allocation_reuse_release_and_peak():
+    manager = KVCacheManager(block_size=4, num_blocks=5)  # 4 个可用块：1, 2, 3, 4
+    assert manager.block_cold_allocation_count == 0
+    assert manager.block_reuse_count == 0
+    assert manager.block_release_count == 0
+    assert manager.peak_used_blocks == 0
+
+    # 首次分配 2 块 (1, 2)
+    assert manager.allocate_slots(0, 8)
+    assert manager.block_cold_allocation_count == 2
+    assert manager.block_reuse_count == 0
+    assert manager.peak_used_blocks == 2
+
+    # 释放请求 0
+    manager.free(0)
+    assert manager.block_release_count == 2
+    assert manager.num_used_blocks == 0
+
+    # 再次分配 3 块（FIFO 先取冷块 3, 4，再复用热块 1）
+    assert manager.allocate_slots(1, 12)
+    assert manager.block_cold_allocation_count == 4
+    assert manager.block_reuse_count == 1
+    assert manager.peak_used_blocks == 3

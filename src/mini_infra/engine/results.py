@@ -21,6 +21,7 @@ from mini_infra.engine.metrics import (
     ScheduleEvent,
     ScheduleMetrics,
     StepAggregatedMetrics,
+    merge_paged_cache_profiles,
 )
 from mini_infra.profiling import (
     OpLatencyBreakdown,
@@ -173,7 +174,7 @@ class AggregationOptions:
     prefill_mb: AggFunc | None = None
     peak_allocated_mb: AggFunc | None = None
     peak_reserved_mb: AggFunc | None = None
-    kv_cache_mb: AggFunc | None = None
+    peak_live_kv_cache_mb: AggFunc | None = None
 
     def get_agg_fn(self, domain: str, field_name: str | None = None) -> Callable[[Sequence[float]], float]:
         """按优先级解析聚合函数：特定字段覆盖 > 域级默认。"""
@@ -247,7 +248,7 @@ def aggregate_generation_results(
     prefill_mb_fn = options.get_agg_fn("memory", "prefill_mb")
     peak_allocated_mb_fn = options.get_agg_fn("memory", "peak_allocated_mb")
     peak_reserved_mb_fn = options.get_agg_fn("memory", "peak_reserved_mb")
-    kv_cache_mb_fn = options.get_agg_fn("memory", "kv_cache_mb")
+    peak_live_kv_cache_mb_fn = options.get_agg_fn("memory", "peak_live_kv_cache_mb")
     prefill_vals = [r.memory.prefill_mb for r in runs if r.memory.prefill_mb is not None]
 
     memory = MemoryProfile(
@@ -255,7 +256,15 @@ def aggregate_generation_results(
         prefill_mb=prefill_mb_fn(prefill_vals) if prefill_vals else None,
         peak_allocated_mb=peak_allocated_mb_fn([r.memory.peak_allocated_mb for r in runs]),
         peak_reserved_mb=peak_reserved_mb_fn([r.memory.peak_reserved_mb for r in runs]),
-        kv_cache=KVCacheProfile(kv_cache_mb=kv_cache_mb_fn([r.memory.kv_cache.kv_cache_mb for r in runs])),
+        kv_cache=KVCacheProfile(
+            peak_live_kv_cache_mb=peak_live_kv_cache_mb_fn([r.memory.kv_cache.peak_live_kv_cache_mb for r in runs]),
+            peak_kv_cache_pool_mb=max((r.memory.kv_cache.peak_kv_cache_pool_mb for r in runs), default=0.0),
+            cache_realign_moved_bytes=sum(r.memory.kv_cache.cache_realign_moved_bytes for r in runs),
+            accessed_kv_cache_tokens=sum(r.memory.kv_cache.accessed_kv_cache_tokens for r in runs),
+            paged_cache=merge_paged_cache_profiles(
+                [r.memory.kv_cache.paged_cache for r in runs if r.memory.kv_cache.paged_cache is not None]
+            ),
+        ),
     )
 
     op_breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]

@@ -23,7 +23,7 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
         f"{w.metrics.e2e_model_ms.mean:.3f}",
         f"{(w.memory.prefill_mb or 0.0):.2f}",
         f"{w.memory.peak_allocated_mb:.2f}",
-        f"{w.memory.kv_cache.kv_cache_mb:.2f}",
+        f"{w.memory.kv_cache.peak_live_kv_cache_mb:.2f}",
     ]
     pack = w.packing
     if has_packing:
@@ -55,7 +55,7 @@ def format_table(case_results: Sequence[LockstepCaseResult]) -> str:
         "end_to_end_model_ms_mean",
         "memory_after_prefill_mib_max",
         "peak_memory_mib_max",
-        "kv_cache_mb",
+        "peak_live_kv_cache_mb",
     ]
 
     has_packing = any(w.packing is not None for w in case_results)

@@ -32,7 +32,7 @@ from mini_infra.bench.lockstep.types import (
 )
 from mini_infra.bench.workloads import make_prompt
 from mini_infra.engine import GenerationOptions, Mode, generate
-from mini_infra.engine.metrics import BatchScheduleInfo, KVCacheProfile, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics, merge_kv_cache_profiles
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
@@ -168,7 +168,7 @@ def run_case(
         prefill_mb=max((r.memory.prefill_mb or 0.0 for r in runs), default=0.0),
         peak_allocated_mb=max((r.memory.peak_allocated_mb for r in runs), default=0.0),
         peak_reserved_mb=max((r.memory.peak_reserved_mb for r in runs), default=0.0),
-        kv_cache=KVCacheProfile(kv_cache_mb=max((r.memory.kv_cache.kv_cache_mb for r in runs), default=0.0)),
+        kv_cache=merge_kv_cache_profiles([r.memory.kv_cache for r in runs]),
     )
 
     batch_infos = [r.batch_info for r in runs if r.batch_info is not None]

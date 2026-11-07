@@ -47,19 +47,23 @@ class DenseSlotCache:
         batch_slot_indices: Sequence[int],
         cache_lengths: Sequence[int],
         prefill_cache: KVCache,
-    ) -> None:
+    ) -> int:
         """把一批新请求的 Prefill Cache 写入指定 Batch 槽位，必要时分配/左侧扩容（不 sync、不计时，计时由调用方负责）。
 
         Args:
             batch_slot_indices: 本次入场请求绑定的 Batch 槽位索引列表。
             cache_lengths: 各入场请求的 Prefill 缓存长度（Token 数）。
             prefill_cache: 左 Padding Prefill 产生的 Cache，各行真实 Token 位于序列维末尾 cache_length 个位置。
+
+        Returns:
+            本次因左侧扩容搬移的历史 KV 字节数（首次分配或无需扩容时为 0）。
         """
         target_length = max(self.length, prefill_cache.length)
+        moved_bytes = 0
         if self.kv_cache is None:
             self._allocate(prefill_cache, target_length)
         elif target_length > self.length:
-            self._grow_left(target_length - self.length)
+            moved_bytes = self._grow_left(target_length - self.length)
         assert self.kv_cache is not None and self.history_mask is not None
 
         for row_idx, (batch_slot_idx, cache_length) in enumerate(zip(batch_slot_indices, cache_lengths)):
@@ -72,6 +76,7 @@ class DenseSlotCache:
                 value[batch_slot_idx].zero_()
                 key[batch_slot_idx, :, start_pos:, :] = prefill_key[row_idx, :, -cache_length:, :]
                 value[batch_slot_idx, :, start_pos:, :] = prefill_value[row_idx, :, -cache_length:, :]
+        return moved_bytes
 
     def adopt_prefill(
         self,
@@ -118,8 +123,9 @@ class DenseSlotCache:
         self.kv_cache = new_cache
         self.history_mask = torch.zeros((self.capacity, length), dtype=torch.bool, device=self.device)
 
-    def _grow_left(self, padding_len: int) -> None:
+    def _grow_left(self, padding_len: int) -> int:
         assert self.kv_cache is not None and self.history_mask is not None
+        moved_bytes = cache_size_bytes(self.kv_cache)
         for layer_idx, (key, value) in enumerate(self.kv_cache):
             zeros = torch.zeros(
                 (self.capacity, key.shape[1], padding_len, key.shape[3]), dtype=key.dtype, device=self.device
@@ -128,6 +134,7 @@ class DenseSlotCache:
             self.kv_cache.value_cache[layer_idx] = torch.cat((zeros, value), dim=2)
         mask_padding = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
         self.history_mask = torch.cat((mask_padding, self.history_mask), dim=1)
+        return moved_bytes
 
 
 __all__ = ["DenseSlotCache"]

@@ -117,7 +117,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     assert case_res.metrics.e2e_wall_ms.mean > 0
     assert case_res.metrics.throughput_req_s.mean > 0
     assert case_res.schedule_metrics.ttft_ms_p95.mean > 0
-    assert case_res.memory.kv_cache.kv_cache_mb > 0
+    assert case_res.memory.kv_cache.peak_live_kv_cache_mb > 0
     assert case_res.packing is not None
     assert case_res.packing.slot_utilization.mean > 0
     assert case_res.packing.running_capacity_utilization is not None

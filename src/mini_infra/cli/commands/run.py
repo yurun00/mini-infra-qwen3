@@ -274,7 +274,7 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
     if isinstance(result, ScheduleResult):
         print_schedule_metrics(result)
     print("峰值显存: %.2f MiB" % result.memory.peak_allocated_mb)
-    print("最终 KV Cache: %.2f MiB" % result.memory.kv_cache.kv_cache_mb)
+    print("最终 KV Cache: %.2f MiB" % result.memory.kv_cache.peak_live_kv_cache_mb)
     decode_times = result.trace.step_latencies_ms[1:]
     if decode_times:
         print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])

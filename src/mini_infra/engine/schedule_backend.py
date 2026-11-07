@@ -14,6 +14,7 @@ import torch
 from mini_infra.core.request import RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import allocated_memory_mb, reset_peak_memory, synchronize
+from mini_infra.engine.metrics import PagedCacheProfile
 from mini_infra.engine.mode import BatchingMethod, CachingMethod
 
 __all__ = ["ScheduleBackend", "ScheduleStepOutput"]
@@ -28,6 +29,9 @@ class ScheduleStepOutput:
     cache_ms: float
     physical_batch_size: int
     live_kv_cache_bytes: int
+    kv_cache_pool_bytes: int = 0
+    cache_realign_moved_bytes: int = 0
+    accessed_kv_cache_tokens: int = 0
 
 
 class ScheduleBackend(abc.ABC):
@@ -73,3 +77,7 @@ class ScheduleBackend(abc.ABC):
     def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
         """回收已结束请求的槽位或物理块资源，并在空闲时执行重置。"""
         ...
+
+    def collect_paged_cache_profile(self) -> PagedCacheProfile | None:
+        """运行结束后采集 Paged 物理块池画像（Dense 后端无块池，返回 None）。"""
+        return None

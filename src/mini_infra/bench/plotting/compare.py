@@ -53,7 +53,7 @@ def resolve_label(rec: Any, custom: str | None = None) -> str:
 
 
 # 显存容量类指标（以 MiB 绝对增量展示变化）
-_MEMORY_MB_KEYS = {"peak_allocated_mb", "kv_cache_mb"}
+_MEMORY_MB_KEYS = {"peak_allocated_mb", "peak_live_kv_cache_mb", "peak_kv_cache_pool_mb"}
 # 占比类指标（tidy 阶段已 *100，以百分点绝对增量展示变化）
 _FRACTION_KEYS = {"cache_management_fraction"}
 

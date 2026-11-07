@@ -118,7 +118,7 @@ class PagedCacheProfileRecord(_DictAccessModel):
     bytes_per_block: int = 0
     num_blocks: int = 0
     peak_used_blocks: int = 0
-    block_allocation_count: int = 0
+    block_cold_allocation_count: int = 0
     block_reuse_count: int = 0
     block_release_count: int = 0
 
@@ -126,10 +126,10 @@ class PagedCacheProfileRecord(_DictAccessModel):
 class KVCacheProfileRecord(_DictAccessModel):
     """KV Cache 画像 Schema（对应 `engine.metrics.KVCacheProfile.to_dict()`）。"""
 
-    kv_cache_mb: float = 0.0
-    peak_pool_cache_bytes: int = 0
-    cache_resize_moved_bytes: int = 0
-    visited_kv_token_slots: int = 0
+    peak_live_kv_cache_mb: float = 0.0
+    peak_kv_cache_pool_mb: float = 0.0
+    cache_realign_moved_bytes: int = 0
+    accessed_kv_cache_tokens: int = 0
     paged_cache: PagedCacheProfileRecord | None = None
 
 

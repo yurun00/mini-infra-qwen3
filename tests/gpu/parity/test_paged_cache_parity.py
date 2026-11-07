@@ -119,3 +119,5 @@ def test_compare_paged_cache_scheduler_direct() -> None:
     for bs in (4, 16):
         assert res["paged"][str(bs)]["matches_dense"]
         assert len(res["paged"][str(bs)]["admission_trace"]) > 0
+        assert "block_reuse_count" in res["paged"][str(bs)]
+        assert res["paged"][str(bs)]["block_reuse_count"] >= 0

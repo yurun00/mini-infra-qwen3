@@ -58,8 +58,10 @@ class FreeKVCacheBlockQueue:
         self.num_blocks = num_blocks
         self._free_block_ids: deque[int] = deque(range(NULL_BLOCK_ID + 1, num_blocks))
         self._ever_allocated_block_ids: set[int] = set()
-        self.allocation_count: int = 0
+        self.block_cold_allocation_count: int = 0
         self.reuse_count: int = 0
+        self.release_count: int = 0
+        self.peak_used_blocks: int = 0
 
     @property
     def num_free_blocks(self) -> int:
@@ -81,12 +83,14 @@ class FreeKVCacheBlockQueue:
                 self.reuse_count += 1
             else:
                 self._ever_allocated_block_ids.add(block_id)
-                self.allocation_count += 1
+                self.block_cold_allocation_count += 1
             allocated.append(block_id)
+        self.peak_used_blocks = max(self.peak_used_blocks, self.num_used_blocks)
         return allocated
 
     def free(self, block_ids: Sequence[int]) -> None:
         self._free_block_ids.extend(block_ids)
+        self.release_count += len(block_ids)
 
 
 class KVCacheManager:
@@ -109,12 +113,20 @@ class KVCacheManager:
         return self.free_block_queue.num_used_blocks
 
     @property
-    def block_allocation_count(self) -> int:
-        return self.free_block_queue.allocation_count
+    def block_cold_allocation_count(self) -> int:
+        return self.free_block_queue.block_cold_allocation_count
 
     @property
     def block_reuse_count(self) -> int:
         return self.free_block_queue.reuse_count
+
+    @property
+    def block_release_count(self) -> int:
+        return self.free_block_queue.release_count
+
+    @property
+    def peak_used_blocks(self) -> int:
+        return self.free_block_queue.peak_used_blocks
 
     def block_table(self, request_idx: int) -> list[int]:
         """请求当前的 Block Table（逻辑块号 -> 物理块号），只读使用。"""

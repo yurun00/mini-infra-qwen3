@@ -73,7 +73,7 @@ def test_lockstep_case_result_structure_and_dot_access():
         prefill_mb=650.0,
         peak_allocated_mb=700.0,
         peak_reserved_mb=800.0,
-        kv_cache=KVCacheProfile(kv_cache_mb=12.0),
+        kv_cache=KVCacheProfile(peak_live_kv_cache_mb=12.0),
     )
     pad_stat = summarize_samples([0.85, 0.85])
     slot_stat = summarize_samples([0.90, 0.90])

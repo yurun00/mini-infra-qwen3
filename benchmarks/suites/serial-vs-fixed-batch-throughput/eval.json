@@ -137,7 +137,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1220.0,
         "fragmentation_mb": 22.7314453125,
-        "kv_cache_mb": 17.390625
+        "peak_live_kv_cache_mb": 17.390625
       },
       "efficiency": {
         "prefill_mfu": 0.029414469175273517,
@@ -230,7 +230,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1220.0,
         "fragmentation_mb": 22.7314453125,
-        "kv_cache_mb": 17.390625
+        "peak_live_kv_cache_mb": 17.390625
       },
       "efficiency": {
         "prefill_mfu": 0.0297485722258006,
@@ -323,7 +323,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1220.0,
         "fragmentation_mb": 22.72998046875,
-        "kv_cache_mb": 17.390625
+        "peak_live_kv_cache_mb": 17.390625
       },
       "efficiency": {
         "prefill_mfu": 0.05894160612874049,
@@ -416,7 +416,7 @@
         "dynamic_peak_mb": 102.6875,
         "peak_reserved_mb": 1314.0,
         "fragmentation_mb": 66.29296875,
-        "kv_cache_mb": 34.78125
+        "peak_live_kv_cache_mb": 34.78125
       },
       "efficiency": {
         "prefill_mfu": 0.05761766632507774,
@@ -509,7 +509,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1314.0,
         "fragmentation_mb": 116.72802734375,
-        "kv_cache_mb": 17.390625
+        "peak_live_kv_cache_mb": 17.390625
       },
       "efficiency": {
         "prefill_mfu": 0.11711489842852388,
@@ -602,7 +602,7 @@
         "dynamic_peak_mb": 205.375,
         "peak_reserved_mb": 1486.0,
         "fragmentation_mb": 135.603515625,
-        "kv_cache_mb": 69.5625
+        "peak_live_kv_cache_mb": 69.5625
       },
       "efficiency": {
         "prefill_mfu": 0.11256644904547362,
@@ -695,7 +695,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1486.0,
         "fragmentation_mb": 288.72412109375,
-        "kv_cache_mb": 17.390625
+        "peak_live_kv_cache_mb": 17.390625
       },
       "efficiency": {
         "prefill_mfu": 0.2326480109836524,
@@ -788,7 +788,7 @@
         "dynamic_peak_mb": 410.75,
         "peak_reserved_mb": 1784.0,
         "fragmentation_mb": 228.22412109375,
-        "kv_cache_mb": 139.125
+        "peak_live_kv_cache_mb": 139.125
       },
       "efficiency": {
         "prefill_mfu": 0.21713376146478844,
@@ -881,7 +881,7 @@
         "dynamic_peak_mb": 52.25,
         "peak_reserved_mb": 1784.0,
         "fragmentation_mb": 586.71630859375,
-        "kv_cache_mb": 17.390625
+        "peak_live_kv_cache_mb": 17.390625
       },
       "efficiency": {
         "prefill_mfu": 0.4595892175002855,
@@ -974,7 +974,7 @@
         "dynamic_peak_mb": 822.0,
         "peak_reserved_mb": 2378.0,
         "fragmentation_mb": 410.96533203125,
-        "kv_cache_mb": 278.25
+        "peak_live_kv_cache_mb": 278.25
       },
       "efficiency": {
         "prefill_mfu": 0.24827950918089192,

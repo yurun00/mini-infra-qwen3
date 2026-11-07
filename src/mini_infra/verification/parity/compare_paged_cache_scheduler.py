@@ -89,11 +89,14 @@ def run_compare_paged_cache_scheduler(
         paged_token_ids = [s.token_ids for s in paged_run.sequences]
         matches_dense = paged_token_ids == dense_token_ids
         admission_trace = [list(event.admitted_request_ids) for event in paged_run.events if event.admitted_request_ids]
+        paged_profile = paged_run.memory.kv_cache.paged_cache
+        block_reuse_count = paged_profile.block_reuse_count if paged_profile is not None else 0
 
         paged_results[str(block_size)] = {
             "token_ids": paged_token_ids,
             "matches_dense": matches_dense,
             "admission_trace": admission_trace,
+            "block_reuse_count": block_reuse_count,
         }
 
     all_match_dense = all(item["matches_dense"] for item in paged_results.values())
@@ -106,10 +109,11 @@ def run_compare_paged_cache_scheduler(
     print("全部 Block Size 与 dense Token 一致:", all_match_dense)
     for block_size_str, item in paged_results.items():
         print(
-            "block=%s, match=%s, admissions=%s"
+            "block=%s, match=%s, reuse=%d, admissions=%s"
             % (
                 block_size_str,
                 item["matches_dense"],
+                item["block_reuse_count"],
                 item["admission_trace"],
             )
         )
@@ -166,6 +170,10 @@ def execute_compare_paged_cache_scheduler(
         output=output,
         environment_metadata=environment,
     )
+
+    if dtype == "float32" and not result["all_match_dense"]:
+        print("float32 Paged KV Cache 输出一致性检查失败")
+        return 1
 
     return 0 if result["all_match_dense"] else 1
 

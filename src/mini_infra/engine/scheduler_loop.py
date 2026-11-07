@@ -76,6 +76,9 @@ def _run_schedule_loop(
                     model_ms=step_output.model_ms,
                     cache_management_ms=step_output.cache_ms,
                     live_kv_cache_bytes=step_output.live_kv_cache_bytes,
+                    kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
+                    cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
+                    accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
                 )
             )
             backend.retire(finished, running_queue)
@@ -102,6 +105,9 @@ def _run_schedule_loop(
                     model_ms=step_output.model_ms,
                     cache_management_ms=step_output.cache_ms,
                     live_kv_cache_bytes=step_output.live_kv_cache_bytes,
+                    kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
+                    cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
+                    accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
                 )
             )
             backend.retire(finished, running_queue)
@@ -123,6 +129,7 @@ def _run_schedule_loop(
         e2e_wall_ms=e2e_wall_ms,
         is_cuda=device.type == "cuda",
         caching_method=backend.caching_method,
+        paged_cache_profile=backend.collect_paged_cache_profile(),
     )
 
 
