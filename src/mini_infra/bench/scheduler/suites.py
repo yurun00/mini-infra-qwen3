@@ -20,6 +20,7 @@ from mini_infra.bench.workloads import (
     make_arrival_times,
     make_sequences,
 )
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec, make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, FeatureDimension, FeatureFlag, Mode
 
@@ -38,6 +39,14 @@ class SchedulerSuiteCase:
     mode: Mode
     max_running_requests: int
     specs: tuple[RequestSpec, ...]
+    workload_id: str | None = None
+    paged_cache_config: PagedCacheConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
+            raise ValueError(f"Paged 模式 (mode={self.mode}) 必须提供 paged_cache_config")
+        if self.mode.caching_method is not CachingMethod.PAGED and self.paged_cache_config is not None:
+            raise ValueError(f"非 Paged 模式 (mode={self.mode}) 不得提供 paged_cache_config")
 
     @property
     def request_count(self) -> int:
@@ -57,7 +66,7 @@ class SchedulerSuiteCase:
 
     def to_spec_dict(self) -> dict[str, Any]:
         """导出用例负载规格字典。"""
-        return {
+        data: dict[str, Any] = {
             "case_id": self.id,
             "suite_name": self.suite_name,
             "mode": str(self.mode),
@@ -67,6 +76,11 @@ class SchedulerSuiteCase:
             "output_budgets": list(self.output_budgets),
             "arrival_times_ms": list(self.arrival_times_ms),
         }
+        if self.workload_id is not None:
+            data["workload_id"] = self.workload_id
+        if self.paged_cache_config is not None:
+            data["block_size"] = self.paged_cache_config.block_size
+        return data
 
 
 @runtime_checkable

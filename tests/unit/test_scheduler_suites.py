@@ -127,3 +127,53 @@ def test_suite_cases_expansion():
         assert cases[1].mode.batching_method == BatchingMethod.CONTINUOUS
         assert len(cases[0].specs) == len(cases[1].specs)
         assert cases[0].suite_name == suite.name
+
+
+def test_scheduler_suite_case_paged_validation():
+    from mini_infra.core.block_manager import PagedCacheConfig
+    from mini_infra.core.request import RequestSpec
+    from mini_infra.engine import CachingMethod
+
+    spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
+    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+
+    # 1. Paged 模式不传 paged_cache_config 必须报错
+    with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
+        SchedulerSuiteCase(
+            id="paged",
+            suite_name="test",
+            mode=paged_mode,
+            max_running_requests=2,
+            specs=(spec,),
+            paged_cache_config=None,
+        )
+
+    # 2. 非 Paged 模式传 paged_cache_config 必须报错
+    with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
+        SchedulerSuiteCase(
+            id="dense",
+            suite_name="test",
+            mode=dense_mode,
+            max_running_requests=2,
+            specs=(spec,),
+            paged_cache_config=PagedCacheConfig(block_size=16),
+        )
+
+    # 3. 正确传参合法构造
+    case_paged = SchedulerSuiteCase(
+        id="paged",
+        suite_name="test",
+        mode=paged_mode,
+        max_running_requests=2,
+        specs=(spec,),
+        workload_id="workload_0",
+        paged_cache_config=PagedCacheConfig(block_size=16),
+    )
+    assert case_paged.workload_id == "workload_0"
+    assert case_paged.paged_cache_config is not None
+    assert case_paged.paged_cache_config.block_size == 16
+
+    spec_dict = case_paged.to_spec_dict()
+    assert spec_dict["workload_id"] == "workload_0"
+    assert spec_dict["block_size"] == 16

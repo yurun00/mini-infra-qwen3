@@ -55,19 +55,21 @@ def run_suite(
     # 生成执行计划
     plan = build_scheduler_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_features)
 
-    # 驱动执行计划，按用例 ID 归集测量结果
-    runs_by_case_id: dict[str, list[ScheduleResult]] = {case.id: [] for case in cases}
+    # 驱动执行计划，按用例身份归集测量结果
+    runs_by_case_key: dict[tuple[str | None, str], list[ScheduleResult]] = {
+        (case.workload_id, case.id): [] for case in cases
+    }
     total_steps = len(plan)
     for step_number, planned_run in enumerate(plan, 1):
         if on_step_progress is not None:
             on_step_progress(step_number, total_steps, planned_run)
         res = run_case_once(model, device, planned_run.case)
         if planned_run.phase == RunPhase.MEASURE:
-            runs_by_case_id[planned_run.case.id].append(res)
+            runs_by_case_key[(planned_run.case.workload_id, planned_run.case.id)].append(res)
 
     results: list[SchedulerCaseResult] = []
     for case in cases:
-        res = summarize_same_workload_runs(case.id, runs_by_case_id[case.id])
+        res = summarize_same_workload_runs(case.id, runs_by_case_key[(case.workload_id, case.id)])
         results.append(replace(res, workload=replace(res.workload, warmup=warmup_val)))
     return results
 

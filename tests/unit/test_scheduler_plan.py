@@ -177,3 +177,88 @@ def test_empty_plan():
     assert build_scheduler_run_plan([], warmup=1, repeats=2) == []
     c1 = make_dummy_case(BatchingMethod.FIXED, kv_cache=True)
     assert build_scheduler_run_plan([c1], warmup=1, repeats=0) == []
+
+
+def test_multi_workload_id_grouping_and_interleaving():
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+
+    # 两个不同的 workload，每个 workload 包含 dense 和 paged 两种 caching_method
+    w0_dense = SchedulerSuiteCase(
+        id="dense",
+        suite_name="test-multi-workload",
+        mode=dense_mode,
+        max_running_requests=2,
+        specs=(spec,),
+        workload_id="workload_0",
+    )
+    w0_paged = SchedulerSuiteCase(
+        id="paged",
+        suite_name="test-multi-workload",
+        mode=paged_mode,
+        max_running_requests=2,
+        specs=(spec,),
+        workload_id="workload_0",
+        paged_cache_config=PagedCacheConfig(block_size=16),
+    )
+    w1_dense = SchedulerSuiteCase(
+        id="dense",
+        suite_name="test-multi-workload",
+        mode=dense_mode,
+        max_running_requests=2,
+        specs=(spec,),
+        workload_id="workload_1",
+    )
+    w1_paged = SchedulerSuiteCase(
+        id="paged",
+        suite_name="test-multi-workload",
+        mode=paged_mode,
+        max_running_requests=2,
+        specs=(spec,),
+        workload_id="workload_1",
+        paged_cache_config=PagedCacheConfig(block_size=16),
+    )
+
+    cases = [w0_dense, w0_paged, w1_dense, w1_paged]
+    plan = build_scheduler_run_plan(cases, warmup=1, repeats=2, interleave=(CachingMethod,))
+
+    # 每个 workload 对应 1 个 Group：2 cases * 1 warmup + 2 cases * 2 repeats = 6 步，共 2 Groups = 12 步
+    assert len(plan) == 12
+
+    g0_steps = [p for p in plan if p.group_id == 0]
+    g1_steps = [p for p in plan if p.group_id == 1]
+    assert len(g0_steps) == 6
+    assert len(g1_steps) == 6
+    assert all(p.case.workload_id == "workload_0" for p in g0_steps)
+    assert all(p.case.workload_id == "workload_1" for p in g1_steps)
+
+    # Group 0 内部交替
+    assert g0_steps[0].phase == RunPhase.WARMUP and g0_steps[0].case == w0_dense
+    assert g0_steps[1].phase == RunPhase.WARMUP and g0_steps[1].case == w0_paged
+    # Repeat 1 (偶数轮，正序: dense -> paged)
+    assert g0_steps[2].repeat_idx == 0 and g0_steps[2].case == w0_dense
+    assert g0_steps[3].repeat_idx == 0 and g0_steps[3].case == w0_paged
+    # Repeat 2 (奇数轮，反序: paged -> dense)
+    assert g0_steps[4].repeat_idx == 1 and g0_steps[4].case == w0_paged
+    assert g0_steps[5].repeat_idx == 1 and g0_steps[5].case == w0_dense
+
+    formatted = format_scheduler_run_plan(plan)
+    assert "workload=workload_0" in formatted
+    assert "workload=workload_1" in formatted
+
+
+def test_existing_suites_plan_golden_invariance():
+    from mini_infra.bench.scheduler.suites import get_all_scheduler_suites
+
+    for suite in get_all_scheduler_suites():
+        cases = suite.cases(vocab_size=100)
+        plan = build_scheduler_run_plan(cases, warmup=1, repeats=3, interleave=suite.interleave)
+        # 既有 4 个 suite 全部为单 workload（workload_id=None），2 cases，只有 1 个 Group
+        assert all(p.group_id == 0 for p in plan)
+        assert len(plan) == 8  # 2 warmup + 2*3 measure
+        assert all(p.case.workload_id is None for p in plan)
+        formatted = format_scheduler_run_plan(plan)
+        assert "workload=" not in formatted

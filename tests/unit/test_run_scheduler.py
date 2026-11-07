@@ -182,6 +182,134 @@ def test_run_scheduler_suite_on_cpu():
     assert len(record["cases"]) == 2
 
 
+def test_run_scheduler_paged_case_on_cpu():
+    """验证 run_case_once 和 run_case 支持 Paged 缓存模式并正确采集 paged_cache 画像。"""
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    model = build_tiny_model()
+    device = torch.device("cpu")
+    specs = tuple(make_request_specs([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
+    mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    paged_config = PagedCacheConfig(block_size=4)
+
+    case = SchedulerSuiteCase(
+        id="paged",
+        suite_name="test-paged-case",
+        mode=mode,
+        max_running_requests=2,
+        specs=specs,
+        workload_id="stress_case",
+        paged_cache_config=paged_config,
+    )
+
+    # 1. 单次执行
+    single_res = run_case_once(model, device, case)
+    assert single_res.step_agg_metrics.e2e_wall_ms > 0
+    assert len(single_res.sequences) == 2
+    assert single_res.memory.kv_cache.paged_cache is not None
+    assert single_res.memory.kv_cache.paged_cache.block_size == 4
+    assert single_res.memory.kv_cache.paged_cache.peak_used_blocks > 0
+
+    # 2. 多轮执行
+    case_res = run_case(
+        model=model,
+        device=device,
+        case=case,
+        warmup=1,
+        repeats=2,
+    )
+    assert case_res.case_id == "paged"
+    assert case_res.workload.mode == mode
+    assert case_res.memory.kv_cache.paged_cache is not None
+    assert case_res.memory.kv_cache.paged_cache.block_size == 4
+    assert case_res.memory.kv_cache.paged_cache.block_cold_allocation_count > 0
+
+
+def test_run_scheduler_suite_multi_workload_on_cpu():
+    """验证 run_suite 在多 workload_id 情况下能正确归集每个 case 的独立测量结果。"""
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    model = build_tiny_model()
+    device = torch.device("cpu")
+    spec_w0 = tuple(make_request_specs([[1, 2], [3, 4]], [2, 2], [0.0, 0.0]))
+    spec_w1 = tuple(make_request_specs([[5, 6, 7], [8, 9, 10]], [1, 1], [0.0, 0.0]))
+
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+    paged_config = PagedCacheConfig(block_size=4)
+
+    cases = [
+        SchedulerSuiteCase(
+            id="dense",
+            suite_name="multi-workload-suite",
+            mode=dense_mode,
+            max_running_requests=2,
+            specs=spec_w0,
+            workload_id="workload_0",
+        ),
+        SchedulerSuiteCase(
+            id="paged",
+            suite_name="multi-workload-suite",
+            mode=paged_mode,
+            max_running_requests=2,
+            specs=spec_w0,
+            workload_id="workload_0",
+            paged_cache_config=paged_config,
+        ),
+        SchedulerSuiteCase(
+            id="dense",
+            suite_name="multi-workload-suite",
+            mode=dense_mode,
+            max_running_requests=2,
+            specs=spec_w1,
+            workload_id="workload_1",
+        ),
+        SchedulerSuiteCase(
+            id="paged",
+            suite_name="multi-workload-suite",
+            mode=paged_mode,
+            max_running_requests=2,
+            specs=spec_w1,
+            workload_id="workload_1",
+            paged_cache_config=paged_config,
+        ),
+    ]
+
+    class DummyMultiWorkloadSuite:
+        name = "multi-workload-suite"
+        warmup = 0
+        repeats = 2
+        max_running_requests = 2
+        interleave = (CachingMethod,)
+
+        def modes(self):
+            return [dense_mode, paged_mode]
+
+        def cases(self, vocab_size, device=None):
+            return cases
+
+    suite = DummyMultiWorkloadSuite()
+    results = run_suite(
+        model=model,
+        device=device,
+        suite=suite,
+        vocab_size=model.config.vocab_size,
+        warmup=0,
+        repeats=2,
+    )
+
+    assert len(results) == 4
+    # 验证返回顺序与 cases 一致，且负载规格与各 case 匹配
+    assert results[0].workload.prompt_len == 2
+    assert results[0].workload.mode == dense_mode
+    assert results[1].workload.prompt_len == 2
+    assert results[1].workload.mode == paged_mode
+    assert results[2].workload.prompt_len == 3
+    assert results[2].workload.mode == dense_mode
+    assert results[3].workload.prompt_len == 3
+    assert results[3].workload.mode == paged_mode
+
+
 def test_scheduler_suite_dry_run_main(capsys):
     """验证 --dry-run 参数无需 GPU 与模型即可打印执行计划。"""
     from mini_infra.cli import main

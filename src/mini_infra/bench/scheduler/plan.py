@@ -80,10 +80,10 @@ def build_scheduler_run_plan(
     # 2. 未选中的特征作为分组键
     non_interleaved_features = [f for f in ALL_FEATURE_DIMENSIONS if f not in interleaved_features]
 
-    # 3. 按未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
+    # 3. 按 workload_id 及未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
     groups: dict[tuple[Any, ...], list[SchedulerSuiteCase]] = {}
     for case in cases:
-        key = tuple(extract_case_feature(case, f) for f in non_interleaved_features)
+        key = (case.workload_id, *(extract_case_feature(case, f) for f in non_interleaved_features))
         groups.setdefault(key, []).append(case)
 
     # 4. 分组依次连续跑完所有 repeat
@@ -134,10 +134,12 @@ def format_scheduler_run_plan(plan: Sequence[PlannedRun]) -> str:
     for i, planned_run in enumerate(plan, 1):
         rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
         case = planned_run.case
-        lines.append(
-            f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | "
-            f"suite={case.suite_name} case_id={case.id} mode={case.mode} max_running={case.max_running_requests}"
+        workload_str = f" workload={case.workload_id}" if case.workload_id is not None else ""
+        details = (
+            f"suite={case.suite_name} case_id={case.id}{workload_str} "
+            f"mode={case.mode} max_running={case.max_running_requests}"
         )
+        lines.append(f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | {details}")
     return "\n".join(lines)
 
 

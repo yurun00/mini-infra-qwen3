@@ -3,6 +3,7 @@
 提供 SchedulerSuiteCase 的原子单次执行与多次评测汇总纯函数接口，供 CLI 或上层评测套件调用。
 """
 
+import gc
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -22,7 +23,7 @@ def run_case_once(
     case: SchedulerSuiteCase,
 ) -> ScheduleResult:
     """执行单一 SchedulerSuiteCase 的单次调度运行（原子操作）。"""
-    return run_scheduler(
+    res = run_scheduler(
         batching_method=case.mode.batching_method,
         caching_method=case.mode.caching_method,
         model=model,
@@ -31,7 +32,12 @@ def run_case_once(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
+        paged_cache_config=case.paged_cache_config,
     )
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return res
 
 
 def run_case(
