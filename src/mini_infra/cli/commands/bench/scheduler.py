@@ -11,7 +11,7 @@ import torch
 
 from mini_infra.bench.common import (
     BENCH_ARTIFACTS_DIR,
-    SCHEDULER_RESULT_HISTORY_DIR,
+    CASE_DIR,
     add_common_args,
     check_correctness,
     git_info,
@@ -249,7 +249,7 @@ def handle_case(args: argparse.Namespace) -> int:
         repeats=repeats,
         engine="scheduler",
     )
-    output = args.output or SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
+    output = args.output or CASE_DIR / f"{git['commit']}_{args.tag}.json"
     save_benchmark_record(output, record, dirty=git["dirty"])
 
     print()

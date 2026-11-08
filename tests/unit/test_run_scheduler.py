@@ -179,6 +179,60 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["num_blocks"] == 32
 
 
+def test_handle_scheduler_case_default_output_to_case_dir(tmp_path, monkeypatch):
+    """验证 handle_case 未指定 --output 时默认写入 CASE_DIR (benchmarks/case)。"""
+    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.cli import build_parser
+    from mini_infra.cli.commands.bench import scheduler as sched_cmd
+
+    tiny_model = build_tiny_model()
+    monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
+    monkeypatch.setattr(sched_cmd, "resolve_model_directory", lambda model, rev: tmp_path)
+    monkeypatch.setattr(sched_cmd, "Qwen3Tokenizer", lambda model_dir: object())
+    monkeypatch.setattr(sched_cmd, "load_model", lambda model_dir, device: tiny_model)
+    monkeypatch.setattr(
+        sched_cmd,
+        "check_correctness",
+        lambda *args, **kwargs: CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
+    )
+    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+
+    fake_case_dir = tmp_path / "case"
+    monkeypatch.setattr(sched_cmd, "CASE_DIR", fake_case_dir)
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "bench",
+            "scheduler",
+            "case",
+            "--tag",
+            "test-tag",
+            "--caching-method",
+            "dense-kv-cache",
+            "--batching-method",
+            "continuous-batching",
+            "--request-count",
+            "2",
+            "--prompt-length",
+            "4",
+            "--output-budget",
+            "2",
+            "--max-running-requests",
+            "2",
+            "--warmup",
+            "0",
+            "--repeats",
+            "1",
+        ]
+    )
+    ret = sched_cmd.handle_case(args)
+    assert ret == 0
+    saved_files = list(fake_case_dir.glob("*_test-tag.json"))
+    assert len(saved_files) == 1
+    assert saved_files[0].exists()
+
+
 def test_run_scheduler_case_and_step_on_cpu():
     """验证原子 step 与单用例 run_case 仅执行单一策略。"""
     model = build_tiny_model()

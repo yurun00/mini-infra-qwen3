@@ -17,6 +17,7 @@ from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
 from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
+from mini_infra.profiling import MemorySnapshotTracker
 from mini_infra.worker import PagedKVCachePool, PagedRunner
 
 __all__ = ["PagedScheduleBackend"]
@@ -51,6 +52,9 @@ class PagedScheduleBackend(ScheduleBackend):
         self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
         config = model.config  # type: ignore[attr-defined]
         self.runner = PagedRunner(model, device, pad_token_id)
+        self.snapshot_tracker = MemorySnapshotTracker()
+        self.snapshot_tracker.start()
+        self.snapshot_tracker.record_stage("00_paged_before_pool_init")
         self.pool = PagedKVCachePool(
             num_layers=config.num_hidden_layers,
             num_blocks=num_blocks,
@@ -60,6 +64,7 @@ class PagedScheduleBackend(ScheduleBackend):
             dtype=next(model.parameters()).dtype,
             device=device,
         )
+        self.snapshot_tracker.record_stage("01_paged_pool_allocated")
         self.kv_cache_manager = KVCacheManager(self.block_size, num_blocks)
 
     @property
@@ -75,6 +80,7 @@ class PagedScheduleBackend(ScheduleBackend):
 
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
         prefill_out = self.runner.run_prefill_step([s.spec.token_ids for s in admitted])
+        self.snapshot_tracker.record_stage("02_paged_prefill_forward_done")
         cache_lengths = [s.cache_length for s in admitted]
         synchronize(self.device)
         cache_start = time.perf_counter()
@@ -88,9 +94,11 @@ class PagedScheduleBackend(ScheduleBackend):
         )
         synchronize(self.device)
         cache_ms = (time.perf_counter() - cache_start) * 1000
+        self.snapshot_tracker.record_stage("03_paged_prefill_stored_dual_kv")
         next_tokens = prefill_out.next_tokens
         model_ms = prefill_out.model_ms
         del prefill_out
+        self.snapshot_tracker.record_stage("04_paged_prefill_cleaned")
         return ScheduleStepOutput(
             next_tokens=next_tokens,
             model_ms=model_ms,
@@ -118,6 +126,7 @@ class PagedScheduleBackend(ScheduleBackend):
         synchronize(self.device)
         cache_ms = (time.perf_counter() - prepare_start) * 1000
         decode_out = self.runner.run_decode_step(input_ids, position_ids, metadata, self.pool)
+        self.snapshot_tracker.record_stage("05_paged_decode_step", dump=False)
         return ScheduleStepOutput(
             next_tokens=decode_out.next_tokens,
             model_ms=decode_out.model_ms,
@@ -133,6 +142,12 @@ class PagedScheduleBackend(ScheduleBackend):
         for state in finished:
             self.kv_cache_manager.free(state.spec.request_idx)
         running_queue.retire(finished)
+        if not running_queue:
+            self.snapshot_tracker.stop()
+
+    def __del__(self) -> None:
+        if hasattr(self, "snapshot_tracker"):
+            self.snapshot_tracker.stop()
 
     def collect_paged_cache_profile(self) -> PagedCacheProfile:
         return PagedCacheProfile(

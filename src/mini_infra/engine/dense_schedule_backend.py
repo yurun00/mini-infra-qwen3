@@ -10,6 +10,7 @@ from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import synchronize
 from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
+from mini_infra.profiling import MemorySnapshotTracker
 from mini_infra.worker import DenseSlotCache, SlotRunner
 
 __all__ = ["DenseScheduleBackend"]
@@ -28,8 +29,11 @@ class DenseScheduleBackend(ScheduleBackend):
     ) -> None:
         super().__init__(model, device, max_running_requests, batching_method)
         self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
+        self.snapshot_tracker = MemorySnapshotTracker()
+        self.snapshot_tracker.start()
         self.runner = SlotRunner(model, device, pad_token_id)
         self.dense_slot_cache = DenseSlotCache(max_running_requests, device)
+        self.snapshot_tracker.record_stage("01_dense_init")
 
     @property
     def caching_method(self) -> CachingMethod:
@@ -43,6 +47,7 @@ class DenseScheduleBackend(ScheduleBackend):
 
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
         prefill_out = self.runner.run_prefill_step([s.spec.token_ids for s in admitted])
+        self.snapshot_tracker.record_stage("02_dense_prefill_forward_done")
         batch_slot_indices = [s.batch_slot_idx for s in admitted if s.batch_slot_idx is not None]
         cache_lengths = [s.cache_length for s in admitted]
         if self.is_continuous:
@@ -57,9 +62,14 @@ class DenseScheduleBackend(ScheduleBackend):
             self.dense_slot_cache.adopt_prefill(batch_slot_indices, cache_lengths, prefill_out.prefill_cache)
             cache_ms = 0.0
             moved_bytes = 0
+        self.snapshot_tracker.record_stage("03_dense_prefill_absorbed")
+        next_tokens = prefill_out.next_tokens
+        model_ms = prefill_out.model_ms
+        del prefill_out
+        self.snapshot_tracker.record_stage("04_dense_prefill_cleaned")
         return ScheduleStepOutput(
-            next_tokens=prefill_out.next_tokens,
-            model_ms=prefill_out.model_ms,
+            next_tokens=next_tokens,
+            model_ms=model_ms,
             cache_ms=cache_ms,
             physical_batch_size=len(admitted),
             live_kv_cache_bytes=self.dense_slot_cache.total_bytes,
@@ -83,6 +93,7 @@ class DenseScheduleBackend(ScheduleBackend):
         synchronize(self.device)
         prepare_ms = (time.perf_counter() - prepare_start) * 1000
         decode_out = self.runner.run_decode_step(input_ids, attention_mask, position_ids, self.dense_slot_cache)
+        self.snapshot_tracker.record_stage("05_dense_decode_step", dump=False)
         cache_ms = prepare_ms if self.is_continuous else 0.0
         next_tokens = [decode_out.batch_slot_tokens[s.batch_slot_idx] for s in running_queue]
         return ScheduleStepOutput(
@@ -103,3 +114,8 @@ class DenseScheduleBackend(ScheduleBackend):
         running_queue.retire(finished)
         if not running_queue:
             self.dense_slot_cache.reset()
+            self.snapshot_tracker.stop()
+
+    def __del__(self) -> None:
+        if hasattr(self, "snapshot_tracker"):
+            self.snapshot_tracker.stop()

@@ -6,6 +6,7 @@ from mini_infra.profiling.analyzer import (
     merge_op_latency_breakdowns,
     parse_op_latency_breakdown,
 )
+from mini_infra.profiling.snapshot import MemorySnapshotTracker
 from mini_infra.profiling.tracer import (
     MODULE_SCOPES,
     ProfileCollector,
@@ -22,6 +23,7 @@ __all__ = [
     "KERNEL_CATEGORIES",
     "KernelInfo",
     "MODULE_SCOPES",
+    "MemorySnapshotTracker",
     "OpLatencyBreakdown",
     "ProfileCollector",
     "TensorBoardOptions",

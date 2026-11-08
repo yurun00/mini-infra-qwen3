@@ -12,6 +12,7 @@ from mini_infra.profiling import (
     KERNEL_CATEGORIES,
     MODULE_SCOPES,
     KernelInfo,
+    MemorySnapshotTracker,
     OpLatencyBreakdown,
     TensorBoardOptions,
     install_scope_hooks,
@@ -347,3 +348,44 @@ def test_merge_op_latency_breakdowns_global_topk():
     assert merged.top_kernels[0].share == pytest.approx(16.0 / 54.0)
     assert len(merged.top_kernels) == 2
     assert len(merged.all_kernels) == 5
+
+
+def test_memory_snapshot_tracker_disabled():
+    tracker = MemorySnapshotTracker(enabled=False)
+    assert not tracker.enabled
+    alloc_mb, peak_mb = tracker.record_stage("test_stage")
+    assert alloc_mb == 0.0
+    assert peak_mb == 0.0
+
+
+def test_memory_snapshot_tracker_sampling_rate(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda: None)
+    monkeypatch.setattr(torch.cuda, "memory_allocated", lambda: 100 * 1024**2)
+    monkeypatch.setattr(torch.cuda, "max_memory_allocated", lambda: 200 * 1024**2)
+
+    tracker = MemorySnapshotTracker(enabled=True)
+    assert tracker.enabled
+
+    # 1. sampling_rate 为 None 时，每次均记录
+    for _ in range(3):
+        alloc_mb, peak_mb = tracker.record_stage("stage_none", dump=False, sampling_rate=None)
+        assert alloc_mb == 100.0
+        assert peak_mb == 200.0
+
+    # 2. sampling_rate <= 0 时，永不记录
+    for _ in range(3):
+        alloc_mb, peak_mb = tracker.record_stage("stage_zero", dump=False, sampling_rate=0.0)
+        assert alloc_mb == 0.0
+        assert peak_mb == 0.0
+
+    # 3. sampling_rate = 0.5（每 2 次记录一次）：第 0 次记录，第 1 次跳过，第 2 次记录
+    results = [tracker.record_stage("stage_ratio", dump=False, sampling_rate=0.5)[0] > 0 for _ in range(5)]
+    assert results == [True, False, True, False, True]
+
+    # 4. sampling_rate = 3（整数间隔）：第 0 次记录，第 1、2 次跳过，第 3 次记录
+    results_interval = [tracker.record_stage("stage_stride", dump=False, sampling_rate=3)[0] > 0 for _ in range(7)]
+    assert results_interval == [True, False, False, True, False, False, True]
+
+    # 5. 不同 stage 的计数器互不影响
+    assert tracker.record_stage("stage_other", dump=False, sampling_rate=3)[0] > 0

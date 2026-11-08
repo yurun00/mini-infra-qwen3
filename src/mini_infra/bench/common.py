@@ -50,6 +50,7 @@ BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_B
 RESULT_HISTORY_DIR = BENCH_ARTIFACTS_DIR / "result-history"
 LOCKSTEP_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "lockstep"
 SCHEDULER_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "scheduler"
+CASE_DIR = BENCH_ARTIFACTS_DIR / "case"
 SUITES_DIR = BENCH_ARTIFACTS_DIR / "suites"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
 LOCKSTEP_REPORTS_DIR = REPORTS_DIR / "lockstep"
@@ -560,6 +561,7 @@ def save_benchmark_record(output: Path, record: BaseModel, dirty: bool = False) 
 
 __all__ = [
     "BENCH_ARTIFACTS_DIR",
+    "CASE_DIR",
     "CorrectnessReport",
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",

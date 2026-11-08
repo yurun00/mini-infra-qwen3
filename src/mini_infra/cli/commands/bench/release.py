@@ -51,6 +51,7 @@ from mini_infra.bench.common import (
     REPO_ROOT,
     SCHEDULER_REPORTS_DIR,
     SCHEDULER_RESULT_HISTORY_DIR,
+    git_info,
 )
 from mini_infra.bench.workloads import (
     BENCH_LOCKSTEP_WORKLOAD,
@@ -128,6 +129,7 @@ def build_scheduler_case_cmd(
     tag: str,
     release_feature: str,
     block_size: int | None = None,
+    output: Path | str | None = None,
 ) -> list[str]:
     """将 WorkloadSpec 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
     cmd = [
@@ -176,6 +178,9 @@ def build_scheduler_case_cmd(
         cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_times_ms]])
     elif isinstance(workload.arrival_times_ms, int | float):
         cmd.extend(["--arrival-interval-ms", str(workload.arrival_times_ms)])
+
+    if output is not None:
+        cmd.extend(["--output", str(output)])
 
     return cmd
 
@@ -346,6 +351,8 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         target_mode = Mode(caching_method, batching_method=bm)
         block_size = getattr(args, "block_size", None)
+        git = git_info()
+        hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
 
         for sc in scales:
             target_wl = (
@@ -356,7 +363,13 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             steps.append(
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
-                    cmd=build_scheduler_case_cmd(target_wl, args.tag, args.release_feature, block_size=block_size),
+                    cmd=build_scheduler_case_cmd(
+                        target_wl,
+                        args.tag,
+                        args.release_feature,
+                        block_size=block_size,
+                        output=hist_file,
+                    ),
                     artifacts=(SCHEDULER_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
                 )
             )
