@@ -10,7 +10,7 @@ import torch
 
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.lockstep.suites import Suite, SuiteCase
+from mini_infra.bench.lockstep.suites import LockstepSuite, SuiteCase
 from mini_infra.bench.lockstep.types import LockstepCaseResult
 from mini_infra.profiling import TensorBoardOptions
 
@@ -18,7 +18,7 @@ from mini_infra.profiling import TensorBoardOptions
 def run_suite(
     model: torch.nn.Module,
     device: torch.device,
-    suite: Suite,
+    suite: LockstepSuite,
     vocab: int,
     warmup: int | None = None,
     repeats: int | None = None,

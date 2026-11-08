@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from mini_infra.bench.scheduler.cases import (
+from mini_infra.bench.cases import (
     CaseDimension,
     CaseKey,
     ComparisonMetric,
@@ -458,7 +458,7 @@ def test_compute_comparisons():
 
 
 def test_format_table_abbreviations():
-    from mini_infra.bench.scheduler.cases import CaseKey
+    from mini_infra.bench.cases import CaseKey
     from mini_infra.bench.scheduler.format import (
         _abbreviate_case_key,
         _abbreviate_mode,

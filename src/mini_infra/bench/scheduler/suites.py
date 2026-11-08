@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.scheduler.cases import CaseDimension, ComparisonSpec, SchedulerSuiteCase
+from mini_infra.bench.cases import CaseDimension, ComparisonSpec, SchedulerSuiteCase
 from mini_infra.bench.spec import CaseBlueprint, LoadedSuiteSpec, ResolvedWorkload, discover_suite_specs, get_suite_spec
 from mini_infra.bench.spec.loader import load_suite_spec
 from mini_infra.bench.workloads import make_sequences

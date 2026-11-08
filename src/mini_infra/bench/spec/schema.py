@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
-from mini_infra.bench.scheduler.cases import (
+from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
     ComparisonMetric,

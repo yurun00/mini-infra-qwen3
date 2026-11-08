@@ -2,6 +2,7 @@
 
 import torch
 
+from mini_infra.bench.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler import (
     build_benchmark_record,
     format_case_summary,
@@ -10,7 +11,6 @@ from mini_infra.bench.scheduler import (
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler.suites import load_scheduler_suite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode

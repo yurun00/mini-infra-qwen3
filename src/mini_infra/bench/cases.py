@@ -1,4 +1,7 @@
-"""Scheduler 用例层（case）类型：用例身份键、对比规范与最小单用例配置（纯 CPU，无 PyTorch 依赖）。"""
+"""评测用例层（case）类型：用例身份键、对比规范与 Scheduler 最小单用例配置（纯 CPU，无 PyTorch 依赖）。
+
+YAML suite 声明（bench.spec）与 Scheduler 执行层共同依赖本模块，故置于 bench 包顶层以避免包级循环 import。
+"""
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass

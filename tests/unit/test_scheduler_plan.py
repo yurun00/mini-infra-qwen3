@@ -2,7 +2,7 @@
 
 import pytest
 
-from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
+from mini_infra.bench.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler.plan import (
     RunPhase,
     build_scheduler_run_plan,

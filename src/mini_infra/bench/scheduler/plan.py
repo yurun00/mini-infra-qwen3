@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from mini_infra.bench.scheduler.cases import (
+from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
     CaseKey,

@@ -264,32 +264,6 @@ def make_prompt(
     return make_sequences(length, vocab_size)
 
 
-def make_variable_prompt_lengths(max_prompt_length: int) -> list[int]:
-    """生成一组变长不等长（阶梯稀疏）Prompt 长度列表。
-
-    规则为：[max(1, L//8), max(1, L//4), max(1, L//2), L]。
-    """
-    return [
-        max(1, max_prompt_length // 8),
-        max(1, max_prompt_length // 4),
-        max(1, max_prompt_length // 2),
-        max_prompt_length,
-    ]
-
-
-def make_variable_output_budgets(max_new_tokens: int) -> list[int]:
-    """生成一组变长不等长（阶梯稀疏）Token 预算列表（用于 Slots 变长预算对照实验）。
-
-    规则为：[max(2, B//8), max(2, B//4), max(2, B//2), B]。
-    """
-    return [
-        max(2, max_new_tokens // 8),
-        max(2, max_new_tokens // 4),
-        max(2, max_new_tokens // 2),
-        max_new_tokens,
-    ]
-
-
 def make_arrival_times(count: int, interval_ms: float) -> list[float]:
     """生成等间隔到达时间列表（单位 ms）。"""
     if count < 1:
@@ -339,6 +313,4 @@ __all__ = [
     "make_scheduler_workload",
     "make_sequence",
     "make_sequences",
-    "make_variable_output_budgets",
-    "make_variable_prompt_lengths",
 ]

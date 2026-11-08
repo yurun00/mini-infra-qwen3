@@ -9,7 +9,7 @@ from dataclasses import replace
 
 import torch
 
-from mini_infra.bench.scheduler.cases import SchedulerSuiteCase
+from mini_infra.bench.cases import SchedulerSuiteCase
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
     summarize_same_case_runs,

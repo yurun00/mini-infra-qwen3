@@ -1,6 +1,6 @@
 """队列调度器（Scheduler: Fixed vs Continuous Batching）基准测试模块。"""
 
-from mini_infra.bench.scheduler.cases import (
+from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
     CaseKey,

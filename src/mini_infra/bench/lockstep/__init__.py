@@ -8,13 +8,12 @@ from mini_infra.bench.lockstep.format import (
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import (
-    SUITES,
-    SerialVsFixedBatchThroughputSuite,
-    Suite,
+    LockstepSuite,
     SuiteCase,
-    UniformVsVariableBudgetSlotsSuite,
-    UniformVsVariablePromptPaddingSuite,
-    get_suite,
+    get_all_lockstep_suites,
+    get_lockstep_suite,
+    list_lockstep_suite_names,
+    load_lockstep_suite,
 )
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
@@ -24,19 +23,18 @@ from mini_infra.bench.lockstep.types import (
 )
 
 __all__ = [
-    "SUITES",
     "DistributionStats",
     "LockstepCaseResult",
-    "SerialVsFixedBatchThroughputSuite",
-    "Suite",
+    "LockstepSuite",
     "SuiteCase",
-    "UniformVsVariableBudgetSlotsSuite",
-    "UniformVsVariablePromptPaddingSuite",
     "WorkloadSpec",
     "build_benchmark_record",
     "format_case_summary",
     "format_table",
-    "get_suite",
+    "get_all_lockstep_suites",
+    "get_lockstep_suite",
+    "list_lockstep_suite_names",
+    "load_lockstep_suite",
     "resolve_case_specs",
     "run_case",
     "run_suite",

@@ -26,7 +26,7 @@ from mini_infra.bench.lockstep.format import (
 )
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
-from mini_infra.bench.lockstep.suites import SUITES, SuiteCase, get_suite
+from mini_infra.bench.lockstep.suites import SuiteCase, get_lockstep_suite, list_lockstep_suite_names
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -74,9 +74,9 @@ def add_lockstep_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentPars
     add_common_args(p)
     p.add_argument(
         "--suite",
-        choices=sorted(SUITES),
+        choices=list_lockstep_suite_names(),
         required=True,
-        help="运行 suites.py 中注册的命名 suite（配置来自该文件，结果写入 benchmarks/suites/<name>/）",
+        help="运行 benchmarks/specs/lockstep/ 中声明的命名 suite（结果写入 benchmarks/suites/<name>/）",
     )
     return p
 
@@ -189,7 +189,7 @@ def handle_case(args: argparse.Namespace) -> int:
 def handle_suite(args: argparse.Namespace) -> int:
     device = require_cuda()
 
-    suite = get_suite(args.suite)
+    suite = get_lockstep_suite(args.suite)
     modes = suite.modes()
     cases = suite.cases()
     warmup = args.warmup if args.warmup is not None else suite.warmup

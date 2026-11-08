@@ -4,17 +4,17 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+from mini_infra.bench.cases import (
+    CaseDimensionValue,
+    CaseKey,
+    ComparisonSpec,
+    MetricKind,
+)
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
     WorkloadSpec,
     summarize_samples,
-)
-from mini_infra.bench.scheduler.cases import (
-    CaseDimensionValue,
-    CaseKey,
-    ComparisonSpec,
-    MetricKind,
 )
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,

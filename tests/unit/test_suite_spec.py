@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from mini_infra.bench.common import SPECS_DIR
+from mini_infra.bench.lockstep.suites import get_lockstep_suite
 from mini_infra.bench.scheduler.suites import get_scheduler_suite
 from mini_infra.bench.spec import (
     discover_suite_specs,
@@ -57,24 +58,19 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
 
 
 def _lockstep_entry(name: str) -> dict[str, Any]:
-    loaded = get_suite_spec("lockstep", name)
-    blueprints = loaded.blueprints()
+    suite = get_lockstep_suite(name)
     return {
-        "warmup": loaded.spec.execution.warmup,
-        "repeats": loaded.spec.execution.repeats,
-        "modes": [str(m) for m in dict.fromkeys(bp.mode for bp in blueprints)],
+        "warmup": suite.warmup,
+        "repeats": suite.repeats,
+        "modes": [str(m) for m in suite.modes()],
         "cases": [
             {
-                "mode": str(bp.mode),
-                "num_total_requests": bp.workload.num_requests,
-                "prompt_len": list(bp.workload.prompt_len)
-                if isinstance(bp.workload.prompt_len, tuple)
-                else bp.workload.prompt_len,
-                "max_new_tokens": list(bp.workload.max_new_tokens)
-                if isinstance(bp.workload.max_new_tokens, tuple)
-                else bp.workload.max_new_tokens,
+                "mode": str(c.mode),
+                "num_total_requests": c.num_total_requests,
+                "prompt_len": list(c.prompt_len) if isinstance(c.prompt_len, tuple) else c.prompt_len,
+                "max_new_tokens": list(c.max_new_tokens) if isinstance(c.max_new_tokens, tuple) else c.max_new_tokens,
             }
-            for bp in blueprints
+            for c in suite.cases()
         ],
     }
 
@@ -320,6 +316,14 @@ def test_length_and_arrival_expansion_edge_cases():
     ladder = group(prompt_len={"ladder": {"max": 4}}, output_len={"ladder": {"max": 8, "floor": 2}})
     assert expand_length(ladder.prompt_len, 4) == (1, 1, 2, 4)
     assert expand_length(ladder.output_len, 4) == (2, 2, 4, 8)
+    # 与历史 make_variable_prompt_lengths / make_variable_output_budgets 的取值一致
+    for max_len, floor, expected in [
+        (128, 1, (16, 32, 64, 128)),
+        (1, 1, (1, 1, 1, 1)),
+        (64, 2, (8, 16, 32, 64)),
+        (2, 2, (2, 2, 2, 2)),
+    ]:
+        assert expand_length(group(prompt_len={"ladder": {"max": max_len, "floor": floor}}).prompt_len, 4) == expected
     assert expand_arrival(group(arrival_ms={"interval": 150}).arrival_ms, 4) == (0.0, 150.0, 300.0, 450.0)
     assert expand_arrival(group(arrival_ms=5).arrival_ms, 2) == (5.0, 5.0)
     assert expand_arrival(group(arrival_ms=[0, 1, 2, 3]).arrival_ms, 4) == (0.0, 1.0, 2.0, 3.0)

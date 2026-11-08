@@ -15,8 +15,6 @@ from mini_infra.bench.workloads import (
     make_scheduler_workload,
     make_sequence,
     make_sequences,
-    make_variable_output_budgets,
-    make_variable_prompt_lengths,
 )
 from mini_infra.engine import (
     BatchingMethod,
@@ -26,18 +24,6 @@ from mini_infra.engine import (
     generate,
 )
 from mini_infra.verification.smoke import build_tiny_model
-
-
-def test_make_variable_prompt_lengths():
-    assert make_variable_prompt_lengths(128) == [16, 32, 64, 128]
-    assert make_variable_prompt_lengths(4) == [1, 1, 2, 4]
-    assert make_variable_prompt_lengths(1) == [1, 1, 1, 1]
-
-
-def test_make_variable_output_budgets():
-    assert make_variable_output_budgets(64) == [8, 16, 32, 64]
-    assert make_variable_output_budgets(8) == [2, 2, 4, 8]
-    assert make_variable_output_budgets(2) == [2, 2, 2, 2]
 
 
 def test_make_sequence_shape_and_range():

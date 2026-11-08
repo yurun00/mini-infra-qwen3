@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from mini_infra.bench.scheduler.cases import CaseKey
+from mini_infra.bench.cases import CaseKey
 from mini_infra.bench.scheduler.types import MetricComparison, SchedulerCaseResult
 from mini_infra.bench.schema import build_benchmark_record
 

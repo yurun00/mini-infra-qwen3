@@ -7,6 +7,7 @@ import argparse
 import sys
 from dataclasses import replace
 
+from mini_infra.bench.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.common import (
     BENCH_ARTIFACTS_DIR,
     CASE_DIR,
@@ -19,7 +20,6 @@ from mini_infra.bench.common import (
     resolve_peak_specs,
     save_benchmark_record,
 )
-from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler.format import (
     format_case_summary,
     format_comparison,

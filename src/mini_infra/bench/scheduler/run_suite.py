@@ -9,7 +9,7 @@ from dataclasses import replace
 
 import torch
 
-from mini_infra.bench.scheduler.cases import CaseDimension, CaseKey
+from mini_infra.bench.cases import CaseDimension, CaseKey
 from mini_infra.bench.scheduler.plan import (
     PlannedRun,
     RunPhase,
