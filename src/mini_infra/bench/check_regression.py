@@ -38,10 +38,10 @@ def run_light_benchmark(output: Any, tag: str) -> int:
 
 
 def index(record: dict[str, Any]) -> dict[tuple[int, Any, Any], dict[str, Any]]:
-    """以 (batch_size, prompt_len, max_new_tokens) 为三元组 key 索引用例结果。"""
+    """以 (num_total_requests, prompt_len, max_new_tokens) 为三元组 key 索引用例结果。"""
     return {
         (
-            w["batch_size"],
+            w["num_total_requests"],
             tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
             tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"],
         ): w
@@ -57,7 +57,7 @@ def compare(candidate: dict[str, Any], reference: dict[str, Any], threshold: flo
         return None, ["没有可比较的共同 case"]
 
     regressed, lines = False, []
-    lines.append(f"{'case (bs/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果")
+    lines.append(f"{'case (req/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果")
     for key in common:
         for metric, name in METRICS:
             r, c = ref[key][metric]["median"], cand[key][metric]["median"]

@@ -50,7 +50,7 @@
   "cases": [
     {
       "mode": "kv-cache+fixed-batching",
-      "batch_size": 16,
+      "num_total_requests": 16,
       "prompt_len": [
         35,
         55,
@@ -167,7 +167,9 @@
         "dynamic_peak_mb": 102.0595703125,
         "peak_reserved_mb": 1340.0,
         "fragmentation_mb": 92.92626953125,
-        "kv_cache": {"peak_live_kv_cache_mb": 36.3125}
+        "kv_cache": {
+          "peak_live_kv_cache_mb": 36.3125
+        }
       },
       "packing": {
         "padding_efficiency": {
@@ -1719,7 +1721,7 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
-      "batch_size": 32,
+      "num_total_requests": 32,
       "prompt_len": [
         113,
         154,
@@ -1868,7 +1870,9 @@
         "dynamic_peak_mb": 795.18310546875,
         "peak_reserved_mb": 2658.0,
         "fragmentation_mb": 717.802734375,
-        "kv_cache": {"peak_live_kv_cache_mb": 281.75}
+        "kv_cache": {
+          "peak_live_kv_cache_mb": 281.75
+        }
       },
       "packing": {
         "padding_efficiency": {
@@ -6160,7 +6164,7 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
-      "batch_size": 64,
+      "num_total_requests": 64,
       "prompt_len": [
         776,
         314,
@@ -6373,7 +6377,9 @@
         "dynamic_peak_mb": 6437.48388671875,
         "peak_reserved_mb": 18720.0,
         "fragmentation_mb": 11137.501953125,
-        "kv_cache": {"peak_live_kv_cache_mb": 2065.0}
+        "kv_cache": {
+          "peak_live_kv_cache_mb": 2065.0
+        }
       },
       "packing": {
         "padding_efficiency": {

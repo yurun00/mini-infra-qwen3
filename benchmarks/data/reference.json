@@ -53,7 +53,7 @@
   "cases": [
     {
       "mode": "dense-kv-cache",
-      "batch_size": 2,
+      "num_total_requests": 2,
       "prompt_len": [
         32,
         512

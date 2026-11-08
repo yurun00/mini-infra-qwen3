@@ -2,7 +2,7 @@
 
 基准版本：`baseline (fixed batching)` (`f03abf6`)，GPU：NVIDIA L4，数值为 median，括号内为相对同 Scale 基准的变化比（>1 表示更快/更高）。
 
-| 版本 | Scale | commit | batch | prompt | max_new_tokens | Makespan (ms) | TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | KV 块池 (MiB) | batch slot 利用率 | 正确性 |
+| 版本 | Scale | commit | total_requests | prompt | max_new_tokens | Makespan (ms) | TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | KV 块池 (MiB) | batch slot 利用率 | 正确性 |
 | :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | baseline (fixed batching) | `small` | f03abf6 | 16 | 16..63(μ=35) | 9..31(μ=17) | 4617.81 (1.00x) | 1120.13 (1.00x) | 50.76 | 59.3 (1.00x) | 1247 | 36.3 | — | 65.2% | ✅ |
 | baseline (fixed batching) | `medium` | f03abf6 | 32 | 64..247(μ=138) | 33..93(μ=58) | 14492.43 (1.00x) | 3414.45 (1.00x) | 48.64 | 128.4 (1.00x) | 1940 | 281.8 | — | 70.9% | ✅ |

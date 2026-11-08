@@ -137,7 +137,7 @@ def records_to_wide_df(
             c_dict["prompt_len_str"] = format_lengths(c_dict["prompt_len"])
             c_dict["max_new_tokens_str"] = format_lengths(c_dict["max_new_tokens"])
             c_dict["workload_desc"] = (
-                f"scale={c_dict['scale']}, bs={c_dict['batch_size']}, "
+                f"scale={c_dict['scale']}, reqs={c_dict['num_total_requests']}, "
                 f"prompt={c_dict['prompt_len_str']}, out={c_dict['max_new_tokens_str']}"
             )
             corr = rec.correctness

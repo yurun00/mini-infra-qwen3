@@ -54,7 +54,7 @@
   "cases": [
     {
       "mode": "paged-kv-cache+continuous-batching",
-      "batch_size": 16,
+      "num_total_requests": 16,
       "prompt_len": [
         35,
         55,
@@ -1739,7 +1739,7 @@
     },
     {
       "mode": "paged-kv-cache+continuous-batching",
-      "batch_size": 32,
+      "num_total_requests": 32,
       "prompt_len": [
         113,
         154,
@@ -6617,7 +6617,7 @@
     },
     {
       "mode": "paged-kv-cache+continuous-batching",
-      "batch_size": 64,
+      "num_total_requests": 64,
       "prompt_len": [
         776,
         314,

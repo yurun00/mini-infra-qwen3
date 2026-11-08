@@ -80,7 +80,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
     if is_pure_lockstep:
         lines.extend(
             [
-                "| 版本 | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
+                "| 版本 | Scale | commit | total_requests | prompt | max_new_tokens | TTFT (ms) "
                 "| TPOT (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
@@ -88,7 +88,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
     elif is_pure_scheduler:
         lines.extend(
             [
-                "| 版本 | Scale | commit | batch | prompt | max_new_tokens | Makespan (ms) "
+                "| 版本 | Scale | commit | total_requests | prompt | max_new_tokens | Makespan (ms) "
                 "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | KV 块池 (MiB) "
                 "| batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
@@ -97,7 +97,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
     else:
         lines.extend(
             [
-                "| 版本 | Engine | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) "
+                "| 版本 | Engine | Scale | commit | total_requests | prompt | max_new_tokens | TTFT (ms) "
                 "| TPOT / ITL P50 (ms) | E2E (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) "
                 "| batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
@@ -129,8 +129,8 @@ def markdown_table(records: list[Any], base: Any) -> str:
             tpot = float(row.get("tpot_ms.median", 0.0))
             s_tpot = f" ({b_tpot / tpot:.2f}x)" if b_tpot > 0 and tpot > 0 else ""
             lines.append(
-                f"| {row['label']} | `{sc}` | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
-                f"{row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | {tpot:.2f}{s_tpot} | "
+                f"| {row['label']} | `{sc}` | {row['commit']} | {row['num_total_requests']} | "
+                f"{row['prompt_len_str']} | {row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | {tpot:.2f}{s_tpot} | "
                 f"{thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | {slot:.1f}% | {flag} |"
             )
         elif is_pure_scheduler:
@@ -138,9 +138,9 @@ def markdown_table(records: list[Any], base: Any) -> str:
             itl_p95 = float(row.get("itl_ms_p95.median", 0.0))
             s_mksp = f" ({b_mksp / mksp:.2f}x)" if b_mksp > 0 and mksp > 0 else ""
             lines.append(
-                f"| {row['label']} | `{sc}` | {row['commit']} | {row['batch_size']} | {row['prompt_len_str']} | "
-                f"{row['max_new_tokens_str']} | {mksp:.2f}{s_mksp} | {ttft:.2f}{s_ttft} | {itl_p95:.2f} | "
-                f"{thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | {pool_str} | {slot:.1f}% | {flag} |"
+                f"| {row['label']} | `{sc}` | {row['commit']} | {row['num_total_requests']} | "
+                f"{row['prompt_len_str']} | {row['max_new_tokens_str']} | {mksp:.2f}{s_mksp} | {ttft:.2f}{s_ttft} | "
+                f"{itl_p95:.2f} | {thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | {pool_str} | {slot:.1f}% | {flag} |"
             )
         else:
             tpot = float(row.get("tpot_ms.median", 0.0))
@@ -148,7 +148,7 @@ def markdown_table(records: list[Any], base: Any) -> str:
             e2e = float(row.get("e2e_wall_ms.median", 0.0))
             s_e2e = f" ({b_e2e / e2e:.2f}x)" if b_e2e > 0 and e2e > 0 else ""
             lines.append(
-                f"| {row['label']} | `{row['engine']}` | `{sc}` | {row['commit']} | {row['batch_size']} | "
+                f"| {row['label']} | `{row['engine']}` | `{sc}` | {row['commit']} | {row['num_total_requests']} | "
                 f"{row['prompt_len_str']} | {row['max_new_tokens_str']} | {ttft:.2f}{s_ttft} | "
                 f"{tpot:.2f}{s_tpot} | {e2e:.2f}{s_e2e} | {thr:.1f}{s_thr} | {mem:.0f} | {live_kv:.1f} | "
                 f"{slot:.1f}% | {flag} |"
@@ -634,7 +634,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         frag_mb = float(mem.get("fragmentation_mb") or 0.0)
 
         lines.append(
-            f"基于当前调度器版本 `{label(validated_target)}`（`requests={w['batch_size']}, "
+            f"基于当前调度器版本 `{label(validated_target)}`（`requests={w['num_total_requests']}, "
             f"max_running={sched.get('max_running_requests', 4)}`）下的基准测量与轨迹剖析，诊断如下：\n"
         )
         lines.append("### 1. batch slot 与并发容量利用率诊断（调度效率）")

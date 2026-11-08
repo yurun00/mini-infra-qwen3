@@ -2,7 +2,7 @@
 
 基准版本：`baseline (no cache)` (`a497386`)，GPU：NVIDIA L4，数值为 median，括号内为相对同 Scale 基准的变化比（>1 表示更快/更高）。
 
-| 版本 | Scale | commit | batch | prompt | max_new_tokens | TTFT (ms) | TPOT (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | batch slot 利用率 | 正确性 |
+| 版本 | Scale | commit | total_requests | prompt | max_new_tokens | TTFT (ms) | TPOT (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | batch slot 利用率 | 正确性 |
 | :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
 | baseline (no cache) | `small` | a497386 | 4 | 40/58/19/27 | 15/30/10/21 | 42.88 (1.00x) | 42.56 (1.00x) | 23.5 (1.00x) | 1171 | 0.0 | 100.0% | ✅ |
 | baseline (no cache) | `medium` | a497386 | 8 | 75..231(μ=142) | 35..94(μ=60) | 45.02 (1.00x) | 43.43 (1.00x) | 23.0 (1.00x) | 1234 | 0.0 | 100.0% | ✅ |

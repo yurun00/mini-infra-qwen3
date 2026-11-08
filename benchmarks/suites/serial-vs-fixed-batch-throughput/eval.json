@@ -56,9 +56,9 @@
   "cases": [
     {
       "mode": "kv-cache",
+      "num_total_requests": 1,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 1,
       "ttft_ms": {
         "median": 43.40019226074219,
         "mean": 44.014591217041016,
@@ -149,9 +149,9 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
+      "num_total_requests": 1,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 1,
       "ttft_ms": {
         "median": 42.91276931762695,
         "mean": 42.932202657063804,
@@ -242,9 +242,9 @@
     },
     {
       "mode": "kv-cache",
+      "num_total_requests": 2,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 2,
       "ttft_ms": {
         "median": 43.31723213195801,
         "mean": 44.560218811035156,
@@ -335,9 +335,9 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
+      "num_total_requests": 2,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 2,
       "ttft_ms": {
         "median": 44.31257629394531,
         "mean": 44.233044942220054,
@@ -428,9 +428,9 @@
     },
     {
       "mode": "kv-cache",
+      "num_total_requests": 4,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 4,
       "ttft_ms": {
         "median": 43.60140800476074,
         "mean": 44.01425043741862,
@@ -521,9 +521,9 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
+      "num_total_requests": 4,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 4,
       "ttft_ms": {
         "median": 45.36320114135742,
         "mean": 45.3406613667806,
@@ -614,9 +614,9 @@
     },
     {
       "mode": "kv-cache",
+      "num_total_requests": 8,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 8,
       "ttft_ms": {
         "median": 43.89785623550415,
         "mean": 44.49480120340983,
@@ -707,9 +707,9 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
+      "num_total_requests": 8,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 8,
       "ttft_ms": {
         "median": 47.034366607666016,
         "mean": 48.8000857035319,
@@ -800,9 +800,9 @@
     },
     {
       "mode": "kv-cache",
+      "num_total_requests": 16,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 16,
       "ttft_ms": {
         "median": 44.442944049835205,
         "mean": 44.54817851384481,
@@ -893,9 +893,9 @@
     },
     {
       "mode": "kv-cache+fixed-batching",
+      "num_total_requests": 16,
       "prompt_len": 128,
       "max_new_tokens": 32,
-      "batch_size": 16,
       "ttft_ms": {
         "median": 82.26815795898438,
         "mean": 82.23061116536458,
