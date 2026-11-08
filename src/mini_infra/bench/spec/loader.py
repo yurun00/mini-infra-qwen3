@@ -110,7 +110,10 @@ def get_suite_spec(engine: SuiteEngine, name: str, specs_dir: Path | None = None
     available = discover_suite_specs(engine, specs_dir)
     if name not in available:
         raise ValueError(f"未知 {engine} suite: {name}，可选: {sorted(available)}")
-    return load_suite_spec(available[name])
+    loaded = load_suite_spec(available[name])
+    if loaded.spec.engine != engine:
+        raise ValueError(f"{loaded.path}: engine 为 {loaded.spec.engine}，与所在目录 {engine} 不一致")
+    return loaded
 
 
 __all__ = [

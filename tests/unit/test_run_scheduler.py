@@ -11,7 +11,7 @@ from mini_infra.bench.scheduler import (
     run_suite,
 )
 from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
-from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite
+from mini_infra.bench.scheduler.suites import load_scheduler_suite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
@@ -277,18 +277,29 @@ def test_run_scheduler_case_and_step_on_cpu():
     print(format_case_summary(case_res))
 
 
-def test_run_scheduler_suite_on_cpu():
+def test_run_scheduler_suite_on_cpu(tmp_path):
     """验证套件执行器 run_suite 支持 plan 驱动并导出统一 SchedulerBenchmarkRecord。"""
     model = build_tiny_model()
     device = torch.device("cpu")
-    suite = FixedVsContinuousVariableOutputLengthSuite(
-        request_count=2,
-        prompt_length=4,
-        short_output=2,
-        long_output=3,
-        warmup=0,
-        repeats=2,
+    spec_path = tmp_path / "tiny-fixed-vs-continuous.yaml"
+    spec_path.write_text(
+        """
+name: tiny-fixed-vs-continuous
+engine: scheduler
+execution: {warmup: 0, repeats: 2, interleave: [batching_method]}
+system:
+  max_running_requests: 4
+  batching_method: [fixed-batching, continuous-batching]
+  caching_method: [dense-kv-cache]
+workload:
+  id: variable_output_length
+  count: 2
+  prompt_len: 4
+  output_len: {alternating: [2, 3]}
+""",
+        encoding="utf-8",
     )
+    suite = load_scheduler_suite(spec_path)
 
     cases = run_suite(
         model=model,
@@ -329,7 +340,8 @@ def test_run_scheduler_suite_on_cpu():
         engine="scheduler",
     )
     assert record["engine"] == "scheduler"
-    assert record["suite"]["request_count"] == 2
+    assert record["suite"]["name"] == "tiny-fixed-vs-continuous"
+    assert record["suite"]["spec"]["workload"]["count"] == 2
     assert len(record["cases"]) == 2
 
 
@@ -433,7 +445,7 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
         def modes(self):
             return [dense_mode, paged_mode]
 
-        def cases(self, vocab_size, device=None):
+        def cases(self, vocab_size):
             return cases
 
     suite = DummyMultiWorkloadSuite()

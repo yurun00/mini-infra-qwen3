@@ -57,7 +57,7 @@ def run_suite(
     repeats_val = repeats if repeats is not None else suite.repeats
     interleave_dims = tuple(interleave) if interleave is not None else suite.interleave
 
-    cases = suite.cases(vocab_size, device=device)
+    cases = suite.cases(vocab_size)
 
     # 生成执行计划
     plan = build_scheduler_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_dims)

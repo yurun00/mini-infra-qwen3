@@ -9,7 +9,6 @@ from mini_infra.bench.workloads import (
     WORKLOAD_SCALES,
     WorkloadSpec,
     build_scheduler_request_specs,
-    make_alternating_budgets,
     make_arrival_times,
     make_lockstep_workload,
     make_prompt,
@@ -151,19 +150,6 @@ def test_make_arrival_times():
         make_arrival_times(0, 10.0)
     with pytest.raises(ValueError):
         make_arrival_times(3, -5.0)
-
-
-def test_make_alternating_budgets():
-    import pytest
-
-    assert make_alternating_budgets(4, 8, 32) == [8, 32, 8, 32]
-    assert make_alternating_budgets(3, 10, 20) == [10, 20, 10]
-    with pytest.raises(ValueError):
-        make_alternating_budgets(0, 8, 32)
-    with pytest.raises(ValueError):
-        make_alternating_budgets(2, 0, 32)
-    with pytest.raises(ValueError):
-        make_alternating_budgets(2, 8, 0)
 
 
 def test_canonical_workloads_and_build_scheduler_specs():

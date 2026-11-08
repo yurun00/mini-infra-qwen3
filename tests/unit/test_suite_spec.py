@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from mini_infra.bench.common import SPECS_DIR
+from mini_infra.bench.scheduler.suites import get_scheduler_suite
 from mini_infra.bench.spec import (
     discover_suite_specs,
     expand_suite_spec,
@@ -15,8 +16,6 @@ from mini_infra.bench.spec import (
     load_suite_spec,
 )
 from mini_infra.bench.spec.loader import deep_merge, load_raw_spec
-from mini_infra.bench.workloads import make_sequences
-from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
@@ -28,40 +27,31 @@ def _digest(token_ids: tuple[int, ...]) -> str:
 
 
 def _scheduler_entry(name: str) -> dict[str, Any]:
-    loaded = get_suite_spec("scheduler", name)
-    spec = loaded.spec
-    cases = []
-    for bp in loaded.blueprints():
-        wl = bp.workload
-        specs = make_request_specs(make_sequences(wl.prompt_lens, VOCAB), wl.output_budgets, wl.arrival_ms)
-        cases.append(
-            {
-                "workload_id": wl.workload_id,
-                "mode": str(bp.mode),
-                "max_running_requests": bp.max_running_requests,
-                "paged_cache_config": (
-                    None
-                    if bp.paged_cache_config is None
-                    else {
-                        "block_size": bp.paged_cache_config.block_size,
-                        "num_blocks": bp.paged_cache_config.num_blocks,
-                    }
-                ),
-                "specs": [
-                    [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
-                    for s in specs
-                ],
-            }
-        )
-    modes = [str(m) for m in dict.fromkeys(bp.mode for bp in loaded.blueprints())]
-    assert spec.comparison is not None
+    suite = get_scheduler_suite(name)
+    cases = [
+        {
+            "workload_id": c.workload_id,
+            "mode": str(c.mode),
+            "max_running_requests": c.max_running_requests,
+            "paged_cache_config": (
+                None
+                if c.paged_cache_config is None
+                else {"block_size": c.paged_cache_config.block_size, "num_blocks": c.paged_cache_config.num_blocks}
+            ),
+            "specs": [
+                [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms] for s in c.specs
+            ],
+        }
+        for c in suite.cases(VOCAB)
+    ]
+    assert suite.comparison is not None
     return {
-        "warmup": spec.execution.warmup,
-        "repeats": spec.execution.repeats,
-        "max_running_requests": spec.system.max_running_requests,
-        "interleave": [d.value for d in spec.execution.interleave],
-        "modes": modes,
-        "comparison": spec.comparison.to_runtime().to_dict(),
+        "warmup": suite.warmup,
+        "repeats": suite.repeats,
+        "max_running_requests": suite.loaded.spec.system.max_running_requests,
+        "interleave": [d.value for d in suite.interleave],
+        "modes": [str(m) for m in suite.modes()],
+        "comparison": suite.comparison.to_dict(),
         "cases": cases,
     }
 
@@ -315,3 +305,30 @@ workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
     }.get(extra, "")
     with pytest.raises(Exception, match="lockstep"):
         load_suite_spec(_write(tmp_path, base.format(system_extra=system_extra, caching=caching, tail=tail)))
+
+
+def test_length_and_arrival_expansion_edge_cases():
+    from mini_infra.bench.spec.lengths import expand_arrival, expand_length
+    from mini_infra.bench.spec.schema import GroupSpec
+
+    def group(**kwargs: Any) -> GroupSpec:
+        return GroupSpec.model_validate({"count": 4, "prompt_len": 8, "output_len": 4, **kwargs})
+
+    assert expand_length(
+        GroupSpec.model_validate({"count": 3, "prompt_len": {"alternating": [10, 20]}, "output_len": 1}).prompt_len, 3
+    ) == (10, 20, 10)
+    ladder = group(prompt_len={"ladder": {"max": 4}}, output_len={"ladder": {"max": 8, "floor": 2}})
+    assert expand_length(ladder.prompt_len, 4) == (1, 1, 2, 4)
+    assert expand_length(ladder.output_len, 4) == (2, 2, 4, 8)
+    assert expand_arrival(group(arrival_ms={"interval": 150}).arrival_ms, 4) == (0.0, 150.0, 300.0, 450.0)
+    assert expand_arrival(group(arrival_ms=5).arrival_ms, 2) == (5.0, 5.0)
+    assert expand_arrival(group(arrival_ms=[0, 1, 2, 3]).arrival_ms, 4) == (0.0, 1.0, 2.0, 3.0)
+
+
+def test_negative_arrival_and_unknown_length_kind_are_rejected():
+    from mini_infra.bench.spec.schema import GroupSpec
+
+    with pytest.raises(ValueError, match="greater than or equal to 0"):
+        GroupSpec.model_validate({"count": 1, "prompt_len": 8, "output_len": 4, "arrival_ms": -1})
+    with pytest.raises(ValueError):
+        GroupSpec.model_validate({"count": 1, "prompt_len": {"zipf": 1}, "output_len": 4})

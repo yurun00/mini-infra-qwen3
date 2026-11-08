@@ -7,8 +7,6 @@ import argparse
 import sys
 from dataclasses import replace
 
-import torch
-
 from mini_infra.bench.common import (
     BENCH_ARTIFACTS_DIR,
     CASE_DIR,
@@ -33,7 +31,7 @@ from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_args,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import SCHEDULER_SUITES, get_suite
+from mini_infra.bench.scheduler.suites import get_scheduler_suite, list_scheduler_suite_names
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
@@ -90,9 +88,12 @@ def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
     add_common_args(p)
     p.add_argument(
         "--suite",
-        choices=sorted(SCHEDULER_SUITES),
+        choices=list_scheduler_suite_names(),
         required=True,
-        help="运行 suites.py 中注册的命名 Scheduler 套件（结果写入 benchmarks/suites/scheduler/<name>/）",
+        help=(
+            "运行 benchmarks/specs/scheduler/ 中声明的命名 Scheduler 套件"
+            "（结果写入 benchmarks/suites/scheduler/<name>/）"
+        ),
     )
     p.add_argument(
         "--interleave",
@@ -254,13 +255,13 @@ def handle_case(args: argparse.Namespace) -> int:
 
 
 def handle_suite(args: argparse.Namespace) -> int:
-    suite = get_suite(args.suite)
+    suite = get_scheduler_suite(args.suite)
 
     if args.dry_run:
         warmup = args.warmup if args.warmup is not None else suite.warmup
         repeats = args.repeats if args.repeats is not None else suite.repeats
         interleave_features = parse_interleave_args(args.interleave, suite.interleave)
-        cases = suite.cases(vocab_size=100, device=torch.device("cpu"))
+        cases = suite.cases(vocab_size=100)
         plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
         print(f"=== [Dry Run] Suite: {args.suite} ===")
         print(format_scheduler_run_plan(plan))
@@ -289,7 +290,7 @@ def handle_suite(args: argparse.Namespace) -> int:
     interleave_features = parse_interleave_args(args.interleave, suite.interleave)
 
     print(
-        f"[bench-scheduler-suite] suite={suite.name} max_running={suite.max_running_requests} "
+        f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.blueprints)} "
         f"warmup={warmup} repeats={repeats} ...",
         flush=True,
     )

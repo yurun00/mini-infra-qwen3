@@ -122,18 +122,6 @@ class ComparisonSpec:
         }
 
 
-FIXED_VS_CONTINUOUS_COMPARISON_METRICS: tuple[ComparisonMetric, ...] = (
-    ComparisonMetric("schedule_metrics.makespan_ms", MetricKind.SPEEDUP, "makespan"),
-)
-
-DENSE_VS_PAGED_COMPARISON_METRICS: tuple[ComparisonMetric, ...] = (
-    ComparisonMetric("schedule_metrics.makespan_ms", MetricKind.SPEEDUP, "makespan"),
-    ComparisonMetric("metrics.throughput_tok_s", MetricKind.GAIN, "throughput"),
-    ComparisonMetric("memory.kv_cache.accessed_kv_cache_tokens", MetricKind.REDUCTION, "KV-read"),
-    ComparisonMetric("memory.kv_cache.peak_kv_cache_pool_mb", MetricKind.REDUCTION, "pool"),
-)
-
-
 @dataclass(frozen=True)
 class SchedulerSuiteCase:
     """Scheduler 评测最小单用例配置：包含用例身份键（CaseKey）对应的全量维度与请求规格。"""
@@ -199,8 +187,6 @@ class SchedulerSuiteCase:
 
 
 __all__ = [
-    "DENSE_VS_PAGED_COMPARISON_METRICS",
-    "FIXED_VS_CONTINUOUS_COMPARISON_METRICS",
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
