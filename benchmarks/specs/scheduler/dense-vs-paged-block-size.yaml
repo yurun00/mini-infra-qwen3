@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../suite.schema.json
 name: dense-vs-paged-block-size
 extends: _bases/dense_vs_paged.yaml
 description: 扫描 Paged physical block 大小（8/16/32/64）；dense 作为基线只出现一次。

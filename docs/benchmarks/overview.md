@@ -12,6 +12,7 @@
 | | `mini-infra bench lockstep suite` | `lockstep/run_suite.py` | 运行预设齐步批处理对比套件（吞吐扫描、Padding 损耗、batch slot 浪费） | `benchmarks/suites/lockstep/<suite>/` |
 | **scheduler 调度器** | `mini-infra bench scheduler case` | `scheduler/run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous、Dense vs Paged，支持并发与错峰到达） | 控制台输出或 `--output` |
 | | `mini-infra bench scheduler suite` | `scheduler/run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰、Paged 显存/块大小对比） | `benchmarks/suites/scheduler/<name>/` |
+| **Suite 检视** | `mini-infra bench suites list \| show \| schema` | `spec/` | 浏览内置 suite、查看合并后的 YAML 与展开用例、导出 JSON Schema（无需 GPU） | 标准输出 |
 | **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/result-history/{lockstep,scheduler}/` |
 | **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/{lockstep,scheduler}/` |
 | | `mini-infra bench plot compare` | `plotting/compare.py` | 对比任意两个独立 JSON 实验结果，绘制柱状对比图与 Markdown 差异表 | `./benchmark_comparison.png` |
@@ -71,6 +72,12 @@ mini-infra bench lockstep case \
 
 #### 常用命令样例
 ```bash
+# 预览用例列表（无需 GPU，Dry-Run）
+mini-infra bench lockstep suite \
+  --tag dev \
+  --suite serial-vs-fixed-batch-throughput \
+  --dry-run
+
 # 运行固定批处理吞吐扩展套件
 mini-infra bench lockstep suite \
   --tag dev \
@@ -86,6 +93,9 @@ mini-infra bench lockstep suite \
   --tag dev \
   --suite uniform-vs-variable-budget-slots
 ```
+
+> [!NOTE]
+> 套件的 `warmup` / `repeats` 取自 YAML 的 `execution`，命令行 `--warmup` / `--repeats` 仅在显式传入时覆盖。
 
 ---
 
@@ -239,13 +249,60 @@ mini-infra bench check-regression --update-reference
 
 ---
 
-## 六、测试数据产物与输出目录约定
+## 六、声明式 Suite（YAML）：新增与检视
+
+所有 suite 均由 [`benchmarks/specs/{lockstep,scheduler}/<name>.yaml`](../../benchmarks/specs/) 声明；**新增 suite = 新增一个 YAML 文件，无需改 Python**。`name` 必须与文件名一致，`_bases/` 下的文件仅供 `extends` 复用、不可直接运行。
+
+```yaml
+# benchmarks/specs/scheduler/fixed-vs-continuous-staggered-arrivals.yaml
+# yaml-language-server: $schema=../suite.schema.json
+name: fixed-vs-continuous-staggered-arrivals
+extends: _bases/fixed_vs_continuous.yaml     # 映射深合并，列表整体替换
+workload:
+  id: staggered_arrivals                     # → CaseKey.workload_id
+  count: 8
+  prompt_len: 128
+  output_len: {alternating: [8, 32]}
+  arrival_ms: {interval: 150}
+```
+
+| 配置块 | 作用 |
+| :--- | :--- |
+| `engine` | `scheduler` 或 `lockstep`，决定 system 允许的键与 case 类型 |
+| `execution` | `warmup` / `repeats` / `interleave`（scheduler 交替维度，取值为 `CaseDimension`） |
+| `system` | 被测系统：`batching_method[]` × `caching_method[]`（× `paged.block_size`）与 `max_running_requests`（仅 scheduler） |
+| `workload` | `id`、`vars`，以及 `groups`（或单组简写 `count / prompt_len / output_len / arrival_ms`）；值中可用 `${var}` |
+| `sweep` | `workload`：dict-of-lists 为笛卡尔积，list-of-dicts 为显式场景；`system`：`block_size` / `max_running_requests` |
+| `comparison` | scheduler 专用：`group_by` / `baseline` / `metrics`（`speedup` \| `gain` \| `reduction`） |
+| `checks` | 具名语义守卫：`free_batch_slot_at_t0`、`min_max_running_requests: N`、`min_output_len: N` |
+
+**长度与到达分布**：`prompt_len` / `output_len` 取标量（constant；lockstep 中保持标量广播语义）、列表（逐请求 explicit，须等于 `count`）、`{alternating: [a, b]}`、`{ladder: {max: M, floor: F}}`（`count` 必须为 4，取 `[M//8, M//4, M//2, M]` 并以 `F` 为下限）；`arrival_ms` 取标量、列表或 `{interval: ms}`。
+
+**展开顺序**即执行顺序：`sweep.workload`（外层）→ `max_running_requests` → `batching_method` → `caching_method` → `block_size`（仅 paged 模式展开，dense 只出现一次）。
+
+### 检视与临时实验
+```bash
+mini-infra bench suites list                          # 列出全部内置 suite 与用例数
+mini-infra bench suites show dense-vs-paged-block-size   # 合并后的 YAML + 展开后的用例列表
+mini-infra bench suites schema --output benchmarks/specs/suite.schema.json   # 重新导出 JSON Schema（IDE 补全）
+
+# 运行任意 YAML（临时实验；结果默认写入被 .gitignore 忽略的 tmp/suites/，不污染 benchmarks/）
+mini-infra bench scheduler suite --tag dev --spec tmp/my-suite.yaml --dry-run
+```
+
+> [!NOTE]
+> 结果 JSON 的 `suite` 块记录 `{name, engine, spec_sha256, spec}`：`spec` 是 `extends` 合并后的完整声明，`spec_sha256` 是其内容哈希，可据此复现与比对实验配置。
+
+---
+
+## 七、测试数据产物与输出目录约定
 
 为保持工作区整洁，所有 Benchmark 命令的输出落盘建议遵循以下规范：
 
 1. **`benchmarks/result-history/`**：
    - 仅存放发版时固化的正式基准文件（格式为 `<commit>_<tag>.json`），由 `mini-infra bench plot history` 消费。
 2. **`benchmarks/suites/`**：
-   - 各预设套件（Suite）执行结果自动落盘目录（如 `benchmarks/suites/serial-vs-fixed-batch-throughput/`）。
+   - 各预设套件（Suite）执行结果自动落盘目录，按引擎分域：`benchmarks/suites/lockstep/<name>/` 与 `benchmarks/suites/scheduler/<name>/`。
+   - 以 `--spec` 运行的临时 YAML 套件默认写入 `tmp/suites/<engine>/<name>/`。
 3. **`tmp/`（推荐临时输出目录）**：
    - 日常单次测试、调优对比或 Profiling 产物建议输出到 `tmp/`（如 `--output tmp/test.json`）。该目录已纳入 `.gitignore`，不会污染版本控制。

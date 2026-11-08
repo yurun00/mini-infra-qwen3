@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../suite.schema.json
 name: fixed-vs-continuous-prefill-interference
 extends: _bases/fixed_vs_continuous.yaml
 description: 长 Prompt 在中途插入，引起持续的计算与缓存搬移开销。

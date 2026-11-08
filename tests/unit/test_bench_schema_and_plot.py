@@ -139,12 +139,12 @@ def test_existing_benchmark_json_files_validate():
     ref = load_benchmark_record(Path("benchmarks/data/reference.json"), require_single_case=True)
     assert isinstance(ref, LockstepBenchmarkRecord | SchedulerBenchmarkRecord)
 
-    eval_rec = load_benchmark_record(Path("benchmarks/suites/serial-vs-fixed-batch-throughput/eval.json"))
+    eval_rec = load_benchmark_record(Path("benchmarks/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json"))
     assert isinstance(eval_rec, LockstepBenchmarkRecord)
     assert len(eval_rec.cases) > 1
     with pytest.raises(ValueError, match="single-case"):
         load_benchmark_record(
-            Path("benchmarks/suites/serial-vs-fixed-batch-throughput/eval.json"),
+            Path("benchmarks/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json"),
             require_single_case=True,
         )
 

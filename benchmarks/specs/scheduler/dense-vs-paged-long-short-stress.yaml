@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../suite.schema.json
 name: dense-vs-paged-long-short-stress
 extends: _bases/dense_vs_paged.yaml
 description: 长短 Prompt 混杂并发下的显存与延迟基准对比。

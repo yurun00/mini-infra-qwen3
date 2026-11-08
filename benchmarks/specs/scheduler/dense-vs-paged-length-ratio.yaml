@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../suite.schema.json
 name: dense-vs-paged-length-ratio
 extends: _bases/dense_vs_paged.yaml
 description: 扫描长/短 Prompt 长度比。

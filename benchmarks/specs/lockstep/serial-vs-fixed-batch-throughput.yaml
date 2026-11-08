@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../suite.schema.json
 name: serial-vs-fixed-batch-throughput
 engine: lockstep
 description: >-

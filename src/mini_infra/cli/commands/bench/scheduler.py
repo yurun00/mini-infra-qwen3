@@ -9,7 +9,6 @@ from dataclasses import replace
 
 from mini_infra.bench.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.common import (
-    BENCH_ARTIFACTS_DIR,
     CASE_DIR,
     add_common_args,
     check_correctness,
@@ -31,10 +30,11 @@ from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_args,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import get_scheduler_suite, list_scheduler_suite_names
+from mini_infra.bench.scheduler.suites import get_scheduler_suite, list_scheduler_suite_names, load_scheduler_suite
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
+from mini_infra.cli.commands.bench.suite_source import add_suite_source_args, suite_output_path
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -86,15 +86,7 @@ def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPars
 def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向 parser 添加 scheduler suite 参数。"""
     add_common_args(p)
-    p.add_argument(
-        "--suite",
-        choices=list_scheduler_suite_names(),
-        required=True,
-        help=(
-            "运行 benchmarks/specs/scheduler/ 中声明的命名 Scheduler 套件"
-            "（结果写入 benchmarks/suites/scheduler/<name>/）"
-        ),
-    )
+    add_suite_source_args(p, "scheduler", list_scheduler_suite_names())
     p.add_argument(
         "--interleave",
         nargs="*",
@@ -255,7 +247,7 @@ def handle_case(args: argparse.Namespace) -> int:
 
 
 def handle_suite(args: argparse.Namespace) -> int:
-    suite = get_scheduler_suite(args.suite)
+    suite = load_scheduler_suite(args.spec) if args.spec is not None else get_scheduler_suite(args.suite)
 
     if args.dry_run:
         warmup = args.warmup if args.warmup is not None else suite.warmup
@@ -263,7 +255,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         interleave_features = parse_interleave_args(args.interleave, suite.interleave)
         cases = suite.cases(vocab_size=100)
         plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
-        print(f"=== [Dry Run] Suite: {args.suite} ===")
+        print(f"=== [Dry Run] Suite: {suite.name} ===")
         print(format_scheduler_run_plan(plan))
         return 0
 
@@ -342,8 +334,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         comparisons=comparisons,
     )
 
-    scheduler_dir = BENCH_ARTIFACTS_DIR / "suites" / "scheduler"
-    output_path = args.output or (scheduler_dir / args.suite / f"{git['commit']}_{args.tag}.json")
+    output_path = suite_output_path(args, "scheduler", suite.name, git["commit"])
     save_benchmark_record(output_path, record, dirty=git["dirty"])
 
     print()

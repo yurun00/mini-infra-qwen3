@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../suite.schema.json
 name: uniform-vs-variable-prompt-padding
 engine: lockstep
 description: >-

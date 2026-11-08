@@ -9,7 +9,6 @@ from dataclasses import replace
 
 from mini_infra.bench.common import (
     LOCKSTEP_RESULT_HISTORY_DIR,
-    SUITES_DIR,
     add_common_args,
     check_correctness,
     format_lengths,
@@ -22,12 +21,19 @@ from mini_infra.bench.common import (
 )
 from mini_infra.bench.lockstep.format import (
     format_case_summary,
+    format_suite_plan,
     format_table,
 )
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
-from mini_infra.bench.lockstep.suites import SuiteCase, get_lockstep_suite, list_lockstep_suite_names
+from mini_infra.bench.lockstep.suites import (
+    SuiteCase,
+    get_lockstep_suite,
+    list_lockstep_suite_names,
+    load_lockstep_suite,
+)
 from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.cli.commands.bench.suite_source import add_suite_source_args, suite_output_path
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -72,12 +78,13 @@ def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParse
 def add_lockstep_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向 parser 添加 lockstep suite 参数。"""
     add_common_args(p)
-    p.add_argument(
-        "--suite",
-        choices=list_lockstep_suite_names(),
-        required=True,
-        help="运行 benchmarks/specs/lockstep/ 中声明的命名 suite（结果写入 benchmarks/suites/<name>/）",
-    )
+    # suite 的 warmup / repeats 由 YAML 的 execution 声明，CLI 仅在显式传入时覆盖
+    for action in p._actions:
+        if action.dest in ("warmup", "repeats"):
+            action.default = None
+            action.help = f"覆盖 suite 声明的 {action.dest}（默认: 取 YAML execution.{action.dest}）"
+    add_suite_source_args(p, "lockstep", list_lockstep_suite_names())
+    p.add_argument("--dry-run", action="store_true", help="仅展开并打印用例列表，不加载模型也不要求 CUDA")
     return p
 
 
@@ -187,13 +194,18 @@ def handle_case(args: argparse.Namespace) -> int:
 
 
 def handle_suite(args: argparse.Namespace) -> int:
-    device = require_cuda()
-
-    suite = get_lockstep_suite(args.suite)
+    suite = load_lockstep_suite(args.spec) if args.spec is not None else get_lockstep_suite(args.suite)
     modes = suite.modes()
     cases = suite.cases()
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
+
+    if args.dry_run:
+        print(f"=== [Dry Run] Suite: {suite.name} ===")
+        print(format_suite_plan(suite.name, cases, warmup, repeats))
+        return 0
+
+    device = require_cuda()
     mode_label = ",".join(str(m) for m in modes)
 
     model_dir = resolve_model_directory(args.model, args.revision)
@@ -213,7 +225,7 @@ def handle_suite(args: argparse.Namespace) -> int:
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-suite] suite={args.suite} modes={mode_label} cases={len(cases)} warmup={warmup} repeats={repeats}",
+        f"[bench-suite] suite={suite.name} modes={mode_label} cases={len(cases)} warmup={warmup} repeats={repeats}",
         flush=True,
     )
 
@@ -255,9 +267,7 @@ def handle_suite(args: argparse.Namespace) -> int:
         suite_info=suite.to_dict(),
     )
 
-    suite_dir = SUITES_DIR / args.suite
-    suite_dir.mkdir(parents=True, exist_ok=True)
-    output = args.output or suite_dir / f"{git['commit']}_{args.tag}.json"
+    output = suite_output_path(args, "lockstep", suite.name, git["commit"])
     save_benchmark_record(output, record, dirty=git["dirty"])
     print()
     print(format_table(results))

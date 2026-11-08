@@ -357,6 +357,40 @@ class SuiteSpec(_Strict):
                 raise ValueError(f"lockstep suite 不支持检查 {check!r}")
 
 
+def suite_json_schema() -> dict[str, Any]:
+    """导出供 IDE 补全用的 JSON Schema（描述 YAML 文件形状，而非插值后的内部模型）。
+
+    与内部模型的差异：允许 `extends`；`workload` 含 ${var} 占位符，无法静态强类型化，因此只约束 id / vars / groups
+    的外形（单组字段的含义见 `$defs.GroupSpec`，仅作文档参考）；`required` 仅 name，因为其余字段可由 extends 继承。
+    """
+    schema = SuiteSpec.model_json_schema()
+    schema["title"] = "mini-infra benchmark suite"
+    schema["required"] = ["name"]
+    schema["properties"]["extends"] = {
+        "type": "string",
+        "description": "相对当前文件的基底 YAML 路径（映射深合并，列表整体替换）",
+    }
+    schema["properties"]["workload"] = {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+            "id": {"type": "string", "description": "workload_id，可含 ${var}"},
+            "vars": {"type": "object", "description": "可被 sweep.workload 覆盖的变量"},
+            "groups": {
+                "type": "array",
+                "items": {"type": "object", "description": "字段含义见 $defs.GroupSpec（值可用 ${var} 占位）"},
+                "description": "请求组，按顺序拼接",
+            },
+        },
+        "description": "单组可省略 groups，把 count / prompt_len / output_len / arrival_ms 平铺在此处；值中可用 ${var}",
+    }
+    group_schema = GroupSpec.model_json_schema()
+    schema["$defs"].update(group_schema.pop("$defs", {}))
+    schema["$defs"]["GroupSpec"] = group_schema
+    schema["$defs"].pop("WorkloadTemplate", None)
+    return schema
+
+
 __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
@@ -383,4 +417,5 @@ __all__ = [
     "WorkloadBody",
     "WorkloadTemplate",
     "normalize_workload_body",
+    "suite_json_schema",
 ]
