@@ -27,7 +27,7 @@ class WorkloadSpec:
     """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats、warmup 与 seed）。"""
 
     mode: Mode
-    batch_size: int
+    num_total_requests: int
     prompt_len: int | tuple[int, ...]
     max_new_tokens: int | tuple[int, ...]
     repeats: int = field(default=1, compare=False)
@@ -84,14 +84,14 @@ def _sample_poisson_arrivals(
 
 
 _LOCKSTEP_SCALE_CONFIGS: dict[WorkloadScale, dict[str, int]] = {
-    "small": {"batch_size": 4, "min_prompt": 16, "max_prompt": 64, "min_out": 8, "max_out": 32},
-    "medium": {"batch_size": 8, "min_prompt": 64, "max_prompt": 256, "min_out": 32, "max_out": 96},
-    "large": {"batch_size": 16, "min_prompt": 256, "max_prompt": 1024, "min_out": 64, "max_out": 192},
+    "small": {"num_total_requests": 4, "min_prompt": 16, "max_prompt": 64, "min_out": 8, "max_out": 32},
+    "medium": {"num_total_requests": 8, "min_prompt": 64, "max_prompt": 256, "min_out": 32, "max_out": 96},
+    "large": {"num_total_requests": 16, "min_prompt": 256, "max_prompt": 1024, "min_out": 64, "max_out": 192},
 }
 
 _SCHEDULER_SCALE_CONFIGS: dict[WorkloadScale, dict[str, int | float]] = {
     "small": {
-        "batch_size": 16,
+        "num_total_requests": 16,
         "max_running_requests": 4,
         "min_prompt": 16,
         "max_prompt": 64,
@@ -101,7 +101,7 @@ _SCHEDULER_SCALE_CONFIGS: dict[WorkloadScale, dict[str, int | float]] = {
         "mean_interval_ms": 55.0,
     },
     "medium": {
-        "batch_size": 32,
+        "num_total_requests": 32,
         "max_running_requests": 8,
         "min_prompt": 64,
         "max_prompt": 256,
@@ -111,7 +111,7 @@ _SCHEDULER_SCALE_CONFIGS: dict[WorkloadScale, dict[str, int | float]] = {
         "mean_interval_ms": 110.0,
     },
     "large": {
-        "batch_size": 64,
+        "num_total_requests": 64,
         "max_running_requests": 16,
         "min_prompt": 256,
         "max_prompt": 1024,
@@ -136,13 +136,13 @@ def make_lockstep_workload(
         raise ValueError(f"未知 scale: {scale!r}，可选: {WORKLOAD_SCALES}")
     cfg = _LOCKSTEP_SCALE_CONFIGS[scale]
     rng = random.Random(seed * 1000 + _SCALE_SEED_OFFSET[scale])
-    bs = cfg["batch_size"]
-    prompt_lens = _sample_log_uniform_lengths(rng, bs, cfg["min_prompt"], cfg["max_prompt"])
-    out_budgets = _sample_log_uniform_lengths(rng, bs, cfg["min_out"], cfg["max_out"])
+    reqs = cfg["num_total_requests"]
+    prompt_lens = _sample_log_uniform_lengths(rng, reqs, cfg["min_prompt"], cfg["max_prompt"])
+    out_budgets = _sample_log_uniform_lengths(rng, reqs, cfg["min_out"], cfg["max_out"])
     target_mode = mode or Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     return WorkloadSpec(
         mode=target_mode,
-        batch_size=bs,
+        num_total_requests=reqs,
         prompt_len=prompt_lens,
         max_new_tokens=out_budgets,
         repeats=repeats,
@@ -165,15 +165,15 @@ def make_scheduler_workload(
         raise ValueError(f"未知 scale: {scale!r}，可选: {WORKLOAD_SCALES}")
     cfg = _SCHEDULER_SCALE_CONFIGS[scale]
     rng = random.Random(seed * 1000 + 500 + _SCALE_SEED_OFFSET[scale])
-    bs = int(cfg["batch_size"])
+    reqs = int(cfg["num_total_requests"])
     max_running = int(cfg["max_running_requests"])
-    prompt_lens = _sample_log_uniform_lengths(rng, bs, int(cfg["min_prompt"]), int(cfg["max_prompt"]))
-    out_budgets = _sample_log_uniform_lengths(rng, bs, int(cfg["min_out"]), int(cfg["max_out"]))
-    arrivals = _sample_poisson_arrivals(rng, bs, int(cfg["initial_burst"]), float(cfg["mean_interval_ms"]))
+    prompt_lens = _sample_log_uniform_lengths(rng, reqs, int(cfg["min_prompt"]), int(cfg["max_prompt"]))
+    out_budgets = _sample_log_uniform_lengths(rng, reqs, int(cfg["min_out"]), int(cfg["max_out"]))
+    arrivals = _sample_poisson_arrivals(rng, reqs, int(cfg["initial_burst"]), float(cfg["mean_interval_ms"]))
     target_mode = mode or Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     return WorkloadSpec(
         mode=target_mode,
-        batch_size=bs,
+        num_total_requests=reqs,
         prompt_len=prompt_lens,
         max_new_tokens=out_budgets,
         repeats=repeats,
@@ -385,7 +385,7 @@ def build_scheduler_request_specs(
     vocab_size: int,
 ) -> list[RequestSpec]:
     """根据 WorkloadSpec 构建 Scheduler 评测所需的 RequestSpec 列表。"""
-    n = workload.batch_size
+    n = workload.num_total_requests
     lengths = [workload.prompt_len] * n if isinstance(workload.prompt_len, int) else list(workload.prompt_len)
     budgets = (
         [workload.max_new_tokens] * n if isinstance(workload.max_new_tokens, int) else list(workload.max_new_tokens)
@@ -399,7 +399,7 @@ def build_scheduler_request_specs(
 
     if len(lengths) != n or len(budgets) != n or len(arrivals) != n:
         raise ValueError(
-            f"WorkloadSpec 长度不匹配: batch_size={n}, len(prompt_len)={len(lengths)}, "
+            f"WorkloadSpec 长度不匹配: num_total_requests={n}, len(prompt_len)={len(lengths)}, "
             f"len(max_new_tokens)={len(budgets)}, len(arrival_times_ms)={len(arrivals)}"
         )
     sequences = make_sequences(lengths, vocab_size)

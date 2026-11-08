@@ -195,7 +195,7 @@ class SchedulerCaseResult:
         rec: dict[str, Any] = {
             "workload_id": self.key.workload_id,
             "mode": str(self.key.mode),
-            "batch_size": self.workload.batch_size,
+            "num_total_requests": self.workload.num_total_requests,
             "prompt_len": (
                 list(self.workload.prompt_len)
                 if isinstance(self.workload.prompt_len, tuple)

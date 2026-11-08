@@ -49,7 +49,7 @@ class LockstepCaseResult:
                 if isinstance(self.workload.max_new_tokens, tuple)
                 else self.workload.max_new_tokens
             ),
-            "batch_size": self.workload.batch_size,
+            "num_total_requests": self.workload.num_total_requests,
             "repeats": self.workload.repeats,
             "warmup": self.workload.warmup,
             "ttft_ms": self.metrics.ttft_ms.to_dict() if self.metrics.ttft_ms is not None else None,

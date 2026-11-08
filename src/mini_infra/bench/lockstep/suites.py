@@ -39,10 +39,10 @@ from mini_infra.engine import (
 
 @dataclass(frozen=True)
 class SuiteCase:
-    """一次具体执行用例：在 mode 下，用 batch_size 条 prompt 生成 max_new_tokens 个 Token。"""
+    """一次具体执行用例：在 mode 下，用 num_total_requests 条 prompt 生成 max_new_tokens 个 Token。"""
 
     mode: Mode
-    batch_size: int
+    num_total_requests: int
     prompt_len: int | tuple[int, ...]
     max_new_tokens: int | tuple[int, ...]
 

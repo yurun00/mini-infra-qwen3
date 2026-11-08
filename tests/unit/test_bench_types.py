@@ -50,7 +50,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
     workload = WorkloadSpec(
         mode=Mode(CachingMethod.DENSE),
-        batch_size=2,
+        num_total_requests=2,
         prompt_len=(16, 32),
         max_new_tokens=16,
         repeats=5,
@@ -103,7 +103,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     )
 
     # 1. 验证强类型属性点号访问
-    assert case_result.workload.batch_size == 2
+    assert case_result.workload.num_total_requests == 2
     assert case_result.workload.prompt_len == (16, 32)
     assert case_result.metrics.ttft_ms is not None and case_result.metrics.ttft_ms.median == 10.0
     assert case_result.metrics.throughput_tok_s.mean == 10.0
@@ -126,7 +126,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     # 4. 验证 to_record_dict() 字典导出结构
     rec = case_result.to_record_dict()
     assert rec["mode"] == "dense-kv-cache"
-    assert rec["batch_size"] == 2
+    assert rec["num_total_requests"] == 2
     assert rec["prompt_len"] == [16, 32]
     assert rec["max_new_tokens"] == 16
     assert rec["ttft_ms"]["median"] == 10.0

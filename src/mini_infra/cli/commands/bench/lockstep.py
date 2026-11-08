@@ -136,7 +136,7 @@ def handle_case(args: argparse.Namespace) -> int:
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-case] mode={case.mode} batch={case.batch_size} prompt={format_lengths(case.prompt_len)} "
+        f"[bench-case] mode={case.mode} batch={case.num_total_requests} prompt={format_lengths(case.prompt_len)} "
         f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
         flush=True,
     )
@@ -146,7 +146,7 @@ def handle_case(args: argparse.Namespace) -> int:
         case.mode,
         list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
         list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens,
-        case.batch_size,
+        case.num_total_requests,
         args.warmup,
         args.repeats,
         vocab,
@@ -219,7 +219,7 @@ def handle_suite(args: argparse.Namespace) -> int:
 
     def on_progress(case_number: int, total_cases: int, case: SuiteCase) -> None:
         print(
-            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.batch_size} "
+            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.num_total_requests} "
             f"prompt={format_lengths(case.prompt_len)} max_new_tokens={format_lengths(case.max_new_tokens)} ...",
             flush=True,
         )

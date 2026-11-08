@@ -96,12 +96,12 @@ def test_run_case_on_cpu():
         vocab=vocab,
         device=torch.device("cpu"),
     )
-    assert res_scalar.workload.batch_size == 1
+    assert res_scalar.workload.num_total_requests == 1
     assert res_scalar.workload.prompt_len == 4
     assert res_scalar.workload.max_new_tokens == 2
     assert res_scalar.metrics.throughput_tok_s.median > 0
     assert res_scalar.metrics.throughput_req_s.median > 0
-    assert res_scalar.to_record_dict()["batch_size"] == 1
+    assert res_scalar.to_record_dict()["num_total_requests"] == 1
 
     # 2. 变长 prompt 执行
     res_var = run_case(
@@ -115,7 +115,7 @@ def test_run_case_on_cpu():
         vocab=vocab,
         device=torch.device("cpu"),
     )
-    assert res_var.workload.batch_size == 2
+    assert res_var.workload.num_total_requests == 2
     assert res_var.workload.prompt_len == (2, 4)
     assert res_var.workload.max_new_tokens == 2
-    assert res_var.to_record_dict()["batch_size"] == 2
+    assert res_var.to_record_dict()["num_total_requests"] == 2

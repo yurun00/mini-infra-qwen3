@@ -139,7 +139,7 @@ def run_case(
 
     workload = WorkloadSpec(
         mode=mode,
-        batch_size=effective_batch_size,
+        num_total_requests=effective_batch_size,
         prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,
         max_new_tokens=tuple(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
         repeats=repeats,

@@ -47,7 +47,7 @@ def run_suite(
                 max_new_tokens=(
                     list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens
                 ),
-                batch_size=case.batch_size,
+                batch_size=case.num_total_requests,
                 warmup=warmup_val,
                 repeats=repeats_val,
                 vocab=vocab,

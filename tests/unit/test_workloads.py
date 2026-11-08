@@ -178,8 +178,8 @@ def test_canonical_workloads_and_build_scheduler_specs():
         assert lw.scale == scale
         assert lw.seed == 42
         assert lw.warmup >= 1
-        assert isinstance(lw.prompt_len, tuple) and len(lw.prompt_len) == lw.batch_size
-        assert isinstance(lw.max_new_tokens, tuple) and len(lw.max_new_tokens) == lw.batch_size
+        assert isinstance(lw.prompt_len, tuple) and len(lw.prompt_len) == lw.num_total_requests
+        assert isinstance(lw.max_new_tokens, tuple) and len(lw.max_new_tokens) == lw.num_total_requests
         # Verify seed is compare=False while scale participates in equality
         assert replace(lw, seed=999) == lw
         assert replace(lw, scale="custom") != lw
@@ -189,14 +189,14 @@ def test_canonical_workloads_and_build_scheduler_specs():
         assert sw.scale == scale
         assert sw.seed == 42
         assert sw.warmup >= 1
-        assert isinstance(sw.prompt_len, tuple) and len(sw.prompt_len) == sw.batch_size
-        assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.batch_size
-        assert isinstance(sw.arrival_times_ms, tuple) and len(sw.arrival_times_ms) == sw.batch_size
+        assert isinstance(sw.prompt_len, tuple) and len(sw.prompt_len) == sw.num_total_requests
+        assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.num_total_requests
+        assert isinstance(sw.arrival_times_ms, tuple) and len(sw.arrival_times_ms) == sw.num_total_requests
         assert replace(sw, seed=999) == sw
         assert replace(sw, scale="custom") != sw
 
         specs = build_scheduler_request_specs(sw, vocab_size=32000)
-        assert len(specs) == sw.batch_size
+        assert len(specs) == sw.num_total_requests
         assert tuple(s.prompt_len for s in specs) == sw.prompt_len
         assert tuple(s.max_new_tokens for s in specs) == sw.max_new_tokens
         assert tuple(s.arrival_ms for s in specs) == sw.arrival_times_ms

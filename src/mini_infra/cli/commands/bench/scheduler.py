@@ -186,7 +186,7 @@ def handle_case(args: argparse.Namespace) -> int:
 
     workload = WorkloadSpec(
         mode=target_mode,
-        batch_size=req_count,
+        num_total_requests=req_count,
         prompt_len=prompt_len,
         max_new_tokens=max_new_tokens,
         repeats=repeats,

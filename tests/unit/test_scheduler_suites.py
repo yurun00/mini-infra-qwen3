@@ -417,7 +417,7 @@ def test_compute_comparisons():
         mrr: int = 8,
     ) -> SchedulerCaseResult:
         mode = Mode(cm, batching_method=BatchingMethod.CONTINUOUS)
-        workload = WorkloadSpec(mode=mode, batch_size=8, prompt_len=128, max_new_tokens=64)
+        workload = WorkloadSpec(mode=mode, num_total_requests=8, prompt_len=128, max_new_tokens=64)
         paged_prof = (
             PagedCacheProfile(
                 block_size=bs,

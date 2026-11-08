@@ -192,13 +192,14 @@ class BaseCaseRecord(_DictAccessModel):
     """Lockstep 与 Scheduler 共享的单 Case 核心记录基类。
 
     聚合了：
-    1. `bench.common.WorkloadSpec` 的通用负载描述（mode, batch_size, prompt_len, max_new_tokens, repeats, warmup）
+    1. `bench.common.WorkloadSpec` 的通用负载描述
+       （mode, num_total_requests, prompt_len, max_new_tokens, repeats, warmup）
     2. `engine.metrics.StepAggregatedMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
     3. 叶子画像组件（memory, packing, efficiency）
     """
 
     mode: str
-    batch_size: int
+    num_total_requests: int
     prompt_len: int | list[int]
     max_new_tokens: int | list[int]
     repeats: int = 1
