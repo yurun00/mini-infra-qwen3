@@ -28,7 +28,7 @@ def test_serial_vs_fixed_batch_throughput_defaults():
 def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     cases = get_suite("serial-vs-fixed-batch-throughput").cases()
     assert len(cases) == 5 * 2
-    assert [(c.batch_size, c.mode.batching_method) for c in cases[:4]] == [
+    assert [(c.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
         (1, BatchingMethod.NONE),
         (1, BatchingMethod.FIXED),
         (2, BatchingMethod.NONE),
@@ -111,7 +111,7 @@ def test_registered_suites_run_end_to_end_on_cpu():
             case.mode,
             case.prompt_len,
             case.max_new_tokens,
-            case.batch_size,
+            case.num_total_requests,
             tiny.warmup,
             tiny.repeats,
             vocab,
@@ -120,7 +120,7 @@ def test_registered_suites_run_end_to_end_on_cpu():
         for case in tiny.cases()
     ]
 
-    assert [(r.workload.mode, r.workload.batch_size) for r in results] == [
+    assert [(r.workload.mode, r.workload.num_total_requests) for r in results] == [
         (Mode(CachingMethod.DENSE), 1),
         (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 1),
         (Mode(CachingMethod.DENSE), 2),
@@ -156,7 +156,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
 
     # Case 0: uniform (等长)
     homo = cases[0]
-    assert homo.batch_size == 4
+    assert homo.num_total_requests == 4
     assert homo.prompt_len == (128, 128, 128, 128)
     assert homo.max_new_tokens == 32
     assert homo.mode.batching_method == BatchingMethod.FIXED
@@ -164,7 +164,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
 
     # Case 1: variable (不等长)
     mixed = cases[1]
-    assert mixed.batch_size == 4
+    assert mixed.num_total_requests == 4
     assert mixed.prompt_len == (16, 32, 64, 128)
     assert mixed.max_new_tokens == 32
     assert mixed.mode.batching_method == BatchingMethod.FIXED
@@ -217,7 +217,7 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu():
             case.mode,
             case.prompt_len,
             case.max_new_tokens,
-            case.batch_size,
+            case.num_total_requests,
             tiny.warmup,
             tiny.repeats,
             vocab,
@@ -230,12 +230,12 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu():
     res_homo, res_mixed = results
 
     # uniform: [4, 4, 4, 4]，padding efficiency 应该为 100%
-    assert res_homo.workload.batch_size == 4
+    assert res_homo.workload.num_total_requests == 4
     assert res_homo.workload.prompt_len == (4, 4, 4, 4)
     assert res_homo.packing is not None and res_homo.packing.padding_efficiency.mean == 1.0
 
     # variable: [max(1, 4//8), max(1, 4//4), max(1, 4//2), 4] = [1, 1, 2, 4]
-    assert res_mixed.workload.batch_size == 4
+    assert res_mixed.workload.num_total_requests == 4
     assert res_mixed.workload.prompt_len == (1, 1, 2, 4)
     assert res_mixed.packing is not None and res_mixed.packing.padding_efficiency.mean == (1 + 1 + 2 + 4) / 16
     assert res_mixed.packing.padding_efficiency.mean < 1.0
@@ -258,7 +258,7 @@ def test_uniform_vs_variable_budget_slots_cases():
 
     # Case 0: uniform budget
     homo = cases[0]
-    assert homo.batch_size == 4
+    assert homo.num_total_requests == 4
     assert homo.prompt_len == (128, 128, 128, 128)
     assert homo.max_new_tokens == (64, 64, 64, 64)
     assert homo.mode.batching_method == BatchingMethod.FIXED
@@ -266,7 +266,7 @@ def test_uniform_vs_variable_budget_slots_cases():
 
     # Case 1: variable length budget
     mixed = cases[1]
-    assert mixed.batch_size == 4
+    assert mixed.num_total_requests == 4
     assert mixed.prompt_len == (128, 128, 128, 128)
     assert mixed.max_new_tokens == (8, 16, 32, 64)
     assert mixed.mode.batching_method == BatchingMethod.FIXED
@@ -318,7 +318,7 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu():
             case.mode,
             case.prompt_len,
             case.max_new_tokens,
-            case.batch_size,
+            case.num_total_requests,
             tiny.warmup,
             tiny.repeats,
             vocab,
@@ -331,14 +331,14 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu():
     res_uniform, res_variable = results
 
     # uniform: [4, 4, 4, 4]，slot utilization 应该为 100%
-    assert res_uniform.workload.batch_size == 4
+    assert res_uniform.workload.num_total_requests == 4
     assert res_uniform.workload.prompt_len == (4, 4, 4, 4)
     assert res_uniform.workload.max_new_tokens == (4, 4, 4, 4)
     assert res_uniform.packing is not None and res_uniform.packing.slot_utilization.mean == 1.0
 
     # variable: [max(2, 4//8), max(2, 4//4), max(2, 4//2), 4] = [2, 2, 2, 4]
     # slot utilization = (2 + 2 + 2 + 4) / 16 = 0.625
-    assert res_variable.workload.batch_size == 4
+    assert res_variable.workload.num_total_requests == 4
     assert res_variable.workload.prompt_len == (4, 4, 4, 4)
     assert res_variable.workload.max_new_tokens == (2, 2, 2, 4)
     assert res_variable.packing is not None and res_variable.packing.slot_utilization.mean == (2 + 2 + 2 + 4) / 16

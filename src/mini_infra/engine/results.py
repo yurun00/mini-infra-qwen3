@@ -121,7 +121,7 @@ class ScheduleResult(GenerationResult):
         arrivals = [r.arrival_ms for r in self.request_metrics]
         return WorkloadSpec(
             mode=Mode(self.caching_method, self.batching_method),
-            batch_size=self.schedule_metrics.request_count,
+            num_total_requests=self.schedule_metrics.request_count,
             prompt_len=collapse_uniform(prompt_lengths),
             max_new_tokens=collapse_uniform(output_budgets),
             max_running_requests=self.schedule_metrics.max_running_requests,

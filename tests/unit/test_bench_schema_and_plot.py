@@ -69,7 +69,7 @@ def _make_single_case_scheduler_dict(
             {
                 "workload_id": workload_id,
                 "mode": mode,
-                "batch_size": 8,
+                "num_total_requests": 8,
                 "prompt_len": 128,
                 "max_new_tokens": [8, 32, 8, 32, 8, 32, 8, 32],
                 "repeats": 3,

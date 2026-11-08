@@ -10,7 +10,7 @@ def make_record(ttft, tpot, std=0.1):
     return {
         "cases": [
             {
-                "batch_size": 1,
+                "num_total_requests": 1,
                 "prompt_len": 32,
                 "max_new_tokens": 32,
                 "ttft_ms": stat(ttft),
