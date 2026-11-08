@@ -21,6 +21,7 @@ from mini_infra.bench.common import (
     resolve_peak_specs,
     save_benchmark_record,
 )
+from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler.format import (
     format_case_summary,
     format_comparison,
@@ -32,12 +33,7 @@ from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_args,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import (
-    SCHEDULER_SUITES,
-    CaseDimension,
-    SchedulerSuiteCase,
-    get_suite,
-)
+from mini_infra.bench.scheduler.suites import SCHEDULER_SUITES, get_suite
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times

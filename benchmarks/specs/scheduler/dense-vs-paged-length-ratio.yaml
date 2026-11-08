@@ -1,0 +1,8 @@
+name: dense-vs-paged-length-ratio
+extends: _bases/dense_vs_paged.yaml
+description: 扫描长/短 Prompt 长度比。
+workload:
+  id: "length_ratio_${long_prompt_len}"
+sweep:
+  workload:
+    long_prompt_len: [128, 512, 2048, 3072]

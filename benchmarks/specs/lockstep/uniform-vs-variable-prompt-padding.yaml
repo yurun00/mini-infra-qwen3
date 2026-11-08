@@ -1,0 +1,25 @@
+name: uniform-vs-variable-prompt-padding
+engine: lockstep
+description: >-
+  固定 batch=4 与输出长度，对比等长 Prompt（128×4，Padding 有效率 100%）
+  与阶梯不等长 Prompt（16/32/64/128，Padding 有效率 46.88%）。
+execution:
+  warmup: 1
+  repeats: 3
+system:
+  batching_method: [fixed-batching]
+  caching_method: [dense-kv-cache]
+workload:
+  id: "${scenario}"
+  vars:
+    scenario: uniform
+    prompt_len: [128, 128, 128, 128]
+  count: 4
+  prompt_len: "${prompt_len}"
+  output_len: 32
+sweep:
+  workload:
+    - {scenario: uniform, prompt_len: [128, 128, 128, 128]}
+    - {scenario: variable, prompt_len: {ladder: {max: 128, floor: 1}}}
+checks:
+  - min_output_len: 2

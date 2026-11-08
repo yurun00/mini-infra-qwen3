@@ -10,11 +10,8 @@ from mini_infra.bench.scheduler import (
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import (
-    CaseDimension,
-    FixedVsContinuousVariableOutputLengthSuite,
-    SchedulerSuiteCase,
-)
+from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
+from mini_infra.bench.scheduler.suites import FixedVsContinuousVariableOutputLengthSuite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model

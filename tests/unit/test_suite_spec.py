@@ -1,0 +1,317 @@
+"""bench.spec：YAML suite 声明的加载、校验、展开，以及与旧手写 suite 的 parity 快照对照（纯 CPU）。"""
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from mini_infra.bench.common import SPECS_DIR
+from mini_infra.bench.spec import (
+    discover_suite_specs,
+    expand_suite_spec,
+    get_suite_spec,
+    load_suite_spec,
+)
+from mini_infra.bench.spec.loader import deep_merge, load_raw_spec
+from mini_infra.bench.workloads import make_sequences
+from mini_infra.core.request import make_request_specs
+from mini_infra.engine import BatchingMethod, CachingMethod
+
+GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
+VOCAB = GOLDEN["vocab_size"]
+
+
+def _digest(token_ids: tuple[int, ...]) -> str:
+    return hashlib.sha256(",".join(map(str, token_ids)).encode()).hexdigest()[:16]
+
+
+def _scheduler_entry(name: str) -> dict[str, Any]:
+    loaded = get_suite_spec("scheduler", name)
+    spec = loaded.spec
+    cases = []
+    for bp in loaded.blueprints():
+        wl = bp.workload
+        specs = make_request_specs(make_sequences(wl.prompt_lens, VOCAB), wl.output_budgets, wl.arrival_ms)
+        cases.append(
+            {
+                "workload_id": wl.workload_id,
+                "mode": str(bp.mode),
+                "max_running_requests": bp.max_running_requests,
+                "paged_cache_config": (
+                    None
+                    if bp.paged_cache_config is None
+                    else {
+                        "block_size": bp.paged_cache_config.block_size,
+                        "num_blocks": bp.paged_cache_config.num_blocks,
+                    }
+                ),
+                "specs": [
+                    [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
+                    for s in specs
+                ],
+            }
+        )
+    modes = [str(m) for m in dict.fromkeys(bp.mode for bp in loaded.blueprints())]
+    assert spec.comparison is not None
+    return {
+        "warmup": spec.execution.warmup,
+        "repeats": spec.execution.repeats,
+        "max_running_requests": spec.system.max_running_requests,
+        "interleave": [d.value for d in spec.execution.interleave],
+        "modes": modes,
+        "comparison": spec.comparison.to_runtime().to_dict(),
+        "cases": cases,
+    }
+
+
+def _lockstep_entry(name: str) -> dict[str, Any]:
+    loaded = get_suite_spec("lockstep", name)
+    blueprints = loaded.blueprints()
+    return {
+        "warmup": loaded.spec.execution.warmup,
+        "repeats": loaded.spec.execution.repeats,
+        "modes": [str(m) for m in dict.fromkeys(bp.mode for bp in blueprints)],
+        "cases": [
+            {
+                "mode": str(bp.mode),
+                "num_total_requests": bp.workload.num_requests,
+                "prompt_len": list(bp.workload.prompt_len)
+                if isinstance(bp.workload.prompt_len, tuple)
+                else bp.workload.prompt_len,
+                "max_new_tokens": list(bp.workload.max_new_tokens)
+                if isinstance(bp.workload.max_new_tokens, tuple)
+                else bp.workload.max_new_tokens,
+            }
+            for bp in blueprints
+        ],
+    }
+
+
+def test_builtin_specs_cover_golden_suites():
+    assert set(discover_suite_specs("scheduler")) == set(GOLDEN["scheduler"])
+    assert set(discover_suite_specs("lockstep")) == set(GOLDEN["lockstep"])
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN["scheduler"]))
+def test_scheduler_yaml_matches_legacy_golden(name):
+    expected = GOLDEN["scheduler"][name]
+    actual = _scheduler_entry(name)
+    expected_cmp = expected.pop("comparison")
+    actual_cmp = actual.pop("comparison")
+    assert actual == expected
+    assert actual_cmp == expected_cmp
+
+
+@pytest.mark.parametrize("name", sorted(GOLDEN["lockstep"]))
+def test_lockstep_yaml_matches_legacy_golden(name):
+    assert _lockstep_entry(name) == GOLDEN["lockstep"][name]
+
+
+def test_bases_are_not_discoverable_or_loadable_as_suites():
+    assert "fixed_vs_continuous" not in discover_suite_specs("scheduler")
+    with pytest.raises(ValueError):
+        load_suite_spec(SPECS_DIR / "scheduler" / "_bases" / "fixed_vs_continuous.yaml")
+
+
+def test_get_suite_spec_unknown_name():
+    with pytest.raises(ValueError, match="未知 scheduler suite"):
+        get_suite_spec("scheduler", "non-existent")
+
+
+def test_suite_info_is_json_serializable_and_hash_is_stable():
+    loaded = get_suite_spec("scheduler", "dense-vs-paged-block-size")
+    info = loaded.info()
+    json.dumps(info)
+    assert info["name"] == "dense-vs-paged-block-size"
+    assert info["spec_sha256"] == get_suite_spec("scheduler", "dense-vs-paged-block-size").sha256
+    assert info["spec"]["sweep"] == {"system": {"block_size": [8, 16, 32, 64]}}
+
+
+# --------------------------------------------------------------------------- 合成 YAML 的行为测试
+
+_SCHEDULER_BASE = """
+name: demo
+engine: scheduler
+system:
+  max_running_requests: 4
+  batching_method: [continuous-batching]
+  caching_method: [dense-kv-cache, paged-kv-cache]
+workload:
+  id: w
+  count: 2
+  prompt_len: 8
+  output_len: 4
+"""
+
+
+def _write(tmp_path: Path, text: str, name: str = "demo") -> Path:
+    path = tmp_path / f"{name}.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_block_size_sweep_only_expands_paged_modes(tmp_path):
+    text = _SCHEDULER_BASE + "sweep:\n  system:\n    block_size: [4, 8]\n"
+    blueprints = load_suite_spec(_write(tmp_path, text)).blueprints()
+    assert [
+        (bp.mode.caching_method, bp.paged_cache_config and bp.paged_cache_config.block_size) for bp in blueprints
+    ] == [
+        (CachingMethod.DENSE, None),
+        (CachingMethod.PAGED, 4),
+        (CachingMethod.PAGED, 8),
+    ]
+
+
+def test_workload_cartesian_sweep_and_type_preserving_interpolation(tmp_path):
+    text = """
+name: demo
+engine: scheduler
+system:
+  max_running_requests: 4
+  batching_method: [fixed-batching]
+  caching_method: [dense-kv-cache]
+workload:
+  id: "w_${n}_${plen}"
+  vars: {n: 1, plen: 8}
+  count: "${n}"
+  prompt_len: "${plen}"
+  output_len: 4
+sweep:
+  workload:
+    n: [1, 2]
+    plen: [8, 16]
+"""
+    blueprints = expand_suite_spec(load_suite_spec(_write(tmp_path, text)).spec)
+    assert [(bp.workload.workload_id, bp.workload.num_requests, bp.workload.prompt_lens[0]) for bp in blueprints] == [
+        ("w_1_8", 1, 8),
+        ("w_1_16", 1, 16),
+        ("w_2_8", 2, 8),
+        ("w_2_16", 2, 16),
+    ]
+
+
+def test_scalar_length_is_broadcast_and_list_is_per_request(tmp_path):
+    text = """
+name: demo
+engine: lockstep
+system:
+  batching_method: [fixed-batching]
+  caching_method: [dense-kv-cache]
+workload:
+  id: w
+  count: 2
+  prompt_len: [8, 8]
+  output_len: 4
+"""
+    (bp,) = load_suite_spec(_write(tmp_path, text)).blueprints()
+    assert bp.workload.prompt_len == (8, 8)
+    assert bp.workload.max_new_tokens == 4
+
+
+def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
+    (tmp_path / "base.yaml").write_text(
+        "system:\n  max_running_requests: 4\n  batching_method: [fixed-batching, continuous-batching]\n"
+        "  caching_method: [dense-kv-cache]\nengine: scheduler\n",
+        encoding="utf-8",
+    )
+    child = _write(
+        tmp_path,
+        "name: demo\nextends: base.yaml\nsystem:\n  batching_method: [continuous-batching]\n"
+        "workload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
+    )
+    raw = load_raw_spec(child)
+    assert raw["system"] == {
+        "max_running_requests": 4,
+        "batching_method": ["continuous-batching"],
+        "caching_method": ["dense-kv-cache"],
+    }
+    assert "extends" not in raw
+    assert load_suite_spec(child).spec.system.batching_method == [BatchingMethod.CONTINUOUS]
+
+
+def test_extends_cycle_is_rejected(tmp_path):
+    (tmp_path / "a.yaml").write_text("extends: b.yaml\n", encoding="utf-8")
+    (tmp_path / "b.yaml").write_text("extends: a.yaml\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="循环"):
+        load_raw_spec(tmp_path / "a.yaml")
+
+
+def test_deep_merge_does_not_mutate_inputs():
+    base = {"a": {"b": 1}, "c": [1]}
+    override = {"a": {"d": 2}, "c": [2]}
+    assert deep_merge(base, override) == {"a": {"b": 1, "d": 2}, "c": [2]}
+    assert base == {"a": {"b": 1}, "c": [1]}
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda t: t.replace("count: 2", "count: 2\n  count: 3"), "重复 key"),
+        (lambda t: t.replace("name: demo", "name: Demo_X"), "只能包含"),
+        (lambda t: t + "unknown_field: 1\n", "Extra inputs"),
+        (lambda t: t.replace("prompt_len: 8", "prompt_len: 0"), "greater than 0"),
+        (lambda t: t.replace("prompt_len: 8", "prompt_len: true"), "布尔"),
+        (lambda t: t.replace("prompt_len: 8", "prompt_len: [8]"), "必须等于 count"),
+        (lambda t: t.replace("prompt_len: 8", "prompt_len: {ladder: {max: 8}}"), "count == 4"),
+        (lambda t: t.replace("  max_running_requests: 4\n", ""), "max_running_requests"),
+        (lambda t: t + "sweep:\n  workload:\n    nope: [1]\n", "未在 workload.vars 中声明"),
+        (lambda t: t + "sweep:\n  system:\n    block_size: []\n", "at least 1"),
+        (
+            lambda t: (
+                t.replace("[dense-kv-cache, paged-kv-cache]", "[dense-kv-cache]")
+                + "sweep:\n  system:\n    block_size: [8]\n"
+            ),
+            "block_size",
+        ),
+        (lambda t: t.replace("output_len: 4", "output_len: ${missing}"), "未定义的变量"),
+        (lambda t: t + "checks:\n  - min_max_running_requests: 8\n", "要求 max_running_requests >= 8"),
+    ],
+)
+def test_invalid_scheduler_specs_are_rejected_at_load(tmp_path, mutation, message):
+    with pytest.raises(Exception, match=message):
+        load_suite_spec(_write(tmp_path, mutation(_SCHEDULER_BASE)))
+
+
+def test_filename_must_match_name(tmp_path):
+    with pytest.raises(ValueError, match="文件名"):
+        load_suite_spec(_write(tmp_path, _SCHEDULER_BASE, name="other"))
+
+
+def test_free_batch_slot_check_counts_t0_arrivals(tmp_path):
+    text = (
+        _SCHEDULER_BASE.replace("max_running_requests: 4", "max_running_requests: 2")
+        + "checks: [free_batch_slot_at_t0]\n"
+    )
+    with pytest.raises(ValueError, match="空闲 batch slot"):
+        load_suite_spec(_write(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "system_mrr",
+        "paged",
+        "comparison",
+        "interleave",
+    ],
+)
+def test_lockstep_rejects_scheduler_only_features(tmp_path, extra):
+    base = """
+name: demo
+engine: lockstep
+system:
+  {system_extra}batching_method: [fixed-batching]
+  caching_method: [{caching}]
+workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
+{tail}"""
+    system_extra = "max_running_requests: 4\n  " if extra == "system_mrr" else ""
+    caching = "paged-kv-cache" if extra == "paged" else "dense-kv-cache"
+    tail = {
+        "comparison": "comparison:\n  group_by: [workload_id]\n  baseline: {batching_method: none}\n"
+        "  metrics: [{path: a.b, kind: speedup}]\n",
+        "interleave": "execution: {interleave: [batching_method]}\n",
+    }.get(extra, "")
+    with pytest.raises(Exception, match="lockstep"):
+        load_suite_spec(_write(tmp_path, base.format(system_extra=system_extra, caching=caching, tail=tail)))

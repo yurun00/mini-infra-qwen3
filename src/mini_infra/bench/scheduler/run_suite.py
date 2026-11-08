@@ -9,13 +9,14 @@ from dataclasses import replace
 
 import torch
 
+from mini_infra.bench.scheduler.cases import CaseDimension, CaseKey
 from mini_infra.bench.scheduler.plan import (
     PlannedRun,
     RunPhase,
     build_scheduler_run_plan,
 )
 from mini_infra.bench.scheduler.run_case import run_case_once
-from mini_infra.bench.scheduler.suites import CaseDimension, CaseKey, SchedulerSuite
+from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
     summarize_same_case_runs,

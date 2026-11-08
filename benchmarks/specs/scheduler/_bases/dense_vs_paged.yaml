@@ -1,0 +1,31 @@
+# dense-vs-paged-* 系列的共同基底：长短 Prompt 混杂压力负载（long_short_stress 本体）。
+# t=0 先到 7 个短请求，200 ms 插入 1 个长 Prompt 请求，201 ms 再到 9 个短请求。
+# 本文件缺少 name，不是可运行 suite；仅供 extends 引用。
+engine: scheduler
+execution:
+  warmup: 1
+  repeats: 3
+  interleave: [caching_method, paged_cache_config]
+system:
+  max_running_requests: 8
+  batching_method: [continuous-batching]
+  caching_method: [dense-kv-cache, paged-kv-cache]
+  paged:
+    block_size: 16
+workload:
+  id: long_short_stress
+  vars:
+    long_prompt_len: 2048
+  groups:
+    - {count: 7, prompt_len: 128, output_len: 96, arrival_ms: 0}
+    - {count: 1, prompt_len: "${long_prompt_len}", output_len: 8, arrival_ms: 200}
+    - {count: 9, prompt_len: 128, output_len: 64, arrival_ms: 201}
+checks: [free_batch_slot_at_t0]
+comparison:
+  group_by: [workload_id]
+  baseline: {caching_method: dense-kv-cache}
+  metrics:
+    - {path: schedule_metrics.makespan_ms, kind: speedup, name: makespan}
+    - {path: metrics.throughput_tok_s, kind: gain, name: throughput}
+    - {path: memory.kv_cache.accessed_kv_cache_tokens, kind: reduction, name: KV-read}
+    - {path: memory.kv_cache.peak_kv_cache_pool_mb, kind: reduction, name: pool}

@@ -2,13 +2,13 @@
 
 import pytest
 
+from mini_infra.bench.scheduler.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler.plan import (
     RunPhase,
     build_scheduler_run_plan,
     format_scheduler_run_plan,
 )
 from mini_infra.bench.scheduler.run_suite import parse_interleave_dimension
-from mini_infra.bench.scheduler.suites import CaseDimension, SchedulerSuiteCase
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 

@@ -4,12 +4,16 @@ import json
 
 import pytest
 
-from mini_infra.bench.scheduler.suites import (
-    SCHEDULER_SUITES,
+from mini_infra.bench.scheduler.cases import (
     CaseDimension,
     CaseKey,
     ComparisonMetric,
     ComparisonSpec,
+    MetricKind,
+    SchedulerSuiteCase,
+)
+from mini_infra.bench.scheduler.suites import (
+    SCHEDULER_SUITES,
     DenseVsPagedBlockSizeSuite,
     DenseVsPagedLengthRatioSuite,
     DenseVsPagedLongShortStressSuite,
@@ -17,8 +21,6 @@ from mini_infra.bench.scheduler.suites import (
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
     FixedVsContinuousVariableOutputLengthSuite,
-    MetricKind,
-    SchedulerSuiteCase,
     get_all_scheduler_suites,
     get_scheduler_suite,
 )
@@ -598,13 +600,13 @@ def test_compute_comparisons():
 
 
 def test_format_table_abbreviations():
+    from mini_infra.bench.scheduler.cases import CaseKey
     from mini_infra.bench.scheduler.format import (
         _abbreviate_case_key,
         _abbreviate_mode,
         _abbreviate_suite_name,
         _abbreviate_workload_id,
     )
-    from mini_infra.bench.scheduler.suites import CaseKey
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 

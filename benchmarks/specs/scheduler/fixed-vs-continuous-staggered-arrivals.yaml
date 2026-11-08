@@ -1,0 +1,9 @@
+name: fixed-vs-continuous-staggered-arrivals
+extends: _bases/fixed_vs_continuous.yaml
+description: 错峰到达；continuous 随到随接，fixed 必须等整批结束才能开新波次。
+workload:
+  id: staggered_arrivals
+  count: 8
+  prompt_len: 128
+  output_len: {alternating: [8, 32]}
+  arrival_ms: {interval: 150}

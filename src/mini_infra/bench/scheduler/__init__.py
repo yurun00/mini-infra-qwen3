@@ -1,5 +1,14 @@
 """队列调度器（Scheduler: Fixed vs Continuous Batching）基准测试模块。"""
 
+from mini_infra.bench.scheduler.cases import (
+    CaseDimension,
+    CaseDimensionValue,
+    CaseKey,
+    ComparisonMetric,
+    ComparisonSpec,
+    MetricKind,
+    SchedulerSuiteCase,
+)
 from mini_infra.bench.scheduler.format import (
     build_benchmark_record,
     format_case_summary,
@@ -24,11 +33,6 @@ from mini_infra.bench.scheduler.run_suite import (
 from mini_infra.bench.scheduler.suites import (
     SCHEDULER_SUITES,
     SUITES,
-    CaseDimension,
-    CaseDimensionValue,
-    CaseKey,
-    ComparisonMetric,
-    ComparisonSpec,
     DenseVsPagedBlockSizeSuite,
     DenseVsPagedLengthRatioSuite,
     DenseVsPagedLongShortStressSuite,
@@ -36,9 +40,7 @@ from mini_infra.bench.scheduler.suites import (
     FixedVsContinuousStaggeredArrivalsSuite,
     FixedVsContinuousUniformOutputLengthSuite,
     FixedVsContinuousVariableOutputLengthSuite,
-    MetricKind,
     SchedulerSuite,
-    SchedulerSuiteCase,
     get_all_scheduler_suites,
     get_scheduler_suite,
     get_suite,
