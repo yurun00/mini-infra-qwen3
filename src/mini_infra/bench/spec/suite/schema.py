@@ -22,8 +22,8 @@ from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
     ComparisonMetric,
-    ComparisonSpec,
     MetricKind,
+    ResolvedComparisonSpec,
 )
 from mini_infra.bench.spec.common.schema import (
     CheckSpec,
@@ -86,13 +86,13 @@ class MetricSpec(_Strict):
     name: str | None = None
 
 
-class ComparisonConfig(_Strict):
+class ComparisonSpec(_Strict):
     metrics: Annotated[list[MetricSpec], Field(min_length=1)]
     group_by: Annotated[list[CaseDimension], Field(min_length=1)]
     baseline: Annotated[dict[CaseDimension, str | int], Field(min_length=1)]
 
-    def to_runtime(self) -> ComparisonSpec:
-        """转换为运行期 ComparisonSpec（baseline 取值按维度还原为强类型）。"""
+    def resolve(self) -> ResolvedComparisonSpec:
+        """转换为已解析强类型的 ResolvedComparisonSpec（baseline 取值按维度还原为强类型）。"""
         baseline: dict[CaseDimension, CaseDimensionValue] = {}
         for dim, raw in self.baseline.items():
             if dim is CaseDimension.BATCHING_METHOD:
@@ -107,7 +107,7 @@ class ComparisonConfig(_Strict):
                 baseline[dim] = raw
             else:
                 raise ValueError(f"baseline 不支持维度 {dim.value}")
-        return ComparisonSpec(
+        return ResolvedComparisonSpec(
             metrics=tuple(ComparisonMetric(m.path, m.kind, m.name) for m in self.metrics),
             group_by=tuple(self.group_by),
             baseline=baseline,
@@ -127,7 +127,7 @@ class SuiteSpec(_Strict):
     system: SystemSpec
     workload: WorkloadTemplate
     sweep: SweepSpec = SweepSpec()
-    comparison: ComparisonConfig | None = None
+    comparison: ComparisonSpec | None = None
     checks: list[CheckSpec] = Field(default_factory=list)
 
     @field_validator("name")
@@ -222,7 +222,7 @@ def suite_json_schema() -> dict[str, Any]:
 
 __all__ = [
     "CheckSpec",
-    "ComparisonConfig",
+    "ComparisonSpec",
     "MetricSpec",
     "MinMaxRunningRequestsCheck",
     "MinOutputLenCheck",

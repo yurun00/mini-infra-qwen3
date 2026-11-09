@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import CaseDimension, ComparisonSpec, ResolvedWorkload, SchedulerCase
+from mini_infra.bench.cases import CaseDimension, ResolvedComparisonSpec, ResolvedWorkload, SchedulerCase
 from mini_infra.bench.spec import (
     CaseBlueprint,
     LoadedSuiteSpec,
@@ -52,9 +52,9 @@ class SchedulerSuite:
         return tuple(self.loaded.spec.execution.interleave)
 
     @property
-    def comparison(self) -> ComparisonSpec | None:
-        config = self.loaded.spec.comparison
-        return None if config is None else config.to_runtime()
+    def comparison(self) -> ResolvedComparisonSpec | None:
+        spec = self.loaded.spec.comparison
+        return None if spec is None else spec.resolve()
 
     def modes(self) -> list[Mode]:
         """按展开顺序去重后的运行模式列表。"""

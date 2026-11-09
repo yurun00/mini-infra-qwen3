@@ -10,7 +10,7 @@ from mini_infra.bench.spec.suite.loader import (
 )
 from mini_infra.bench.spec.suite.schema import (
     CheckSpec,
-    ComparisonConfig,
+    ComparisonSpec,
     MetricSpec,
     MinMaxRunningRequestsCheck,
     MinOutputLenCheck,
@@ -27,7 +27,7 @@ from mini_infra.bench.spec.suite.schema import (
 __all__ = [
     "CaseBlueprint",
     "CheckSpec",
-    "ComparisonConfig",
+    "ComparisonSpec",
     "LoadedSuiteSpec",
     "MetricSpec",
     "MinMaxRunningRequestsCheck",

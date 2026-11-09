@@ -8,8 +8,8 @@ from mini_infra.bench.cases import (
     CaseDimension,
     CaseKey,
     ComparisonMetric,
-    ComparisonSpec,
     MetricKind,
+    ResolvedComparisonSpec,
     ResolvedWorkload,
     SchedulerCase,
 )
@@ -170,7 +170,7 @@ def test_dense_vs_paged_block_size_suite():
 
 def test_comparison_spec_from_yaml_is_typed():
     comparison = get_scheduler_suite("dense-vs-paged-block-size").comparison
-    assert isinstance(comparison, ComparisonSpec)
+    assert isinstance(comparison, ResolvedComparisonSpec)
     assert comparison.group_by == (CaseDimension.WORKLOAD_ID,)
     assert comparison.baseline == {CaseDimension.CACHING_METHOD: CachingMethod.DENSE}
     assert [m.display_name for m in comparison.metrics] == ["makespan", "throughput", "KV-read", "pool"]
@@ -359,7 +359,7 @@ def test_compute_comparisons():
         bs=32,
     )
 
-    spec = ComparisonSpec(
+    spec = ResolvedComparisonSpec(
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: CachingMethod.DENSE},
         metrics=(
@@ -417,7 +417,7 @@ def test_compute_comparisons():
     assert "speedup 1.25x" in comp_line
 
     # 验证 baseline 找不到时报错
-    bad_spec_no_baseline = ComparisonSpec(
+    bad_spec_no_baseline = ResolvedComparisonSpec(
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: CachingMethod.NONE},
         metrics=spec.metrics,

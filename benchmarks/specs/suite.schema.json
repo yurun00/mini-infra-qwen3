@@ -33,7 +33,7 @@
       "title": "CaseDimension",
       "type": "string"
     },
-    "ComparisonConfig": {
+    "ComparisonSpec": {
       "additionalProperties": false,
       "properties": {
         "metrics": {
@@ -76,7 +76,7 @@
         "group_by",
         "baseline"
       ],
-      "title": "ComparisonConfig",
+      "title": "ComparisonSpec",
       "type": "object"
     },
     "ExecutionSpec": {
@@ -695,7 +695,7 @@
     "comparison": {
       "anyOf": [
         {
-          "$ref": "#/$defs/ComparisonConfig"
+          "$ref": "#/$defs/ComparisonSpec"
         },
         {
           "type": "null"

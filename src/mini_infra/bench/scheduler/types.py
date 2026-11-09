@@ -7,8 +7,8 @@ from typing import Any
 from mini_infra.bench.cases import (
     CaseDimensionValue,
     CaseKey,
-    ComparisonSpec,
     MetricKind,
+    ResolvedComparisonSpec,
 )
 from mini_infra.bench.common import (
     DistributionStats,
@@ -105,9 +105,9 @@ def resolve_metric_value(obj: Any, path: str) -> float:
 
 def compute_comparisons(
     case_results: Sequence["SchedulerCaseResult"],
-    spec: ComparisonSpec,
+    spec: ResolvedComparisonSpec,
 ) -> list[MetricComparison]:
-    """根据 ComparisonSpec 将 case_results 分组，在每组中按 baseline 规则选出基线并计算指标对比。"""
+    """根据 ResolvedComparisonSpec 将 case_results 分组，在每组中按 baseline 规则选出基线并计算指标对比。"""
     groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerCaseResult]] = {}
     for r in case_results:
         g_key = r.key.project(spec.group_by)

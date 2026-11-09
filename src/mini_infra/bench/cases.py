@@ -107,8 +107,8 @@ class ComparisonMetric:
 
 
 @dataclass(frozen=True)
-class ComparisonSpec:
-    """Suite 级泛型对比规范配置。"""
+class ResolvedComparisonSpec:
+    """Suite 级泛型对比规范（已解析为强类型，纯 CPU，零 PyTorch 依赖）。"""
 
     metrics: tuple[ComparisonMetric, ...]
     group_by: tuple[CaseDimension, ...]
@@ -229,8 +229,8 @@ __all__ = [
     "CaseDimensionValue",
     "CaseKey",
     "ComparisonMetric",
-    "ComparisonSpec",
     "MetricKind",
+    "ResolvedComparisonSpec",
     "ResolvedWorkload",
     "SchedulerCase",
 ]
