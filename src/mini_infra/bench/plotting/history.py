@@ -1,4 +1,5 @@
-"""读取 benchmarks/result-history/*.json（严格校验每个文件只包含 1 个标杆 Case），生成 Markdown 汇总表与两大类分析图表：
+"""读取 benchmarks/results/history/*.json（严格校验每个文件只包含 1 个标杆 Case），
+生成 Markdown 汇总表与两大类分析图表：
 
 第一大类：跨版本演化趋势 (Evolution Across Releases)
     自动通过 resolve_plot_specs(records) 感知历史记录是否跨越 lockstep <-> scheduler 边界：

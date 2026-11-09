@@ -64,11 +64,24 @@ def test_add_common_args_includes_warmup_and_repeats():
 
 
 def test_repo_root_anchored_to_project_root():
-    from mini_infra.bench.common import BENCH_ARTIFACTS_DIR, REPO_ROOT
+    from mini_infra.bench.common import (
+        BENCH_ARTIFACTS_DIR,
+        LOCKSTEP_RESULT_HISTORY_DIR,
+        REPO_ROOT,
+        RESULT_HISTORY_DIR,
+        RESULTS_DIR,
+        SCHEDULER_RESULT_HISTORY_DIR,
+        SUITES_DIR,
+    )
 
     assert REPO_ROOT.is_dir()
     assert (REPO_ROOT / "pyproject.toml").exists()
     assert BENCH_ARTIFACTS_DIR == (REPO_ROOT / "benchmarks").resolve()
+    assert RESULTS_DIR == BENCH_ARTIFACTS_DIR / "results"
+    assert RESULT_HISTORY_DIR == RESULTS_DIR / "history"
+    assert SUITES_DIR == RESULTS_DIR / "suites"
+    assert LOCKSTEP_RESULT_HISTORY_DIR == RESULT_HISTORY_DIR / "lockstep"
+    assert SCHEDULER_RESULT_HISTORY_DIR == RESULT_HISTORY_DIR / "scheduler"
 
 
 def test_dataclasses_attributes_and_dict_compatibility():

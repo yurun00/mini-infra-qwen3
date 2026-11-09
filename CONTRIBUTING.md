@@ -105,7 +105,7 @@ mini-infra bench check-regression
 
 > 💡 更多 Lockstep、Scheduler 与各预设实验套件的详细命令样例见 **[docs/benchmarks/overview.md](docs/benchmarks/overview.md)**。
 
-在日常性能调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/result-history/` 污染正式发版的时间线图表**：
+在日常性能调优阶段，若想测量当前实现的完整全矩阵性能（TTFT、TPOT P50/P95、吞吐、MBU/MFU 硬件利用率与显存拆解），但**不想沉淀到 `benchmarks/results/history/` 污染正式发版的时间线图表**：
 
 可通过 `--output` 将结果输出到 `tmp/` 临时文件（已被 `.gitignore` 忽略），并使用 `mini-infra bench plot compare` 绘制跨模式对比图：
 

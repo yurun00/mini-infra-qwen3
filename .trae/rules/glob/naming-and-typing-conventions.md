@@ -56,7 +56,7 @@ description: "标识符命名与类型标注纪律：概念唯一名、索引/�
 ## 七、落盘契约名的改名必须端到端联动
 
 - 进入 **JSON schema、Pydantic 字段、CLI flag / argparse dest、绘图取值 key** 的名字属对外契约，**允许改名，但必须连同全部读写点与已落盘数据一次改全**（详见 `AGENTS.md` 第一节第 4 条）。
-- 改名前 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/` 列读写点：写入点与读取点（`sort_values` / `groupby`）同步改全，`benchmarks/result-history/*.json` 已落盘字段名一并更新，严禁留旧名或半截改名。
+- 改名前 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/` 列读写点：写入点与读取点（`sort_values` / `groupby`）同步改全，`benchmarks/results/history/*.json` 已落盘字段名一并更新，严禁留旧名或半截改名。
 - 有下游读者 → 联动改（例：`bench/plotting/tidy.py` 写入的 `"order_idx"` / `"release_idx"` 被 `history.py` 读取）；零读者零历史产物 → 随标识符改（例：`compare_lockstep_batch.py` 的 `--output` 诊断 JSON `"target_idx"`）。
 - CLI 的 `--prompt-lens`（dest `prompt_lens`）与 engine 内部局部变量同名但**不是同一成员**：**禁全局替换**，逐点改内部变量。
 

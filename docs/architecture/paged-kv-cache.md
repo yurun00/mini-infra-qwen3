@@ -53,7 +53,7 @@ mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-block
 - 未实现抢占（Preemption）与 Prefix Caching：显式指定过小的 `num_blocks` 时，入场按「Prompt 所需 physical block」受限（FCFS 前缀），但并发增长耗尽 physical block pool 会抛出 `RuntimeError`，不会静默出错。
 - 当前仅支持 `continuous-batching` 与 `fixed-batching`；None 批处理与 `paged-kv-cache` 组合会被拒绝。
 - Attention 为纯 PyTorch 的「按 block table gather 后做稠密 Attention」，无融合 Paged Attention Kernel；每层会拷贝一次上下文。
-- 历史发版基准数据（`benchmarks/result-history/`）对齐受控发版计划维护，`bench scheduler` 已完整集成 Paged KV Cache 单用例与对比套件。
+- 历史发版基准数据（`benchmarks/results/history/`）对齐受控发版计划维护，`bench scheduler` 已完整集成 Paged KV Cache 单用例与对比套件。
 
 ## 五、验证
 

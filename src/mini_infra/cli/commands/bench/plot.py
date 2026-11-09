@@ -1,7 +1,7 @@
 """CLI 子命令：mini-infra bench plot (history / compare)
 
 性能可视化与对比图表绘制入口。
-支持按 lockstep / scheduler 子目录分别读取 benchmarks/result-history/{lockstep,scheduler}
+支持按 lockstep / scheduler 子目录分别读取 benchmarks/results/history/{lockstep,scheduler}
 并生成对应的 benchmarks/reports/{lockstep,scheduler}/ 下的报告与演进剖析图表。
 """
 
@@ -91,7 +91,7 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     plot_parser = subparsers.add_parser("plot", help="性能图表绘制与对比分析")
     plot_subs = plot_parser.add_subparsers(dest="plot_subcommand", required=True)
 
-    history_parser = plot_subs.add_parser("history", help="读取 result-history/ 生成跨版本演化与深度剖析图表")
+    history_parser = plot_subs.add_parser("history", help="读取 results/history/ 生成跨版本演化与深度剖析图表")
     add_history_args(history_parser)
     history_parser.set_defaults(func=handle_history)
 

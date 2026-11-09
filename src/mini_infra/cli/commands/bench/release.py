@@ -3,7 +3,7 @@
 使用 `mini_infra.bench.spec.release` 加载的多规模伪随机真实 Traffic 工作负载
 （声明于 `benchmarks/specs/release/{lockstep,scheduler}.yaml`，含 small / medium / large 三档），
 根据输入的 `--engine`（lockstep / scheduler）、`--tag` 与 `--release-feature` 一键生成版本发布所需的全部基准评测产物：
-1. 多规模历史记录：`benchmarks/result-history/{lockstep,scheduler}/<commit>_<tag>.json`（含 small/medium/large 三档）
+1. 多规模历史记录：`benchmarks/results/history/{lockstep,scheduler}/<commit>_<tag>.json`（含 small/medium/large 三档）
 2. 演进报告与剖析大图：
    `benchmarks/reports/{lockstep,scheduler}/{SUMMARY.md, evolution_and_scaling.png, profiling_and_optimization.png}`
 3. 零退化回归参考基线：`benchmarks/data/reference.json`

@@ -135,7 +135,7 @@ def test_suite_output_path_routing(tmp_path):
     assert suite_output_path(ns(), "scheduler", "s", "abc", **kw) == SUITES_DIR / "scheduler" / "s" / "abc_dev.json"
     # --spec 的实验结果默认进入被 .gitignore 忽略的 tmp/，不污染受控的 benchmarks/
     experimental = suite_output_path(ns(spec=Path("x.yaml")), "scheduler", "s", "abc", experimental=True)
-    assert experimental == REPO_ROOT / "tmp" / "suites" / "scheduler" / "s" / "abc_dev.json"
+    assert experimental == REPO_ROOT / "tmp" / "results" / "suites" / "scheduler" / "s" / "abc_dev.json"
     explicit = tmp_path / "o.json"
     assert suite_output_path(ns(output=explicit), "lockstep", "s", "abc", experimental=True) == explicit
 

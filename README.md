@@ -113,7 +113,7 @@ mini-infra-qwen3/
 │           │   └── run_suite.py       # Scheduler 套件计划执行引擎
 │           └── plotting/              # 绘图工具包
 │               ├── tidy.py            # Pandas 宽表/长表转换与跨边界声明式绘图配置
-│               ├── history.py         # 读取 result-history/ 生成演进趋势图
+│               ├── history.py         # 读取 results/history/ 生成演进趋势图
 │               └── compare.py         # 对比独立单用例 JSON 结果绘制多维对比图
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
@@ -122,8 +122,9 @@ mini-infra-qwen3/
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
 │   ├── specs/                         # 声明式 suite（YAML）：{lockstep,scheduler}/<name>.yaml、_bases/、release/（标准负载）与 suite.schema.json
-│   ├── suites/                        # 预设多用例基准测试套件结果（{lockstep,scheduler}/<name>/）
-│   ├── result-history/                # 按 {lockstep,scheduler}/ 分域存储每个版本一份 <commit>_<tag>.json
+│   ├── results/                       # 评测输出与历史沉淀（{suites,history}/）
+│   │   ├── suites/                    # 预设多用例基准测试套件结果（{lockstep,scheduler}/<name>/）
+│   │   └── history/                   # 按 {lockstep,scheduler}/ 分域存储每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # 按 {lockstep,scheduler}/ 分域存储 SUMMARY.md 与演进/剖析图表（生成物）
 ├── docs/                              # 技术文档中心
 │   ├── index.md                       # 文档导航主页

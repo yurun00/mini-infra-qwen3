@@ -30,7 +30,7 @@ uv.lock
 *.prof
 *.nsys-rep
 *.sqlite
-benchmarks/suites/
+benchmarks/results/suites/
 benchmarks/case/
 snapshots_*/
 *.pickle

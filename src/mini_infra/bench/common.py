@@ -46,11 +46,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # 评测产物与数据根目录（默认锚定至仓库根目录 benchmarks/，支持环境变量覆盖）
 _DEFAULT_BENCH_DIR = REPO_ROOT / "benchmarks"
 BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_BENCH_DIR))).resolve()
-RESULT_HISTORY_DIR = BENCH_ARTIFACTS_DIR / "result-history"
+RESULTS_DIR = BENCH_ARTIFACTS_DIR / "results"
+RESULT_HISTORY_DIR = RESULTS_DIR / "history"
 LOCKSTEP_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "lockstep"
 SCHEDULER_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "scheduler"
 CASE_DIR = BENCH_ARTIFACTS_DIR / "case"
-SUITES_DIR = BENCH_ARTIFACTS_DIR / "suites"
+SUITES_DIR = RESULTS_DIR / "suites"
 SPECS_DIR = BENCH_ARTIFACTS_DIR / "specs"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
 LOCKSTEP_REPORTS_DIR = REPORTS_DIR / "lockstep"
@@ -578,6 +579,7 @@ __all__ = [
     "ProfileMode",
     "REPORTS_DIR",
     "REPO_ROOT",
+    "RESULTS_DIR",
     "RESULT_HISTORY_DIR",
     "SCHEDULER_REPORTS_DIR",
     "SCHEDULER_RESULT_HISTORY_DIR",

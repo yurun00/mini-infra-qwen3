@@ -16,7 +16,7 @@ def add_set_arg(parser: argparse.ArgumentParser) -> None:
         default=[],
         metavar="KEY=VALUE",
         help="覆盖 suite 声明中的字段，KEY 为点分路径、VALUE 按 YAML 解析（可重复），如 --set execution.repeats=5；"
-        "带覆盖的运行视为实验，结果默认写入 tmp/suites/",
+        "带覆盖的运行视为实验，结果默认写入 tmp/results/suites/",
     )
 
 
@@ -31,14 +31,14 @@ def use_suite_execution_defaults(parser: argparse.ArgumentParser) -> None:
 def suite_output_path(
     args: argparse.Namespace, engine: SuiteEngine, suite_name: str, commit: str, *, experimental: bool
 ) -> Path:
-    """`--output` 优先；内置套件写入 benchmarks/suites/<engine>/<name>/；
+    """`--output` 优先；内置套件写入 benchmarks/results/suites/<engine>/<name>/；
 
-    experimental（`--spec` 或带 `--set` 覆盖的非标准配置）写入被 .gitignore 忽略的 tmp/suites/<engine>/<name>/，
+    experimental（`--spec` 或带 `--set` 覆盖的非标准配置）写入被 .gitignore 忽略的 tmp/results/suites/<engine>/<name>/，
     以免污染受控的 benchmarks/。
     """
     if args.output is not None:
         return args.output
-    root = REPO_ROOT / "tmp" / "suites" if experimental else SUITES_DIR
+    root = REPO_ROOT / "tmp" / "results" / "suites" if experimental else SUITES_DIR
     return root / engine / suite_name / f"{commit}_{args.tag}.json"
 
 

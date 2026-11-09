@@ -200,7 +200,7 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "[3/5] 开始执行: 运行 Lockstep 基准 [large]" in out_lockstep
     assert out_lockstep.count("--profile-mode extra-profile") == 1
     assert "--scale small --seed 42 --profile-mode extra-profile" in out_lockstep
-    assert "-> 目标产物: benchmarks/result-history/lockstep/<commit>_v0.3.0.json" in out_lockstep
+    assert "-> 目标产物: benchmarks/results/history/lockstep/<commit>_v0.3.0.json" in out_lockstep
 
     # Test scheduler dry-run
     rc_scheduler = release.main(
@@ -219,4 +219,4 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "[1/5] 开始执行: 运行 Scheduler 基准 [small]" in out_scheduler
     assert "[2/5] 开始执行: 运行 Scheduler 基准 [medium]" in out_scheduler
     assert "[3/5] 开始执行: 运行 Scheduler 基准 [large]" in out_scheduler
-    assert "-> 目标产物: benchmarks/result-history/scheduler/<commit>_v0.4.0.json" in out_scheduler
+    assert "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.4.0.json" in out_scheduler

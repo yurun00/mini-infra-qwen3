@@ -66,7 +66,7 @@ mini-infra bench release \
   --batching-method fixed-batching
 
 # 方式 B：若为队列调度器特性（如 v0.4.0 Continuous Batching）：
-# 1) 若 benchmarks/result-history/scheduler/ 尚无 baseline，先用同构 Workload（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
+# 1) 若 benchmarks/results/history/scheduler/ 尚无 baseline，先用同构 Workload（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
 mini-infra bench release \
   --engine scheduler \
   --tag "baseline" \
@@ -91,8 +91,8 @@ mini-infra bench release \
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。
 
 > ⚠️ **数据流与绘图约定**：
-> * **`benchmarks/result-history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`benchmarks/specs/release/{lockstep,scheduler}.yaml`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/suites/` 下。
-> * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `result-history/lockstep/` 与 `result-history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--engine lockstep` 或 `--engine scheduler` 单独生成）；
+> * **`benchmarks/results/history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`benchmarks/specs/release/{lockstep,scheduler}.yaml`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/results/suites/` 下。
+> * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `results/history/lockstep/` 与 `results/history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--engine lockstep` 或 `--engine scheduler` 单独生成）；
 > * **`mini-infra bench check-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 > 🏷️ **版本号与特性（Feature）标注约定**：
@@ -131,7 +131,7 @@ git push origin main --tags
 
 每次发布版本后，版本库中的以下文件将得到更新或沉淀：
 
-* **`benchmarks/result-history/{lockstep,scheduler}/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，按 `lockstep` 与 `scheduler` 分域持久化存储）。
+* **`benchmarks/results/history/{lockstep,scheduler}/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，按 `lockstep` 与 `scheduler` 分域持久化存储）。
 * **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
 * **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
 * **`benchmarks/reports/{lockstep,scheduler}/SUMMARY.md`**：分别记录齐步（Lockstep）与调度器（scheduler）各历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。

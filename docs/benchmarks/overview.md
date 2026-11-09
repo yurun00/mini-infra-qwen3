@@ -8,11 +8,11 @@
 
 | 一级分类 | 子命令 | 核心执行函数 / 模块 | 核心用途 | 默认输出路径 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Lockstep 齐步** | `mini-infra bench lockstep case` | `lockstep/run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/result-history/lockstep/` 或 `--output` |
+| **Lockstep 齐步** | `mini-infra bench lockstep case` | `lockstep/run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/results/history/lockstep/` 或 `--output` |
 | **scheduler 调度器** | `mini-infra bench scheduler case` | `scheduler/run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous、Dense vs Paged，支持并发与错峰到达） | 控制台输出或 `--output` |
 | **Suite 检视** | `mini-infra bench suites list \| show \| schema` | `spec/` | 浏览内置 suite、查看合并后的 YAML 与展开用例、导出 JSON Schema（无需 GPU） | 标准输出 |
 | **Suite 运行 / 扫描** | `mini-infra bench sweep` | `sweep.py` | 运行单个或批量 suite（`--suite A [B...]` / `--spec P...` / `--all`），共享模型加载与正确性检查，支持 `--set` 覆盖并汇总产物与对比；单 suite 支持 `--output` | `--output`、`--output-dir` 或各 suite 默认目录 |
-| **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/result-history/{lockstep,scheduler}/` |
+| **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/results/history/{lockstep,scheduler}/` |
 | **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/{lockstep,scheduler}/` |
 | | `mini-infra bench plot compare` | `plotting/compare.py` | 对比任意两个独立 JSON 实验结果，绘制柱状对比图与 Markdown 差异表 | `./benchmark_comparison.png` |
 | **Regression 守门** | `mini-infra bench check-regression` | `check_regression.py` | 1 分钟轻量级冒烟比对，拦截 TTFT/TPOT 劣化超过 5% 的代码变更 | `benchmarks/candidate.local.json` |
@@ -205,7 +205,7 @@ mini-infra bench sweep --engine scheduler \
 ## 四、性能图表绘制与对比分析 (`bench plot`)
 
 ### 1. 跨版本演化全景图 (`plot history`)
-读取 `benchmarks/result-history/{lockstep,scheduler}/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
+读取 `benchmarks/results/history/{lockstep,scheduler}/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
 
 ```bash
 # 读取历史数据并生成汇总报表与两大演进图
@@ -225,7 +225,7 @@ mini-infra bench plot history
 ```bash
 # 对比当前实验结果与 Baseline
 mini-infra bench plot compare \
-  benchmarks/result-history/lockstep/915b0d9_v0.1.0.json \
+  benchmarks/results/history/lockstep/915b0d9_v0.1.0.json \
   tmp/profile.json \
   --output-figure tmp/comparison.png \
   --output-markdown tmp/comparison.md \
@@ -293,10 +293,10 @@ mini-infra bench suites list                          # 列出全部内置 suite
 mini-infra bench suites show dense-vs-paged-block-size   # 合并后的 YAML + 展开后的用例列表
 mini-infra bench suites schema --output benchmarks/specs/suite.schema.json   # 重新导出 JSON Schema（IDE 补全）
 
-# 运行任意 YAML（临时实验；结果默认写入被 .gitignore 忽略的 tmp/suites/，不污染 benchmarks/；单 suite 支持 --output）
+# 运行任意 YAML（临时实验；结果默认写入被 .gitignore 忽略的 tmp/results/suites/，不污染 benchmarks/；单 suite 支持 --output）
 mini-infra bench sweep --engine scheduler --tag dev --spec tmp/my-suite.yaml --dry-run
 
-# 命令行覆盖声明字段（KEY 为点分路径，VALUE 按 YAML 解析；带覆盖的运行视为实验，结果同样写入 tmp/suites/）
+# 命令行覆盖声明字段（KEY 为点分路径，VALUE 按 YAML 解析；带覆盖的运行视为实验，结果同样写入 tmp/results/suites/）
 mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-length-ratio \
   --set 'sweep.workload.long_prompt_len=[256, 1024]' --set execution.repeats=5
 ```
@@ -328,10 +328,10 @@ mini-infra bench sweep --engine scheduler --tag dev --all --set execution.repeat
 
 为保持工作区整洁，所有 Benchmark 命令的输出落盘建议遵循以下规范：
 
-1. **`benchmarks/result-history/`**：
+1. **`benchmarks/results/history/`**：
    - 仅存放发版时固化的正式基准文件（格式为 `<commit>_<tag>.json`），由 `mini-infra bench plot history` 消费。
-2. **`benchmarks/suites/`**：
-   - 各预设套件（Suite）执行结果自动落盘目录，按引擎分域：`benchmarks/suites/lockstep/<name>/` 与 `benchmarks/suites/scheduler/<name>/`。
-   - 以 `--spec` 运行的临时 YAML 套件默认写入 `tmp/suites/<engine>/<name>/`。
+2. **`benchmarks/results/suites/`**：
+   - 各预设套件（Suite）执行结果自动落盘目录，按引擎分域：`benchmarks/results/suites/lockstep/<name>/` 与 `benchmarks/results/suites/scheduler/<name>/`。
+   - 以 `--spec` 运行的临时 YAML 套件默认写入 `tmp/results/suites/<engine>/<name>/`。
 3. **`tmp/`（推荐临时输出目录）**：
    - 日常单次测试、调优对比或 Profiling 产物建议输出到 `tmp/`（如 `--output tmp/test.json`）。该目录已纳入 `.gitignore`，不会污染版本控制。

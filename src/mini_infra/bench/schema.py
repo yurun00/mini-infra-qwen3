@@ -398,7 +398,7 @@ def _check_single_case_constraint(
     rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord,
     source: str | Path,
 ) -> None:
-    """校验 result-history 约束：单 Case，或同版本同模式下按 small/medium/large 各存 1 个 Case。"""
+    """校验 results/history 约束：单 Case，或同版本同模式下按 small/medium/large 各存 1 个 Case。"""
     if not rec.cases:
         raise ValueError(f"基准记录 {source} 不包含任何 case (single-case 约束)。")
     if len(rec.cases) == 1:
