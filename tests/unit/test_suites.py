@@ -128,8 +128,8 @@ system:
   batching_method: [none, fixed-batching]
   caching_method: [dense-kv-cache]
 workload:
-  id: "b_${num_requests}"
   vars: {num_requests: 1}
+  id: "b_${num_requests}"
   count: "${num_requests}"
   prompt_len: 4
   output_len: 32
@@ -190,8 +190,8 @@ system:
   batching_method: [none, fixed-batching]
   caching_method: [dense-kv-cache]
 workload:
-  id: "b_${num_requests}"
   vars: {num_requests: 1}
+  id: "b_${num_requests}"
   count: "${num_requests}"
   prompt_len: 4
   output_len: 2
@@ -222,8 +222,8 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu(tmp_path):
         """execution: {warmup: 0, repeats: 1}
 system: {batching_method: [fixed-batching], caching_method: [dense-kv-cache]}
 workload:
-  id: "${scenario}"
   vars: {scenario: uniform, prompt_len: [4, 4, 4, 4]}
+  id: "${scenario}"
   count: 4
   prompt_len: "${prompt_len}"
   output_len: 2
@@ -254,8 +254,8 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu(tmp_path):
         """execution: {warmup: 0, repeats: 1}
 system: {batching_method: [fixed-batching], caching_method: [dense-kv-cache]}
 workload:
-  id: "${scenario}"
   vars: {scenario: uniform, output_len: [4, 4, 4, 4]}
+  id: "${scenario}"
   count: 4
   prompt_len: [4, 4, 4, 4]
   output_len: "${output_len}"
@@ -287,8 +287,8 @@ def test_run_suite_drives_cases_in_order(tmp_path):
         """execution: {warmup: 0, repeats: 1}
 system: {batching_method: [fixed-batching], caching_method: [dense-kv-cache]}
 workload:
-  id: "b_${num_requests}"
   vars: {num_requests: 1}
+  id: "b_${num_requests}"
   count: "${num_requests}"
   prompt_len: 4
   output_len: 2

@@ -68,7 +68,7 @@ def _lockstep_entry(name: str) -> dict[str, Any]:
         "cases": [
             {
                 "mode": str(cs.mode),
-                "num_total_requests": cs.workload.num_requests,
+                "num_total_requests": cs.workload.num_total_requests,
                 "prompt_len": (
                     list(cs.workload.prompt_len)
                     if isinstance(cs.workload.prompt_len, tuple)
@@ -167,8 +167,8 @@ system:
   batching_method: [fixed-batching]
   caching_method: [dense-kv-cache]
 workload:
-  id: "w_${n}_${plen}"
   vars: {n: 1, plen: 8}
+  id: "w_${n}_${plen}"
   count: "${n}"
   prompt_len: "${plen}"
   output_len: 4
@@ -178,7 +178,9 @@ sweep:
     plen: [8, 16]
 """
     case_specs = expand_suite_spec(load_suite_spec(_write(tmp_path, text)).spec)
-    assert [(cs.workload.workload_id, cs.workload.num_requests, cs.workload.prompt_lens[0]) for cs in case_specs] == [
+    assert [
+        (cs.workload.workload_id, cs.workload.num_total_requests, cs.workload.prompt_lens[0]) for cs in case_specs
+    ] == [
         ("w_1_8", 1, 8),
         ("w_1_16", 1, 16),
         ("w_2_8", 2, 8),

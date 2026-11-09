@@ -2,12 +2,11 @@
 
 import torch
 
+from mini_infra.bench.cases import RequestPayload
 from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
-from mini_infra.bench.spec.release import release_workloads
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
+from mini_infra.bench.spec.release import RELEASE_SCALES, release_workloads
 from mini_infra.bench.workloads import (
-    WORKLOAD_SCALES,
-    Workload,
-    build_scheduler_request_specs,
     make_arrival_times,
     make_prompt,
     make_sequence,
@@ -135,38 +134,38 @@ def test_make_arrival_times():
         make_arrival_times(3, -5.0)
 
 
-def test_canonical_workloads_and_build_scheduler_specs():
+def test_canonical_workloads_and_build_payload():
     from mini_infra.bench.spec.release import get_release_spec
 
     lockstep_workloads = release_workloads("lockstep")
     scheduler_workloads = release_workloads("scheduler")
-    assert set(lockstep_workloads) == set(WORKLOAD_SCALES)
-    assert set(scheduler_workloads) == set(WORKLOAD_SCALES)
+    assert set(lockstep_workloads) == set(RELEASE_SCALES)
+    assert set(scheduler_workloads) == set(RELEASE_SCALES)
 
     lockstep_spec = get_release_spec("lockstep")
     scheduler_spec = get_release_spec("scheduler")
     assert lockstep_spec.spec.execution.warmup >= 1
     assert scheduler_spec.spec.execution.warmup >= 1
 
-    for scale in WORKLOAD_SCALES:
+    for scale in RELEASE_SCALES:
         lw = lockstep_workloads[scale]
-        assert isinstance(lw, Workload)
+        assert isinstance(lw, ResolvedWorkloadSpec)
         assert lw.workload_id == f"lockstep_{scale}"
         assert isinstance(lw.prompt_len, tuple) and len(lw.prompt_len) == lw.num_total_requests
         assert isinstance(lw.max_new_tokens, tuple) and len(lw.max_new_tokens) == lw.num_total_requests
 
         sw = scheduler_workloads[scale]
-        assert isinstance(sw, Workload)
+        assert isinstance(sw, ResolvedWorkloadSpec)
         assert sw.workload_id == f"scheduler_{scale}"
         assert isinstance(sw.prompt_len, tuple) and len(sw.prompt_len) == sw.num_total_requests
         assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.num_total_requests
-        assert isinstance(sw.arrival_times_ms, tuple) and len(sw.arrival_times_ms) == sw.num_total_requests
+        assert isinstance(sw.arrival_ms, tuple) and len(sw.arrival_ms) == sw.num_total_requests
 
-        specs = build_scheduler_request_specs(sw, vocab_size=32000)
-        assert len(specs) == sw.num_total_requests
-        assert tuple(s.prompt_len for s in specs) == sw.prompt_len
-        assert tuple(s.max_new_tokens for s in specs) == sw.max_new_tokens
-        assert tuple(s.arrival_ms for s in specs) == sw.arrival_times_ms
+        payload = RequestPayload.from_spec(sw, vocab_size=32000)
+        assert payload.request_count == sw.num_total_requests
+        assert payload.prompt_lengths == sw.prompt_lens
+        assert payload.output_budgets == sw.output_budgets
+        assert payload.arrival_times_ms == sw.arrival_ms
 
     # Different seeds produce different pseudo-random configurations
     assert (
@@ -174,8 +173,8 @@ def test_canonical_workloads_and_build_scheduler_specs():
         != release_workloads("lockstep", seed=43)["medium"].prompt_len
     )
     assert (
-        release_workloads("scheduler", seed=42)["medium"].arrival_times_ms
-        != release_workloads("scheduler", seed=43)["medium"].arrival_times_ms
+        release_workloads("scheduler", seed=42)["medium"].arrival_ms
+        != release_workloads("scheduler", seed=43)["medium"].arrival_ms
     )
 
 

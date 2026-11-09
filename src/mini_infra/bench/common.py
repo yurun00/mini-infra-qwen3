@@ -18,7 +18,6 @@ from typing import Any
 import torch
 from pydantic import BaseModel
 
-from mini_infra.bench.workloads import Workload
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import GenerationOptions, generate
 from mini_infra.model import (
@@ -585,7 +584,6 @@ __all__ = [
     "SCHEMA_VERSION",
     "SPECS_DIR",
     "SUITES_DIR",
-    "Workload",
     "add_common_args",
     "check_correctness",
     "efficiency",

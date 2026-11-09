@@ -7,7 +7,7 @@ YAML 是外部输入边界：这里一次性完成全部校验，下游（expand
     name / engine / description
     execution:  warmup / repeats / interleave
     system:     max_running_requests / batching_method[] / caching_method[] / paged
-    workload:   id / vars / (groups | 单组简写字段)
+    workload:   vars / id / (groups | 单组简写字段)
     sweep:      workload（dict-of-lists 笛卡尔积，或 list-of-dicts 显式场景）/ system
     comparison: metrics / group_by / baseline
     checks:     具名语义守卫
@@ -45,8 +45,8 @@ _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 class WorkloadTemplate(_Strict):
     """含 ${var} 占位符的负载模板；每个 sweep 点插值后才构成具体 WorkloadSpec。"""
 
-    id: Annotated[str, Field(min_length=1)]
     vars: dict[str, Any] = Field(default_factory=dict)
+    id: Annotated[str, Field(min_length=1)]
     body: dict[str, Any]
 
 
@@ -118,8 +118,8 @@ class SuiteSpec(_Strict):
         if not isinstance(raw, dict):
             return raw
         return {
-            "id": raw.get("id"),
             "vars": raw.get("vars", {}),
+            "id": raw.get("id"),
             "body": {k: v for k, v in raw.items() if k not in ("id", "vars")},
         }
 

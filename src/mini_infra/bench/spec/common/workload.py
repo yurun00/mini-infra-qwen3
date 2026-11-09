@@ -20,15 +20,29 @@ class ResolvedWorkloadSpec:
     """
 
     workload_id: str
+    num_total_requests: int
     prompt_len: int | tuple[int, ...]
     max_new_tokens: int | tuple[int, ...]
     prompt_lens: tuple[int, ...]
     output_budgets: tuple[int, ...]
     arrival_ms: tuple[float, ...]
 
-    @property
-    def num_requests(self) -> int:
-        return len(self.prompt_lens)
+    def __post_init__(self) -> None:
+        if self.num_total_requests <= 0:
+            raise ValueError(f"num_total_requests 必须大于 0，实际为 {self.num_total_requests}")
+        if len(self.prompt_lens) != self.num_total_requests:
+            raise ValueError(
+                f"prompt_lens 长度 ({len(self.prompt_lens)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
+            )
+        if len(self.output_budgets) != self.num_total_requests:
+            raise ValueError(
+                f"output_budgets 长度 ({len(self.output_budgets)}) 与 "
+                f"num_total_requests ({self.num_total_requests}) 不一致"
+            )
+        if len(self.arrival_ms) != self.num_total_requests:
+            raise ValueError(
+                f"arrival_ms 长度 ({len(self.arrival_ms)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
+            )
 
 
 def interpolate(node: Any, variables: dict[str, Any]) -> Any:
@@ -86,6 +100,7 @@ def resolve_workload_body(
     )
     return ResolvedWorkloadSpec(
         workload_id=resolved_id,
+        num_total_requests=len(prompt_lens),
         prompt_len=prompt_len,
         max_new_tokens=max_new_tokens,
         prompt_lens=tuple(prompt_lens),

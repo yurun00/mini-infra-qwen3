@@ -1,31 +1,10 @@
-"""基准测试工作负载配置（Workload）与合成序列生成辅助工具。
-
-多规模标准负载（small / medium / large）由 `benchmarks/specs/release/*.yaml` 声明，见 `bench.spec.release`。
-"""
+"""基准测试合成序列生成与到达时间序列辅助工具。"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Literal
 
 import torch
-
-from mini_infra.core.request import RequestSpec, make_request_specs
-
-WorkloadScale = Literal["small", "medium", "large"]
-WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
-
-
-@dataclass(frozen=True)
-class Workload:
-    """评测用例的纯请求负载规格（Traffic / Payload），与被测系统和压测运行参数完全解耦。"""
-
-    num_total_requests: int
-    prompt_len: int | tuple[int, ...]
-    max_new_tokens: int | tuple[int, ...]
-    arrival_times_ms: float | tuple[float, ...] | None = None
-    workload_id: str | None = None
 
 
 def make_sequence(
@@ -105,37 +84,7 @@ def make_arrival_times(count: int, interval_ms: float) -> list[float]:
     return [i * float(interval_ms) for i in range(count)]
 
 
-def build_scheduler_request_specs(
-    workload: Workload,
-    vocab_size: int,
-) -> list[RequestSpec]:
-    """根据 Workload 构建 Scheduler 评测所需的 RequestSpec 列表。"""
-    n = workload.num_total_requests
-    lengths = [workload.prompt_len] * n if isinstance(workload.prompt_len, int) else list(workload.prompt_len)
-    budgets = (
-        [workload.max_new_tokens] * n if isinstance(workload.max_new_tokens, int) else list(workload.max_new_tokens)
-    )
-    if workload.arrival_times_ms is None:
-        arrivals = [0.0] * n
-    elif isinstance(workload.arrival_times_ms, int | float):
-        arrivals = [float(workload.arrival_times_ms)] * n
-    else:
-        arrivals = [float(a) for a in workload.arrival_times_ms]
-
-    if len(lengths) != n or len(budgets) != n or len(arrivals) != n:
-        raise ValueError(
-            f"Workload 长度不匹配: num_total_requests={n}, len(prompt_len)={len(lengths)}, "
-            f"len(max_new_tokens)={len(budgets)}, len(arrival_times_ms)={len(arrivals)}"
-        )
-    sequences = make_sequences(lengths, vocab_size)
-    return make_request_specs(sequences, budgets, arrivals)
-
-
 __all__ = [
-    "WORKLOAD_SCALES",
-    "Workload",
-    "WorkloadScale",
-    "build_scheduler_request_specs",
     "make_arrival_times",
     "make_prompt",
     "make_sequence",

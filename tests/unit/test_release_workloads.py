@@ -7,15 +7,14 @@ from typing import Any
 
 import pytest
 
-from mini_infra.bench.spec import get_release_spec
+from mini_infra.bench.spec import RELEASE_SCALES, ResolvedWorkloadSpec, get_release_spec
 from mini_infra.bench.spec.common import sample_log_uniform_lengths, sample_poisson_arrivals
 from mini_infra.bench.spec.release import release_default_mode, release_workloads
-from mini_infra.bench.workloads import WORKLOAD_SCALES, Workload
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "release_workloads_golden.json").read_text(encoding="utf-8"))
 
 
-def _encode(w: Workload, *, engine: str, scale: str, seed: int) -> dict[str, Any]:
+def _encode(w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int) -> dict[str, Any]:
     def as_list(x: Any) -> Any:
         return list(x) if isinstance(x, tuple) else x
 
@@ -29,7 +28,7 @@ def _encode(w: Workload, *, engine: str, scale: str, seed: int) -> dict[str, Any
         "seed": seed,
         "scale": scale,
         "max_running_requests": resolved.max_running_requests,
-        "arrival_times_ms": as_list(w.arrival_times_ms),
+        "arrival_times_ms": as_list(w.arrival_ms) if engine == "scheduler" else None,
         "warmup": loaded.spec.execution.warmup,
         "repeats": loaded.spec.execution.repeats,
     }
@@ -50,7 +49,7 @@ def test_default_seed_is_the_standard_seed(engine):
     assert get_release_spec(engine).spec.default_seed == GOLDEN["default_seed"] == 42
     default = {s: _encode(w, engine=engine, scale=s, seed=42) for s, w in release_workloads(engine).items()}
     assert default == GOLDEN[engine]["42"]
-    assert set(default) == set(WORKLOAD_SCALES)
+    assert set(default) == set(RELEASE_SCALES)
 
 
 def test_release_default_modes():
@@ -62,11 +61,11 @@ def test_release_seed_changes_workload():
     base = release_workloads("scheduler", seed=42)["medium"]
     other = release_workloads("scheduler", seed=43)["medium"]
     assert base.prompt_len != other.prompt_len
-    assert base.arrival_times_ms != other.arrival_times_ms
+    assert base.arrival_ms != other.arrival_ms
 
 
 def test_release_workloads_pure_payload():
-    """验证 release_workloads 返回的 Workload 仅包含流量载荷，不含模式或执行参数。"""
+    """验证 release_workloads 返回的 ResolvedWorkloadSpec 仅包含流量载荷，不含模式或执行参数。"""
     w = release_workloads("scheduler")["small"]
     assert not hasattr(w, "mode")
     assert not hasattr(w, "repeats")

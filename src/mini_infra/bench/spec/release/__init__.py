@@ -2,7 +2,7 @@
 
 from mini_infra.bench.spec.release.expand import (
     ResolvedReleaseScale,
-    expand_release_workloads,
+    expand_release_scales,
     release_spec_default_mode,
     resolve_release_spec,
 )
@@ -28,7 +28,7 @@ __all__ = [
     "ReleaseSpec",
     "ResolvedReleaseScale",
     "ScaleSpec",
-    "expand_release_workloads",
+    "expand_release_scales",
     "get_release_spec",
     "load_release_spec",
     "release_default_mode",

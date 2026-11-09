@@ -13,9 +13,9 @@ system:
   paged:
     block_size: 16
 workload:
-  id: long_short_stress
   vars:
     long_prompt_len: 2048
+  id: long_short_stress
   groups:
     - {count: 7, prompt_len: 128, output_len: 96, arrival_ms: 0}
     - {count: 1, prompt_len: "${long_prompt_len}", output_len: 8, arrival_ms: 200}

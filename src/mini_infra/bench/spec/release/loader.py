@@ -7,14 +7,14 @@ from typing import Any
 from mini_infra.bench.common import SPECS_DIR
 from mini_infra.bench.spec.common.raw import _sha256, load_raw_spec
 from mini_infra.bench.spec.common.schema import SuiteEngine
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.bench.spec.release.expand import (
     ResolvedReleaseScale,
-    expand_release_workloads,
+    expand_release_scales,
     release_spec_default_mode,
     resolve_release_spec,
 )
 from mini_infra.bench.spec.release.schema import ReleaseScale, ReleaseSpec
-from mini_infra.bench.workloads import Workload, WorkloadScale
 from mini_infra.engine import Mode
 
 
@@ -32,9 +32,9 @@ class LoadedReleaseSpec:
         """以指定 seed 重新展开三档负载（seed 缺省即 `scales`，取 default_seed）。"""
         return self.scales if seed is None else resolve_release_spec(self.spec, seed)
 
-    def to_workloads(self, *, seed: int | None = None) -> dict[WorkloadScale, Workload]:
-        """转换为运行期三档 Workload。"""
-        return expand_release_workloads(self.spec, seed=seed)
+    def expand_scales(self, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
+        """转换为运行期三档 ResolvedWorkloadSpec。"""
+        return expand_release_scales(self.spec, seed=seed)
 
 
 def load_release_spec(path: Path) -> LoadedReleaseSpec:
@@ -70,10 +70,10 @@ def release_workloads(
     *,
     seed: int | None = None,
     specs_dir: Path | None = None,
-) -> dict[WorkloadScale, Workload]:
-    """三档标准负载（small / medium / large）；seed 缺省取 YAML 的 default_seed。"""
+) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
+    """三档标准负载规格（small / medium / large）；seed 缺省取 YAML 的 default_seed。"""
     loaded = get_release_spec(engine, specs_dir=specs_dir)
-    return loaded.to_workloads(seed=seed)
+    return expand_release_scales(loaded.spec, seed=seed)
 
 
 __all__ = [

@@ -54,8 +54,7 @@ from mini_infra.bench.common import (
     SCHEDULER_RESULT_HISTORY_DIR,
     git_info,
 )
-from mini_infra.bench.spec import get_release_spec
-from mini_infra.bench.workloads import WORKLOAD_SCALES, Workload, WorkloadScale
+from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, ResolvedWorkloadSpec, get_release_spec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
@@ -69,7 +68,7 @@ class ReleaseStep:
 
 
 def build_lockstep_case_cmd(
-    workload: Workload,
+    workload: ResolvedWorkloadSpec,
     tag: str,
     release_feature: str,
     mode: Mode,
@@ -79,7 +78,7 @@ def build_lockstep_case_cmd(
     seed: int | None = None,
     profile_mode: str | None = "extra-profile",
 ) -> list[str]:
-    """将 Workload 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
+    """将 ResolvedWorkloadSpec 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
     prompt_args = (
         [str(workload.prompt_len)] if isinstance(workload.prompt_len, int) else [str(x) for x in workload.prompt_len]
     )
@@ -124,7 +123,7 @@ def build_lockstep_case_cmd(
 
 
 def build_scheduler_case_cmd(
-    workload: Workload,
+    workload: ResolvedWorkloadSpec,
     tag: str,
     release_feature: str,
     mode: Mode,
@@ -136,7 +135,7 @@ def build_scheduler_case_cmd(
     block_size: int | None = None,
     output: Path | str | None = None,
 ) -> list[str]:
-    """将 Workload 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
+    """将 ResolvedWorkloadSpec 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
     cmd = [
         sys.executable,
         "-u",
@@ -179,10 +178,10 @@ def build_scheduler_case_cmd(
     else:
         cmd.extend(["--output-budgets", *[str(x) for x in workload.max_new_tokens]])
 
-    if isinstance(workload.arrival_times_ms, tuple | list):
-        cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_times_ms]])
-    elif isinstance(workload.arrival_times_ms, int | float):
-        cmd.extend(["--arrival-interval-ms", str(workload.arrival_times_ms)])
+    if isinstance(workload.arrival_ms, tuple | list):
+        cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_ms]])
+    elif isinstance(workload.arrival_ms, int | float):
+        cmd.extend(["--arrival-interval-ms", str(workload.arrival_ms)])
 
     if output is not None:
         cmd.extend(["--output", str(output)])
@@ -237,8 +236,8 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument(
         "--scales",
         nargs="+",
-        choices=list(WORKLOAD_SCALES),
-        default=list(WORKLOAD_SCALES),
+        choices=list(RELEASE_SCALES),
+        default=list(RELEASE_SCALES),
         help="要运行的负载规模档位（默认: small medium large）",
     )
     p.add_argument(
@@ -316,7 +315,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         caching_method = CachingMethod(args.caching_method)
     else:
         caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
-    scales: list[WorkloadScale] = list(getattr(args, "scales", None) or WORKLOAD_SCALES)
+    scales: list[ReleaseScale] = list(getattr(args, "scales", None) or RELEASE_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
 
     if args.engine == "lockstep":
@@ -327,16 +326,14 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
 
         loaded = get_release_spec("lockstep")
         scales_spec = loaded.resolve(custom_seed)
-        lockstep_workloads = loaded.to_workloads(seed=custom_seed)
         for sc in scales:
-            base_wl = lockstep_workloads[sc]
             scale_prof = prof if sc == "small" else None
             res_scale = scales_spec[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Lockstep 基准 [{sc}] ({args.tag}: {args.release_feature})",
                     cmd=build_lockstep_case_cmd(
-                        base_wl,
+                        res_scale.workload,
                         args.tag,
                         args.release_feature,
                         mode=mode,
@@ -371,15 +368,13 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
 
         loaded = get_release_spec("scheduler")
         scales_spec = loaded.resolve(custom_seed)
-        scheduler_workloads = loaded.to_workloads(seed=custom_seed)
         for sc in scales:
-            target_wl = scheduler_workloads[sc]
             res_scale = scales_spec[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
                     cmd=build_scheduler_case_cmd(
-                        target_wl,
+                        res_scale.workload,
                         args.tag,
                         args.release_feature,
                         mode=target_mode,

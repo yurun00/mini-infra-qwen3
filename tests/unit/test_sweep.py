@@ -430,7 +430,7 @@ def _write_release(
 def test_load_release_spec_expands_eagerly_like_load_suite_spec(tmp_path):
     loaded = load_release_spec(_write_release(tmp_path, "scheduler"))
     assert set(loaded.scales) == {"small", "medium", "large"}
-    assert loaded.scales["small"].workload.num_requests == 4 and loaded.scales["small"].seed == 42
+    assert loaded.scales["small"].workload.num_total_requests == 4 and loaded.scales["small"].seed == 42
     assert loaded.resolve() is loaded.scales
     assert loaded.resolve(7)["small"].seed == 7
     assert len(loaded.sha256) == 64

@@ -37,8 +37,9 @@ from mini_infra.bench.scheduler.run_suite import (
 from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.bench.sweep import SuiteRunSummary
-from mini_infra.bench.workloads import Workload, build_scheduler_request_specs, make_arrival_times
+from mini_infra.bench.workloads import make_arrival_times
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -146,16 +147,25 @@ def handle_case(args: argparse.Namespace) -> int:
     warmup = args.warmup if args.warmup is not None else 1
     repeats = args.repeats if args.repeats is not None else 3
 
-    workload = Workload(
+    prompt_lens = (prompt_len,) * req_count if isinstance(prompt_len, int) else tuple(prompt_len)
+    output_budgets = (max_new_tokens,) * req_count if isinstance(max_new_tokens, int) else tuple(max_new_tokens)
+    arrival_ms = (
+        (0.0,) * req_count
+        if arrivals is None
+        else (tuple(arrivals) if isinstance(arrivals, tuple) else (float(arrivals),) * req_count)
+    )
+    workload_spec = ResolvedWorkloadSpec(
+        workload_id="custom",
         num_total_requests=req_count,
         prompt_len=prompt_len,
         max_new_tokens=max_new_tokens,
-        arrival_times_ms=arrivals,
+        prompt_lens=prompt_lens,
+        output_budgets=output_budgets,
+        arrival_ms=arrival_ms,
     )
-    specs = tuple(build_scheduler_request_specs(workload, vocab))
+    resolved_payload = RequestPayload.from_spec(workload_spec, vocab)
     case_name = "custom"
 
-    resolved_payload = RequestPayload(workload_id="custom", specs=specs)
     case = SchedulerCase(
         payload=resolved_payload,
         mode=target_mode,
@@ -166,13 +176,17 @@ def handle_case(args: argparse.Namespace) -> int:
 
     block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""
     print(
-        f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} requests={len(specs)} "
+        f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} "
+        f"requests={resolved_payload.request_count} "
         f"max_running={max_running} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 
     def on_case_step(phase: str, step_number: int, total_steps: int) -> None:
-        print(f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={len(specs)} ...", flush=True)
+        print(
+            f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={resolved_payload.request_count} ...",
+            flush=True,
+        )
 
     result = run_case(
         model=model,

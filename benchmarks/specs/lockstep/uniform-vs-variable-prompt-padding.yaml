@@ -11,10 +11,10 @@ system:
   batching_method: [fixed-batching]
   caching_method: [dense-kv-cache]
 workload:
-  id: "${scenario}"
   vars:
     scenario: uniform
     prompt_len: [128, 128, 128, 128]
+  id: "${scenario}"
   count: 4
   prompt_len: "${prompt_len}"
   output_len: 32

@@ -31,7 +31,7 @@ from mini_infra.bench.lockstep.types import (
     LockstepCaseResult,
     summarize_samples,
 )
-from mini_infra.bench.workloads import Workload
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.engine import GenerationOptions, GenerationResult, generate
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -141,11 +141,14 @@ def run_case(
         if case.max_new_tokens is not None
         else (output_budgets[0] if len(set(output_budgets)) == 1 else output_budgets)
     )
-    workload = Workload(
+    workload = ResolvedWorkloadSpec(
+        workload_id=case.payload.workload_id,
         num_total_requests=batch_size,
         prompt_len=prompt_len,
         max_new_tokens=max_new_tokens,
-        workload_id=case.payload.workload_id,
+        prompt_lens=prompt_lens,
+        output_budgets=output_budgets,
+        arrival_ms=case.payload.arrival_times_ms,
     )
 
     warmup_opts = GenerationOptions(

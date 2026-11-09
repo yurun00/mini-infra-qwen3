@@ -67,13 +67,14 @@ from mini_infra.bench.schema import (
     load_benchmark_record,
     validate_benchmark_record,
 )
-from mini_infra.bench.spec.release import release_default_mode, release_workloads
+from mini_infra.bench.spec.release import (
+    RELEASE_SCALES,
+    ReleaseScale,
+    release_default_mode,
+    release_workloads,
+)
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.workloads import (
-    WORKLOAD_SCALES,
-    Workload,
-    WorkloadScale,
-    build_scheduler_request_specs,
     make_arrival_times,
     make_prompt,
     make_sequence,
@@ -103,18 +104,16 @@ __all__ = [
     "MetricKind",
     "ModelCostProfile",
     "PagedCacheConfigRecord",
+    "RELEASE_SCALES",
+    "ReleaseScale",
     "REPO_ROOT",
     "RequestPayload",
     "SchedulerBenchmarkRecord",
     "SchedulerCase",
     "SchedulerCaseResult",
     "SchedulerSuite",
-    "WORKLOAD_SCALES",
-    "Workload",
-    "WorkloadScale",
     "add_common_args",
     "build_benchmark_record",
-    "build_scheduler_request_specs",
     "check_correctness",
     "compute_comparisons",
     "format_case_summary",

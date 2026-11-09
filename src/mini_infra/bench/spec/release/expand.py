@@ -1,11 +1,10 @@
-"""Release 标准负载展开：把 ReleaseSpec 展开为确定性负载与运行期 Workload（纯 CPU）。"""
+"""Release 标准负载展开：把 ReleaseSpec 展开为确定性负载与运行期规格（纯 CPU）。"""
 
 from dataclasses import dataclass
 
 from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
-from mini_infra.bench.workloads import Workload, WorkloadScale
 from mini_infra.engine import Mode
 
 
@@ -52,24 +51,15 @@ def release_spec_default_mode(spec: ReleaseSpec) -> Mode:
     return Mode(spec.system.caching_method[0], batching_method=spec.system.batching_method[0])
 
 
-def expand_release_workloads(spec: ReleaseSpec, *, seed: int | None = None) -> dict[WorkloadScale, Workload]:
-    """把 ReleaseSpec 转换为三档运行时 Workload；seed 缺省取 default_seed。"""
+def expand_release_scales(spec: ReleaseSpec, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
+    """把 ReleaseSpec 转换为三档运行时规格 ResolvedWorkloadSpec；seed 缺省取 default_seed。"""
     scales = resolve_release_spec(spec, seed=seed)
-    workloads: dict[WorkloadScale, Workload] = {}
-    for scale, resolved in scales.items():
-        workloads[scale] = Workload(
-            num_total_requests=resolved.workload.num_requests,
-            prompt_len=resolved.workload.prompt_len,
-            max_new_tokens=resolved.workload.max_new_tokens,
-            arrival_times_ms=resolved.workload.arrival_ms if spec.engine == "scheduler" else None,
-            workload_id=f"{spec.engine}_{scale}",
-        )
-    return workloads
+    return {scale: resolved.workload for scale, resolved in scales.items()}
 
 
 __all__ = [
     "ResolvedReleaseScale",
-    "expand_release_workloads",
+    "expand_release_scales",
     "release_spec_default_mode",
     "resolve_release_spec",
 ]

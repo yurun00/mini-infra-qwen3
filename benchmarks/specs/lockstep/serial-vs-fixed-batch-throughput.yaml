@@ -11,9 +11,9 @@ system:
   batching_method: [none, fixed-batching]
   caching_method: [dense-kv-cache]
 workload:
-  id: "batch_${num_requests}"
   vars:
     num_requests: 1
+  id: "batch_${num_requests}"
   count: "${num_requests}"
   prompt_len: 128
   output_len: 32
