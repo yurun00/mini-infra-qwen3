@@ -1,4 +1,4 @@
-"""Lockstep 评测套件：由 `benchmarks/specs/lockstep/*.yaml` 声明，这里只负责把声明绑定到 SuiteCase。
+"""Lockstep 评测套件：由 `benchmarks/specs/lockstep/*.yaml` 声明，这里只负责把声明绑定到 LockstepCase。
 
 套件的全部配置（被测系统、请求负载、sweep、检查）都在 YAML 中；新增 suite 只需新增一个 YAML 文件：
 
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.spec import (
     CaseBlueprint,
     LoadedSuiteSpec,
@@ -29,17 +30,8 @@ from mini_infra.bench.spec import (
     get_suite_spec,
     load_suite_spec,
 )
+from mini_infra.bench.workloads import Workload
 from mini_infra.engine import Mode
-
-
-@dataclass(frozen=True)
-class SuiteCase:
-    """一次具体执行用例：在 mode 下，用 num_total_requests 条 prompt 生成 max_new_tokens 个 Token。"""
-
-    mode: Mode
-    num_total_requests: int
-    prompt_len: int | tuple[int, ...]
-    max_new_tokens: int | tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -65,9 +57,18 @@ class LockstepSuite:
         """按展开顺序去重后的运行模式列表。"""
         return list(dict.fromkeys(bp.mode for bp in self.blueprints))
 
-    def cases(self) -> list[SuiteCase]:
+    def cases(self) -> list[LockstepCase]:
         return [
-            SuiteCase(bp.mode, bp.workload.num_requests, bp.workload.prompt_len, bp.workload.max_new_tokens)
+            LockstepCase(
+                workload=Workload(
+                    num_total_requests=bp.workload.num_requests,
+                    prompt_len=bp.workload.prompt_len,
+                    max_new_tokens=bp.workload.max_new_tokens,
+                    workload_id=bp.workload.workload_id,
+                ),
+                mode=bp.mode,
+                suite_name=self.name,
+            )
             for bp in self.blueprints
         ]
 
@@ -101,8 +102,8 @@ def get_all_lockstep_suites() -> Sequence[LockstepSuite]:
 
 
 __all__ = [
+    "LockstepCase",
     "LockstepSuite",
-    "SuiteCase",
     "get_all_lockstep_suites",
     "get_lockstep_suite",
     "list_lockstep_suite_names",

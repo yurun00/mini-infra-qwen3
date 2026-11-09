@@ -5,8 +5,10 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
+from mini_infra.bench.workloads import Workload
 from mini_infra.engine import BatchingMethod, GenerationOptions, Mode, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
@@ -208,24 +210,31 @@ def test_bench_run_profile_modes():
     device = torch.device("cpu")
     vocab = model.config.vocab_size
 
+    case = LockstepCase(
+        workload=Workload(num_total_requests=1, prompt_len=4, max_new_tokens=2),
+        mode=mode,
+    )
+
     # Mode 1: profile_mode=None -> 无 op_latency_breakdown
     res_none = run_case(
-        model, mode, prompt_len=4, max_new_tokens=2, batch_size=1, warmup=0, repeats=1, vocab=vocab, device=device
+        model=model,
+        device=device,
+        case=case,
+        vocab=vocab,
+        warmup=0,
+        repeats=1,
     )
     assert res_none.op_breakdown is None
     assert "op_latency_breakdown" not in res_none.to_record_dict()
 
     # Mode 2: profile_mode=EXTRA_PROFILE -> 有 op_latency_breakdown
     res_extra = run_case(
-        model,
-        mode,
-        prompt_len=4,
-        max_new_tokens=2,
-        batch_size=1,
+        model=model,
+        device=device,
+        case=case,
+        vocab=vocab,
         warmup=0,
         repeats=1,
-        vocab=vocab,
-        device=device,
         profile_mode=ProfileMode.EXTRA_PROFILE,
     )
     assert res_extra.op_breakdown is not None
@@ -234,15 +243,12 @@ def test_bench_run_profile_modes():
 
     # Mode 3: profile_mode=FULL_PROFILE -> 每次 repeat 均 profile，直接从 runs 中提取 op_latency_breakdown
     res_full = run_case(
-        model,
-        mode,
-        prompt_len=4,
-        max_new_tokens=2,
-        batch_size=1,
+        model=model,
+        device=device,
+        case=case,
+        vocab=vocab,
         warmup=0,
         repeats=2,
-        vocab=vocab,
-        device=device,
         profile_mode=ProfileMode.FULL_PROFILE,
     )
     assert res_full.op_breakdown is not None

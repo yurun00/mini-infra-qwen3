@@ -78,11 +78,11 @@ class SchedulerSuite:
             assert bp.max_running_requests is not None
             cases.append(
                 SchedulerCase(
-                    suite_name=self.name,
+                    workload=workloads_by_spec[spec],
                     mode=bp.mode,
                     max_running_requests=bp.max_running_requests,
-                    workload=workloads_by_spec[spec],
                     paged_cache_config=bp.paged_cache_config,
+                    suite_name=self.name,
                 )
             )
         return cases

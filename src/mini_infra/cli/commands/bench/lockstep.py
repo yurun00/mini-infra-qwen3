@@ -12,6 +12,7 @@ from typing import Any
 
 import torch
 
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.common import (
     LOCKSTEP_RESULT_HISTORY_DIR,
     add_common_args,
@@ -31,12 +32,10 @@ from mini_infra.bench.lockstep.format import (
 )
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
-from mini_infra.bench.lockstep.suites import (
-    LockstepSuite,
-    SuiteCase,
-)
+from mini_infra.bench.lockstep.suites import LockstepSuite
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.sweep import SuiteRunSummary
+from mini_infra.bench.workloads import Workload
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -104,7 +103,16 @@ def handle_case(args: argparse.Namespace) -> int:
 
     caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
     mode = Mode(caching_method, batching_method=args.batching_method)
-    case = SuiteCase(mode, target_bs, resolved_prompt_len, resolved_max_new_tokens)
+    case = LockstepCase(
+        workload=Workload(
+            num_total_requests=target_bs,
+            prompt_len=resolved_prompt_len,
+            max_new_tokens=resolved_max_new_tokens,
+            workload_id="custom",
+        ),
+        mode=mode,
+        suite_name="custom",
+    )
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
@@ -123,21 +131,19 @@ def handle_case(args: argparse.Namespace) -> int:
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-case] mode={case.mode} batch={case.num_total_requests} prompt={format_lengths(case.prompt_len)} "
-        f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
+        f"[bench-case] mode={case.mode} batch={case.workload.num_total_requests} "
+        f"prompt={format_lengths(case.workload.prompt_len)} "
+        f"max_new_tokens={format_lengths(case.workload.max_new_tokens)} ...",
         flush=True,
     )
 
     result = run_case(
-        model,
-        case.mode,
-        list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
-        list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens,
-        case.num_total_requests,
-        args.warmup,
-        args.repeats,
-        vocab,
-        device,
+        model=model,
+        device=device,
+        case=case,
+        vocab=vocab,
+        warmup=args.warmup,
+        repeats=args.repeats,
         cost=cost,
         peaks=peaks,
         profile_mode=args.profile_mode,
@@ -237,10 +243,11 @@ def execute_lockstep_suite(
         flush=True,
     )
 
-    def on_progress(case_number: int, total_cases: int, case: SuiteCase) -> None:
+    def on_progress(case_number: int, total_cases: int, case: LockstepCase) -> None:
         print(
-            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.num_total_requests} "
-            f"prompt={format_lengths(case.prompt_len)} max_new_tokens={format_lengths(case.max_new_tokens)} ...",
+            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.workload.num_total_requests} "
+            f"prompt={format_lengths(case.workload.prompt_len)} "
+            f"max_new_tokens={format_lengths(case.workload.max_new_tokens)} ...",
             flush=True,
         )
 

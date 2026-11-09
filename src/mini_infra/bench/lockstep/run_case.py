@@ -23,15 +23,15 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.common import ProfileMode, efficiency
+from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.common import DEFAULT_REPEATS, DEFAULT_WARMUP, ProfileMode, efficiency
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
-    Workload,
     summarize_samples,
 )
 from mini_infra.bench.workloads import make_prompt
-from mini_infra.engine import GenerationOptions, Mode, generate
+from mini_infra.engine import GenerationOptions, generate
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
@@ -82,14 +82,11 @@ def resolve_case_specs(
 
 def run_case(
     model: torch.nn.Module,
-    mode: Mode,
-    prompt_len: int | Sequence[int],
-    max_new_tokens: int | Sequence[int],
-    batch_size: int,
-    warmup: int,
-    repeats: int,
-    vocab: int,
     device: torch.device,
+    case: LockstepCase,
+    vocab: int,
+    warmup: int = DEFAULT_WARMUP,
+    repeats: int = DEFAULT_REPEATS,
     cost: dict | None = None,
     peaks: dict | None = None,
     profile_mode: ProfileMode | None = None,
@@ -98,6 +95,11 @@ def run_case(
     seed: int | None = None,
 ) -> LockstepCaseResult:
     """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
+    mode = case.mode
+    prompt_len = case.workload.prompt_len
+    max_new_tokens = case.workload.max_new_tokens
+    batch_size = case.workload.num_total_requests
+
     min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
@@ -139,11 +141,7 @@ def run_case(
         for _ in range(repeats)
     ]
 
-    workload = Workload(
-        num_total_requests=effective_batch_size,
-        prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,
-        max_new_tokens=tuple(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
-    )
+    workload = case.workload
 
     eff_prompt_vals = [r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None]
     pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]

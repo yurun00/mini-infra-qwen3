@@ -8,9 +8,10 @@ from typing import Any
 
 import torch
 
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.lockstep.suites import LockstepSuite, SuiteCase
+from mini_infra.bench.lockstep.suites import LockstepSuite
 from mini_infra.bench.lockstep.types import LockstepCaseResult
 from mini_infra.profiling import TensorBoardOptions
 
@@ -26,7 +27,7 @@ def run_suite(
     peaks: dict[str, float | None] | None = None,
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
-    on_case_progress: Callable[[int, int, SuiteCase], None] | None = None,
+    on_case_progress: Callable[[int, int, LockstepCase], None] | None = None,
     on_case_result: Callable[[LockstepCaseResult], None] | None = None,
 ) -> list[LockstepCaseResult]:
     """按序执行 Suite 中的所有用例，返回评测结果列表。"""
@@ -42,16 +43,11 @@ def run_suite(
         try:
             case_result = run_case(
                 model=model,
-                mode=case.mode,
-                prompt_len=list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
-                max_new_tokens=(
-                    list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens
-                ),
-                batch_size=case.num_total_requests,
+                device=device,
+                case=case,
+                vocab=vocab,
                 warmup=warmup_val,
                 repeats=repeats_val,
-                vocab=vocab,
-                device=device,
                 cost=cost,
                 peaks=peaks,
                 profile_mode=profile_mode,

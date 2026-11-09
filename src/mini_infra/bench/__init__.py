@@ -25,9 +25,9 @@ from mini_infra.bench.common import (
     summarize_samples,
 )
 from mini_infra.bench.lockstep import (
+    LockstepCase,
     LockstepCaseResult,
     LockstepSuite,
-    SuiteCase,
     format_case_summary,
     format_table,
     get_all_lockstep_suites,
@@ -91,6 +91,7 @@ __all__ = [
     "EfficiencyMetrics",
     "HardwarePeakSpecs",
     "LockstepBenchmarkRecord",
+    "LockstepCase",
     "LockstepCaseResult",
     "LockstepSuite",
     "MetricComparison",
@@ -105,7 +106,6 @@ __all__ = [
     "SchedulerCase",
     "SchedulerCaseResult",
     "SchedulerSuite",
-    "SuiteCase",
     "WORKLOAD_SCALES",
     "Workload",
     "WorkloadScale",

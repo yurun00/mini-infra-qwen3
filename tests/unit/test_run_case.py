@@ -3,7 +3,9 @@
 import pytest
 import torch
 
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
+from mini_infra.bench.workloads import Workload
 from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -85,16 +87,17 @@ def test_run_case_on_cpu():
     mode = Mode()
 
     # 1. 单用例标量执行
+    case_scalar = LockstepCase(
+        workload=Workload(num_total_requests=1, prompt_len=4, max_new_tokens=2),
+        mode=mode,
+    )
     res_scalar = run_case(
         model=model,
-        mode=mode,
-        prompt_len=4,
-        max_new_tokens=2,
-        batch_size=1,
+        device=torch.device("cpu"),
+        case=case_scalar,
+        vocab=vocab,
         warmup=0,
         repeats=1,
-        vocab=vocab,
-        device=torch.device("cpu"),
     )
     assert res_scalar.workload.num_total_requests == 1
     assert res_scalar.workload.prompt_len == 4
@@ -104,16 +107,17 @@ def test_run_case_on_cpu():
     assert res_scalar.to_record_dict()["num_total_requests"] == 1
 
     # 2. 变长 prompt 执行
+    case_var = LockstepCase(
+        workload=Workload(num_total_requests=2, prompt_len=(2, 4), max_new_tokens=2),
+        mode=mode,
+    )
     res_var = run_case(
         model=model,
-        mode=mode,
-        prompt_len=[2, 4],
-        max_new_tokens=2,
-        batch_size=2,
+        device=torch.device("cpu"),
+        case=case_var,
+        vocab=vocab,
         warmup=0,
         repeats=1,
-        vocab=vocab,
-        device=torch.device("cpu"),
     )
     assert res_var.workload.num_total_requests == 2
     assert res_var.workload.prompt_len == (2, 4)

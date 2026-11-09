@@ -41,7 +41,8 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
                 else {"block_size": c.paged_cache_config.block_size, "num_blocks": c.paged_cache_config.num_blocks}
             ),
             "specs": [
-                [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms] for s in c.specs
+                [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
+                for s in c.workload.specs
             ],
         }
         for c in suite.cases(VOCAB)
@@ -67,9 +68,15 @@ def _lockstep_entry(name: str) -> dict[str, Any]:
         "cases": [
             {
                 "mode": str(c.mode),
-                "num_total_requests": c.num_total_requests,
-                "prompt_len": list(c.prompt_len) if isinstance(c.prompt_len, tuple) else c.prompt_len,
-                "max_new_tokens": list(c.max_new_tokens) if isinstance(c.max_new_tokens, tuple) else c.max_new_tokens,
+                "num_total_requests": c.workload.num_total_requests,
+                "prompt_len": (
+                    list(c.workload.prompt_len) if isinstance(c.workload.prompt_len, tuple) else c.workload.prompt_len
+                ),
+                "max_new_tokens": (
+                    list(c.workload.max_new_tokens)
+                    if isinstance(c.workload.max_new_tokens, tuple)
+                    else c.workload.max_new_tokens
+                ),
             }
             for c in suite.cases()
         ],

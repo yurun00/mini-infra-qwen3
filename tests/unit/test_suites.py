@@ -1,4 +1,4 @@
-"""lockstep.suites（YAML 声明 → LockstepSuite → SuiteCase）与 run_suite 接入的单元测试（CPU 可运行）。"""
+"""lockstep.suites（YAML 声明 → LockstepSuite → LockstepCase）与 run_suite 接入的单元测试（CPU 可运行）。"""
 
 import json
 from pathlib import Path
@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 import torch
 
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.bench.lockstep.suites import (
     LockstepSuite,
-    SuiteCase,
     get_all_lockstep_suites,
     get_lockstep_suite,
     list_lockstep_suite_names,
@@ -27,17 +27,15 @@ def _tiny_suite(tmp_path: Path, name: str, body: str) -> LockstepSuite:
 
 def _run_cases(suite: LockstepSuite):
     model = build_tiny_model()
+    device = torch.device("cpu")
     return [
         run_case(
-            model,
-            case.mode,
-            case.prompt_len,
-            case.max_new_tokens,
-            case.num_total_requests,
-            suite.warmup,
-            suite.repeats,
-            model.config.vocab_size,
-            torch.device("cpu"),
+            model=model,
+            device=device,
+            case=case,
+            vocab=model.config.vocab_size,
+            warmup=suite.warmup,
+            repeats=suite.repeats,
         )
         for case in suite.cases()
     ]
@@ -72,14 +70,14 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     assert (suite.warmup, suite.repeats) == (1, 3)
     cases = suite.cases()
     assert len(cases) == 5 * 2
-    assert [(c.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
+    assert [(c.workload.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
         (1, BatchingMethod.NONE),
         (1, BatchingMethod.FIXED),
         (2, BatchingMethod.NONE),
         (2, BatchingMethod.FIXED),
     ]
-    assert [c.num_total_requests for c in cases[::2]] == [1, 2, 4, 8, 16]
-    assert all(c.prompt_len == 128 and c.max_new_tokens == 32 and c.mode.use_kv_cache for c in cases)
+    assert [c.workload.num_total_requests for c in cases[::2]] == [1, 2, 4, 8, 16]
+    assert all(c.workload.prompt_len == 128 and c.workload.max_new_tokens == 32 and c.mode.use_kv_cache for c in cases)
     assert [m.batching_method for m in suite.modes()] == [BatchingMethod.NONE, BatchingMethod.FIXED]
 
 
@@ -93,7 +91,7 @@ def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
 
 def test_uniform_vs_variable_prompt_padding_cases():
     cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases()
-    assert [(c.num_total_requests, c.prompt_len, c.max_new_tokens) for c in cases] == [
+    assert [(c.workload.num_total_requests, c.workload.prompt_len, c.workload.max_new_tokens) for c in cases] == [
         (4, (128, 128, 128, 128), 32),
         (4, (16, 32, 64, 128), 32),
     ]
@@ -102,7 +100,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
 
 def test_uniform_vs_variable_budget_slots_cases():
     cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases()
-    assert [(c.num_total_requests, c.prompt_len, c.max_new_tokens) for c in cases] == [
+    assert [(c.workload.num_total_requests, c.workload.prompt_len, c.workload.max_new_tokens) for c in cases] == [
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),
     ]
@@ -295,7 +293,7 @@ sweep:
     num_requests: [1, 2]
 """,
     )
-    seen: list[SuiteCase] = []
+    seen: list[LockstepCase] = []
     model = build_tiny_model()
     results = run_suite(
         model,
@@ -304,5 +302,5 @@ sweep:
         model.config.vocab_size,
         on_case_progress=lambda _n, _total, case: seen.append(case),
     )
-    assert [c.num_total_requests for c in seen] == [1, 2]
+    assert [c.workload.num_total_requests for c in seen] == [1, 2]
     assert [r.workload.num_total_requests for r in results] == [1, 2]

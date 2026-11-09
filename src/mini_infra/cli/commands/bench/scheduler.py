@@ -157,11 +157,11 @@ def handle_case(args: argparse.Namespace) -> int:
 
     resolved_workload = ResolvedWorkload(workload_id="custom", specs=specs)
     case = SchedulerCase(
-        suite_name=case_name,
+        workload=resolved_workload,
         mode=target_mode,
         max_running_requests=max_running,
-        workload=resolved_workload,
         paged_cache_config=paged_cache_config,
+        suite_name=case_name,
     )
 
     block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""

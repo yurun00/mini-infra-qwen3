@@ -8,8 +8,8 @@ from mini_infra.bench.lockstep.format import (
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import (
+    LockstepCase,
     LockstepSuite,
-    SuiteCase,
     get_all_lockstep_suites,
     get_lockstep_suite,
     list_lockstep_suite_names,
@@ -24,9 +24,9 @@ from mini_infra.bench.lockstep.types import (
 
 __all__ = [
     "DistributionStats",
+    "LockstepCase",
     "LockstepCaseResult",
     "LockstepSuite",
-    "SuiteCase",
     "Workload",
     "build_benchmark_record",
     "format_case_summary",

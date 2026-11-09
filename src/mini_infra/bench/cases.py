@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from mini_infra.bench.workloads import Workload
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
@@ -157,13 +158,13 @@ class ResolvedWorkload:
 
 @dataclass(frozen=True)
 class SchedulerCase:
-    """Scheduler 评测最小单用例配置：包含用例身份键（CaseKey）对应的全量维度与已绑定的具体请求负载。"""
+    """Scheduler 评测最小单用例配置：包含输入负载与 System 维度。"""
 
-    suite_name: str
+    workload: ResolvedWorkload
     mode: Mode
     max_running_requests: int
-    workload: ResolvedWorkload
     paged_cache_config: PagedCacheConfig | None = None
+    suite_name: str | None = None
 
     def __post_init__(self) -> None:
         if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
@@ -174,26 +175,6 @@ class SchedulerCase:
     @property
     def workload_id(self) -> str:
         return self.workload.workload_id
-
-    @property
-    def specs(self) -> tuple[RequestSpec, ...]:
-        return self.workload.specs
-
-    @property
-    def request_count(self) -> int:
-        return self.workload.request_count
-
-    @property
-    def prompt_lengths(self) -> tuple[int, ...]:
-        return self.workload.prompt_lengths
-
-    @property
-    def output_budgets(self) -> tuple[int, ...]:
-        return self.workload.output_budgets
-
-    @property
-    def arrival_times_ms(self) -> tuple[float, ...]:
-        return self.workload.arrival_times_ms
 
     @property
     def key(self) -> CaseKey:
@@ -207,15 +188,16 @@ class SchedulerCase:
     def to_spec_dict(self) -> dict[str, Any]:
         """导出用例负载规格字典。"""
         data: dict[str, Any] = {
-            "suite_name": self.suite_name,
             "workload_id": self.workload_id,
             "mode": str(self.mode),
             "max_running_requests": self.max_running_requests,
-            "request_count": self.request_count,
-            "prompt_lengths": list(self.prompt_lengths),
-            "output_budgets": list(self.output_budgets),
-            "arrival_times_ms": list(self.arrival_times_ms),
+            "request_count": self.workload.request_count,
+            "prompt_lengths": list(self.workload.prompt_lengths),
+            "output_budgets": list(self.workload.output_budgets),
+            "arrival_times_ms": list(self.workload.arrival_times_ms),
         }
+        if self.suite_name is not None:
+            data["suite_name"] = self.suite_name
         if self.paged_cache_config is not None:
             data["paged_cache_config"] = {
                 "block_size": self.paged_cache_config.block_size,
@@ -224,11 +206,34 @@ class SchedulerCase:
         return data
 
 
+@dataclass(frozen=True)
+class LockstepCase:
+    """Lockstep 评测最小单用例配置：包含输入负载与静态批处理模式。"""
+
+    workload: Workload
+    mode: Mode
+    suite_name: str | None = None
+
+    @property
+    def workload_id(self) -> str:
+        return self.workload.workload_id or f"bs{self.workload.num_total_requests}"
+
+    @property
+    def key(self) -> CaseKey:
+        return CaseKey(
+            workload_id=self.workload_id,
+            mode=self.mode,
+            max_running_requests=self.workload.num_total_requests,
+            paged_cache_config=None,
+        )
+
+
 __all__ = [
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
     "ComparisonMetric",
+    "LockstepCase",
     "MetricKind",
     "ResolvedComparisonSpec",
     "ResolvedWorkload",

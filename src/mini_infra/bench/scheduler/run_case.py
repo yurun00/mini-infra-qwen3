@@ -26,7 +26,7 @@ def run_case_once(
         batching_method=case.mode.batching_method,
         caching_method=case.mode.caching_method,
         model=model,
-        request_specs=case.specs,
+        request_specs=case.workload.specs,
         max_running_requests=case.max_running_requests,
         eos_token_id=-1,
         device=device,
