@@ -13,8 +13,8 @@ _PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
 
 @dataclass(frozen=True)
-class ResolvedWorkload:
-    """插值并展开后的具体请求负载。
+class ResolvedWorkloadSpec:
+    """插值并展开后的具体请求负载规格（纯 CPU，不依赖 vocab 与 torch）。
 
     prompt_len / max_new_tokens 保留 lockstep 的广播语义：单组且为 constant 时是标量 int，其余为逐请求 tuple。
     """
@@ -53,7 +53,7 @@ def interpolate(node: Any, variables: dict[str, Any]) -> Any:
 
 def resolve_workload_body(
     workload_id: str, body: dict[str, Any], variables: dict[str, Any], context: str
-) -> ResolvedWorkload:
+) -> ResolvedWorkloadSpec:
     """插值、校验并展开一份 workload（id 与 body 均可含 ${var}），返回逐请求数值。
 
     context 仅用于错误信息（如 `suite demo` 或 `release scheduler/small`）。
@@ -84,7 +84,7 @@ def resolve_workload_body(
     max_new_tokens: int | tuple[int, ...] = (
         first.output_len.value if single_group and isinstance(first.output_len, ConstantLength) else tuple(budgets)
     )
-    return ResolvedWorkload(
+    return ResolvedWorkloadSpec(
         workload_id=resolved_id,
         prompt_len=prompt_len,
         max_new_tokens=max_new_tokens,
@@ -95,7 +95,7 @@ def resolve_workload_body(
 
 
 __all__ = [
-    "ResolvedWorkload",
+    "ResolvedWorkloadSpec",
     "interpolate",
     "resolve_workload_body",
 ]

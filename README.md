@@ -93,7 +93,7 @@ mini-infra-qwen3/
 │           ├── workloads.py           # Workload 与合成 Prompt 序列生成工具
 │           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比
 │           ├── check_regression.py    # 性能回归质量门禁核心逻辑
-│           ├── cases.py               # CaseKey / CaseDimension / ComparisonSpec / SchedulerSuiteCase 用例层类型
+│           ├── cases.py               # CaseKey / CaseDimension / ComparisonSpec / SchedulerCase 用例层类型
 │           ├── spec/                  # 声明式评测规范系统（YAML）：common / suite / release 三域架构
 │           │   ├── common/            # 跨 spec 共享的基础模型、随机分布采样与底层 YAML 加载
 │           │   ├── suite/             # Suite 声明式配置、检查守卫、笛卡尔积展开与套件加载发现
@@ -106,7 +106,7 @@ mini-infra-qwen3/
 │           │   └── run_suite.py       # 预设测试套件执行引擎
 │           ├── scheduler/             # 队列调度器（Scheduler：Fixed vs Continuous Batching）基准测试
 │           │   ├── types.py           # SchedulerCaseResult 等领域模型与多轮聚合
-│           │   ├── suites.py          # SchedulerSuite：把 YAML 声明绑定为 SchedulerSuiteCase
+│           │   ├── suites.py          # SchedulerSuite：把 YAML 声明绑定为 SchedulerCase
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── plan.py            # 特征多维展开与基于 Feature 的 Interleave 执行计划生成器
 │           │   ├── run_case.py        # 单用例评测执行引擎

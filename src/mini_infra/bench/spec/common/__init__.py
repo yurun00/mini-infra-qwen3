@@ -35,7 +35,7 @@ from mini_infra.bench.spec.common.schema import (
     _Strict,
     normalize_workload_body,
 )
-from mini_infra.bench.spec.common.workload import ResolvedWorkload, interpolate, resolve_workload_body
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, interpolate, resolve_workload_body
 
 __all__ = [
     "AlternatingLength",
@@ -57,7 +57,7 @@ __all__ = [
     "PagedSpec",
     "PoissonArrival",
     "PositiveInt",
-    "ResolvedWorkload",
+    "ResolvedWorkloadSpec",
     "SuiteEngine",
     "SystemSpec",
     "WorkloadSpec",

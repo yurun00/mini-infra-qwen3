@@ -12,7 +12,7 @@ from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
     CaseKey,
-    SchedulerSuiteCase,
+    SchedulerCase,
 )
 from mini_infra.core.request import RequestSpec
 
@@ -28,14 +28,14 @@ class RunPhase(str, Enum):
 class PlannedRun:
     """单一计划执行步：包含目标用例、执行阶段、测量轮次及所属特征分组 ID。"""
 
-    case: SchedulerSuiteCase
+    case: SchedulerCase
     phase: RunPhase
     repeat_idx: int | None
     group_id: int
 
 
 def build_scheduler_run_plan(
-    cases: Sequence[SchedulerSuiteCase],
+    cases: Sequence[SchedulerCase],
     warmup: int,
     repeats: int,
     interleave: Sequence[CaseDimension] = (CaseDimension.BATCHING_METHOD,),
@@ -47,7 +47,7 @@ def build_scheduler_run_plan(
     2. 未选中的特征：作为外层分组键，每个分组连续跑完所有 repeat 后才切换到下一分组。
 
     Args:
-        cases: 展开后的 SchedulerSuiteCase 用例列表。
+        cases: 展开后的 SchedulerCase 用例列表。
         warmup: 每个用例在测量前执行的预热轮数。
         repeats: 正式测量轮数。
         interleave: 选中的交替特征序列（如 (CaseDimension.BATCHING_METHOD,) 或 ()）。
@@ -89,7 +89,7 @@ def build_scheduler_run_plan(
     non_interleaved_dims = [d for d in CaseDimension if d not in interleaved_set]
 
     # 4. 按未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
-    groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerSuiteCase]] = {}
+    groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerCase]] = {}
     for case in cases:
         key = case.key.project(non_interleaved_dims)
         groups.setdefault(key, []).append(case)

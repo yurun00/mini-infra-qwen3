@@ -9,7 +9,7 @@
 from mini_infra.bench.spec.common import (
     CheckSpec,
     PagedSpec,
-    ResolvedWorkload,
+    ResolvedWorkloadSpec,
     SuiteEngine,
     SystemSpec,
     apply_overrides,
@@ -57,7 +57,7 @@ __all__ = [
     "ReleaseScale",
     "ReleaseSpec",
     "ResolvedReleaseScale",
-    "ResolvedWorkload",
+    "ResolvedWorkloadSpec",
     "SuiteEngine",
     "SuiteSpec",
     "SystemSpec",

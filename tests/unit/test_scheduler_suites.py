@@ -1,4 +1,4 @@
-"""bench.scheduler.suites（YAML 声明 → SchedulerSuite → SchedulerSuiteCase）与用例层类型的单元测试（CPU 可运行）。"""
+"""bench.scheduler.suites（YAML 声明 → SchedulerSuite → SchedulerCase）与用例层类型的单元测试（CPU 可运行）。"""
 
 import json
 
@@ -10,7 +10,8 @@ from mini_infra.bench.cases import (
     ComparisonMetric,
     ComparisonSpec,
     MetricKind,
-    SchedulerSuiteCase,
+    ResolvedWorkload,
+    SchedulerCase,
 )
 from mini_infra.bench.scheduler.suites import (
     SchedulerSuite,
@@ -73,7 +74,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
 
     cases = suite.cases(vocab_size=500)
     assert len(cases) == 2
-    assert all(isinstance(c, SchedulerSuiteCase) and c.suite_name == name for c in cases)
+    assert all(isinstance(c, SchedulerCase) and c.suite_name == name for c in cases)
     assert cases[0].workload_id == cases[1].workload_id
     assert cases[0].specs == cases[1].specs
     for case in cases:
@@ -187,43 +188,37 @@ def test_scheduler_suite_case_paged_validation():
 
     # 1. Paged 模式不传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
-        SchedulerSuiteCase(
-            workload_id="test",
+        SchedulerCase(
             suite_name="test",
             mode=paged_mode,
             max_running_requests=2,
-            specs=(spec,),
+            workload=ResolvedWorkload(workload_id="test", specs=(spec,)),
             paged_cache_config=None,
         )
 
     # 2. 非 Paged 模式传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
-        SchedulerSuiteCase(
-            workload_id="test",
+        SchedulerCase(
             suite_name="test",
             mode=dense_mode,
             max_running_requests=2,
-            specs=(spec,),
+            workload=ResolvedWorkload(workload_id="test", specs=(spec,)),
             paged_cache_config=PagedCacheConfig(block_size=16),
         )
 
     # 3. workload_id 为空报错
     with pytest.raises(ValueError, match="workload_id 不能为空"):
-        SchedulerSuiteCase(
+        ResolvedWorkload(
             workload_id="",
-            suite_name="test",
-            mode=dense_mode,
-            max_running_requests=2,
             specs=(spec,),
         )
 
     # 4. 正确传参合法构造
-    case_paged = SchedulerSuiteCase(
-        workload_id="workload_0",
+    case_paged = SchedulerCase(
         suite_name="test",
         mode=paged_mode,
         max_running_requests=2,
-        specs=(spec,),
+        workload=ResolvedWorkload(workload_id="workload_0", specs=(spec,)),
         paged_cache_config=PagedCacheConfig(block_size=16),
     )
     assert case_paged.workload_id == "workload_0"

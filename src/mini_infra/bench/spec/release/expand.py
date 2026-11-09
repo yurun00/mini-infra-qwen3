@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from mini_infra.bench.spec.common.checks import run_check
-from mini_infra.bench.spec.common.workload import ResolvedWorkload, resolve_workload_body
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
 from mini_infra.bench.workloads import Workload, WorkloadScale
 from mini_infra.engine import Mode
@@ -16,7 +16,7 @@ class ResolvedReleaseScale:
     scale: ReleaseScale
     seed: int
     max_running_requests: int | None
-    workload: ResolvedWorkload
+    workload: ResolvedWorkloadSpec
 
 
 def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[ReleaseScale, ResolvedReleaseScale]:

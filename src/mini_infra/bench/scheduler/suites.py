@@ -6,7 +6,7 @@
     benchmarks/specs/scheduler/_bases/*.yaml      # 仅供 extends 复用，不可直接运行
 
 `SchedulerSuite` 持有已校验的 `LoadedSuiteSpec` 与展开后的 `CaseBlueprint`；
-`cases(vocab_size)` 把蓝图绑定到合成 token，得到 run_suite 消费的 `SchedulerSuiteCase` 列表。
+`cases(vocab_size)` 把蓝图绑定到合成 token，得到 run_suite 消费的 `SchedulerCase` 列表。
 """
 
 from collections.abc import Mapping, Sequence
@@ -14,17 +14,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import CaseDimension, ComparisonSpec, SchedulerSuiteCase
+from mini_infra.bench.cases import CaseDimension, ComparisonSpec, ResolvedWorkload, SchedulerCase
 from mini_infra.bench.spec import (
     CaseBlueprint,
     LoadedSuiteSpec,
-    ResolvedWorkload,
+    ResolvedWorkloadSpec,
     discover_suite_specs,
     get_suite_spec,
     load_suite_spec,
 )
 from mini_infra.bench.workloads import make_sequences
-from mini_infra.core.request import RequestSpec, make_request_specs
+from mini_infra.core.request import make_request_specs
 from mini_infra.engine import Mode
 
 
@@ -60,28 +60,28 @@ class SchedulerSuite:
         """按展开顺序去重后的运行模式列表。"""
         return list(dict.fromkeys(bp.mode for bp in self.blueprints))
 
-    def cases(self, vocab_size: int) -> list[SchedulerSuiteCase]:
+    def cases(self, vocab_size: int) -> list[SchedulerCase]:
         """把用例蓝图绑定到合成 token；同一 workload 下的各 case 共享同一份请求规格。"""
-        specs_by_workload: dict[ResolvedWorkload, tuple[RequestSpec, ...]] = {}
-        cases: list[SchedulerSuiteCase] = []
+        workloads_by_spec: dict[ResolvedWorkloadSpec, ResolvedWorkload] = {}
+        cases: list[SchedulerCase] = []
         for bp in self.blueprints:
-            workload = bp.workload
-            if workload not in specs_by_workload:
-                specs_by_workload[workload] = tuple(
+            spec = bp.workload
+            if spec not in workloads_by_spec:
+                specs = tuple(
                     make_request_specs(
-                        make_sequences(workload.prompt_lens, vocab_size),
-                        workload.output_budgets,
-                        workload.arrival_ms,
+                        make_sequences(spec.prompt_lens, vocab_size),
+                        spec.output_budgets,
+                        spec.arrival_ms,
                     )
                 )
+                workloads_by_spec[spec] = ResolvedWorkload(workload_id=spec.workload_id, specs=specs)
             assert bp.max_running_requests is not None
             cases.append(
-                SchedulerSuiteCase(
+                SchedulerCase(
                     suite_name=self.name,
                     mode=bp.mode,
                     max_running_requests=bp.max_running_requests,
-                    specs=specs_by_workload[workload],
-                    workload_id=workload.workload_id,
+                    workload=workloads_by_spec[spec],
                     paged_cache_config=bp.paged_cache_config,
                 )
             )

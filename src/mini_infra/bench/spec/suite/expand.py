@@ -8,7 +8,7 @@ import itertools
 from dataclasses import dataclass
 from typing import Any
 
-from mini_infra.bench.spec.common.workload import ResolvedWorkload, resolve_workload_body
+from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.checks import run_check
 from mini_infra.bench.spec.suite.schema import SuiteSpec
 from mini_infra.core.block_manager import PagedCacheConfig
@@ -19,7 +19,7 @@ from mini_infra.engine import CachingMethod, Mode
 class CaseBlueprint:
     """一个展开后的用例蓝图：具体负载 + 具体系统配置（尚未绑定 vocab / 具体 token）。"""
 
-    workload: ResolvedWorkload
+    workload: ResolvedWorkloadSpec
     mode: Mode
     max_running_requests: int | None
     paged_cache_config: PagedCacheConfig | None
@@ -35,7 +35,7 @@ def _workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:
     return [dict(zip(keys, combo)) for combo in itertools.product(*(sweep[k] for k in keys))]
 
 
-def resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkload:
+def resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkloadSpec:
     """在一个 sweep 点上解析 suite 的 workload 模板。"""
     variables = {**spec.workload.vars, **point}
     context = f"suite {spec.name} (sweep 点 {point or '{}'})"

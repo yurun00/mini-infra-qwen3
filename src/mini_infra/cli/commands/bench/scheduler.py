@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import SchedulerSuiteCase
+from mini_infra.bench.cases import ResolvedWorkload, SchedulerCase
 from mini_infra.bench.common import (
     CASE_DIR,
     add_common_args,
@@ -155,12 +155,12 @@ def handle_case(args: argparse.Namespace) -> int:
     specs = tuple(build_scheduler_request_specs(workload, vocab))
     case_name = "custom"
 
-    case = SchedulerSuiteCase(
+    resolved_workload = ResolvedWorkload(workload_id="custom", specs=specs)
+    case = SchedulerCase(
         suite_name=case_name,
         mode=target_mode,
         max_running_requests=max_running,
-        specs=specs,
-        workload_id="custom",
+        workload=resolved_workload,
         paged_cache_config=paged_cache_config,
     )
 

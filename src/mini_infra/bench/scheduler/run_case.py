@@ -1,6 +1,6 @@
 """单用例 Scheduler 基准测试执行内核（run_case）：一次调用只执行正好一个 Case。
 
-提供 SchedulerSuiteCase 的原子单次执行与多次评测汇总纯函数接口，供 CLI 或上层评测套件调用。
+提供 SchedulerCase 的原子单次执行与多次评测汇总纯函数接口，供 CLI 或上层评测套件调用。
 """
 
 import gc
@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 import torch
 
-from mini_infra.bench.cases import SchedulerSuiteCase
+from mini_infra.bench.cases import SchedulerCase
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
     summarize_same_case_runs,
@@ -19,9 +19,9 @@ from mini_infra.engine import ScheduleResult, run_scheduler
 def run_case_once(
     model: torch.nn.Module,
     device: torch.device,
-    case: SchedulerSuiteCase,
+    case: SchedulerCase,
 ) -> ScheduleResult:
-    """执行单一 SchedulerSuiteCase 的单次调度运行（原子操作）。"""
+    """执行单一 SchedulerCase 的单次调度运行（原子操作）。"""
     res = run_scheduler(
         batching_method=case.mode.batching_method,
         caching_method=case.mode.caching_method,
@@ -42,7 +42,7 @@ def run_case_once(
 def run_case(
     model: torch.nn.Module,
     device: torch.device,
-    case: SchedulerSuiteCase,
+    case: SchedulerCase,
     warmup: int = 1,
     repeats: int = 3,
     on_step_progress: Callable[[str, int, int], None] | None = None,

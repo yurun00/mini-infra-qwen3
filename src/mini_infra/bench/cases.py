@@ -126,32 +126,17 @@ class ComparisonSpec:
 
 
 @dataclass(frozen=True)
-class SchedulerSuiteCase:
-    """Scheduler 评测最小单用例配置：包含用例身份键（CaseKey）对应的全量维度与请求规格。"""
+class ResolvedWorkload:
+    """已绑定具体 Token 序列的确定性执行负载（Traffic Payload，纯 CPU，零 PyTorch 依赖）。"""
 
-    suite_name: str
-    mode: Mode
-    max_running_requests: int
-    specs: tuple[RequestSpec, ...]
     workload_id: str
-    paged_cache_config: PagedCacheConfig | None = None
+    specs: tuple[RequestSpec, ...]
 
     def __post_init__(self) -> None:
         if not self.workload_id:
             raise ValueError("workload_id 不能为空")
-        if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
-            raise ValueError(f"Paged 模式 (mode={self.mode}) 必须提供 paged_cache_config")
-        if self.mode.caching_method is not CachingMethod.PAGED and self.paged_cache_config is not None:
-            raise ValueError(f"非 Paged 模式 (mode={self.mode}) 不得提供 paged_cache_config")
-
-    @property
-    def key(self) -> CaseKey:
-        return CaseKey(
-            workload_id=self.workload_id,
-            mode=self.mode,
-            max_running_requests=self.max_running_requests,
-            paged_cache_config=self.paged_cache_config,
-        )
+        if not self.specs:
+            raise ValueError("specs 不能为空")
 
     @property
     def request_count(self) -> int:
@@ -168,6 +153,56 @@ class SchedulerSuiteCase:
     @property
     def arrival_times_ms(self) -> tuple[float, ...]:
         return tuple(s.arrival_ms for s in self.specs)
+
+
+@dataclass(frozen=True)
+class SchedulerCase:
+    """Scheduler 评测最小单用例配置：包含用例身份键（CaseKey）对应的全量维度与已绑定的具体请求负载。"""
+
+    suite_name: str
+    mode: Mode
+    max_running_requests: int
+    workload: ResolvedWorkload
+    paged_cache_config: PagedCacheConfig | None = None
+
+    def __post_init__(self) -> None:
+        if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
+            raise ValueError(f"Paged 模式 (mode={self.mode}) 必须提供 paged_cache_config")
+        if self.mode.caching_method is not CachingMethod.PAGED and self.paged_cache_config is not None:
+            raise ValueError(f"非 Paged 模式 (mode={self.mode}) 不得提供 paged_cache_config")
+
+    @property
+    def workload_id(self) -> str:
+        return self.workload.workload_id
+
+    @property
+    def specs(self) -> tuple[RequestSpec, ...]:
+        return self.workload.specs
+
+    @property
+    def request_count(self) -> int:
+        return self.workload.request_count
+
+    @property
+    def prompt_lengths(self) -> tuple[int, ...]:
+        return self.workload.prompt_lengths
+
+    @property
+    def output_budgets(self) -> tuple[int, ...]:
+        return self.workload.output_budgets
+
+    @property
+    def arrival_times_ms(self) -> tuple[float, ...]:
+        return self.workload.arrival_times_ms
+
+    @property
+    def key(self) -> CaseKey:
+        return CaseKey(
+            workload_id=self.workload_id,
+            mode=self.mode,
+            max_running_requests=self.max_running_requests,
+            paged_cache_config=self.paged_cache_config,
+        )
 
     def to_spec_dict(self) -> dict[str, Any]:
         """导出用例负载规格字典。"""
@@ -196,5 +231,6 @@ __all__ = [
     "ComparisonMetric",
     "ComparisonSpec",
     "MetricKind",
-    "SchedulerSuiteCase",
+    "ResolvedWorkload",
+    "SchedulerCase",
 ]

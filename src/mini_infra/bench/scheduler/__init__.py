@@ -7,7 +7,8 @@ from mini_infra.bench.cases import (
     ComparisonMetric,
     ComparisonSpec,
     MetricKind,
-    SchedulerSuiteCase,
+    ResolvedWorkload,
+    SchedulerCase,
 )
 from mini_infra.bench.scheduler.format import (
     build_benchmark_record,
@@ -59,10 +60,11 @@ __all__ = [
     "MetricComparison",
     "MetricKind",
     "PlannedRun",
+    "ResolvedWorkload",
     "RunPhase",
+    "SchedulerCase",
     "SchedulerCaseResult",
     "SchedulerSuite",
-    "SchedulerSuiteCase",
     "Workload",
     "build_benchmark_record",
     "build_scheduler_run_plan",
