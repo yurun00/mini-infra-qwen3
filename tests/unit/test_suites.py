@@ -33,11 +33,10 @@ def _run_cases(suite: LockstepSuite):
             model=model,
             device=device,
             case=case,
-            vocab=model.config.vocab_size,
             warmup=suite.warmup,
             repeats=suite.repeats,
         )
-        for case in suite.cases()
+        for case in suite.cases(vocab_size=model.config.vocab_size)
     ]
 
 
@@ -68,16 +67,21 @@ def test_load_lockstep_suite_rejects_other_engine(tmp_path):
 def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     suite = get_lockstep_suite("serial-vs-fixed-batch-throughput")
     assert (suite.warmup, suite.repeats) == (1, 3)
-    cases = suite.cases()
+    cases = suite.cases(vocab_size=100)
     assert len(cases) == 5 * 2
-    assert [(c.workload.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
+    assert [(c.payload.request_count, c.mode.batching_method) for c in cases[:4]] == [
         (1, BatchingMethod.NONE),
         (1, BatchingMethod.FIXED),
         (2, BatchingMethod.NONE),
         (2, BatchingMethod.FIXED),
     ]
-    assert [c.workload.num_total_requests for c in cases[::2]] == [1, 2, 4, 8, 16]
-    assert all(c.workload.prompt_len == 128 and c.workload.max_new_tokens == 32 and c.mode.use_kv_cache for c in cases)
+    assert [c.payload.request_count for c in cases[::2]] == [1, 2, 4, 8, 16]
+    assert all(
+        c.payload.prompt_lengths == (128,) * c.payload.request_count
+        and c.payload.output_budgets == (32,) * c.payload.request_count
+        and c.mode.use_kv_cache
+        for c in cases
+    )
     assert [m.batching_method for m in suite.modes()] == [BatchingMethod.NONE, BatchingMethod.FIXED]
 
 
@@ -90,17 +94,17 @@ def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
 
 
 def test_uniform_vs_variable_prompt_padding_cases():
-    cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases()
-    assert [(c.workload.num_total_requests, c.workload.prompt_len, c.workload.max_new_tokens) for c in cases] == [
-        (4, (128, 128, 128, 128), 32),
-        (4, (16, 32, 64, 128), 32),
+    cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases(vocab_size=100)
+    assert [(c.payload.request_count, c.payload.prompt_lengths, c.payload.output_budgets) for c in cases] == [
+        (4, (128, 128, 128, 128), (32, 32, 32, 32)),
+        (4, (16, 32, 64, 128), (32, 32, 32, 32)),
     ]
     assert all(c.mode == Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED) for c in cases)
 
 
 def test_uniform_vs_variable_budget_slots_cases():
-    cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases()
-    assert [(c.workload.num_total_requests, c.workload.prompt_len, c.workload.max_new_tokens) for c in cases] == [
+    cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases(vocab_size=100)
+    assert [(c.payload.request_count, c.payload.prompt_lengths, c.payload.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),
     ]
@@ -198,7 +202,7 @@ sweep:
     )
     results = _run_cases(tiny)
 
-    assert [(r.mode, r.workload.num_total_requests) for r in results] == [
+    assert [(r.key.mode, r.workload.num_total_requests) for r in results] == [
         (Mode(CachingMethod.DENSE), 1),
         (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 1),
         (Mode(CachingMethod.DENSE), 2),
@@ -302,5 +306,5 @@ sweep:
         model.config.vocab_size,
         on_case_progress=lambda _n, _total, case: seen.append(case),
     )
-    assert [c.workload.num_total_requests for c in seen] == [1, 2]
+    assert [c.payload.request_count for c in seen] == [1, 2]
     assert [r.workload.num_total_requests for r in results] == [1, 2]

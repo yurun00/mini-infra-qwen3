@@ -16,36 +16,18 @@ from typing import Any
 
 from mini_infra.bench.cases import CaseDimension, Comparison, RequestPayload, SchedulerCase
 from mini_infra.bench.spec import (
-    CaseSpec,
     LoadedSuiteSpec,
     ResolvedWorkloadSpec,
     discover_suite_specs,
     get_suite_spec,
     load_suite_spec,
 )
-from mini_infra.bench.workloads import make_sequences
-from mini_infra.core.request import make_request_specs
-from mini_infra.engine import Mode
+from mini_infra.bench.suite import BenchmarkSuite
 
 
 @dataclass(frozen=True)
-class SchedulerSuite:
+class SchedulerSuite(BenchmarkSuite[SchedulerCase]):
     """一个已加载的 Scheduler 评测套件（YAML 声明 + 展开后的用例规格）。"""
-
-    loaded: LoadedSuiteSpec
-    case_specs: tuple[CaseSpec, ...]
-
-    @property
-    def name(self) -> str:
-        return self.loaded.spec.name
-
-    @property
-    def warmup(self) -> int:
-        return self.loaded.spec.execution.warmup
-
-    @property
-    def repeats(self) -> int:
-        return self.loaded.spec.execution.repeats
 
     @property
     def interleave(self) -> tuple[CaseDimension, ...]:
@@ -54,31 +36,20 @@ class SchedulerSuite:
     @property
     def comparison(self) -> Comparison | None:
         spec = self.loaded.spec.comparison
-        return None if spec is None else spec.build()
-
-    def modes(self) -> list[Mode]:
-        """按展开顺序去重后的运行模式列表。"""
-        return list(dict.fromkeys(cs.mode for cs in self.case_specs))
+        return None if spec is None else Comparison.from_spec(spec)
 
     def cases(self, vocab_size: int) -> list[SchedulerCase]:
         """把用例规格绑定到合成 token；同一 workload 下的各 case 共享同一份请求规格。"""
-        workloads_by_spec: dict[ResolvedWorkloadSpec, RequestPayload] = {}
+        payloads_by_spec: dict[ResolvedWorkloadSpec, RequestPayload] = {}
         cases: list[SchedulerCase] = []
         for cs in self.case_specs:
             spec = cs.workload
-            if spec not in workloads_by_spec:
-                specs = tuple(
-                    make_request_specs(
-                        make_sequences(spec.prompt_lens, vocab_size),
-                        spec.output_budgets,
-                        spec.arrival_ms,
-                    )
-                )
-                workloads_by_spec[spec] = RequestPayload(workload_id=spec.workload_id, specs=specs)
+            if spec not in payloads_by_spec:
+                payloads_by_spec[spec] = RequestPayload.from_spec(spec, vocab_size)
             assert cs.max_running_requests is not None
             cases.append(
                 SchedulerCase(
-                    workload=workloads_by_spec[spec],
+                    payload=payloads_by_spec[spec],
                     mode=cs.mode,
                     max_running_requests=cs.max_running_requests,
                     paged_cache_config=cs.paged_cache_config,
@@ -87,13 +58,9 @@ class SchedulerSuite:
             )
         return cases
 
-    def to_dict(self) -> dict[str, Any]:
-        """写入结果 JSON `suite` 块：合并后的完整 YAML 声明及其内容哈希。"""
-        return self.loaded.info()
-
 
 def _suite_from_loaded(loaded: LoadedSuiteSpec) -> SchedulerSuite:
-    return SchedulerSuite(loaded=loaded, case_specs=loaded.cases)
+    return SchedulerSuite(loaded=loaded)
 
 
 def load_scheduler_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> SchedulerSuite:

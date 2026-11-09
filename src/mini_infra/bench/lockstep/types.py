@@ -10,6 +10,7 @@
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from mini_infra.bench.cases import CaseKey
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
@@ -17,7 +18,6 @@ from mini_infra.bench.common import (
     summarize_samples,
 )
 from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
-from mini_infra.engine.mode import Mode
 from mini_infra.profiling import OpLatencyBreakdown
 
 
@@ -29,7 +29,7 @@ class LockstepCaseResult:
     BatchScheduleInfo 与 EfficiencyMetrics，与 GenerationResult 顶层结构对齐。
     """
 
-    mode: Mode
+    key: CaseKey
     workload: Workload
     metrics: StepAggregatedMetrics[DistributionStats]
     memory: MemoryProfile
@@ -44,7 +44,7 @@ class LockstepCaseResult:
     def to_record_dict(self) -> dict[str, Any]:
         """导出为标准评测记录字典格式（批处理打包与槽位利用率统一序列化至 'packing' 字段）。"""
         rec: dict[str, Any] = {
-            "mode": str(self.mode),
+            "mode": str(self.key.mode),
             "prompt_len": (
                 list(self.workload.prompt_len)
                 if isinstance(self.workload.prompt_len, tuple)

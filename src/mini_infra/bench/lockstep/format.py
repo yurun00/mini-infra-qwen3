@@ -13,7 +13,7 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     ttft = w.metrics.ttft_ms
     tpot = w.metrics.mean_tpot_ms
     row = [
-        str(w.mode),
+        str(w.key.mode),
         format_lengths(w.workload.prompt_len),
         format_lengths(w.workload.max_new_tokens),
         f"{(ttft.mean if ttft else 0.0):.3f}",
@@ -110,9 +110,9 @@ def format_suite_plan(suite_name: str, cases: "Sequence[LockstepCase]", warmup: 
     ]
     for i, case in enumerate(cases, 1):
         lines.append(
-            f"  [{i:02d}] mode={case.mode} batch={case.workload.num_total_requests} "
-            f"prompt={format_lengths(case.workload.prompt_len)} "
-            f"max_new_tokens={format_lengths(case.workload.max_new_tokens)}"
+            f"  [{i:02d}] mode={case.mode} batch={case.payload.request_count} "
+            f"prompt={format_lengths(case.payload.prompt_lengths)} "
+            f"max_new_tokens={format_lengths(case.payload.output_budgets)}"
         )
     return "\n".join(lines)
 

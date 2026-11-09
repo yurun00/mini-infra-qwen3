@@ -20,9 +20,6 @@ from pydantic import Field, field_validator, model_validator
 
 from mini_infra.bench.cases import (
     CaseDimension,
-    CaseDimensionValue,
-    Comparison,
-    ComparisonMetric,
     MetricKind,
 )
 from mini_infra.bench.spec.common.schema import (
@@ -37,7 +34,7 @@ from mini_infra.bench.spec.common.schema import (
     SystemSpec,
     _Strict,
 )
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.engine import CachingMethod
 
 _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -90,28 +87,6 @@ class ComparisonSpec(_Strict):
     metrics: Annotated[list[MetricSpec], Field(min_length=1)]
     group_by: Annotated[list[CaseDimension], Field(min_length=1)]
     baseline: Annotated[dict[CaseDimension, str | int], Field(min_length=1)]
-
-    def build(self) -> Comparison:
-        """转换为已解析强类型的 Comparison 运行时对比配置（baseline 取值按维度还原为强类型）。"""
-        baseline: dict[CaseDimension, CaseDimensionValue] = {}
-        for dim, raw in self.baseline.items():
-            if dim is CaseDimension.BATCHING_METHOD:
-                baseline[dim] = BatchingMethod.from_str(str(raw))
-            elif dim is CaseDimension.CACHING_METHOD:
-                baseline[dim] = CachingMethod.from_str(str(raw))
-            elif dim is CaseDimension.WORKLOAD_ID:
-                baseline[dim] = str(raw)
-            elif dim is CaseDimension.MAX_RUNNING_REQUESTS:
-                if not isinstance(raw, int):
-                    raise ValueError("baseline.max_running_requests 必须是整数")
-                baseline[dim] = raw
-            else:
-                raise ValueError(f"baseline 不支持维度 {dim.value}")
-        return Comparison(
-            metrics=tuple(ComparisonMetric(m.path, m.kind, m.name) for m in self.metrics),
-            group_by=tuple(self.group_by),
-            baseline=baseline,
-        )
 
 
 # --------------------------------------------------------------------------- 顶层

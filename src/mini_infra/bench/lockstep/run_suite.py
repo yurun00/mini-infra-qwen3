@@ -31,7 +31,7 @@ def run_suite(
     on_case_result: Callable[[LockstepCaseResult], None] | None = None,
 ) -> list[LockstepCaseResult]:
     """按序执行 Suite 中的所有用例，返回评测结果列表。"""
-    cases = suite.cases()
+    cases = suite.cases(vocab)
     warmup_val = warmup if warmup is not None else suite.warmup
     repeats_val = repeats if repeats is not None else suite.repeats
 
@@ -45,7 +45,6 @@ def run_suite(
                 model=model,
                 device=device,
                 case=case,
-                vocab=vocab,
                 warmup=warmup_val,
                 repeats=repeats_val,
                 cost=cost,

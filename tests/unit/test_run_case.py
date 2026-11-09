@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from mini_infra.bench.cases import LockstepCase
-from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
-from mini_infra.bench.workloads import Workload
+from mini_infra.bench.cases import LockstepCase, RequestPayload
+from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case, run_case_once
+from mini_infra.core.request import RequestSpec
 from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -83,22 +83,28 @@ def test_parse_args_run_case():
 
 def test_run_case_on_cpu():
     model = build_tiny_model()
-    vocab = model.config.vocab_size
     mode = Mode()
 
     # 1. 单用例标量执行
+    spec1 = RequestSpec(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
+    payload_scalar = RequestPayload(workload_id="s1", specs=(spec1,))
     case_scalar = LockstepCase(
-        workload=Workload(num_total_requests=1, prompt_len=4, max_new_tokens=2),
+        payload=payload_scalar,
         mode=mode,
     )
+
+    # 验证 run_case_once
+    once_res = run_case_once(model, torch.device("cpu"), case_scalar)
+    assert once_res.metrics.throughput_tok_s > 0
+
     res_scalar = run_case(
         model=model,
         device=torch.device("cpu"),
         case=case_scalar,
-        vocab=vocab,
         warmup=0,
         repeats=1,
     )
+    assert res_scalar.key.mode == mode
     assert res_scalar.workload.num_total_requests == 1
     assert res_scalar.workload.prompt_len == 4
     assert res_scalar.workload.max_new_tokens == 2
@@ -107,18 +113,21 @@ def test_run_case_on_cpu():
     assert res_scalar.to_record_dict()["num_total_requests"] == 1
 
     # 2. 变长 prompt 执行
+    s1 = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
+    s2 = RequestSpec(request_idx=1, token_ids=[3, 4, 5, 6], max_new_tokens=2, arrival_ms=0.0)
+    payload_var = RequestPayload(workload_id="v1", specs=(s1, s2))
     case_var = LockstepCase(
-        workload=Workload(num_total_requests=2, prompt_len=(2, 4), max_new_tokens=2),
+        payload=payload_var,
         mode=mode,
     )
     res_var = run_case(
         model=model,
         device=torch.device("cpu"),
         case=case_var,
-        vocab=vocab,
         warmup=0,
         repeats=1,
     )
+    assert res_var.key.mode == mode
     assert res_var.workload.num_total_requests == 2
     assert res_var.workload.prompt_len == (2, 4)
     assert res_var.workload.max_new_tokens == 2

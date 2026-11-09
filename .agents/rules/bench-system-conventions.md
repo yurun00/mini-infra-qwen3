@@ -18,7 +18,7 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
 ```text
 [阶段 1: 声明规格 (Specification Plane)]     后缀：*Spec
    - 纯声明式意图（YAML / Pydantic / 纯数据 Dataclass），定义参数分布、系统配置与扫描空间。纯 CPU、零设备与 Token 依赖。
-   ↓ build / synthesize (跨阶段构建执行实体)
+   ↓ build / from_spec (跨阶段构建执行实体)
 [阶段 2: 评测执行 (Execution Plane)]         后缀/核心类型：*Suite, *Case, *Payload, *Plan, Comparison
    - 载入内存的套件容器、已完成数值求解并绑定 Token 序列的用例实体，具备唯一身份键与执行步排期。
    ↓ run_case / run_suite
@@ -45,7 +45,7 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
 | **Execution** | `SchedulerCase` | `bench.cases` | Scheduler 评测最小单用例（持有 `CaseKey`、`RequestPayload`、`Mode`、并发度与缓存配置） |
 | **Execution** | `LockstepCase` | `bench.cases` | Lockstep 评测最小单用例（持有 `CaseKey`、`RequestPayload`、`Mode`） |
 | **Execution** | `PlannedRun` | `bench.scheduler.plan` | 最小执行步计划（持有目标用例、`phase: RunPhase`、`repeat_idx` 与分组 ID） |
-| **Execution** | `Comparison` | `bench.cases` | 经 `ComparisonSpec.build()` 构建生成的强类型运行时对比配置，指导多用例结果分组与基准指标计算 |
+| **Execution** | `Comparison` | `bench.cases` | 经 `Comparison.from_spec(spec)` 装配生成的强类型运行时对比配置，指导多用例结果分组与基准指标计算 |
 | **Result** | `SchedulerCaseResult` | `bench.scheduler.types` | Scheduler 多轮测量聚合结果，持有 `key: CaseKey` 与 `DistributionStats` 统计画像 |
 | **Result** | `LockstepCaseResult` | `bench.lockstep.types` | Lockstep 多轮测量聚合结果，持有 `key: CaseKey` 与 `DistributionStats` 统计画像 |
 | **Result** | `MetricComparison` | `bench.scheduler.types` | 两个用例间基准指标的相对对比结果（Speedup、Gain、Reduction） |
@@ -65,7 +65,7 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
 [层级 1: 规则声明]   WorkloadSpec            (持有 Ladder/Poisson 等分布类型与 seed，Pydantic 校验)
                           ↓ resolve_workload_body (根据 seed 与 count 进行确定性抽样)
 [层级 2: 数值画像]   ResolvedWorkloadSpec    (持有 prompt_lens / arrival_ms 等纯数字元组，纯 CPU，无 Token)
-                          ↓ synthesize_request_payload (根据 vocab_size 调用生成算法)
+                          ↓ RequestPayload.from_spec (根据 vocab_size 装配具体 Token 序列)
 [层级 3: 数据载荷]   RequestPayload          (持有 RequestSpec(token_ids=[...])，包含具体 Token 整数序列)
 ```
 
@@ -77,7 +77,7 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
    - 核心职责：全仓唯一标准流量画像（SSOT）。变量插值与分布抽样完成后的确定性结果，仅由纯整数/浮点元组构成，与词表大小和 GPU 设备完全解耦。
 3. **`RequestPayload`（数据载荷层）**：
    - 物理位置：`mini_infra.bench.cases`。
-   - 核心职责：调用 `make_sequences(...)` 为每个请求生成具体 `token_ids` 后的载荷容器。可直接投递给推理引擎消费。
+   - 核心职责：通过类方法 `RequestPayload.from_spec(spec, vocab_size)` 装配具体 `token_ids` 后的确定性载荷容器。可直接投递给推理引擎消费。
 
 ---
 
@@ -89,7 +89,7 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
 |---|---|---|
 | `expand_*` | 笛卡尔积展开、参数网格扫描展开或多规模展开 | `expand_suite_spec(spec: SuiteSpec) -> list[CaseSpec]`<br>`expand_release_scales(spec: ReleaseSpec, seed: int)` |
 | `resolve_*` | 占位符字符串插值、分布数学抽样或字符串收窄为强类型枚举 | `resolve_workload_body(id, body, vars, context)` |
-| `synthesize_*` / `build_*` | 合成具体 Token 序列组装载荷，构建对比配置或基于算法编排执行计划 | `synthesize_request_payload(spec, vocab_size) -> RequestPayload`<br>`build_scheduler_run_plan(cases, warmup, repeats)`<br>`ComparisonSpec.build() -> Comparison` |
+| `build_*` / `*.from_spec()` | 装配具体 Token 序列载荷，构建对比配置或基于算法编排执行计划 | `RequestPayload.from_spec(spec, vocab_size) -> RequestPayload`<br>`Comparison.from_spec(spec) -> Comparison`<br>`build_scheduler_run_plan(cases, warmup, repeats)` |
 | `extract_*` / `lookup_*` | 点分路径属性反射查询，或硬件参数查表匹配 | `extract_metric_by_path(obj: Any, path: str) -> float`<br>`lookup_gpu_peak_specs(gpu_name: str) -> HardwarePeakSpecs` |
 | `run_*` | 驱动用例或套件在设备上执行，测量耗时并产出 Result | `run_case_once(model, device, case) -> ScheduleResult`<br>`run_case(model, device, case, ...) -> CaseResult`<br>`run_suite(model, device, suite, ...) -> list[CaseResult]`<br>`run_sweep(targets, execute) -> list[SuiteRunSummary]` |
 | `format_*` | 纯展示与报表格式化，将结构化数据转为终端文本或 Markdown | `format_case_summary(result) -> str`<br>`format_table(results) -> str`<br>`format_comparison(comp) -> str` |

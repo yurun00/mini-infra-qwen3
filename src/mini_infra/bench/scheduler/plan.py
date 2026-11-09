@@ -79,10 +79,10 @@ def build_scheduler_run_plan(
     request_specs_by_workload: dict[str, tuple[RequestSpec, ...]] = {}
     for case in cases:
         if case.workload_id in request_specs_by_workload:
-            if case.workload.specs != request_specs_by_workload[case.workload_id]:
+            if case.payload.specs != request_specs_by_workload[case.workload_id]:
                 raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（specs）不一致")
         else:
-            request_specs_by_workload[case.workload_id] = case.workload.specs
+            request_specs_by_workload[case.workload_id] = case.payload.specs
 
     # 3. 选中的特征与未选中的特征（作为外层分组键）
     interleaved_set = set(interleaved_dims)

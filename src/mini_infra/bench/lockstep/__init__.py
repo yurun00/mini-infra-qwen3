@@ -5,7 +5,7 @@ from mini_infra.bench.lockstep.format import (
     format_case_summary,
     format_table,
 )
-from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
+from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case, run_case_once
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import (
     LockstepCase,
@@ -37,6 +37,7 @@ __all__ = [
     "load_lockstep_suite",
     "broadcast_case_lengths",
     "run_case",
+    "run_case_once",
     "run_suite",
     "summarize_samples",
 ]

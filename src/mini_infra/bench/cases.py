@@ -3,15 +3,20 @@
 YAML suite 声明（bench.spec）与 Scheduler 执行层共同依赖本模块，故置于 bench 包顶层以避免包级循环 import。
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mini_infra.bench.workloads import Workload
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import RequestSpec
+from mini_infra.core.request import RequestSpec, make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
+
+if TYPE_CHECKING:
+    from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
+    from mini_infra.bench.spec.suite.schema import ComparisonSpec
 
 CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | PagedCacheConfig | None
 
@@ -125,6 +130,29 @@ class Comparison:
             },
         }
 
+    @classmethod
+    def from_spec(cls, spec: ComparisonSpec) -> Comparison:
+        """从 ComparisonSpec 声明模型装配强类型的运行时 Comparison 对比配置。"""
+        baseline: dict[CaseDimension, CaseDimensionValue] = {}
+        for dim, raw in spec.baseline.items():
+            if dim is CaseDimension.BATCHING_METHOD:
+                baseline[dim] = BatchingMethod.from_str(str(raw))
+            elif dim is CaseDimension.CACHING_METHOD:
+                baseline[dim] = CachingMethod.from_str(str(raw))
+            elif dim is CaseDimension.WORKLOAD_ID:
+                baseline[dim] = str(raw)
+            elif dim is CaseDimension.MAX_RUNNING_REQUESTS:
+                if not isinstance(raw, int):
+                    raise ValueError("baseline.max_running_requests 必须是整数")
+                baseline[dim] = raw
+            else:
+                raise ValueError(f"baseline 不支持维度 {dim.value}")
+        return cls(
+            metrics=tuple(ComparisonMetric(m.path, m.kind, m.name) for m in spec.metrics),
+            group_by=tuple(spec.group_by),
+            baseline=baseline,
+        )
+
 
 @dataclass(frozen=True)
 class RequestPayload:
@@ -155,12 +183,26 @@ class RequestPayload:
     def arrival_times_ms(self) -> tuple[float, ...]:
         return tuple(s.arrival_ms for s in self.specs)
 
+    @classmethod
+    def from_spec(cls, spec: ResolvedWorkloadSpec, vocab_size: int) -> RequestPayload:
+        """把 ResolvedWorkloadSpec 数值画像装配为具体合成 Token 序列的 RequestPayload。"""
+        from mini_infra.bench.workloads import make_sequences
+
+        specs = tuple(
+            make_request_specs(
+                make_sequences(spec.prompt_lens, vocab_size),
+                spec.output_budgets,
+                spec.arrival_ms,
+            )
+        )
+        return cls(workload_id=spec.workload_id, specs=specs)
+
 
 @dataclass(frozen=True)
 class SchedulerCase:
     """Scheduler 评测最小单用例配置：包含输入负载与 System 维度。"""
 
-    workload: RequestPayload
+    payload: RequestPayload
     mode: Mode
     max_running_requests: int
     paged_cache_config: PagedCacheConfig | None = None
@@ -174,7 +216,7 @@ class SchedulerCase:
 
     @property
     def workload_id(self) -> str:
-        return self.workload.workload_id
+        return self.payload.workload_id
 
     @property
     def key(self) -> CaseKey:
@@ -191,10 +233,10 @@ class SchedulerCase:
             "workload_id": self.workload_id,
             "mode": str(self.mode),
             "max_running_requests": self.max_running_requests,
-            "request_count": self.workload.request_count,
-            "prompt_lengths": list(self.workload.prompt_lengths),
-            "output_budgets": list(self.workload.output_budgets),
-            "arrival_times_ms": list(self.workload.arrival_times_ms),
+            "request_count": self.payload.request_count,
+            "prompt_lengths": list(self.payload.prompt_lengths),
+            "output_budgets": list(self.payload.output_budgets),
+            "arrival_times_ms": list(self.payload.arrival_times_ms),
         }
         if self.suite_name is not None:
             data["suite_name"] = self.suite_name
@@ -210,20 +252,22 @@ class SchedulerCase:
 class LockstepCase:
     """Lockstep 评测最小单用例配置：包含输入负载与静态批处理模式。"""
 
-    workload: Workload
+    payload: RequestPayload
     mode: Mode
     suite_name: str | None = None
+    prompt_len: int | tuple[int, ...] | None = None
+    max_new_tokens: int | tuple[int, ...] | None = None
 
     @property
     def workload_id(self) -> str:
-        return self.workload.workload_id or f"bs{self.workload.num_total_requests}"
+        return self.payload.workload_id
 
     @property
     def key(self) -> CaseKey:
         return CaseKey(
             workload_id=self.workload_id,
             mode=self.mode,
-            max_running_requests=self.workload.num_total_requests,
+            max_running_requests=self.payload.request_count,
             paged_cache_config=None,
         )
 

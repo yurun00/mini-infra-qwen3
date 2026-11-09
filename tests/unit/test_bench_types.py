@@ -4,6 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from mini_infra.bench.cases import CaseKey
 from mini_infra.bench.common import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
@@ -91,8 +92,9 @@ def test_lockstep_case_result_structure_and_dot_access():
         time_share_by_module={"layers": 0.9},
     )
 
+    key = CaseKey(workload_id="custom", mode=mode, max_running_requests=2)
     case_result = LockstepCaseResult(
-        mode=mode,
+        key=key,
         workload=workload,
         metrics=metrics,
         memory=memory,
@@ -104,6 +106,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     )
 
     # 1. 验证强类型属性点号访问
+    assert case_result.key.mode == mode
     assert case_result.workload.num_total_requests == 2
     assert case_result.workload.prompt_len == (16, 32)
     assert case_result.metrics.ttft_ms is not None and case_result.metrics.ttft_ms.median == 10.0

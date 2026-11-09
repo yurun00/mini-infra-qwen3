@@ -35,6 +35,7 @@ from mini_infra.bench.lockstep import (
     list_lockstep_suite_names,
     load_lockstep_suite,
     run_case,
+    run_case_once,
 )
 from mini_infra.bench.scheduler import (
     CaseDimension,
@@ -67,6 +68,7 @@ from mini_infra.bench.schema import (
     validate_benchmark_record,
 )
 from mini_infra.bench.spec.release import release_default_mode, release_workloads
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.workloads import (
     WORKLOAD_SCALES,
     Workload,
@@ -80,6 +82,7 @@ from mini_infra.bench.workloads import (
 
 __all__ = [
     "AnyBenchmarkRecord",
+    "BenchmarkSuite",
     "CaseDimension",
     "CaseKey",
     "CaseKeyRecord",
@@ -139,6 +142,7 @@ __all__ = [
     "release_default_mode",
     "release_workloads",
     "run_case",
+    "run_case_once",
     "save_benchmark_record",
     "summarize_same_case_runs",
     "summarize_samples",

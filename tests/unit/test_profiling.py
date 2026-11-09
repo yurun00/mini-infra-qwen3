@@ -5,10 +5,10 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.cases import LockstepCase, RequestPayload
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.workloads import Workload
+from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, GenerationOptions, Mode, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
@@ -208,11 +208,14 @@ def test_bench_run_profile_modes():
     model = build_tiny_model()
     mode = Mode()
     device = torch.device("cpu")
-    vocab = model.config.vocab_size
 
+    spec = RequestSpec(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
+    payload = RequestPayload(workload_id="test", specs=(spec,))
     case = LockstepCase(
-        workload=Workload(num_total_requests=1, prompt_len=4, max_new_tokens=2),
+        payload=payload,
         mode=mode,
+        prompt_len=4,
+        max_new_tokens=2,
     )
 
     # Mode 1: profile_mode=None -> 无 op_latency_breakdown
@@ -220,7 +223,6 @@ def test_bench_run_profile_modes():
         model=model,
         device=device,
         case=case,
-        vocab=vocab,
         warmup=0,
         repeats=1,
     )
@@ -232,7 +234,6 @@ def test_bench_run_profile_modes():
         model=model,
         device=device,
         case=case,
-        vocab=vocab,
         warmup=0,
         repeats=1,
         profile_mode=ProfileMode.EXTRA_PROFILE,
@@ -246,7 +247,6 @@ def test_bench_run_profile_modes():
         model=model,
         device=device,
         case=case,
-        vocab=vocab,
         warmup=0,
         repeats=2,
         profile_mode=ProfileMode.FULL_PROFILE,

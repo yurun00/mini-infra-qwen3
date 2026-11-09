@@ -155,9 +155,9 @@ def handle_case(args: argparse.Namespace) -> int:
     specs = tuple(build_scheduler_request_specs(workload, vocab))
     case_name = "custom"
 
-    resolved_workload = RequestPayload(workload_id="custom", specs=specs)
+    resolved_payload = RequestPayload(workload_id="custom", specs=specs)
     case = SchedulerCase(
-        workload=resolved_workload,
+        payload=resolved_payload,
         mode=target_mode,
         max_running_requests=max_running,
         paged_cache_config=paged_cache_config,

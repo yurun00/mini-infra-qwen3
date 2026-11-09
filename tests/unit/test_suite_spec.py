@@ -42,7 +42,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
             ),
             "specs": [
                 [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
-                for s in c.workload.specs
+                for s in c.payload.specs
             ],
         }
         for c in suite.cases(VOCAB)
@@ -67,18 +67,20 @@ def _lockstep_entry(name: str) -> dict[str, Any]:
         "modes": [str(m) for m in suite.modes()],
         "cases": [
             {
-                "mode": str(c.mode),
-                "num_total_requests": c.workload.num_total_requests,
+                "mode": str(cs.mode),
+                "num_total_requests": cs.workload.num_requests,
                 "prompt_len": (
-                    list(c.workload.prompt_len) if isinstance(c.workload.prompt_len, tuple) else c.workload.prompt_len
+                    list(cs.workload.prompt_len)
+                    if isinstance(cs.workload.prompt_len, tuple)
+                    else cs.workload.prompt_len
                 ),
                 "max_new_tokens": (
-                    list(c.workload.max_new_tokens)
-                    if isinstance(c.workload.max_new_tokens, tuple)
-                    else c.workload.max_new_tokens
+                    list(cs.workload.max_new_tokens)
+                    if isinstance(cs.workload.max_new_tokens, tuple)
+                    else cs.workload.max_new_tokens
                 ),
             }
-            for c in suite.cases()
+            for cs in suite.case_specs
         ],
     }
 

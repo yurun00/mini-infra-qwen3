@@ -19,6 +19,7 @@
         --max-new-tokens 32 --batching-method fixed-batching
 """
 
+import gc
 from collections.abc import Sequence
 
 import torch
@@ -30,8 +31,8 @@ from mini_infra.bench.lockstep.types import (
     LockstepCaseResult,
     summarize_samples,
 )
-from mini_infra.bench.workloads import make_prompt
-from mini_infra.engine import GenerationOptions, generate
+from mini_infra.bench.workloads import Workload
+from mini_infra.engine import GenerationOptions, GenerationResult, generate
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
@@ -80,11 +81,38 @@ def broadcast_case_lengths(
     return target_bs, resolved_prompt_len, resolved_max_new_tokens
 
 
+def run_case_once(
+    model: torch.nn.Module,
+    device: torch.device,
+    case: LockstepCase,
+    options: GenerationOptions | None = None,
+) -> GenerationResult:
+    """执行单一 LockstepCase 的单次生成运行（原子操作）。"""
+    prompts = [list(s.token_ids) for s in case.payload.specs]
+    budgets = case.payload.output_budgets
+    max_new_tokens = budgets[0] if len(set(budgets)) == 1 else budgets
+    opts = options or GenerationOptions(
+        eos_token_id=-1,
+        device=device,
+        stop_on_eos=False,
+    )
+    res = generate(
+        case.mode,
+        model,
+        prompts,
+        max_new_tokens,
+        options=opts,
+    )
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return res
+
+
 def run_case(
     model: torch.nn.Module,
     device: torch.device,
     case: LockstepCase,
-    vocab: int,
     warmup: int = DEFAULT_WARMUP,
     repeats: int = DEFAULT_REPEATS,
     cost: dict | None = None,
@@ -95,18 +123,30 @@ def run_case(
     seed: int | None = None,
 ) -> LockstepCaseResult:
     """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
-    mode = case.mode
-    prompt_len = case.workload.prompt_len
-    max_new_tokens = case.workload.max_new_tokens
-    batch_size = case.workload.num_total_requests
+    prompt_lens = case.payload.prompt_lengths
+    output_budgets = case.payload.output_budgets
+    batch_size = case.payload.request_count
 
-    min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
+    min_tokens = min(output_budgets)
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
 
-    is_variable_prompt_lens = isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str)
-    effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
-    prompts = make_prompt(vocab, prompt_len, effective_batch_size)
+    prompt_len = (
+        case.prompt_len
+        if case.prompt_len is not None
+        else (prompt_lens[0] if len(set(prompt_lens)) == 1 else prompt_lens)
+    )
+    max_new_tokens = (
+        case.max_new_tokens
+        if case.max_new_tokens is not None
+        else (output_budgets[0] if len(set(output_budgets)) == 1 else output_budgets)
+    )
+    workload = Workload(
+        num_total_requests=batch_size,
+        prompt_len=prompt_len,
+        max_new_tokens=max_new_tokens,
+        workload_id=case.payload.workload_id,
+    )
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
@@ -114,13 +154,7 @@ def run_case(
         stop_on_eos=False,
     )
     for _ in range(warmup):
-        generate(
-            mode,
-            model,
-            prompts,
-            max_new_tokens,
-            options=warmup_opts,
-        )
+        run_case_once(model, device, case, options=warmup_opts)
 
     is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
     run_opts = GenerationOptions(
@@ -130,18 +164,7 @@ def run_case(
         profile=is_full_profile,
         tensorboard_options=tensorboard_options if is_full_profile else None,
     )
-    runs = [
-        generate(
-            mode,
-            model,
-            prompts,
-            max_new_tokens,
-            options=run_opts,
-        )
-        for _ in range(repeats)
-    ]
-
-    workload = case.workload
+    runs = [run_case_once(model, device, case, options=run_opts) for _ in range(repeats)]
 
     eff_prompt_vals = [r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None]
     pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
@@ -207,17 +230,11 @@ def run_case(
             profile=True,
             tensorboard_options=tensorboard_options,
         )
-        prof_res = generate(
-            mode=mode,
-            model=model,
-            prompts=prompts,
-            max_new_tokens=max_new_tokens,
-            options=prof_opts,
-        )
+        prof_res = run_case_once(model, device, case, options=prof_opts)
         op_breakdown = prof_res.op_breakdown
 
     return LockstepCaseResult(
-        mode=mode,
+        key=case.key,
         workload=workload,
         metrics=metrics,
         memory=case_memory,
@@ -234,4 +251,5 @@ def run_case(
 __all__ = [
     "broadcast_case_lengths",
     "run_case",
+    "run_case_once",
 ]

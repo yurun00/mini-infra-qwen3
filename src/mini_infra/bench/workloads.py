@@ -3,6 +3,8 @@
 多规模标准负载（small / medium / large）由 `benchmarks/specs/release/*.yaml` 声明，见 `bench.spec.release`。
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal

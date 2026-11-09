@@ -22,63 +22,42 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.cases import LockstepCase, RequestPayload
 from mini_infra.bench.spec import (
-    CaseSpec,
     LoadedSuiteSpec,
+    ResolvedWorkloadSpec,
     discover_suite_specs,
     get_suite_spec,
     load_suite_spec,
 )
-from mini_infra.bench.workloads import Workload
-from mini_infra.engine import Mode
+from mini_infra.bench.suite import BenchmarkSuite
 
 
 @dataclass(frozen=True)
-class LockstepSuite:
+class LockstepSuite(BenchmarkSuite[LockstepCase]):
     """一个已加载的 Lockstep 评测套件（YAML 声明 + 展开后的用例规格）。"""
 
-    loaded: LoadedSuiteSpec
-    case_specs: tuple[CaseSpec, ...]
-
-    @property
-    def name(self) -> str:
-        return self.loaded.spec.name
-
-    @property
-    def warmup(self) -> int:
-        return self.loaded.spec.execution.warmup
-
-    @property
-    def repeats(self) -> int:
-        return self.loaded.spec.execution.repeats
-
-    def modes(self) -> list[Mode]:
-        """按展开顺序去重后的运行模式列表。"""
-        return list(dict.fromkeys(cs.mode for cs in self.case_specs))
-
-    def cases(self) -> list[LockstepCase]:
-        return [
-            LockstepCase(
-                workload=Workload(
-                    num_total_requests=cs.workload.num_requests,
-                    prompt_len=cs.workload.prompt_len,
-                    max_new_tokens=cs.workload.max_new_tokens,
-                    workload_id=cs.workload.workload_id,
-                ),
-                mode=cs.mode,
-                suite_name=self.name,
+    def cases(self, vocab_size: int) -> list[LockstepCase]:
+        payloads_by_spec: dict[ResolvedWorkloadSpec, RequestPayload] = {}
+        cases: list[LockstepCase] = []
+        for cs in self.case_specs:
+            spec = cs.workload
+            if spec not in payloads_by_spec:
+                payloads_by_spec[spec] = RequestPayload.from_spec(spec, vocab_size)
+            cases.append(
+                LockstepCase(
+                    payload=payloads_by_spec[spec],
+                    mode=cs.mode,
+                    suite_name=self.name,
+                    prompt_len=spec.prompt_len,
+                    max_new_tokens=spec.max_new_tokens,
+                )
             )
-            for cs in self.case_specs
-        ]
-
-    def to_dict(self) -> dict[str, Any]:
-        """写入结果 JSON `suite` 块：合并后的完整 YAML 声明及其内容哈希。"""
-        return self.loaded.info()
+        return cases
 
 
 def suite_from_loaded(loaded: LoadedSuiteSpec) -> LockstepSuite:
-    return LockstepSuite(loaded=loaded, case_specs=loaded.cases)
+    return LockstepSuite(loaded=loaded)
 
 
 def load_lockstep_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> LockstepSuite:
