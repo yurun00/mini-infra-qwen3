@@ -371,10 +371,15 @@ def test_builtin_release_specs_are_valid():
 
 def _release_raw(engine="scheduler", **override):
     scale = {"seed_salt": 1, "max_running_requests": 4, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
+    system = (
+        {"batching_method": ["continuous-batching"], "caching_method": ["dense-kv-cache"]}
+        if engine == "scheduler"
+        else {"batching_method": ["fixed-batching"], "caching_method": ["dense-kv-cache"]}
+    )
     raw = {
         "engine": engine,
         "default_seed": 42,
-        "default_mode": {"caching_method": "dense-kv-cache", "batching_method": "continuous-batching"},
+        "system": system,
         "scales": {"small": scale, "medium": scale, "large": scale},
     }
     raw.update(override)
@@ -388,18 +393,34 @@ def test_release_spec_validation():
     no_mrr = {"seed_salt": 1, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
     with pytest.raises(ValueError, match="必须提供 max_running_requests"):
         ReleaseSpec.model_validate(_release_raw(scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr}))
+    # 允许在 system 顶层提供默认 max_running_requests 供各 scale 继承
+    system_with_mrr = {
+        "batching_method": ["continuous-batching"],
+        "caching_method": ["dense-kv-cache"],
+        "max_running_requests": 4,
+    }
+    inherited = ReleaseSpec.model_validate(
+        _release_raw(system=system_with_mrr, scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr})
+    )
+    assert inherited.system.max_running_requests == 4
     with pytest.raises(ValueError, match="不支持 max_running_requests"):
         ReleaseSpec.model_validate(_release_raw(engine="lockstep"))
     with pytest.raises(ValueError, match="interleave"):
         ReleaseSpec.model_validate(_release_raw(execution={"interleave": ["batching_method"]}))
 
 
-def _write_release(tmp_path: Path, name: str, workload: str = "{count: 4, prompt_len: 8, output_len: 4}") -> Path:
+def _write_release(
+    tmp_path: Path,
+    name: str,
+    workload: str = "{count: 4, prompt_len: 8, output_len: 4}",
+    checks: str = "[]",
+) -> Path:
     path = tmp_path / f"{name}.yaml"
     scale = f"{{seed_salt: 1, max_running_requests: 4, workload: {workload}}}"
     path.write_text(
         f"engine: {name}\ndefault_seed: 42\n"
-        "default_mode: {caching_method: dense-kv-cache, batching_method: continuous-batching}\n"
+        "system: {batching_method: [continuous-batching], caching_method: [dense-kv-cache]}\n"
+        f"checks: {checks}\n"
         f"scales: {{small: {scale}, medium: {scale}, large: {scale}}}\n",
         encoding="utf-8",
     )
@@ -413,6 +434,12 @@ def test_load_release_spec_expands_eagerly_like_load_suite_spec(tmp_path):
     assert loaded.resolve() is loaded.scales
     assert loaded.resolve(7)["small"].seed == 7
     assert len(loaded.sha256) == 64
+
+    # 语义守卫生效：违反检查在加载期抛出异常
+    (tmp_path / "check_failed").mkdir()
+    guard_bad = _write_release(tmp_path / "check_failed", "scheduler", checks="[{min_output_len: 10}]")
+    with pytest.raises(ValueError, match="要求每个请求的输出预算 >= 10"):
+        load_release_spec(guard_bad)
 
     # 非法负载在加载期暴露（而不是等到 release_workloads 调用时）
     (tmp_path / "bad").mkdir()

@@ -5,6 +5,7 @@ import torch
 from mini_infra.bench.cases import CaseDimension, SchedulerSuiteCase
 from mini_infra.bench.scheduler import (
     build_benchmark_record,
+    extract_workload_from_schedule_result,
     format_case_summary,
     format_table,
     run_case,
@@ -242,14 +243,14 @@ def test_run_scheduler_case_and_step_on_cpu():
         specs=specs,
     )
 
-    # 1. 验证原子 run_case_once 与 ScheduleResult.workload 属性
+    # 1. 验证原子 run_case_once 与 extract_workload_from_schedule_result
     single_res = run_case_once(model, device, case)
     assert single_res.step_agg_metrics.e2e_wall_ms > 0
     assert len(single_res.sequences) == 2
-    assert single_res.workload.repeats == 1
-    assert single_res.workload.warmup == 0
+    sw = extract_workload_from_schedule_result(single_res, workload_id=case.workload_id)
+    assert sw.num_total_requests == 2
 
-    # 2. 验证多轮 run_case（Workload 相等比较忽略 repeats 与 warmup）
+    # 2. 验证多轮 run_case
     case_res = run_case(
         model=model,
         device=device,
@@ -260,9 +261,10 @@ def test_run_scheduler_case_and_step_on_cpu():
 
     assert case_res.key.mode == mode
     assert case_res.key.workload_id == "test-cont-case"
-    assert case_res.workload.mode == mode
-    assert case_res.workload.repeats == 2
-    assert single_res.workload == case_res.workload
+    assert case_res.mode == mode
+    assert case_res.repeats == 2
+    assert case_res.warmup == 1
+    assert case_res.workload == sw
     assert case_res.metrics.e2e_wall_ms.mean > 0
     assert case_res.metrics.throughput_req_s.mean > 0
     assert case_res.schedule_metrics.ttft_ms_p95.mean > 0
@@ -380,7 +382,7 @@ def test_run_scheduler_paged_case_on_cpu():
     )
     assert case_res.key.mode == mode
     assert case_res.key.workload_id == "stress_case"
-    assert case_res.workload.mode == mode
+    assert case_res.mode == mode
     assert case_res.memory.kv_cache.paged_cache is not None
     assert case_res.memory.kv_cache.paged_cache.block_size == 4
     assert case_res.memory.kv_cache.paged_cache.block_cold_allocation_count > 0
@@ -459,13 +461,13 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     assert len(results) == 4
     # 验证返回顺序与 cases 一致，且负载规格与各 case 匹配
     assert results[0].workload.prompt_len == 2
-    assert results[0].workload.mode == dense_mode
+    assert results[0].mode == dense_mode
     assert results[1].workload.prompt_len == 2
-    assert results[1].workload.mode == paged_mode
+    assert results[1].mode == paged_mode
     assert results[2].workload.prompt_len == 3
-    assert results[2].workload.mode == dense_mode
+    assert results[2].mode == dense_mode
     assert results[3].workload.prompt_len == 3
-    assert results[3].workload.mode == paged_mode
+    assert results[3].mode == paged_mode
 
 
 def test_scheduler_suite_dry_run_main(capsys):

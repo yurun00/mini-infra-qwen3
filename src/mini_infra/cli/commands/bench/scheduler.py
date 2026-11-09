@@ -147,13 +147,9 @@ def handle_case(args: argparse.Namespace) -> int:
     repeats = args.repeats if args.repeats is not None else 3
 
     workload = Workload(
-        mode=target_mode,
         num_total_requests=req_count,
         prompt_len=prompt_len,
         max_new_tokens=max_new_tokens,
-        repeats=repeats,
-        warmup=warmup,
-        max_running_requests=max_running,
         arrival_times_ms=arrivals,
     )
     specs = tuple(build_scheduler_request_specs(workload, vocab))
@@ -189,7 +185,8 @@ def handle_case(args: argparse.Namespace) -> int:
     if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
         result = replace(
             result,
-            workload=replace(result.workload, scale=getattr(args, "scale", None), seed=getattr(args, "seed", None)),
+            scale=getattr(args, "scale", None),
+            seed=getattr(args, "seed", None),
         )
     print(format_case_summary(result))
 

@@ -4,13 +4,12 @@
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 import torch
 
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.engine.mode import Mode
 
 WorkloadScale = Literal["small", "medium", "large"]
 WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
@@ -18,18 +17,13 @@ WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
 
 @dataclass(frozen=True)
 class Workload:
-    """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats、warmup 与 seed）。"""
+    """评测用例的纯请求负载规格（Traffic / Payload），与被测系统和压测运行参数完全解耦。"""
 
-    mode: Mode
     num_total_requests: int
     prompt_len: int | tuple[int, ...]
     max_new_tokens: int | tuple[int, ...]
-    repeats: int = field(default=1, compare=False)
-    warmup: int = field(default=0, compare=False)
-    seed: int | None = field(default=None, compare=False)
-    scale: str | None = None
-    max_running_requests: int | None = None
     arrival_times_ms: float | tuple[float, ...] | None = None
+    workload_id: str | None = None
 
 
 def make_sequence(

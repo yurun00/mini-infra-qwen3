@@ -285,7 +285,7 @@ workload:
 **展开顺序**即执行顺序：`sweep.workload`（外层）→ `max_running_requests` → `batching_method` → `caching_method` → `block_size`（仅 paged 模式展开，dense 只出现一次）。
 
 ### Release 标准负载（YAML）
-版本发布使用的 small / medium / large 三档标准负载声明在 [`benchmarks/specs/release/{lockstep,scheduler}.yaml`](../../benchmarks/specs/release/)，由 `mini-infra bench release` 经 `spec.release` 加载与展开：每档含 `seed_salt`、`workload`（以及 scheduler 的 `max_running_requests`），文件顶层含 `default_seed`、`default_mode`、`execution`。`bench release --seed N` 只覆盖 seed。修改这些文件会改变所有历史版本归档的可比性，仅在受控基准更新流程中变更（见 [RELEASE.md](../../RELEASE.md)）；`tests/unit/test_release_workloads.py` 以快照固化了标准种子下三档负载的逐请求取值。
+版本发布使用的 small / medium / large 三档标准负载声明在 [`benchmarks/specs/release/{lockstep,scheduler}.yaml`](../../benchmarks/specs/release/)，由 `mini-infra bench release` 经 `spec.release` 加载与展开：每档含 `seed_salt`、`workload`（以及 scheduler 的 `max_running_requests`），文件顶层含 `default_seed`、`system`、`execution`。`bench release --seed N` 只覆盖 seed。修改这些文件会改变所有历史版本归档的可比性，仅在受控基准更新流程中变更（见 [RELEASE.md](../../RELEASE.md)）；`tests/unit/test_release_workloads.py` 以快照固化了标准种子下三档负载的逐请求取值。
 
 ### 检视与临时实验
 ```bash

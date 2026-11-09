@@ -1,5 +1,6 @@
 """跨 spec 共享的基础模型与工具（纯 CPU）。"""
 
+from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.lengths import (
     expand_arrival,
     expand_length,
@@ -11,6 +12,7 @@ from mini_infra.bench.spec.common.raw import _sha256, deep_merge, load_raw_spec
 from mini_infra.bench.spec.common.schema import (
     AlternatingLength,
     ArrivalSpec,
+    CheckSpec,
     ConstantArrival,
     ConstantLength,
     ExecutionSpec,
@@ -21,10 +23,14 @@ from mini_infra.bench.spec.common.schema import (
     LadderLength,
     LengthSpec,
     LogUniformLength,
+    MinMaxRunningRequestsCheck,
+    MinOutputLenCheck,
     NonNegativeFloat,
+    PagedSpec,
     PoissonArrival,
     PositiveInt,
     SuiteEngine,
+    SystemSpec,
     WorkloadSpec,
     _Strict,
     normalize_workload_body,
@@ -34,6 +40,7 @@ from mini_infra.bench.spec.common.workload import ResolvedWorkload, interpolate,
 __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
+    "CheckSpec",
     "ConstantArrival",
     "ConstantLength",
     "ExecutionSpec",
@@ -44,11 +51,15 @@ __all__ = [
     "LadderLength",
     "LengthSpec",
     "LogUniformLength",
+    "MinMaxRunningRequestsCheck",
+    "MinOutputLenCheck",
     "NonNegativeFloat",
+    "PagedSpec",
     "PoissonArrival",
     "PositiveInt",
     "ResolvedWorkload",
     "SuiteEngine",
+    "SystemSpec",
     "WorkloadSpec",
     "_Strict",
     "_sha256",
@@ -61,6 +72,7 @@ __all__ = [
     "normalize_workload_body",
     "parse_set_args",
     "resolve_workload_body",
+    "run_check",
     "sample_log_uniform_lengths",
     "sample_poisson_arrivals",
 ]

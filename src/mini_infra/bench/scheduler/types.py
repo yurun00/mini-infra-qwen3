@@ -16,6 +16,7 @@ from mini_infra.bench.common import (
     Workload,
     summarize_samples,
 )
+from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
@@ -166,10 +167,14 @@ class SchedulerCaseResult:
     metrics: StepAggregatedMetrics[DistributionStats]
     schedule_metrics: ScheduleMetrics[DistributionStats]
     memory: MemoryProfile
+    repeats: int = 1
+    warmup: int = 0
     packing: BatchScheduleInfo[DistributionStats] | None = None
     efficiency: EfficiencyMetrics | None = None
     repeat_samples: list[dict[str, Any]] = field(default_factory=list)
     sample_events: list[ScheduleEvent] = field(default_factory=list)
+    scale: str | None = None
+    seed: int | None = None
 
     @property
     def mode(self) -> Mode:
@@ -206,8 +211,8 @@ class SchedulerCaseResult:
                 if isinstance(self.workload.max_new_tokens, tuple)
                 else self.workload.max_new_tokens
             ),
-            "repeats": self.workload.repeats,
-            "warmup": self.workload.warmup,
+            "repeats": self.repeats,
+            "warmup": self.warmup,
             "max_running_requests": self.key.max_running_requests,
             "arrival_times_ms": (
                 list(self.workload.arrival_times_ms)
@@ -255,10 +260,10 @@ class SchedulerCaseResult:
                 "block_size": self.key.paged_cache_config.block_size,
                 "num_blocks": self.key.paged_cache_config.num_blocks,
             }
-        if self.workload.scale is not None:
-            rec["scale"] = self.workload.scale
-        if self.workload.seed is not None:
-            rec["seed"] = self.workload.seed
+        if self.scale is not None:
+            rec["scale"] = self.scale
+        if self.seed is not None:
+            rec["seed"] = self.seed
         if self.packing is not None:
             rec["packing"] = self.packing.to_dict()
         if self.efficiency is not None:
@@ -266,18 +271,37 @@ class SchedulerCaseResult:
         return rec
 
 
+def extract_workload_from_schedule_result(res: ScheduleResult, workload_id: str | None = None) -> Workload:
+    """从单次调度结果提取纯请求负载规格 Workload（纯 CPU）。"""
+    prompt_lengths = [s.prompt_len for s in res.sequences]
+    output_budgets = [r.num_output_tokens for r in res.request_metrics]
+    arrivals = [r.arrival_ms for r in res.request_metrics]
+    return Workload(
+        num_total_requests=res.schedule_metrics.request_count,
+        prompt_len=collapse_uniform(prompt_lengths),
+        max_new_tokens=collapse_uniform(output_budgets),
+        arrival_times_ms=collapse_uniform(arrivals),
+        workload_id=workload_id,
+    )
+
+
 def summarize_same_case_runs(
     case_key: CaseKey,
     runs: Sequence[ScheduleResult],
+    *,
+    warmup: int = 0,
+    scale: str | None = None,
+    seed: int | None = None,
 ) -> SchedulerCaseResult:
     """把具有相同 CaseKey 与 Workload 的多轮运行聚合为一个 SchedulerCaseResult。"""
     if not runs:
         raise ValueError("runs 不能为空")
 
     first_run = runs[0]
-    if any(r.workload != first_run.workload for r in runs):
+    first_workload = extract_workload_from_schedule_result(first_run, workload_id=case_key.workload_id)
+    if any(extract_workload_from_schedule_result(r, workload_id=case_key.workload_id) != first_workload for r in runs):
         raise ValueError("summarize_same_case_runs 中的所有 run 必须具有相同的 Workload")
-    workload = replace(first_run.workload, repeats=len(runs))
+    workload = first_workload
 
     repeat_samples = [
         {
@@ -360,9 +384,13 @@ def summarize_same_case_runs(
         metrics=step_agg_dist,
         schedule_metrics=sched_dist,
         memory=case_memory,
+        repeats=len(runs),
+        warmup=warmup,
         packing=packing,
         repeat_samples=repeat_samples,
-        sample_events=list(first_run.events),
+        sample_events=list(runs[0].events),
+        scale=scale,
+        seed=seed,
     )
 
 
@@ -372,6 +400,7 @@ __all__ = [
     "SchedulerCaseResult",
     "Workload",
     "compute_comparisons",
+    "extract_workload_from_schedule_result",
     "resolve_metric_value",
     "summarize_same_case_runs",
     "summarize_samples",

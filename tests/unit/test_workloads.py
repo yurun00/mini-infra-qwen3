@@ -136,35 +136,31 @@ def test_make_arrival_times():
 
 
 def test_canonical_workloads_and_build_scheduler_specs():
-    from dataclasses import replace
+    from mini_infra.bench.spec.release import get_release_spec
 
     lockstep_workloads = release_workloads("lockstep")
     scheduler_workloads = release_workloads("scheduler")
     assert set(lockstep_workloads) == set(WORKLOAD_SCALES)
     assert set(scheduler_workloads) == set(WORKLOAD_SCALES)
 
+    lockstep_spec = get_release_spec("lockstep")
+    scheduler_spec = get_release_spec("scheduler")
+    assert lockstep_spec.spec.execution.warmup >= 1
+    assert scheduler_spec.spec.execution.warmup >= 1
+
     for scale in WORKLOAD_SCALES:
         lw = lockstep_workloads[scale]
         assert isinstance(lw, Workload)
-        assert lw.scale == scale
-        assert lw.seed == 42
-        assert lw.warmup >= 1
+        assert lw.workload_id == f"lockstep_{scale}"
         assert isinstance(lw.prompt_len, tuple) and len(lw.prompt_len) == lw.num_total_requests
         assert isinstance(lw.max_new_tokens, tuple) and len(lw.max_new_tokens) == lw.num_total_requests
-        # Verify seed is compare=False while scale participates in equality
-        assert replace(lw, seed=999) == lw
-        assert replace(lw, scale="custom") != lw
 
         sw = scheduler_workloads[scale]
         assert isinstance(sw, Workload)
-        assert sw.scale == scale
-        assert sw.seed == 42
-        assert sw.warmup >= 1
+        assert sw.workload_id == f"scheduler_{scale}"
         assert isinstance(sw.prompt_len, tuple) and len(sw.prompt_len) == sw.num_total_requests
         assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.num_total_requests
         assert isinstance(sw.arrival_times_ms, tuple) and len(sw.arrival_times_ms) == sw.num_total_requests
-        assert replace(sw, seed=999) == sw
-        assert replace(sw, scale="custom") != sw
 
         specs = build_scheduler_request_specs(sw, vocab_size=32000)
         assert len(specs) == sw.num_total_requests

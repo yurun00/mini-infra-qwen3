@@ -5,7 +5,6 @@
 """
 
 from collections.abc import Callable, Sequence
-from dataclasses import replace
 
 import torch
 
@@ -77,8 +76,9 @@ def run_suite(
         res = summarize_same_case_runs(
             case.key,
             runs_by_case_key[case.key],
+            warmup=warmup_val,
         )
-        results.append(replace(res, workload=replace(res.workload, warmup=warmup_val)))
+        results.append(res)
     return results
 
 

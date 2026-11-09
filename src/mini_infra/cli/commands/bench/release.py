@@ -45,7 +45,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from mini_infra.bench import release_default_mode, release_workloads
+from mini_infra.bench import release_default_mode
 from mini_infra.bench.common import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
@@ -54,6 +54,7 @@ from mini_infra.bench.common import (
     SCHEDULER_RESULT_HISTORY_DIR,
     git_info,
 )
+from mini_infra.bench.spec import get_release_spec
 from mini_infra.bench.workloads import WORKLOAD_SCALES, Workload, WorkloadScale
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
@@ -71,6 +72,11 @@ def build_lockstep_case_cmd(
     workload: Workload,
     tag: str,
     release_feature: str,
+    mode: Mode,
+    warmup: int = 2,
+    repeats: int = 5,
+    scale: str | None = None,
+    seed: int | None = None,
     profile_mode: str | None = "extra-profile",
 ) -> list[str]:
     """将 Workload 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
@@ -94,9 +100,9 @@ def build_lockstep_case_cmd(
         tag,
         "--release-feature",
         release_feature,
-        "--kv-cache" if workload.mode.use_kv_cache else "--no-kv-cache",
+        "--kv-cache" if mode.use_kv_cache else "--no-kv-cache",
         "--batching-method",
-        workload.mode.batching_method.value,
+        mode.batching_method.value,
         "--batch-size",
         str(workload.num_total_requests),
         "--prompt-lens",
@@ -104,14 +110,14 @@ def build_lockstep_case_cmd(
         "--max-new-tokens",
         *budget_args,
         "--warmup",
-        str(workload.warmup),
+        str(warmup),
         "--repeats",
-        str(workload.repeats),
+        str(repeats),
     ]
-    if workload.scale is not None:
-        cmd.extend(["--scale", str(workload.scale)])
-    if workload.seed is not None:
-        cmd.extend(["--seed", str(workload.seed)])
+    if scale is not None:
+        cmd.extend(["--scale", str(scale)])
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
     if profile_mode and profile_mode != "none":
         cmd.extend(["--profile-mode", profile_mode])
     return cmd
@@ -121,6 +127,12 @@ def build_scheduler_case_cmd(
     workload: Workload,
     tag: str,
     release_feature: str,
+    mode: Mode,
+    max_running_requests: int = 4,
+    warmup: int = 2,
+    repeats: int = 5,
+    scale: str | None = None,
+    seed: int | None = None,
     block_size: int | None = None,
     output: Path | str | None = None,
 ) -> list[str]:
@@ -138,24 +150,24 @@ def build_scheduler_case_cmd(
         "--release-feature",
         release_feature,
         "--caching-method",
-        workload.mode.caching_method.value,
+        mode.caching_method.value,
         "--batching-method",
-        workload.mode.batching_method.value,
+        mode.batching_method.value,
         "--request-count",
         str(workload.num_total_requests),
         "--max-running-requests",
-        str(workload.max_running_requests or 4),
+        str(max_running_requests),
         "--warmup",
-        str(workload.warmup),
+        str(warmup),
         "--repeats",
-        str(workload.repeats),
+        str(repeats),
     ]
-    if workload.mode.caching_method == CachingMethod.PAGED and block_size is not None:
+    if mode.caching_method == CachingMethod.PAGED and block_size is not None:
         cmd.extend(["--block-size", str(block_size)])
-    if workload.scale is not None:
-        cmd.extend(["--scale", str(workload.scale)])
-    if workload.seed is not None:
-        cmd.extend(["--seed", str(workload.seed)])
+    if scale is not None:
+        cmd.extend(["--scale", str(scale)])
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
 
     if isinstance(workload.prompt_len, int):
         cmd.extend(["--prompt-length", str(workload.prompt_len)])
@@ -313,14 +325,27 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         mode = Mode(caching_method, batching_method=bm)
         prof = args.profile_mode if args.profile_mode is not None else "extra-profile"
 
-        lockstep_workloads = release_workloads("lockstep", seed=custom_seed, mode=mode)
+        loaded = get_release_spec("lockstep")
+        scales_spec = loaded.resolve(custom_seed)
+        lockstep_workloads = loaded.to_workloads(seed=custom_seed)
         for sc in scales:
             base_wl = lockstep_workloads[sc]
             scale_prof = prof if sc == "small" else None
+            res_scale = scales_spec[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Lockstep 基准 [{sc}] ({args.tag}: {args.release_feature})",
-                    cmd=build_lockstep_case_cmd(base_wl, args.tag, args.release_feature, profile_mode=scale_prof),
+                    cmd=build_lockstep_case_cmd(
+                        base_wl,
+                        args.tag,
+                        args.release_feature,
+                        mode=mode,
+                        warmup=loaded.spec.execution.warmup,
+                        repeats=loaded.spec.execution.repeats,
+                        scale=sc,
+                        seed=res_scale.seed,
+                        profile_mode=scale_prof,
+                    ),
                     artifacts=(LOCKSTEP_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
                 )
             )
@@ -344,9 +369,12 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
 
-        scheduler_workloads = release_workloads("scheduler", seed=custom_seed, mode=target_mode)
+        loaded = get_release_spec("scheduler")
+        scales_spec = loaded.resolve(custom_seed)
+        scheduler_workloads = loaded.to_workloads(seed=custom_seed)
         for sc in scales:
             target_wl = scheduler_workloads[sc]
+            res_scale = scales_spec[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
@@ -354,6 +382,12 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
                         target_wl,
                         args.tag,
                         args.release_feature,
+                        mode=target_mode,
+                        max_running_requests=res_scale.max_running_requests or 4,
+                        warmup=loaded.spec.execution.warmup,
+                        repeats=loaded.spec.execution.repeats,
+                        scale=sc,
+                        seed=res_scale.seed,
                         block_size=block_size,
                         output=hist_file,
                     ),

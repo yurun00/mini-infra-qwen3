@@ -7,12 +7,16 @@
 """
 
 from mini_infra.bench.spec.common import (
+    CheckSpec,
+    PagedSpec,
     ResolvedWorkload,
     SuiteEngine,
+    SystemSpec,
     apply_overrides,
     deep_merge,
     load_raw_spec,
     parse_set_args,
+    run_check,
 )
 from mini_infra.bench.spec.release import (
     RELEASE_SCALES,
@@ -44,16 +48,19 @@ from mini_infra.bench.spec.suite import (
 __all__ = [
     "RELEASE_SCALES",
     "CaseBlueprint",
+    "CheckSpec",
     "ComparisonConfig",
     "LoadedReleaseSpec",
     "LoadedSuiteSpec",
     "MetricSpec",
+    "PagedSpec",
     "ReleaseScale",
     "ReleaseSpec",
     "ResolvedReleaseScale",
     "ResolvedWorkload",
     "SuiteEngine",
     "SuiteSpec",
+    "SystemSpec",
     "apply_overrides",
     "deep_merge",
     "discover_suite_specs",
@@ -69,5 +76,6 @@ __all__ = [
     "release_json_schema",
     "release_workloads",
     "resolve_release_spec",
+    "run_check",
     "suite_json_schema",
 ]

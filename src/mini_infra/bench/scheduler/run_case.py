@@ -5,7 +5,6 @@
 
 import gc
 from collections.abc import Callable
-from dataclasses import replace
 
 import torch
 
@@ -59,8 +58,7 @@ def run_case(
         if on_step_progress is not None:
             on_step_progress("measure", i, repeats)
         runs.append(run_case_once(model, device, case))
-    res = summarize_same_case_runs(case.key, runs)
-    return replace(res, workload=replace(res.workload, warmup=warmup))
+    return summarize_same_case_runs(case.key, runs, warmup=warmup)
 
 
 __all__ = [

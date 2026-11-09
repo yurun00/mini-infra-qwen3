@@ -15,7 +15,6 @@ from mini_infra.bench.spec.release.loader import (
 )
 from mini_infra.bench.spec.release.schema import (
     RELEASE_SCALES,
-    DefaultModeSpec,
     ReleaseScale,
     ReleaseSpec,
     ScaleSpec,
@@ -23,7 +22,6 @@ from mini_infra.bench.spec.release.schema import (
 )
 
 __all__ = [
-    "DefaultModeSpec",
     "LoadedReleaseSpec",
     "RELEASE_SCALES",
     "ReleaseScale",

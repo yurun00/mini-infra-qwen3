@@ -15,35 +15,40 @@ from mini_infra.bench.workloads import WORKLOAD_SCALES, Workload
 GOLDEN = json.loads((Path(__file__).parent / "data" / "release_workloads_golden.json").read_text(encoding="utf-8"))
 
 
-def _encode(w: Workload) -> dict[str, Any]:
+def _encode(w: Workload, *, engine: str, scale: str, seed: int) -> dict[str, Any]:
     def as_list(x: Any) -> Any:
         return list(x) if isinstance(x, tuple) else x
 
+    loaded = get_release_spec(engine)
+    resolved = loaded.resolve(seed)[scale]
     return {
-        "mode": str(w.mode),
+        "mode": str(release_default_mode(engine)),
         "num_total_requests": w.num_total_requests,
         "prompt_len": as_list(w.prompt_len),
         "max_new_tokens": as_list(w.max_new_tokens),
-        "seed": w.seed,
-        "scale": w.scale,
-        "max_running_requests": w.max_running_requests,
+        "seed": seed,
+        "scale": scale,
+        "max_running_requests": resolved.max_running_requests,
         "arrival_times_ms": as_list(w.arrival_times_ms),
-        "warmup": w.warmup,
-        "repeats": w.repeats,
+        "warmup": loaded.spec.execution.warmup,
+        "repeats": loaded.spec.execution.repeats,
     }
 
 
 @pytest.mark.parametrize("engine", ["lockstep", "scheduler"])
 @pytest.mark.parametrize("seed", [42, 7])
 def test_release_yaml_matches_legacy_golden(engine, seed):
-    actual = {scale: _encode(w) for scale, w in release_workloads(engine, seed=seed).items()}
+    actual = {
+        scale: _encode(w, engine=engine, scale=scale, seed=seed)
+        for scale, w in release_workloads(engine, seed=seed).items()
+    }
     assert actual == GOLDEN[engine][str(seed)]
 
 
 @pytest.mark.parametrize("engine", ["lockstep", "scheduler"])
 def test_default_seed_is_the_standard_seed(engine):
     assert get_release_spec(engine).spec.default_seed == GOLDEN["default_seed"] == 42
-    default = {s: _encode(w) for s, w in release_workloads(engine).items()}
+    default = {s: _encode(w, engine=engine, scale=s, seed=42) for s, w in release_workloads(engine).items()}
     assert default == GOLDEN[engine]["42"]
     assert set(default) == set(WORKLOAD_SCALES)
 
@@ -60,16 +65,14 @@ def test_release_seed_changes_workload():
     assert base.arrival_times_ms != other.arrival_times_ms
 
 
-def test_release_mode_override_keeps_workload_identical():
-    from mini_infra.engine import BatchingMethod, CachingMethod, Mode
-
-    paged = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    a = release_workloads("scheduler")["small"]
-    b = release_workloads("scheduler", mode=paged)["small"]
-    assert b.mode == paged
-    assert (a.prompt_len, a.max_new_tokens, a.arrival_times_ms) == (b.prompt_len, b.max_new_tokens, b.arrival_times_ms)
-    # Workload 相等比较忽略 repeats / warmup / seed，但包含 mode
-    assert a != b
+def test_release_workloads_pure_payload():
+    """验证 release_workloads 返回的 Workload 仅包含流量载荷，不含模式或执行参数。"""
+    w = release_workloads("scheduler")["small"]
+    assert not hasattr(w, "mode")
+    assert not hasattr(w, "repeats")
+    assert not hasattr(w, "warmup")
+    assert not hasattr(w, "scale")
+    assert w.workload_id == "scheduler_small"
 
 
 def test_samplers_are_deterministic_and_within_bounds():

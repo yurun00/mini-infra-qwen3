@@ -217,7 +217,7 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
     assert cont_res.request_metrics[2].admitted_ms == cont_res.request_metrics[0].completion_ms
 
 
-def test_generate_dispatches_paged_flag_and_result_workload_reports_it(model):
+def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
     prompts = make_prompts([4, 7, 5])
     opts = GenerationOptions(
         eos_token_id=-1, device=CPU, stop_on_eos=False, paged_cache_config=PagedCacheConfig(block_size=4)
@@ -228,9 +228,9 @@ def test_generate_dispatches_paged_flag_and_result_workload_reports_it(model):
     fixed_result = generate(fixed_paged_mode, model, prompts, [5, 3, 4], options=opts)
 
     assert result.caching_method is CachingMethod.PAGED
-    assert result.workload.mode == PAGED_MODE
+    assert result.mode == PAGED_MODE
     assert fixed_result.caching_method is CachingMethod.PAGED
-    assert fixed_result.workload.mode == fixed_paged_mode
+    assert fixed_result.mode == fixed_paged_mode
     expected = serial_outputs(model, prompts, [5, 3, 4])
     assert [s.token_ids for s in result.sequences] == expected
     assert [s.token_ids for s in fixed_result.sequences] == expected

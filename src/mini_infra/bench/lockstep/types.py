@@ -17,6 +17,7 @@ from mini_infra.bench.common import (
     summarize_samples,
 )
 from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine.mode import Mode
 from mini_infra.profiling import OpLatencyBreakdown
 
 
@@ -28,17 +29,22 @@ class LockstepCaseResult:
     BatchScheduleInfo 与 EfficiencyMetrics，与 GenerationResult 顶层结构对齐。
     """
 
+    mode: Mode
     workload: Workload
     metrics: StepAggregatedMetrics[DistributionStats]
     memory: MemoryProfile
+    repeats: int = 1
+    warmup: int = 0
     packing: BatchScheduleInfo[DistributionStats] | None = None
     efficiency: EfficiencyMetrics | None = None
     op_breakdown: OpLatencyBreakdown | None = None
+    scale: str | None = None
+    seed: int | None = None
 
     def to_record_dict(self) -> dict[str, Any]:
         """导出为标准评测记录字典格式（批处理打包与槽位利用率统一序列化至 'packing' 字段）。"""
         rec: dict[str, Any] = {
-            "mode": str(self.workload.mode),
+            "mode": str(self.mode),
             "prompt_len": (
                 list(self.workload.prompt_len)
                 if isinstance(self.workload.prompt_len, tuple)
@@ -50,8 +56,8 @@ class LockstepCaseResult:
                 else self.workload.max_new_tokens
             ),
             "num_total_requests": self.workload.num_total_requests,
-            "repeats": self.workload.repeats,
-            "warmup": self.workload.warmup,
+            "repeats": self.repeats,
+            "warmup": self.warmup,
             "ttft_ms": self.metrics.ttft_ms.to_dict() if self.metrics.ttft_ms is not None else None,
             "tpot_ms": self.metrics.mean_tpot_ms.to_dict() if self.metrics.mean_tpot_ms is not None else None,
             "e2e_wall_ms": self.metrics.e2e_wall_ms.to_dict(),
@@ -71,10 +77,10 @@ class LockstepCaseResult:
             ),
             "memory": self.memory.to_dict(),
         }
-        if self.workload.scale is not None:
-            rec["scale"] = self.workload.scale
-        if self.workload.seed is not None:
-            rec["seed"] = self.workload.seed
+        if self.scale is not None:
+            rec["scale"] = self.scale
+        if self.seed is not None:
+            rec["seed"] = self.seed
         if self.packing is not None:
             rec["packing"] = self.packing.to_dict()
         if self.efficiency is not None:

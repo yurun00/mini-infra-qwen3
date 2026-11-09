@@ -13,7 +13,7 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     ttft = w.metrics.ttft_ms
     tpot = w.metrics.mean_tpot_ms
     row = [
-        str(w.workload.mode),
+        str(w.mode),
         format_lengths(w.workload.prompt_len),
         format_lengths(w.workload.max_new_tokens),
         f"{(ttft.mean if ttft else 0.0):.3f}",

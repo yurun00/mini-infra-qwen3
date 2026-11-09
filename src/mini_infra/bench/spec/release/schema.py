@@ -1,7 +1,7 @@
 """Release 标准负载的 YAML 声明（`benchmarks/specs/release/<engine>.yaml`）：三档确定性伪随机负载。
 
-与 suite 不同，release 负载不固定 Mode（由 `bench release` 命令行在发布时指定），只声明：
-    default_seed / default_mode / execution（warmup、repeats）/ scales（每档的 workload 与 seed_salt）
+与 suite 不同，release 负载不通过 sweep 扫描，只声明：
+    default_seed / system / execution（warmup、repeats）/ scales（每档的 workload 与 seed_salt）/ checks
 
 每档的随机分布共用 `random.Random(seed * 1000 + seed_salt)`（见 WorkloadSpec），`--seed` 只覆盖 seed。
 """
@@ -10,16 +10,20 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from mini_infra.bench.spec.common.schema import ExecutionSpec, GroupSpec, PositiveInt, SuiteEngine, _Strict
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.bench.spec.common.schema import (
+    CheckSpec,
+    ExecutionSpec,
+    GroupSpec,
+    MinMaxRunningRequestsCheck,
+    PositiveInt,
+    SuiteEngine,
+    SystemSpec,
+    _Strict,
+)
+from mini_infra.engine import CachingMethod
 
 ReleaseScale = Literal["small", "medium", "large"]
 RELEASE_SCALES: tuple[ReleaseScale, ...] = ("small", "medium", "large")
-
-
-class DefaultModeSpec(_Strict):
-    caching_method: CachingMethod
-    batching_method: BatchingMethod
 
 
 class ScaleSpec(_Strict):
@@ -32,9 +36,10 @@ class ReleaseSpec(_Strict):
     engine: SuiteEngine
     description: str = ""
     default_seed: Annotated[int, Field(strict=True)]
-    default_mode: DefaultModeSpec
+    system: SystemSpec
     execution: ExecutionSpec = ExecutionSpec()
     scales: dict[ReleaseScale, ScaleSpec]
+    checks: list[CheckSpec] = Field(default_factory=list)
 
     @field_validator("scales")
     @classmethod
@@ -47,9 +52,20 @@ class ReleaseSpec(_Strict):
     def _check_engine(self) -> "ReleaseSpec":
         if self.execution.interleave:
             raise ValueError("release 负载不支持 execution.interleave")
+        if self.engine == "lockstep":
+            if self.system.max_running_requests is not None:
+                raise ValueError("lockstep release 不支持 system.max_running_requests")
+            if CachingMethod.PAGED in self.system.caching_method:
+                raise ValueError("lockstep release 不支持 paged-kv-cache")
+            for check in self.checks:
+                if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):
+                    raise ValueError(f"lockstep release 不支持检查 {check!r}")
         for scale, spec in self.scales.items():
-            if self.engine == "scheduler" and spec.max_running_requests is None:
-                raise ValueError(f"scheduler release 的 scales.{scale} 必须提供 max_running_requests")
+            effective_mrr = spec.max_running_requests or self.system.max_running_requests
+            if self.engine == "scheduler" and effective_mrr is None:
+                raise ValueError(
+                    f"scheduler release 的 scales.{scale} 必须提供 max_running_requests（或在 system 中指定）"
+                )
             if self.engine == "lockstep" and spec.max_running_requests is not None:
                 raise ValueError(f"lockstep release 的 scales.{scale} 不支持 max_running_requests")
         return self
@@ -87,7 +103,6 @@ def release_json_schema() -> dict[str, Any]:
 
 
 __all__ = [
-    "DefaultModeSpec",
     "RELEASE_SCALES",
     "ReleaseScale",
     "ReleaseSpec",

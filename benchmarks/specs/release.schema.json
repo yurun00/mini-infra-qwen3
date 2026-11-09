@@ -33,23 +33,6 @@
       "title": "CaseDimension",
       "type": "string"
     },
-    "DefaultModeSpec": {
-      "additionalProperties": false,
-      "properties": {
-        "caching_method": {
-          "$ref": "#/$defs/CachingMethod"
-        },
-        "batching_method": {
-          "$ref": "#/$defs/BatchingMethod"
-        }
-      },
-      "required": [
-        "caching_method",
-        "batching_method"
-      ],
-      "title": "DefaultModeSpec",
-      "type": "object"
-    },
     "ExecutionSpec": {
       "additionalProperties": false,
       "properties": {
@@ -74,6 +57,62 @@
         }
       },
       "title": "ExecutionSpec",
+      "type": "object"
+    },
+    "MinMaxRunningRequestsCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "min_max_running_requests": {
+          "exclusiveMinimum": 0,
+          "title": "Min Max Running Requests",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min_max_running_requests"
+      ],
+      "title": "MinMaxRunningRequestsCheck",
+      "type": "object"
+    },
+    "MinOutputLenCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "min_output_len": {
+          "exclusiveMinimum": 0,
+          "title": "Min Output Len",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min_output_len"
+      ],
+      "title": "MinOutputLenCheck",
+      "type": "object"
+    },
+    "PagedSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "block_size": {
+          "default": 16,
+          "exclusiveMinimum": 0,
+          "title": "Block Size",
+          "type": "integer"
+        },
+        "num_blocks": {
+          "anyOf": [
+            {
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Num Blocks"
+        }
+      },
+      "title": "PagedSpec",
       "type": "object"
     },
     "ScaleSpec": {
@@ -114,6 +153,53 @@
         "workload"
       ],
       "title": "ScaleSpec",
+      "type": "object"
+    },
+    "SystemSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "max_running_requests": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Running Requests"
+        },
+        "batching_method": {
+          "items": {
+            "$ref": "#/$defs/BatchingMethod"
+          },
+          "minItems": 1,
+          "title": "Batching Method",
+          "type": "array"
+        },
+        "caching_method": {
+          "items": {
+            "$ref": "#/$defs/CachingMethod"
+          },
+          "minItems": 1,
+          "title": "Caching Method",
+          "type": "array"
+        },
+        "paged": {
+          "$ref": "#/$defs/PagedSpec",
+          "default": {
+            "block_size": 16,
+            "num_blocks": null
+          }
+        }
+      },
+      "required": [
+        "batching_method",
+        "caching_method"
+      ],
+      "title": "SystemSpec",
       "type": "object"
     },
     "AlternatingLength": {
@@ -470,8 +556,8 @@
       "title": "Default Seed",
       "type": "integer"
     },
-    "default_mode": {
-      "$ref": "#/$defs/DefaultModeSpec"
+    "system": {
+      "$ref": "#/$defs/SystemSpec"
     },
     "execution": {
       "$ref": "#/$defs/ExecutionSpec",
@@ -496,6 +582,24 @@
       },
       "additionalProperties": false,
       "description": "三档标准负载，必须恰好包含 small / medium / large"
+    },
+    "checks": {
+      "items": {
+        "anyOf": [
+          {
+            "const": "free_batch_slot_at_t0",
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/MinMaxRunningRequestsCheck"
+          },
+          {
+            "$ref": "#/$defs/MinOutputLenCheck"
+          }
+        ]
+      },
+      "title": "Checks",
+      "type": "array"
     },
     "extends": {
       "type": "string",

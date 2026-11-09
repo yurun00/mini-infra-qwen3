@@ -94,6 +94,8 @@ def run_case(
     peaks: dict | None = None,
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
+    scale: str | None = None,
+    seed: int | None = None,
 ) -> LockstepCaseResult:
     """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
     min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
@@ -138,12 +140,9 @@ def run_case(
     ]
 
     workload = Workload(
-        mode=mode,
         num_total_requests=effective_batch_size,
         prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,
         max_new_tokens=tuple(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
-        repeats=repeats,
-        warmup=warmup,
     )
 
     eff_prompt_vals = [r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None]
@@ -220,12 +219,17 @@ def run_case(
         op_breakdown = prof_res.op_breakdown
 
     return LockstepCaseResult(
+        mode=mode,
         workload=workload,
         metrics=metrics,
         memory=case_memory,
+        repeats=repeats,
+        warmup=warmup,
         packing=packing,
         efficiency=eff,
         op_breakdown=op_breakdown,
+        scale=scale,
+        seed=seed,
     )
 
 

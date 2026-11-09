@@ -32,9 +32,9 @@ class LoadedReleaseSpec:
         """以指定 seed 重新展开三档负载（seed 缺省即 `scales`，取 default_seed）。"""
         return self.scales if seed is None else resolve_release_spec(self.spec, seed)
 
-    def to_workloads(self, *, seed: int | None = None, mode: Mode | None = None) -> dict[WorkloadScale, Workload]:
+    def to_workloads(self, *, seed: int | None = None) -> dict[WorkloadScale, Workload]:
         """转换为运行期三档 Workload。"""
-        return expand_release_workloads(self.spec, seed=seed, mode=mode)
+        return expand_release_workloads(self.spec, seed=seed)
 
 
 def load_release_spec(path: Path) -> LoadedReleaseSpec:
@@ -69,12 +69,11 @@ def release_workloads(
     engine: SuiteEngine,
     *,
     seed: int | None = None,
-    mode: Mode | None = None,
     specs_dir: Path | None = None,
 ) -> dict[WorkloadScale, Workload]:
-    """三档标准负载（small / medium / large）；seed 缺省取 YAML 的 default_seed，mode 缺省取 default_mode。"""
+    """三档标准负载（small / medium / large）；seed 缺省取 YAML 的 default_seed。"""
     loaded = get_release_spec(engine, specs_dir=specs_dir)
-    return loaded.to_workloads(seed=seed, mode=mode)
+    return loaded.to_workloads(seed=seed)
 
 
 __all__ = [

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.workload import ResolvedWorkload, resolve_workload_body
 from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
 from mini_infra.bench.workloads import Workload, WorkloadScale
@@ -24,14 +25,23 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
     resolved: dict[ReleaseScale, ResolvedReleaseScale] = {}
     for scale in RELEASE_SCALES:
         scale_spec = spec.scales[scale]
+        effective_mrr = scale_spec.max_running_requests or spec.system.max_running_requests
         body = {**scale_spec.workload, "seed": effective_seed, "seed_salt": scale_spec.seed_salt}
         workload = resolve_workload_body(
             f"{spec.engine}_{scale}", body, {}, context=f"release {spec.engine}/{scale} (seed={effective_seed})"
         )
+        for check in spec.checks:
+            run_check(
+                check,
+                context=f"release {spec.engine}/{scale}",
+                max_running_requests=effective_mrr,
+                output_budgets=workload.output_budgets,
+                arrival_ms=workload.arrival_ms,
+            )
         resolved[scale] = ResolvedReleaseScale(
             scale=scale,
             seed=effective_seed,
-            max_running_requests=scale_spec.max_running_requests,
+            max_running_requests=effective_mrr,
             workload=workload,
         )
     return resolved
@@ -39,29 +49,20 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
 
 def release_spec_default_mode(spec: ReleaseSpec) -> Mode:
     """Release YAML 声明的默认运行模式。"""
-    default = spec.default_mode
-    return Mode(default.caching_method, batching_method=default.batching_method)
+    return Mode(spec.system.caching_method[0], batching_method=spec.system.batching_method[0])
 
 
-def expand_release_workloads(
-    spec: ReleaseSpec, *, seed: int | None = None, mode: Mode | None = None
-) -> dict[WorkloadScale, Workload]:
-    """把 ReleaseSpec 转换为三档运行时 Workload；seed 缺省取 default_seed，mode 缺省取 default_mode。"""
-    target_mode = mode or release_spec_default_mode(spec)
+def expand_release_workloads(spec: ReleaseSpec, *, seed: int | None = None) -> dict[WorkloadScale, Workload]:
+    """把 ReleaseSpec 转换为三档运行时 Workload；seed 缺省取 default_seed。"""
     scales = resolve_release_spec(spec, seed=seed)
     workloads: dict[WorkloadScale, Workload] = {}
     for scale, resolved in scales.items():
         workloads[scale] = Workload(
-            mode=target_mode,
             num_total_requests=resolved.workload.num_requests,
             prompt_len=resolved.workload.prompt_len,
             max_new_tokens=resolved.workload.max_new_tokens,
-            repeats=spec.execution.repeats,
-            warmup=spec.execution.warmup,
-            seed=resolved.seed,
-            scale=scale,
-            max_running_requests=resolved.max_running_requests,
             arrival_times_ms=resolved.workload.arrival_ms if spec.engine == "scheduler" else None,
+            workload_id=f"{spec.engine}_{scale}",
         )
     return workloads
 

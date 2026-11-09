@@ -146,7 +146,8 @@ def handle_case(args: argparse.Namespace) -> int:
     if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
         result = replace(
             result,
-            workload=replace(result.workload, scale=getattr(args, "scale", None), seed=getattr(args, "seed", None)),
+            scale=getattr(args, "scale", None),
+            seed=getattr(args, "seed", None),
         )
 
     print(format_case_summary(result))

@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import torch
 
@@ -11,7 +11,6 @@ from mini_infra.core.types import (
     CachingMethod,
     RequestMetrics,
     SequenceOutput,
-    collapse_uniform,
 )
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -23,13 +22,11 @@ from mini_infra.engine.metrics import (
     StepAggregatedMetrics,
     summarize_repeated_paged_cache_profiles,
 )
+from mini_infra.engine.mode import Mode
 from mini_infra.profiling import (
     OpLatencyBreakdown,
     merge_op_latency_breakdowns,
 )
-
-if TYPE_CHECKING:
-    from mini_infra.bench.workloads import Workload
 
 
 def pad_output_tokens(
@@ -111,22 +108,9 @@ class ScheduleResult(GenerationResult):
         return self.metrics
 
     @property
-    def workload(self) -> "Workload":
-        """从单次调度结果提取负载规格 Workload（相等比较时忽略 repeats 与 warmup）。"""
-        from mini_infra.bench.workloads import Workload
-        from mini_infra.engine.mode import Mode
-
-        prompt_lengths = [s.prompt_len for s in self.sequences]
-        output_budgets = [r.num_output_tokens for r in self.request_metrics]
-        arrivals = [r.arrival_ms for r in self.request_metrics]
-        return Workload(
-            mode=Mode(self.caching_method, self.batching_method),
-            num_total_requests=self.schedule_metrics.request_count,
-            prompt_len=collapse_uniform(prompt_lengths),
-            max_new_tokens=collapse_uniform(output_budgets),
-            max_running_requests=self.schedule_metrics.max_running_requests,
-            arrival_times_ms=collapse_uniform(arrivals),
-        )
+    def mode(self) -> Mode:
+        """运行模式。"""
+        return Mode(self.caching_method, batching_method=self.batching_method)
 
 
 AggFunc = Literal["sum", "mean", "max", "min"] | Callable[[Sequence[float]], float]

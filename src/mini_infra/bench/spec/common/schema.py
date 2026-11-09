@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from mini_infra.bench.cases import CaseDimension
+from mini_infra.engine import BatchingMethod, CachingMethod
 
 SuiteEngine = Literal["scheduler", "lockstep"]
 
@@ -221,9 +222,39 @@ class ExecutionSpec(_Strict):
     interleave: list[CaseDimension] = Field(default_factory=list)
 
 
+# --------------------------------------------------------------------------- 被测系统
+
+
+class PagedSpec(_Strict):
+    block_size: PositiveInt = 16
+    num_blocks: Annotated[int, Field(strict=True, ge=2)] | None = None
+
+
+class SystemSpec(_Strict):
+    max_running_requests: PositiveInt | None = None
+    batching_method: Annotated[list[BatchingMethod], Field(min_length=1)]
+    caching_method: Annotated[list[CachingMethod], Field(min_length=1)]
+    paged: PagedSpec = PagedSpec()
+
+
+# --------------------------------------------------------------------------- 语义检查守卫
+
+
+class MinMaxRunningRequestsCheck(_Strict):
+    min_max_running_requests: PositiveInt
+
+
+class MinOutputLenCheck(_Strict):
+    min_output_len: PositiveInt
+
+
+CheckSpec = Literal["free_batch_slot_at_t0"] | MinMaxRunningRequestsCheck | MinOutputLenCheck
+
+
 __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
+    "CheckSpec",
     "ConstantArrival",
     "ConstantLength",
     "ExecutionSpec",
@@ -234,10 +265,14 @@ __all__ = [
     "LadderLength",
     "LengthSpec",
     "LogUniformLength",
+    "MinMaxRunningRequestsCheck",
+    "MinOutputLenCheck",
     "NonNegativeFloat",
+    "PagedSpec",
     "PoissonArrival",
     "PositiveInt",
     "SuiteEngine",
+    "SystemSpec",
     "WorkloadSpec",
     "_Strict",
     "normalize_workload_body",

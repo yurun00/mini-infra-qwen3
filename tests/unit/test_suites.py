@@ -200,7 +200,7 @@ sweep:
     )
     results = _run_cases(tiny)
 
-    assert [(r.workload.mode, r.workload.num_total_requests) for r in results] == [
+    assert [(r.mode, r.workload.num_total_requests) for r in results] == [
         (Mode(CachingMethod.DENSE), 1),
         (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 1),
         (Mode(CachingMethod.DENSE), 2),

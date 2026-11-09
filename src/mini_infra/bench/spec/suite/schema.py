@@ -26,10 +26,15 @@ from mini_infra.bench.cases import (
     MetricKind,
 )
 from mini_infra.bench.spec.common.schema import (
+    CheckSpec,
     ExecutionSpec,
     GroupSpec,
+    MinMaxRunningRequestsCheck,
+    MinOutputLenCheck,
+    PagedSpec,
     PositiveInt,
     SuiteEngine,
+    SystemSpec,
     _Strict,
 )
 from mini_infra.engine import BatchingMethod, CachingMethod
@@ -46,21 +51,6 @@ class WorkloadTemplate(_Strict):
     id: Annotated[str, Field(min_length=1)]
     vars: dict[str, Any] = Field(default_factory=dict)
     body: dict[str, Any]
-
-
-# --------------------------------------------------------------------------- 被测系统
-
-
-class PagedSpec(_Strict):
-    block_size: PositiveInt = 16
-    num_blocks: Annotated[int, Field(strict=True, ge=2)] | None = None
-
-
-class SystemSpec(_Strict):
-    max_running_requests: PositiveInt | None = None
-    batching_method: Annotated[list[BatchingMethod], Field(min_length=1)]
-    caching_method: Annotated[list[CachingMethod], Field(min_length=1)]
-    paged: PagedSpec = PagedSpec()
 
 
 # --------------------------------------------------------------------------- 扫描
@@ -122,17 +112,6 @@ class ComparisonConfig(_Strict):
             group_by=tuple(self.group_by),
             baseline=baseline,
         )
-
-
-class MinMaxRunningRequestsCheck(_Strict):
-    min_max_running_requests: PositiveInt
-
-
-class MinOutputLenCheck(_Strict):
-    min_output_len: PositiveInt
-
-
-CheckSpec = Literal["free_batch_slot_at_t0"] | MinMaxRunningRequestsCheck | MinOutputLenCheck
 
 
 # --------------------------------------------------------------------------- 顶层
