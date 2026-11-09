@@ -2,7 +2,7 @@
 
 import argparse
 
-from mini_infra.cli.commands.bench import check_regression, lockstep, plot, release, scheduler, suites
+from mini_infra.cli.commands.bench import check_regression, lockstep, plot, release, scheduler, suites, sweep
 
 
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -16,4 +16,5 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     check_regression.register_parser(bench_subs)
     release.register_parser(bench_subs)
     suites.register_parser(bench_subs)
+    sweep.register_parser(bench_subs)
     return bench_parser

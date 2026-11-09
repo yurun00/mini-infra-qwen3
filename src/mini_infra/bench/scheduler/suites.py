@@ -9,14 +9,20 @@
 `cases(vocab_size)` 把蓝图绑定到合成 token，得到 run_suite 消费的 `SchedulerSuiteCase` 列表。
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from mini_infra.bench.cases import CaseDimension, ComparisonSpec, SchedulerSuiteCase
-from mini_infra.bench.spec import CaseBlueprint, LoadedSuiteSpec, ResolvedWorkload, discover_suite_specs, get_suite_spec
-from mini_infra.bench.spec.loader import load_suite_spec
+from mini_infra.bench.spec import (
+    CaseBlueprint,
+    LoadedSuiteSpec,
+    ResolvedWorkload,
+    discover_suite_specs,
+    get_suite_spec,
+    load_suite_spec,
+)
 from mini_infra.bench.workloads import make_sequences
 from mini_infra.core.request import RequestSpec, make_request_specs
 from mini_infra.engine import Mode
@@ -87,12 +93,12 @@ class SchedulerSuite:
 
 
 def _suite_from_loaded(loaded: LoadedSuiteSpec) -> SchedulerSuite:
-    return SchedulerSuite(loaded=loaded, blueprints=tuple(loaded.blueprints()))
+    return SchedulerSuite(loaded=loaded, blueprints=loaded.blueprints)
 
 
-def load_scheduler_suite(path: Path) -> SchedulerSuite:
+def load_scheduler_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> SchedulerSuite:
     """从任意 YAML 路径加载 Scheduler 套件。"""
-    loaded = load_suite_spec(path)
+    loaded = load_suite_spec(path, overrides)
     if loaded.spec.engine != "scheduler":
         raise ValueError(f"{path}: engine 必须是 scheduler，实际为 {loaded.spec.engine}")
     return _suite_from_loaded(loaded)
@@ -102,8 +108,8 @@ def list_scheduler_suite_names() -> list[str]:
     return sorted(discover_suite_specs("scheduler"))
 
 
-def get_scheduler_suite(name: str) -> SchedulerSuite:
-    return _suite_from_loaded(get_suite_spec("scheduler", name))
+def get_scheduler_suite(name: str, overrides: Mapping[str, Any] | None = None) -> SchedulerSuite:
+    return _suite_from_loaded(get_suite_spec("scheduler", name, overrides=overrides))
 
 
 def get_all_scheduler_suites() -> Sequence[SchedulerSuite]:

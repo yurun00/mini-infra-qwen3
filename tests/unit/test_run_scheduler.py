@@ -17,15 +17,16 @@ from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
-def test_parse_args_scheduler_suite():
+def test_parse_args_scheduler_sweep():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(
         [
             "bench",
+            "sweep",
+            "--engine",
             "scheduler",
-            "suite",
             "--tag",
             "dev",
             "--suite",
@@ -38,25 +39,22 @@ def test_parse_args_scheduler_suite():
         ]
     )
     assert args.tag == "dev"
-    assert args.suite == "fixed-vs-continuous-variable-output-length"
+    assert args.engine == "scheduler"
+    assert args.suite == ["fixed-vs-continuous-variable-output-length"]
     assert args.repeats == 2
     assert args.interleave == ["batching_method"]
     assert args.dry_run is True
 
 
-def test_parse_args_scheduler_suite_validation():
+def test_scheduler_suite_subcommand_removed():
     import pytest
 
     from mini_infra.cli import build_parser
 
     parser = build_parser()
-    # 1. 验证 --suite 为必填项
+    # 验证旧的 bench scheduler suite 子命令已被彻底移除（由 bench sweep 统一接管）
     with pytest.raises(SystemExit):
         parser.parse_args(["bench", "scheduler", "suite", "--tag", "dev"])
-
-    # 2. 验证已不再支持 'all'，一次只跑一个 suite
-    with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "scheduler", "suite", "--tag", "dev", "--suite", "all"])
 
 
 def test_parse_args_scheduler_case():
@@ -471,14 +469,15 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
 
 def test_scheduler_suite_dry_run_main(capsys):
-    """验证 --dry-run 参数无需 GPU 与模型即可打印执行计划。"""
+    """验证 bench sweep --dry-run 参数无需 GPU 与模型即可打印执行计划。"""
     from mini_infra.cli import main
 
     ret = main(
         [
             "bench",
+            "sweep",
+            "--engine",
             "scheduler",
-            "suite",
             "--tag",
             "dev",
             "--dry-run",

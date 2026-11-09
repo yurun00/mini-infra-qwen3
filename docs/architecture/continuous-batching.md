@@ -44,9 +44,9 @@
 
 ---
 
-## 三、scheduler 基准测试套件 (`mini-infra bench scheduler`)
+## 三、scheduler 基准测试套件 (`mini-infra bench sweep --engine scheduler`)
 
-为了科学量化 Continuous Batching 在不同在线负载模式下的收益与开销，项目提供了独立的 scheduler 评测入口 `mini-infra bench scheduler`（独立于齐步生成的 `mini-infra bench lockstep case` / `mini-infra bench lockstep suite`）。
+为了科学量化 Continuous Batching 在不同在线负载模式下的收益与开销，项目提供了独立的评测入口 `mini-infra bench scheduler case` 与套件执行入口 `mini-infra bench sweep`。
 
 ### 1. 四大受控实验套件 (Suites)
 
@@ -82,7 +82,7 @@ mini-infra bench scheduler case --tag dev --batching-method continuous-batching 
 
 ```bash
 # 在 GPU 上评测长短请求混合场景下的连续批处理加速比（自动对比 Fixed 与 Continuous）
-mini-infra bench scheduler suite --tag dev --suite fixed-vs-continuous-variable-output-length --warmup 1 --repeats 3
+mini-infra bench sweep --engine scheduler --tag dev --suite fixed-vs-continuous-variable-output-length --warmup 1 --repeats 3
 ```
 
 输出示例：
@@ -101,7 +101,7 @@ mini-infra bench scheduler suite --tag dev --suite fixed-vs-continuous-variable-
 
 ```bash
 # 运行指定的受控评测套件，生成 scheduler 评测报告
-mini-infra bench scheduler suite --tag v0.3.0 --suite fixed-vs-continuous-variable-output-length
+mini-infra bench sweep --engine scheduler --tag v0.3.0 --suite fixed-vs-continuous-variable-output-length
 ```
 
 ### 4. 热漂移规避（Thermal Drift Mitigation）

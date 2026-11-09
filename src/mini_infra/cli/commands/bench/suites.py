@@ -12,8 +12,15 @@ import yaml
 
 from mini_infra.bench.cases import CaseKey
 from mini_infra.bench.common import format_lengths
-from mini_infra.bench.spec import CaseBlueprint, LoadedSuiteSpec, SuiteEngine, discover_suite_specs, load_suite_spec
-from mini_infra.bench.spec.schema import suite_json_schema
+from mini_infra.bench.spec import (
+    CaseBlueprint,
+    LoadedSuiteSpec,
+    SuiteEngine,
+    discover_suite_specs,
+    load_suite_spec,
+    release_json_schema,
+    suite_json_schema,
+)
 
 _ENGINES: tuple[SuiteEngine, ...] = ("lockstep", "scheduler")
 
@@ -32,7 +39,10 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     show_parser.add_argument("--engine", choices=_ENGINES, default=None, help="名称重名时指定引擎")
     show_parser.set_defaults(func=handle_show)
 
-    schema_parser = subs.add_parser("schema", help="导出 suite YAML 的 JSON Schema（供 IDE 补全）")
+    schema_parser = subs.add_parser("schema", help="导出 suite / release YAML 的 JSON Schema（供 IDE 补全）")
+    schema_parser.add_argument(
+        "--kind", choices=["suite", "release"], default="suite", help="导出哪类声明的 Schema（默认: suite）"
+    )
     schema_parser.add_argument("--output", type=Path, default=None, help="写入文件（默认打印到标准输出）")
     schema_parser.set_defaults(func=handle_schema)
     return suites_parser
@@ -71,7 +81,7 @@ def handle_list(args: argparse.Namespace) -> int:
         for name, path in discover_suite_specs(engine).items():
             loaded = load_suite_spec(path)
             summary = loaded.spec.description.strip().splitlines()[0] if loaded.spec.description.strip() else ""
-            rows.append((engine, name, len(loaded.blueprints()), summary))
+            rows.append((engine, name, len(loaded.blueprints), summary))
     if not rows:
         print("未发现任何 suite（benchmarks/specs/<engine>/*.yaml）")
         return 0
@@ -90,7 +100,7 @@ def handle_show(args: argparse.Namespace) -> int:
     engine = loaded.spec.engine
     print(f"# {loaded.path}  (sha256={loaded.sha256[:12]})")
     print(yaml.safe_dump(loaded.raw, sort_keys=False, allow_unicode=True).rstrip())
-    blueprints = loaded.blueprints()
+    blueprints = loaded.blueprints
     print(f"\n# 展开后的用例（共 {len(blueprints)} 个，顺序即执行顺序）")
     for i, bp in enumerate(blueprints, 1):
         print(f"  [{i:02d}] {_describe_case(engine, bp)}")
@@ -98,7 +108,8 @@ def handle_show(args: argparse.Namespace) -> int:
 
 
 def handle_schema(args: argparse.Namespace) -> int:
-    text = json.dumps(suite_json_schema(), indent=2, ensure_ascii=False) + "\n"
+    schema = release_json_schema() if args.kind == "release" else suite_json_schema()
+    text = json.dumps(schema, indent=2, ensure_ascii=False) + "\n"
     if args.output is None:
         sys.stdout.write(text)
     else:

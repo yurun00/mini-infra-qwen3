@@ -1,0 +1,66 @@
+"""跨 spec 共享的基础模型与工具（纯 CPU）。"""
+
+from mini_infra.bench.spec.common.lengths import (
+    expand_arrival,
+    expand_length,
+    sample_log_uniform_lengths,
+    sample_poisson_arrivals,
+)
+from mini_infra.bench.spec.common.overrides import apply_overrides, parse_set_args
+from mini_infra.bench.spec.common.raw import _sha256, deep_merge, load_raw_spec
+from mini_infra.bench.spec.common.schema import (
+    AlternatingLength,
+    ArrivalSpec,
+    ConstantArrival,
+    ConstantLength,
+    ExecutionSpec,
+    ExplicitArrival,
+    ExplicitLength,
+    GroupSpec,
+    IntervalArrival,
+    LadderLength,
+    LengthSpec,
+    LogUniformLength,
+    NonNegativeFloat,
+    PoissonArrival,
+    PositiveInt,
+    SuiteEngine,
+    WorkloadBody,
+    _Strict,
+    normalize_workload_body,
+)
+from mini_infra.bench.spec.common.workload import ResolvedWorkload, interpolate, resolve_workload_body
+
+__all__ = [
+    "AlternatingLength",
+    "ArrivalSpec",
+    "ConstantArrival",
+    "ConstantLength",
+    "ExecutionSpec",
+    "ExplicitArrival",
+    "ExplicitLength",
+    "GroupSpec",
+    "IntervalArrival",
+    "LadderLength",
+    "LengthSpec",
+    "LogUniformLength",
+    "NonNegativeFloat",
+    "PoissonArrival",
+    "PositiveInt",
+    "ResolvedWorkload",
+    "SuiteEngine",
+    "WorkloadBody",
+    "_Strict",
+    "_sha256",
+    "apply_overrides",
+    "deep_merge",
+    "expand_arrival",
+    "expand_length",
+    "interpolate",
+    "load_raw_spec",
+    "normalize_workload_body",
+    "parse_set_args",
+    "resolve_workload_body",
+    "sample_log_uniform_lengths",
+    "sample_poisson_arrivals",
+]

@@ -3,16 +3,13 @@
 import torch
 
 from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
+from mini_infra.bench.spec.release import release_workloads
 from mini_infra.bench.workloads import (
-    BENCH_LOCKSTEP_WORKLOAD,
-    BENCH_SCHEDULER_WORKLOAD,
     WORKLOAD_SCALES,
     WorkloadSpec,
     build_scheduler_request_specs,
     make_arrival_times,
-    make_lockstep_workload,
     make_prompt,
-    make_scheduler_workload,
     make_sequence,
     make_sequences,
 )
@@ -141,11 +138,13 @@ def test_make_arrival_times():
 def test_canonical_workloads_and_build_scheduler_specs():
     from dataclasses import replace
 
-    assert set(BENCH_LOCKSTEP_WORKLOAD.keys()) == set(WORKLOAD_SCALES)
-    assert set(BENCH_SCHEDULER_WORKLOAD.keys()) == set(WORKLOAD_SCALES)
+    lockstep_workloads = release_workloads("lockstep")
+    scheduler_workloads = release_workloads("scheduler")
+    assert set(lockstep_workloads) == set(WORKLOAD_SCALES)
+    assert set(scheduler_workloads) == set(WORKLOAD_SCALES)
 
     for scale in WORKLOAD_SCALES:
-        lw = BENCH_LOCKSTEP_WORKLOAD[scale]
+        lw = lockstep_workloads[scale]
         assert isinstance(lw, WorkloadSpec)
         assert lw.scale == scale
         assert lw.seed == 42
@@ -156,7 +155,7 @@ def test_canonical_workloads_and_build_scheduler_specs():
         assert replace(lw, seed=999) == lw
         assert replace(lw, scale="custom") != lw
 
-        sw = BENCH_SCHEDULER_WORKLOAD[scale]
+        sw = scheduler_workloads[scale]
         assert isinstance(sw, WorkloadSpec)
         assert sw.scale == scale
         assert sw.seed == 42
@@ -174,10 +173,13 @@ def test_canonical_workloads_and_build_scheduler_specs():
         assert tuple(s.arrival_ms for s in specs) == sw.arrival_times_ms
 
     # Different seeds produce different pseudo-random configurations
-    assert make_lockstep_workload("medium", seed=42).prompt_len != make_lockstep_workload("medium", seed=43).prompt_len
     assert (
-        make_scheduler_workload("medium", seed=42).arrival_times_ms
-        != make_scheduler_workload("medium", seed=43).arrival_times_ms
+        release_workloads("lockstep", seed=42)["medium"].prompt_len
+        != release_workloads("lockstep", seed=43)["medium"].prompt_len
+    )
+    assert (
+        release_workloads("scheduler", seed=42)["medium"].arrival_times_ms
+        != release_workloads("scheduler", seed=43)["medium"].arrival_times_ms
     )
 
 

@@ -48,9 +48,12 @@ def test_cli_subcommand_helps():
         ["verify", "parity", "lockstep-batch", "--help"],
         ["verify", "parity", "scheduler-batch", "--help"],
         ["bench", "lockstep", "case", "--help"],
-        ["bench", "lockstep", "suite", "--help"],
         ["bench", "scheduler", "case", "--help"],
-        ["bench", "scheduler", "suite", "--help"],
+        ["bench", "sweep", "--help"],
+        ["bench", "suites", "--help"],
+        ["bench", "suites", "list", "--help"],
+        ["bench", "suites", "show", "--help"],
+        ["bench", "suites", "schema", "--help"],
         ["bench", "plot", "history", "--help"],
         ["bench", "plot", "compare", "--help"],
         ["bench", "check-regression", "--help"],
@@ -72,12 +75,13 @@ def test_cli_verify_smoke(capsys):
 
 
 def test_cli_scheduler_suite_dry_run(capsys):
-    """测试 mini-infra bench scheduler suite --dry-run 端到端执行。"""
+    """测试 mini-infra bench sweep --engine scheduler --dry-run 端到端执行。"""
     ret = main(
         [
             "bench",
+            "sweep",
+            "--engine",
             "scheduler",
-            "suite",
             "--tag",
             "dev",
             "--dry-run",
@@ -94,12 +98,13 @@ def test_cli_scheduler_suite_dry_run(capsys):
 
 
 def test_cli_scheduler_paged_suite_dry_run(capsys):
-    """测试 mini-infra bench scheduler suite 对 dense-vs-paged 套件的 --dry-run 执行。"""
+    """测试 mini-infra bench sweep --engine scheduler 对 dense-vs-paged 套件的 --dry-run 执行。"""
     ret = main(
         [
             "bench",
+            "sweep",
+            "--engine",
             "scheduler",
-            "suite",
             "--tag",
             "dev",
             "--dry-run",

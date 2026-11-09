@@ -6,7 +6,7 @@
 
 run_suite.py 不关心 suite 的内部细节，只按 `suite.cases()` 逐个执行并汇总结果：
 
-    mini-infra bench lockstep suite --tag dev --suite serial-vs-fixed-batch-throughput
+    mini-infra bench sweep --engine lockstep --tag dev --suite serial-vs-fixed-batch-throughput
 
 当前内置：
     serial-vs-fixed-batch-throughput   对每个 batch size，分别用 serial（逐请求串行）与 fixed-batching
@@ -17,13 +17,18 @@ run_suite.py 不关心 suite 的内部细节，只按 `suite.cases()` 逐个执�
                                        测量 batch slot 利用率、Decode 耗时与端到端有效吞吐。
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.spec import CaseBlueprint, LoadedSuiteSpec, discover_suite_specs, get_suite_spec
-from mini_infra.bench.spec.loader import load_suite_spec
+from mini_infra.bench.spec import (
+    CaseBlueprint,
+    LoadedSuiteSpec,
+    discover_suite_specs,
+    get_suite_spec,
+    load_suite_spec,
+)
 from mini_infra.engine import Mode
 
 
@@ -72,12 +77,12 @@ class LockstepSuite:
 
 
 def suite_from_loaded(loaded: LoadedSuiteSpec) -> LockstepSuite:
-    return LockstepSuite(loaded=loaded, blueprints=tuple(loaded.blueprints()))
+    return LockstepSuite(loaded=loaded, blueprints=loaded.blueprints)
 
 
-def load_lockstep_suite(path: Path) -> LockstepSuite:
+def load_lockstep_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> LockstepSuite:
     """从任意 YAML 路径加载 Lockstep 套件。"""
-    loaded = load_suite_spec(path)
+    loaded = load_suite_spec(path, overrides)
     if loaded.spec.engine != "lockstep":
         raise ValueError(f"{path}: engine 必须是 lockstep，实际为 {loaded.spec.engine}")
     return suite_from_loaded(loaded)
@@ -87,8 +92,8 @@ def list_lockstep_suite_names() -> list[str]:
     return sorted(discover_suite_specs("lockstep"))
 
 
-def get_lockstep_suite(name: str) -> LockstepSuite:
-    return suite_from_loaded(get_suite_spec("lockstep", name))
+def get_lockstep_suite(name: str, overrides: Mapping[str, Any] | None = None) -> LockstepSuite:
+    return suite_from_loaded(get_suite_spec("lockstep", name, overrides=overrides))
 
 
 def get_all_lockstep_suites() -> Sequence[LockstepSuite]:

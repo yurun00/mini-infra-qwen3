@@ -11,12 +11,13 @@ from mini_infra.bench.common import SPECS_DIR
 from mini_infra.bench.lockstep.suites import get_lockstep_suite
 from mini_infra.bench.scheduler.suites import get_scheduler_suite
 from mini_infra.bench.spec import (
+    deep_merge,
     discover_suite_specs,
     expand_suite_spec,
     get_suite_spec,
+    load_raw_spec,
     load_suite_spec,
 )
-from mini_infra.bench.spec.loader import deep_merge, load_raw_spec
 from mini_infra.engine import BatchingMethod, CachingMethod
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
@@ -140,7 +141,7 @@ def _write(tmp_path: Path, text: str, name: str = "demo") -> Path:
 
 def test_block_size_sweep_only_expands_paged_modes(tmp_path):
     text = _SCHEDULER_BASE + "sweep:\n  system:\n    block_size: [4, 8]\n"
-    blueprints = load_suite_spec(_write(tmp_path, text)).blueprints()
+    blueprints = load_suite_spec(_write(tmp_path, text)).blueprints
     assert [
         (bp.mode.caching_method, bp.paged_cache_config and bp.paged_cache_config.block_size) for bp in blueprints
     ] == [
@@ -191,7 +192,7 @@ workload:
   prompt_len: [8, 8]
   output_len: 4
 """
-    (bp,) = load_suite_spec(_write(tmp_path, text)).blueprints()
+    (bp,) = load_suite_spec(_write(tmp_path, text)).blueprints
     assert bp.workload.prompt_len == (8, 8)
     assert bp.workload.max_new_tokens == 4
 
@@ -304,8 +305,7 @@ workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
 
 
 def test_length_and_arrival_expansion_edge_cases():
-    from mini_infra.bench.spec.lengths import expand_arrival, expand_length
-    from mini_infra.bench.spec.schema import GroupSpec
+    from mini_infra.bench.spec.common import GroupSpec, expand_arrival, expand_length
 
     def group(**kwargs: Any) -> GroupSpec:
         return GroupSpec.model_validate({"count": 4, "prompt_len": 8, "output_len": 4, **kwargs})
@@ -330,7 +330,7 @@ def test_length_and_arrival_expansion_edge_cases():
 
 
 def test_negative_arrival_and_unknown_length_kind_are_rejected():
-    from mini_infra.bench.spec.schema import GroupSpec
+    from mini_infra.bench.spec.common import GroupSpec
 
     with pytest.raises(ValueError, match="greater than or equal to 0"):
         GroupSpec.model_validate({"count": 1, "prompt_len": 8, "output_len": 4, "arrival_ms": -1})

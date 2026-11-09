@@ -141,32 +141,39 @@ checks: [{min_output_len: 2}]
         _tiny_suite(tmp_path, "demo", body.replace(old, new))
 
 
-def test_parse_args_suite():
+def test_parse_args_sweep_lockstep():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(
-        ["bench", "lockstep", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"]
+        ["bench", "sweep", "--engine", "lockstep", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"]
     )
-    assert args.suite == "serial-vs-fixed-batch-throughput"
+    assert args.suite == ["serial-vs-fixed-batch-throughput"]
+    assert args.engine == "lockstep"
 
     # 无法识别的参数直接报错
     for invalid in (["--prompt-lens", "32"], ["--batch-size", "2"], ["--no-kv-cache"]):
         with pytest.raises(SystemExit):
             parser.parse_args(
-                ["bench", "lockstep", "suite", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput", *invalid]
+                [
+                    "bench",
+                    "sweep",
+                    "--engine",
+                    "lockstep",
+                    "--tag",
+                    "t",
+                    "--suite",
+                    "serial-vs-fixed-batch-throughput",
+                    *invalid,
+                ]
             )
 
-    # 未知 suite 报错
-    with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "lockstep", "suite", "--tag", "t", "--suite", "unknown"])
 
-
-def test_parse_args_requires_suite():
-    # run_suite 缺少 --suite 时直接报错退出
+def test_lockstep_suite_subcommand_removed():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
+    # 验证旧的 bench lockstep suite 子命令已被彻底移除（由 bench sweep 统一接管）
     with pytest.raises(SystemExit):
         parser.parse_args(["bench", "lockstep", "suite", "--tag", "t"])
 

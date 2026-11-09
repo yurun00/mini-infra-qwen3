@@ -464,6 +464,62 @@
       "title": "LadderLength",
       "type": "object"
     },
+    "LogUniformLength": {
+      "additionalProperties": false,
+      "description": "分层对数均匀分布（Stratified Log-Uniform）+ 随机打乱：短/中请求居多、长尾并存的偏态长度；需要 workload.seed。",
+      "properties": {
+        "kind": {
+          "const": "log_uniform",
+          "default": "log_uniform",
+          "title": "Kind",
+          "type": "string"
+        },
+        "min": {
+          "exclusiveMinimum": 0,
+          "title": "Min",
+          "type": "integer"
+        },
+        "max": {
+          "exclusiveMinimum": 0,
+          "title": "Max",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "LogUniformLength",
+      "type": "object"
+    },
+    "PoissonArrival": {
+      "additionalProperties": false,
+      "description": "带初始突发的泊松过程：前 initial_burst 个请求在 0 ms，其后为指数间隔（夹在 [5, 3×均值] ms）；需要 seed。",
+      "properties": {
+        "kind": {
+          "const": "poisson",
+          "default": "poisson",
+          "title": "Kind",
+          "type": "string"
+        },
+        "initial_burst": {
+          "exclusiveMinimum": 0,
+          "title": "Initial Burst",
+          "type": "integer"
+        },
+        "mean_interval_ms": {
+          "exclusiveMinimum": 0.0,
+          "title": "Mean Interval Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "initial_burst",
+        "mean_interval_ms"
+      ],
+      "title": "PoissonArrival",
+      "type": "object"
+    },
     "GroupSpec": {
       "additionalProperties": false,
       "description": "一组同构请求；多个组按声明顺序拼接成整体请求序列（request_idx 连续编号）。",
@@ -479,7 +535,8 @@
               "alternating": "#/$defs/AlternatingLength",
               "constant": "#/$defs/ConstantLength",
               "explicit": "#/$defs/ExplicitLength",
-              "ladder": "#/$defs/LadderLength"
+              "ladder": "#/$defs/LadderLength",
+              "log_uniform": "#/$defs/LogUniformLength"
             },
             "propertyName": "kind"
           },
@@ -495,6 +552,9 @@
             },
             {
               "$ref": "#/$defs/LadderLength"
+            },
+            {
+              "$ref": "#/$defs/LogUniformLength"
             }
           ],
           "title": "Prompt Len"
@@ -505,7 +565,8 @@
               "alternating": "#/$defs/AlternatingLength",
               "constant": "#/$defs/ConstantLength",
               "explicit": "#/$defs/ExplicitLength",
-              "ladder": "#/$defs/LadderLength"
+              "ladder": "#/$defs/LadderLength",
+              "log_uniform": "#/$defs/LogUniformLength"
             },
             "propertyName": "kind"
           },
@@ -521,6 +582,9 @@
             },
             {
               "$ref": "#/$defs/LadderLength"
+            },
+            {
+              "$ref": "#/$defs/LogUniformLength"
             }
           ],
           "title": "Output Len"
@@ -534,7 +598,8 @@
             "mapping": {
               "constant": "#/$defs/ConstantArrival",
               "explicit": "#/$defs/ExplicitArrival",
-              "interval": "#/$defs/IntervalArrival"
+              "interval": "#/$defs/IntervalArrival",
+              "poisson": "#/$defs/PoissonArrival"
             },
             "propertyName": "kind"
           },
@@ -547,6 +612,9 @@
             },
             {
               "$ref": "#/$defs/IntervalArrival"
+            },
+            {
+              "$ref": "#/$defs/PoissonArrival"
             }
           ],
           "title": "Arrival Ms"

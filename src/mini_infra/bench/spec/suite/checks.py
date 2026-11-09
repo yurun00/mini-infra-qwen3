@@ -5,7 +5,7 @@
 
 from collections.abc import Sequence
 
-from mini_infra.bench.spec.schema import CheckSpec, MinMaxRunningRequestsCheck, MinOutputLenCheck
+from mini_infra.bench.spec.suite.schema import CheckSpec, MinMaxRunningRequestsCheck, MinOutputLenCheck
 
 
 def run_check(

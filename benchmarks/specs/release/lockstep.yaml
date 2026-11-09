@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../release.schema.json
+# Lockstep 版本发布标准负载（small / medium / large）。
+# 每档随机分布共用 random.Random(seed * 1000 + seed_salt)；`mini-infra bench release --seed N` 只覆盖 seed。
+# 修改本文件会改变所有版本归档的可比性，仅在受控基准更新流程中变更（见 RELEASE.md）。
+engine: lockstep
+description: Lockstep 标准伪随机负载：分层对数均匀的 prompt 长度与输出预算，所有请求同时开始。
+default_seed: 42
+default_mode: {caching_method: dense-kv-cache, batching_method: fixed-batching}
+execution: {warmup: 2, repeats: 5}
+scales:
+  small:
+    seed_salt: 101
+    workload:
+      count: 4
+      prompt_len: {log_uniform: {min: 16, max: 64}}
+      output_len: {log_uniform: {min: 8, max: 32}}
+  medium:
+    seed_salt: 202
+    workload:
+      count: 8
+      prompt_len: {log_uniform: {min: 64, max: 256}}
+      output_len: {log_uniform: {min: 32, max: 96}}
+  large:
+    seed_salt: 303
+    workload:
+      count: 16
+      prompt_len: {log_uniform: {min: 256, max: 1024}}
+      output_len: {log_uniform: {min: 64, max: 192}}

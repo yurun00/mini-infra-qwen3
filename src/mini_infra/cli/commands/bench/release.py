@@ -1,7 +1,7 @@
 """CLI 子命令：mini-infra bench release
 
-使用 `mini_infra.bench.workloads` 中预定义的多规模伪随机真实 Traffic 工作负载
-（`BENCH_LOCKSTEP_WORKLOAD` 与 `BENCH_SCHEDULER_WORKLOAD`，含 small / medium / large 三档），
+使用 `mini_infra.bench.spec.release` 加载的多规模伪随机真实 Traffic 工作负载
+（声明于 `benchmarks/specs/release/{lockstep,scheduler}.yaml`，含 small / medium / large 三档），
 根据输入的 `--engine`（lockstep / scheduler）、`--tag` 与 `--release-feature` 一键生成版本发布所需的全部基准评测产物：
 1. 多规模历史记录：`benchmarks/result-history/{lockstep,scheduler}/<commit>_<tag>.json`（含 small/medium/large 三档）
 2. 演进报告与剖析大图：
@@ -42,9 +42,10 @@ import argparse
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
+from mini_infra.bench import release_default_mode, release_workloads
 from mini_infra.bench.common import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
@@ -53,15 +54,7 @@ from mini_infra.bench.common import (
     SCHEDULER_RESULT_HISTORY_DIR,
     git_info,
 )
-from mini_infra.bench.workloads import (
-    BENCH_LOCKSTEP_WORKLOAD,
-    BENCH_SCHEDULER_WORKLOAD,
-    WORKLOAD_SCALES,
-    WorkloadScale,
-    WorkloadSpec,
-    make_lockstep_workload,
-    make_scheduler_workload,
-)
+from mini_infra.bench.workloads import WORKLOAD_SCALES, WorkloadScale, WorkloadSpec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
@@ -240,7 +233,7 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--seed",
         type=int,
         default=None,
-        help="覆盖伪随机种子（默认直接使用 BENCH_LOCKSTEP_WORKLOAD / BENCH_SCHEDULER_WORKLOAD 的标准种子）",
+        help="覆盖伪随机种子（默认使用 benchmarks/specs/release/<engine>.yaml 的 default_seed）",
     )
     p.add_argument(
         "--batching-method",
@@ -287,7 +280,7 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="使用预定义 BENCH_LOCKSTEP_WORKLOAD / BENCH_SCHEDULER_WORKLOAD 一键生成版本发布所需的基准与报告产物"
+        description="使用 benchmarks/specs/release/ 声明的标准负载一键生成版本发布所需的基准与报告产物"
     )
     add_release_args(p)
     return p
@@ -315,17 +308,14 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
     custom_seed: int | None = getattr(args, "seed", None)
 
     if args.engine == "lockstep":
-        default_bm = BENCH_LOCKSTEP_WORKLOAD["medium"].mode.batching_method
+        default_bm = release_default_mode("lockstep").batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         mode = Mode(caching_method, batching_method=bm)
         prof = args.profile_mode if args.profile_mode is not None else "extra-profile"
 
+        lockstep_workloads = release_workloads("lockstep", seed=custom_seed, mode=mode)
         for sc in scales:
-            base_wl = (
-                make_lockstep_workload(sc, seed=custom_seed, mode=mode)
-                if custom_seed is not None
-                else replace(BENCH_LOCKSTEP_WORKLOAD[sc], mode=mode)
-            )
+            base_wl = lockstep_workloads[sc]
             scale_prof = prof if sc == "small" else None
             steps.append(
                 ReleaseStep(
@@ -347,19 +337,16 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             )
         )
     else:
-        default_bm = BENCH_SCHEDULER_WORKLOAD["medium"].mode.batching_method
+        default_bm = release_default_mode("scheduler").batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         target_mode = Mode(caching_method, batching_method=bm)
         block_size = getattr(args, "block_size", None)
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
 
+        scheduler_workloads = release_workloads("scheduler", seed=custom_seed, mode=target_mode)
         for sc in scales:
-            target_wl = (
-                make_scheduler_workload(sc, seed=custom_seed, mode=target_mode)
-                if custom_seed is not None
-                else replace(BENCH_SCHEDULER_WORKLOAD[sc], mode=target_mode)
-            )
+            target_wl = scheduler_workloads[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",

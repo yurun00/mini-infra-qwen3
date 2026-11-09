@@ -1,13 +1,17 @@
-"""CLI 子命令：mini-infra bench scheduler (case / suite)
+"""CLI 子命令：mini-infra bench scheduler case
 
-队列调度器（Scheduler）评测套件与用例执行入口。
+队列调度器（Scheduler）单用例评测执行入口。套件执行请使用 `mini-infra bench sweep --engine scheduler`。
 """
 
 import argparse
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
 
-from mini_infra.bench.cases import CaseDimension, SchedulerSuiteCase
+import torch
+
+from mini_infra.bench.cases import SchedulerSuiteCase
 from mini_infra.bench.common import (
     CASE_DIR,
     add_common_args,
@@ -30,11 +34,11 @@ from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_args,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import get_scheduler_suite, list_scheduler_suite_names, load_scheduler_suite
+from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
-from mini_infra.cli.commands.bench.suite_source import add_suite_source_args, suite_output_path
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -83,51 +87,20 @@ def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPars
     return p
 
 
-def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 scheduler suite 参数。"""
-    add_common_args(p)
-    add_suite_source_args(p, "scheduler", list_scheduler_suite_names())
-    p.add_argument(
-        "--interleave",
-        nargs="*",
-        default=None,
-        help=(
-            f"选择交替轮换的特征维度（可选: {[d.value for d in CaseDimension]}，"
-            "或 none 关闭交替；默认使用 Suite 的配置）"
-        ),
-    )
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="仅生成并打印执行计划，不加载模型也不要求 CUDA",
-    )
-    return p
-
-
 def build_case_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="运行单用例 Scheduler 基准测试")
     add_scheduler_case_args(p)
     return p
 
 
-def build_suite_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行预设 Scheduler 套件")
-    add_scheduler_suite_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 scheduler 组及 case/suite 子命令。"""
+    """在 bench 下注册 scheduler 组及 case 子命令。"""
     scheduler_parser = subparsers.add_parser("scheduler", help="队列调度器（Scheduler: Fixed vs Continuous）基准测试")
     scheduler_subs = scheduler_parser.add_subparsers(dest="scheduler_subcommand", required=True)
 
     case_parser = scheduler_subs.add_parser("case", help="运行单用例 Scheduler 基准测试")
     add_scheduler_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
-
-    suite_parser = scheduler_subs.add_parser("suite", help="运行预设 Scheduler 套件")
-    add_scheduler_suite_args(suite_parser)
-    suite_parser.set_defaults(func=handle_suite)
     return scheduler_parser
 
 
@@ -246,40 +219,58 @@ def handle_case(args: argparse.Namespace) -> int:
     return 0
 
 
-def handle_suite(args: argparse.Namespace) -> int:
-    suite = load_scheduler_suite(args.spec) if args.spec is not None else get_scheduler_suite(args.suite)
+@dataclass
+class SchedulerRunEnv:
+    """一次 scheduler 运行（单个 suite 或 sweep 内多个 suite）共享的模型与环境信息。"""
 
-    if args.dry_run:
-        warmup = args.warmup if args.warmup is not None else suite.warmup
-        repeats = args.repeats if args.repeats is not None else suite.repeats
-        interleave_features = parse_interleave_args(args.interleave, suite.interleave)
-        cases = suite.cases(vocab_size=100)
-        plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
-        print(f"=== [Dry Run] Suite: {suite.name} ===")
-        print(format_scheduler_run_plan(plan))
-        return 0
+    model: torch.nn.Module
+    tokenizer: Qwen3Tokenizer
+    device: torch.device
+    vocab: int
+    env: dict[str, Any]
+    peaks: dict[str, float | None]
+    cost: dict[str, Any]
+    git: dict[str, Any]
+    correctness_cache: dict[Mode, dict[str, Any]] = field(default_factory=dict)
 
+
+def prepare_scheduler_env(args: argparse.Namespace) -> SchedulerRunEnv:
+    """要求 CUDA、加载模型并采集环境信息。"""
     device = require_cuda()
-
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
+    env = gpu_info(device)
+    return SchedulerRunEnv(
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
+        vocab=model.config.vocab_size,
+        env=env,
+        peaks=resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops),
+        cost=model_cost(model),
+        git=git_info(),
+    )
 
+
+def execute_scheduler_suite(
+    run_env: SchedulerRunEnv, args: argparse.Namespace, suite: SchedulerSuite, output_path: Path
+) -> SuiteRunSummary:
+    """在已准备好的环境中运行一个 scheduler suite：正确性检查 → 执行 → 对比 → 落盘 → 打印表格。"""
     modes = suite.modes()
     mode_label = ",".join(str(m) for m in modes)
-    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
+    for m in modes:
+        if m not in run_env.correctness_cache:
+            run_env.correctness_cache[m] = check_correctness(
+                run_env.model, run_env.tokenizer, m, run_env.device, update_golden=False
+            )
+    correctness = {str(m): run_env.correctness_cache[m] for m in modes}
     if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
-    env = gpu_info(device)
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    git = git_info()
-
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_features = parse_interleave_args(args.interleave, suite.interleave)
+    interleave_features = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
 
     print(
         f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.blueprints)} "
@@ -296,10 +287,10 @@ def handle_suite(args: argparse.Namespace) -> int:
         )
 
     results = run_suite(
-        model=model,
-        device=device,
+        model=run_env.model,
+        device=run_env.device,
         suite=suite,
-        vocab_size=vocab,
+        vocab_size=run_env.vocab,
         warmup=warmup,
         repeats=repeats,
         interleave=interleave_features,
@@ -319,24 +310,39 @@ def handle_suite(args: argparse.Namespace) -> int:
 
     record = build_benchmark_record(
         args=args,
-        model=model,
+        model=run_env.model,
         mode_label=mode_label,
         cases=results,
         correctness=correctness,
-        env=env,
-        peaks=peaks,
-        cost=cost,
-        git=git,
+        env=run_env.env,
+        peaks=run_env.peaks,
+        cost=run_env.cost,
+        git=run_env.git,
         warmup=warmup,
         repeats=repeats,
         suite_info=suite.to_dict(),
         engine="scheduler",
         comparisons=comparisons,
     )
-
-    output_path = suite_output_path(args, "scheduler", suite.name, git["commit"])
-    save_benchmark_record(output_path, record, dirty=git["dirty"])
+    save_benchmark_record(output_path, record, dirty=run_env.git["dirty"])
 
     print()
     print(format_table(results, suite_name=suite.name))
-    return 0
+    return SuiteRunSummary(
+        name=suite.name,
+        engine="scheduler",
+        num_cases=len(results),
+        output=output_path,
+        comparison_lines=tuple(format_comparison(c) for c in comparisons),
+    )
+
+
+def print_scheduler_dry_run(args: argparse.Namespace, suite: SchedulerSuite) -> None:
+    """生成并打印执行计划（不加载模型、不要求 CUDA）。"""
+    warmup = args.warmup if args.warmup is not None else suite.warmup
+    repeats = args.repeats if args.repeats is not None else suite.repeats
+    interleave_features = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
+    cases = suite.cases(vocab_size=100)
+    plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
+    print(f"=== [Dry Run] Suite: {suite.name} ===")
+    print(format_scheduler_run_plan(plan))

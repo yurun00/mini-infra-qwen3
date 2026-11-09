@@ -41,9 +41,9 @@ mini-infra run --batching-method continuous-batching --compare-feature CachingMe
 mini-infra bench scheduler case --tag dev --caching-method paged-kv-cache --batching-method continuous-batching --block-size 16 --max-running-requests 4
 
 # 3. 运行 Dense vs Paged 受控对比套件（自动评估 makespan_speedup、output_throughput_gain、accessed_kv_cache_tokens_reduction 与 peak_kv_cache_pool_reduction）
-mini-infra bench scheduler suite --tag dev --suite dense-vs-paged-long-short-stress
-mini-infra bench scheduler suite --tag dev --suite dense-vs-paged-length-ratio
-mini-infra bench scheduler suite --tag dev --suite dense-vs-paged-block-size
+mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-long-short-stress
+mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-length-ratio
+mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-block-size
 ```
 
 默认 physical block pool 大小为「最长的 `max_running_requests` 个请求的峰值 Token（`prompt + max_new - 1`）所需 physical block 数之和 + null block」，保证不会耗尽。

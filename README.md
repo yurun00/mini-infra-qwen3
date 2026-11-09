@@ -90,10 +90,14 @@ mini-infra-qwen3/
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── schema.py              # 统一 Pydantic v2 Schema 与多态信封（Lockstep & Scheduler）
-│           ├── workloads.py           # 合成 Prompt、错峰到达与长短预算序列生成工具
+│           ├── workloads.py           # WorkloadSpec 与合成 Prompt 序列生成工具
+│           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比
 │           ├── check_regression.py    # 性能回归质量门禁核心逻辑
 │           ├── cases.py               # CaseKey / CaseDimension / ComparisonSpec / SchedulerSuiteCase 用例层类型
-│           ├── spec/                  # 声明式 suite（YAML）：schema、加载（extends）、sweep 展开
+│           ├── spec/                  # 声明式评测规范系统（YAML）：common / suite / release 三域架构
+│           │   ├── common/            # 跨 spec 共享的基础模型、随机分布采样与底层 YAML 加载
+│           │   ├── suite/             # Suite 声明式配置、检查守卫、笛卡尔积展开与套件加载发现
+│           │   └── release/           # Release 标准负载（small/medium/large）：YAML 声明与展开为 WorkloadSpec
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
 │           │   ├── types.py           # LockstepCaseResult, DistributionStats 等领域模型
 │           │   ├── suites.py          # LockstepSuite：把 YAML 声明绑定为 SuiteCase
@@ -117,7 +121,7 @@ mini-infra-qwen3/
 │       └── parity/                    # GPU 精度与等价性对齐测试（pytest tests/gpu/parity/）
 ├── benchmarks/
 │   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
-│   ├── specs/                         # 声明式 suite（YAML）：{lockstep,scheduler}/<name>.yaml、_bases/ 与 suite.schema.json
+│   ├── specs/                         # 声明式 suite（YAML）：{lockstep,scheduler}/<name>.yaml、_bases/、release/（标准负载）与 suite.schema.json
 │   ├── suites/                        # 预设多用例基准测试套件结果（{lockstep,scheduler}/<name>/）
 │   ├── result-history/                # 按 {lockstep,scheduler}/ 分域存储每个版本一份 <commit>_<tag>.json
 │   └── reports/                       # 按 {lockstep,scheduler}/ 分域存储 SUMMARY.md 与演进/剖析图表（生成物）

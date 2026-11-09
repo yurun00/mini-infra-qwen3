@@ -1,11 +1,16 @@
-"""CLI 子命令：mini-infra bench lockstep (case / suite)
+"""CLI 子命令：mini-infra bench lockstep case
 
-齐步（Lockstep：所有请求同时开始，无调度器）基准测试执行入口。
+齐步（Lockstep：所有请求同时开始，无调度器）单用例基准测试执行入口。
+套件执行请使用 `mini-infra bench sweep --engine lockstep`。
 """
 
 import argparse
 import sys
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
+
+import torch
 
 from mini_infra.bench.common import (
     LOCKSTEP_RESULT_HISTORY_DIR,
@@ -27,13 +32,11 @@ from mini_infra.bench.lockstep.format import (
 from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import (
+    LockstepSuite,
     SuiteCase,
-    get_lockstep_suite,
-    list_lockstep_suite_names,
-    load_lockstep_suite,
 )
 from mini_infra.bench.schema import build_benchmark_record
-from mini_infra.cli.commands.bench.suite_source import add_suite_source_args, suite_output_path
+from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -75,43 +78,20 @@ def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParse
     return p
 
 
-def add_lockstep_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 lockstep suite 参数。"""
-    add_common_args(p)
-    # suite 的 warmup / repeats 由 YAML 的 execution 声明，CLI 仅在显式传入时覆盖
-    for action in p._actions:
-        if action.dest in ("warmup", "repeats"):
-            action.default = None
-            action.help = f"覆盖 suite 声明的 {action.dest}（默认: 取 YAML execution.{action.dest}）"
-    add_suite_source_args(p, "lockstep", list_lockstep_suite_names())
-    p.add_argument("--dry-run", action="store_true", help="仅展开并打印用例列表，不加载模型也不要求 CUDA")
-    return p
-
-
 def build_case_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="运行单用例齐步（Lockstep）基准测试")
     add_lockstep_case_args(p)
     return p
 
 
-def build_suite_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行预设齐步（Lockstep）套件")
-    add_lockstep_suite_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 lockstep 组及 case/suite 子命令。"""
+    """在 bench 下注册 lockstep 组及 case 子命令。"""
     lockstep_parser = subparsers.add_parser("lockstep", help="齐步（Lockstep：所有请求同时开始，无调度器）推理基准测试")
     lockstep_subs = lockstep_parser.add_subparsers(dest="lockstep_subcommand", required=True)
 
     case_parser = lockstep_subs.add_parser("case", help="运行单用例齐步（Lockstep）基准测试")
     add_lockstep_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
-
-    suite_parser = lockstep_subs.add_parser("suite", help="运行预设齐步（Lockstep）套件")
-    add_lockstep_suite_args(suite_parser)
-    suite_parser.set_defaults(func=handle_suite)
     return lockstep_parser
 
 
@@ -193,35 +173,62 @@ def handle_case(args: argparse.Namespace) -> int:
     return 0
 
 
-def handle_suite(args: argparse.Namespace) -> int:
-    suite = load_lockstep_suite(args.spec) if args.spec is not None else get_lockstep_suite(args.suite)
+@dataclass
+class LockstepRunEnv:
+    """一次 lockstep 运行（单个 suite 或 sweep 内多个 suite）共享的模型与环境信息。"""
+
+    model: torch.nn.Module
+    tokenizer: Qwen3Tokenizer
+    device: torch.device
+    vocab: int
+    env: dict[str, Any]
+    peaks: dict[str, float | None]
+    cost: dict[str, Any]
+    git: dict[str, Any]
+    correctness_cache: dict[Mode, dict[str, Any]] = field(default_factory=dict)
+
+
+def prepare_lockstep_env(args: argparse.Namespace) -> LockstepRunEnv:
+    """要求 CUDA、加载模型并采集环境信息。"""
+    device = require_cuda()
+    model_dir = resolve_model_directory(args.model, args.revision)
+    tokenizer = Qwen3Tokenizer(model_dir)
+    model = load_model(model_dir, device)
+    env = gpu_info()
+    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    if None in peaks.values():
+        print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
+    return LockstepRunEnv(
+        model=model,
+        tokenizer=tokenizer,
+        device=device,
+        vocab=model.config.vocab_size,
+        env=env,
+        peaks=peaks,
+        cost=model_cost(model),
+        git=git_info(),
+    )
+
+
+def execute_lockstep_suite(
+    run_env: LockstepRunEnv, args: argparse.Namespace, suite: LockstepSuite, output_path: Path
+) -> SuiteRunSummary:
+    """在已准备好的环境中运行一个 lockstep suite：正确性检查 → 执行 → 落盘 → 打印表格。"""
     modes = suite.modes()
     cases = suite.cases()
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-
-    if args.dry_run:
-        print(f"=== [Dry Run] Suite: {suite.name} ===")
-        print(format_suite_plan(suite.name, cases, warmup, repeats))
-        return 0
-
-    device = require_cuda()
     mode_label = ",".join(str(m) for m in modes)
 
-    model_dir = resolve_model_directory(args.model, args.revision)
-    tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
-
-    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
+    for m in modes:
+        if m not in run_env.correctness_cache:
+            run_env.correctness_cache[m] = check_correctness(
+                run_env.model, run_env.tokenizer, m, run_env.device, update_golden=False
+            )
+    correctness = {str(m): run_env.correctness_cache[m] for m in modes}
     if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
-    env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    if None in peaks.values():
-        print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
@@ -237,38 +244,43 @@ def handle_suite(args: argparse.Namespace) -> int:
         )
 
     results = run_suite(
-        model=model,
-        device=device,
+        model=run_env.model,
+        device=run_env.device,
         suite=suite,
-        vocab=vocab,
+        vocab=run_env.vocab,
         warmup=warmup,
         repeats=repeats,
-        cost=cost,
-        peaks=peaks,
+        cost=run_env.cost,
+        peaks=run_env.peaks,
         profile_mode=args.profile_mode,
         tensorboard_options=tb_options,
         on_case_progress=on_progress,
         on_case_result=lambda r: print(format_case_summary(r)),
     )
 
-    git = git_info()
     record = build_benchmark_record(
         args=args,
-        model=model,
+        model=run_env.model,
         mode_label=mode_label,
         cases=results,
         correctness=correctness,
-        env=env,
-        peaks=peaks,
-        cost=cost,
-        git=git,
+        env=run_env.env,
+        peaks=run_env.peaks,
+        cost=run_env.cost,
+        git=run_env.git,
         warmup=warmup,
         repeats=repeats,
         suite_info=suite.to_dict(),
     )
-
-    output = suite_output_path(args, "lockstep", suite.name, git["commit"])
-    save_benchmark_record(output, record, dirty=git["dirty"])
+    save_benchmark_record(output_path, record, dirty=run_env.git["dirty"])
     print()
     print(format_table(results))
-    return 0
+    return SuiteRunSummary(name=suite.name, engine="lockstep", num_cases=len(results), output=output_path)
+
+
+def print_lockstep_dry_run(args: argparse.Namespace, suite: LockstepSuite) -> None:
+    """展开并打印用例列表（不加载模型、不要求 CUDA）。"""
+    warmup = args.warmup if args.warmup is not None else suite.warmup
+    repeats = args.repeats if args.repeats is not None else suite.repeats
+    print(f"=== [Dry Run] Suite: {suite.name} ===")
+    print(format_suite_plan(suite.name, suite.cases(), warmup, repeats))

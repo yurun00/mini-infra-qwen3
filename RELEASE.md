@@ -52,7 +52,7 @@ mini-infra verify scheduler-batch
 ---
 
 ### 步骤 3：全量基准测量与演进图表生成
-在固定的 GPU 测试机（如 GCP L4 实例）上通过 [`src/mini_infra/cli/commands/bench/release.py`](src/mini_infra/cli/commands/bench/release.py)（即 `mini-infra bench release`）执行，该子命令读取 [`workloads.py`](src/mini_infra/bench/workloads.py) 中基于固定随机种子（`seed=42`）预定义的多规模真实伪随机 Traffic 负载（`BENCH_LOCKSTEP_WORKLOAD` 与 `BENCH_SCHEDULER_WORKLOAD`，涵盖 `small`、`medium`、`large` 三档），一键完成多规模基准测量、演进报告生成与回归基线更新：
+在固定的 GPU 测试机（如 GCP L4 实例）上通过 [`src/mini_infra/cli/commands/bench/release.py`](src/mini_infra/cli/commands/bench/release.py)（即 `mini-infra bench release`）执行，该子命令读取 [`benchmarks/specs/release/`](benchmarks/specs/release/) 中基于固定随机种子（`default_seed: 42`）声明的多规模真实伪随机 Traffic 负载（`lockstep.yaml` 与 `scheduler.yaml`，涵盖 `small`、`medium`、`large` 三档；由 [`bench.spec.release`](src/mini_infra/bench/spec/release/) 加载与展开），一键完成多规模基准测量、演进报告生成与回归基线更新：
 
 ```bash
 # 安装绘图与基准依赖
@@ -91,7 +91,7 @@ mini-infra bench release \
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。
 
 > ⚠️ **数据流与绘图约定**：
-> * **`benchmarks/result-history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`BENCH_LOCKSTEP_WORKLOAD` / `BENCH_SCHEDULER_WORKLOAD`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/suites/` 下。
+> * **`benchmarks/result-history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`benchmarks/specs/release/{lockstep,scheduler}.yaml`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/suites/` 下。
 > * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `result-history/lockstep/` 与 `result-history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--engine lockstep` 或 `--engine scheduler` 单独生成）；
 > * **`mini-infra bench check-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
