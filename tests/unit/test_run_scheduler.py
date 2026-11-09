@@ -249,7 +249,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     assert single_res.workload.repeats == 1
     assert single_res.workload.warmup == 0
 
-    # 2. 验证多轮 run_case（WorkloadSpec 相等比较忽略 repeats 与 warmup）
+    # 2. 验证多轮 run_case（Workload 相等比较忽略 repeats 与 warmup）
     case_res = run_case(
         model=model,
         device=device,

@@ -8,7 +8,7 @@ from mini_infra.bench.common import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
-    WorkloadSpec,
+    Workload,
     summarize_samples,
 )
 from mini_infra.engine import CachingMethod, Mode
@@ -48,7 +48,7 @@ def test_distribution_stats_computation_and_immutability():
 
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
-    workload = WorkloadSpec(
+    workload = Workload(
         mode=Mode(CachingMethod.DENSE),
         num_total_requests=2,
         prompt_len=(16, 32),

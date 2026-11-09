@@ -68,8 +68,8 @@ from mini_infra.bench.schema import (
 from mini_infra.bench.spec.release import release_default_mode, release_workloads
 from mini_infra.bench.workloads import (
     WORKLOAD_SCALES,
+    Workload,
     WorkloadScale,
-    WorkloadSpec,
     build_scheduler_request_specs,
     make_arrival_times,
     make_prompt,
@@ -105,8 +105,8 @@ __all__ = [
     "SchedulerSuiteCase",
     "SuiteCase",
     "WORKLOAD_SCALES",
+    "Workload",
     "WorkloadScale",
-    "WorkloadSpec",
     "add_common_args",
     "build_benchmark_record",
     "build_scheduler_request_specs",

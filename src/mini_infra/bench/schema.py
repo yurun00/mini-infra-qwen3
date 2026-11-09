@@ -13,7 +13,7 @@ pydantic.BaseModel
       │    └── ScheduleMetricsRecord       <-> engine.metrics.ScheduleMetrics[DistributionStats]
       │
       ├── 第二层：单用例记录层 (Case Level)
-      │    └── BaseCaseRecord              # 共享 WorkloadSpec 核心字段 + StepAggregatedMetrics 公共指标 + 叶子组件
+      │    └── BaseCaseRecord              # 共享 Workload 核心字段 + StepAggregatedMetrics 公共指标 + 叶子组件
       │         ├── LockstepCaseRecord     <-> bench.lockstep.types.LockstepCaseResult
       │         │                              (扩展 ttft_ms, tpot_ms, op_latency_breakdown)
       │         └── SchedulerCaseRecord    <-> bench.scheduler.types.SchedulerCaseResult
@@ -192,7 +192,7 @@ class BaseCaseRecord(_DictAccessModel):
     """Lockstep 与 Scheduler 共享的单 Case 核心记录基类。
 
     聚合了：
-    1. `bench.common.WorkloadSpec` 的通用负载描述
+    1. `bench.common.Workload` 的通用负载描述
        （mode, num_total_requests, prompt_len, max_new_tokens, repeats, warmup）
     2. `engine.metrics.StepAggregatedMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
     3. 叶子画像组件（memory, packing, efficiency）

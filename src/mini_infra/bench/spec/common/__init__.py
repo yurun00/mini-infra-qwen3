@@ -25,7 +25,7 @@ from mini_infra.bench.spec.common.schema import (
     PoissonArrival,
     PositiveInt,
     SuiteEngine,
-    WorkloadBody,
+    WorkloadSpec,
     _Strict,
     normalize_workload_body,
 )
@@ -49,7 +49,7 @@ __all__ = [
     "PositiveInt",
     "ResolvedWorkload",
     "SuiteEngine",
-    "WorkloadBody",
+    "WorkloadSpec",
     "_Strict",
     "_sha256",
     "apply_overrides",

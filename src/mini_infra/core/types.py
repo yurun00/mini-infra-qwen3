@@ -95,7 +95,7 @@ class RequestMetrics:
 
 
 def collapse_uniform(values: Sequence[Any]) -> Any:
-    """若序列所有元素相等则折叠为标量，否则返回元组（与 WorkloadSpec 表达对齐）。"""
+    """若序列所有元素相等则折叠为标量，否则返回元组（与 Workload 表达对齐）。"""
     if not values:
         return ()
     first = values[0]

@@ -6,7 +6,7 @@ from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
 from mini_infra.bench.spec.release import release_workloads
 from mini_infra.bench.workloads import (
     WORKLOAD_SCALES,
-    WorkloadSpec,
+    Workload,
     build_scheduler_request_specs,
     make_arrival_times,
     make_prompt,
@@ -145,7 +145,7 @@ def test_canonical_workloads_and_build_scheduler_specs():
 
     for scale in WORKLOAD_SCALES:
         lw = lockstep_workloads[scale]
-        assert isinstance(lw, WorkloadSpec)
+        assert isinstance(lw, Workload)
         assert lw.scale == scale
         assert lw.seed == 42
         assert lw.warmup >= 1
@@ -156,7 +156,7 @@ def test_canonical_workloads_and_build_scheduler_specs():
         assert replace(lw, scale="custom") != lw
 
         sw = scheduler_workloads[scale]
-        assert isinstance(sw, WorkloadSpec)
+        assert isinstance(sw, Workload)
         assert sw.scale == scale
         assert sw.seed == 42
         assert sw.warmup >= 1

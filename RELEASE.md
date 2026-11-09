@@ -66,7 +66,7 @@ mini-infra bench release \
   --batching-method fixed-batching
 
 # 方式 B：若为队列调度器特性（如 v0.4.0 Continuous Batching）：
-# 1) 若 benchmarks/result-history/scheduler/ 尚无 baseline，先用同构 WorkloadSpec（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
+# 1) 若 benchmarks/result-history/scheduler/ 尚无 baseline，先用同构 Workload（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
 mini-infra bench release \
   --engine scheduler \
   --tag "baseline" \

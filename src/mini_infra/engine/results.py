@@ -29,7 +29,7 @@ from mini_infra.profiling import (
 )
 
 if TYPE_CHECKING:
-    from mini_infra.bench.workloads import WorkloadSpec
+    from mini_infra.bench.workloads import Workload
 
 
 def pad_output_tokens(
@@ -111,15 +111,15 @@ class ScheduleResult(GenerationResult):
         return self.metrics
 
     @property
-    def workload(self) -> "WorkloadSpec":
-        """从单次调度结果提取负载规格 WorkloadSpec（相等比较时忽略 repeats 与 warmup）。"""
-        from mini_infra.bench.workloads import WorkloadSpec
+    def workload(self) -> "Workload":
+        """从单次调度结果提取负载规格 Workload（相等比较时忽略 repeats 与 warmup）。"""
+        from mini_infra.bench.workloads import Workload
         from mini_infra.engine.mode import Mode
 
         prompt_lengths = [s.prompt_len for s in self.sequences]
         output_budgets = [r.num_output_tokens for r in self.request_metrics]
         arrivals = [r.arrival_ms for r in self.request_metrics]
-        return WorkloadSpec(
+        return Workload(
             mode=Mode(self.caching_method, self.batching_method),
             num_total_requests=self.schedule_metrics.request_count,
             prompt_len=collapse_uniform(prompt_lengths),

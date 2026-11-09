@@ -3,7 +3,7 @@
 与 suite 不同，release 负载不固定 Mode（由 `bench release` 命令行在发布时指定），只声明：
     default_seed / default_mode / execution（warmup、repeats）/ scales（每档的 workload 与 seed_salt）
 
-每档的随机分布共用 `random.Random(seed * 1000 + seed_salt)`（见 WorkloadBody），`--seed` 只覆盖 seed。
+每档的随机分布共用 `random.Random(seed * 1000 + seed_salt)`（见 WorkloadSpec），`--seed` 只覆盖 seed。
 """
 
 from typing import Annotated, Any, Literal

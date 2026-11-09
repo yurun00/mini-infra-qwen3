@@ -9,7 +9,7 @@
 3. 零退化回归参考基线：`benchmarks/data/reference.json`
 
 用法示例：
-    # 生成 Scheduler 固定批处理基准线 (baseline: Fixed Batching，仅 Mode 不同，其余 WorkloadSpec 完全一致)
+    # 生成 Scheduler 固定批处理基准线 (baseline: Fixed Batching，仅 Mode 不同，其余 Workload 完全一致)
     mini-infra bench release \
         --engine scheduler \
         --tag baseline \
@@ -54,7 +54,7 @@ from mini_infra.bench.common import (
     SCHEDULER_RESULT_HISTORY_DIR,
     git_info,
 )
-from mini_infra.bench.workloads import WORKLOAD_SCALES, WorkloadScale, WorkloadSpec
+from mini_infra.bench.workloads import WORKLOAD_SCALES, Workload, WorkloadScale
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
@@ -68,12 +68,12 @@ class ReleaseStep:
 
 
 def build_lockstep_case_cmd(
-    workload: WorkloadSpec,
+    workload: Workload,
     tag: str,
     release_feature: str,
     profile_mode: str | None = "extra-profile",
 ) -> list[str]:
-    """将 WorkloadSpec 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
+    """将 Workload 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
     prompt_args = (
         [str(workload.prompt_len)] if isinstance(workload.prompt_len, int) else [str(x) for x in workload.prompt_len]
     )
@@ -118,13 +118,13 @@ def build_lockstep_case_cmd(
 
 
 def build_scheduler_case_cmd(
-    workload: WorkloadSpec,
+    workload: Workload,
     tag: str,
     release_feature: str,
     block_size: int | None = None,
     output: Path | str | None = None,
 ) -> list[str]:
-    """将 WorkloadSpec 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
+    """将 Workload 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
     cmd = [
         sys.executable,
         "-u",
@@ -298,7 +298,7 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 
 
 def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
-    """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 WorkloadSpec 字段保持一致）。"""
+    """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 Workload 字段保持一致）。"""
     steps: list[ReleaseStep] = []
     if getattr(args, "caching_method", None):
         caching_method = CachingMethod(args.caching_method)

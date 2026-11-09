@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mini_infra.bench.spec.common.lengths import expand_arrival, expand_length
-from mini_infra.bench.spec.common.schema import ConstantLength, WorkloadBody, normalize_workload_body
+from mini_infra.bench.spec.common.schema import ConstantLength, WorkloadSpec, normalize_workload_body
 
 _PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
@@ -62,7 +62,7 @@ def resolve_workload_body(
         resolved_id = interpolate(workload_id, variables)
         if not isinstance(resolved_id, str) or not resolved_id:
             raise ValueError(f"workload.id 插值后必须是非空字符串，实际为 {resolved_id!r}")
-        parsed = WorkloadBody.model_validate(normalize_workload_body(interpolate(body, variables)))
+        parsed = WorkloadSpec.model_validate(normalize_workload_body(interpolate(body, variables)))
     except ValueError as err:
         raise ValueError(f"{context}: workload 非法: {err}") from err
 

@@ -41,7 +41,7 @@ _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 class WorkloadTemplate(_Strict):
-    """含 ${var} 占位符的负载模板；每个 sweep 点插值后才构成具体 WorkloadBody。"""
+    """含 ${var} 占位符的负载模板；每个 sweep 点插值后才构成具体 WorkloadSpec。"""
 
     id: Annotated[str, Field(min_length=1)]
     vars: dict[str, Any] = Field(default_factory=dict)

@@ -1,4 +1,4 @@
-"""基准测试工作负载配置（WorkloadSpec）与合成序列生成辅助工具。
+"""基准测试工作负载配置（Workload）与合成序列生成辅助工具。
 
 多规模标准负载（small / medium / large）由 `benchmarks/specs/release/*.yaml` 声明，见 `bench.spec.release`。
 """
@@ -17,7 +17,7 @@ WORKLOAD_SCALES: tuple[WorkloadScale, ...] = ("small", "medium", "large")
 
 
 @dataclass(frozen=True)
-class WorkloadSpec:
+class Workload:
     """评测用例的负载规格与运行参数（Lockstep 与 Scheduler 共享，相等比较忽略 repeats、warmup 与 seed）。"""
 
     mode: Mode
@@ -110,10 +110,10 @@ def make_arrival_times(count: int, interval_ms: float) -> list[float]:
 
 
 def build_scheduler_request_specs(
-    workload: WorkloadSpec,
+    workload: Workload,
     vocab_size: int,
 ) -> list[RequestSpec]:
-    """根据 WorkloadSpec 构建 Scheduler 评测所需的 RequestSpec 列表。"""
+    """根据 Workload 构建 Scheduler 评测所需的 RequestSpec 列表。"""
     n = workload.num_total_requests
     lengths = [workload.prompt_len] * n if isinstance(workload.prompt_len, int) else list(workload.prompt_len)
     budgets = (
@@ -128,7 +128,7 @@ def build_scheduler_request_specs(
 
     if len(lengths) != n or len(budgets) != n or len(arrivals) != n:
         raise ValueError(
-            f"WorkloadSpec 长度不匹配: num_total_requests={n}, len(prompt_len)={len(lengths)}, "
+            f"Workload 长度不匹配: num_total_requests={n}, len(prompt_len)={len(lengths)}, "
             f"len(max_new_tokens)={len(budgets)}, len(arrival_times_ms)={len(arrivals)}"
         )
     sequences = make_sequences(lengths, vocab_size)
@@ -137,8 +137,8 @@ def build_scheduler_request_specs(
 
 __all__ = [
     "WORKLOAD_SCALES",
+    "Workload",
     "WorkloadScale",
-    "WorkloadSpec",
     "build_scheduler_request_specs",
     "make_arrival_times",
     "make_prompt",

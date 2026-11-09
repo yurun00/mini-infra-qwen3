@@ -1,10 +1,10 @@
-"""Release 标准负载展开：把 ReleaseSpec 展开为确定性负载与运行期 WorkloadSpec（纯 CPU）。"""
+"""Release 标准负载展开：把 ReleaseSpec 展开为确定性负载与运行期 Workload（纯 CPU）。"""
 
 from dataclasses import dataclass
 
 from mini_infra.bench.spec.common.workload import ResolvedWorkload, resolve_workload_body
 from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
-from mini_infra.bench.workloads import WorkloadScale, WorkloadSpec
+from mini_infra.bench.workloads import Workload, WorkloadScale
 from mini_infra.engine import Mode
 
 
@@ -45,13 +45,13 @@ def release_spec_default_mode(spec: ReleaseSpec) -> Mode:
 
 def expand_release_workloads(
     spec: ReleaseSpec, *, seed: int | None = None, mode: Mode | None = None
-) -> dict[WorkloadScale, WorkloadSpec]:
-    """把 ReleaseSpec 转换为三档运行时 WorkloadSpec；seed 缺省取 default_seed，mode 缺省取 default_mode。"""
+) -> dict[WorkloadScale, Workload]:
+    """把 ReleaseSpec 转换为三档运行时 Workload；seed 缺省取 default_seed，mode 缺省取 default_mode。"""
     target_mode = mode or release_spec_default_mode(spec)
     scales = resolve_release_spec(spec, seed=seed)
-    workloads: dict[WorkloadScale, WorkloadSpec] = {}
+    workloads: dict[WorkloadScale, Workload] = {}
     for scale, resolved in scales.items():
-        workloads[scale] = WorkloadSpec(
+        workloads[scale] = Workload(
             mode=target_mode,
             num_total_requests=resolved.workload.num_requests,
             prompt_len=resolved.workload.prompt_len,

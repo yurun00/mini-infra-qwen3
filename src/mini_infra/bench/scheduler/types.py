@@ -13,7 +13,7 @@ from mini_infra.bench.cases import (
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
-    WorkloadSpec,
+    Workload,
     summarize_samples,
 )
 from mini_infra.engine.metrics import (
@@ -162,7 +162,7 @@ class SchedulerCaseResult:
     """
 
     key: CaseKey
-    workload: WorkloadSpec
+    workload: Workload
     metrics: StepAggregatedMetrics[DistributionStats]
     schedule_metrics: ScheduleMetrics[DistributionStats]
     memory: MemoryProfile
@@ -270,13 +270,13 @@ def summarize_same_case_runs(
     case_key: CaseKey,
     runs: Sequence[ScheduleResult],
 ) -> SchedulerCaseResult:
-    """把具有相同 CaseKey 与 WorkloadSpec 的多轮运行聚合为一个 SchedulerCaseResult。"""
+    """把具有相同 CaseKey 与 Workload 的多轮运行聚合为一个 SchedulerCaseResult。"""
     if not runs:
         raise ValueError("runs 不能为空")
 
     first_run = runs[0]
     if any(r.workload != first_run.workload for r in runs):
-        raise ValueError("summarize_same_case_runs 中的所有 run 必须具有相同的 WorkloadSpec")
+        raise ValueError("summarize_same_case_runs 中的所有 run 必须具有相同的 Workload")
     workload = replace(first_run.workload, repeats=len(runs))
 
     repeat_samples = [
@@ -370,7 +370,7 @@ __all__ = [
     "DistributionStats",
     "MetricComparison",
     "SchedulerCaseResult",
-    "WorkloadSpec",
+    "Workload",
     "compute_comparisons",
     "resolve_metric_value",
     "summarize_same_case_runs",

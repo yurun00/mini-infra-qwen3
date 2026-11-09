@@ -27,7 +27,7 @@ from mini_infra.bench.common import ProfileMode, efficiency
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
-    WorkloadSpec,
+    Workload,
     summarize_samples,
 )
 from mini_infra.bench.workloads import make_prompt
@@ -137,7 +137,7 @@ def run_case(
         for _ in range(repeats)
     ]
 
-    workload = WorkloadSpec(
+    workload = Workload(
         mode=mode,
         num_total_requests=effective_batch_size,
         prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,

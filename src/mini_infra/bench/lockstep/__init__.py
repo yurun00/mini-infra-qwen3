@@ -18,7 +18,7 @@ from mini_infra.bench.lockstep.suites import (
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
-    WorkloadSpec,
+    Workload,
     summarize_samples,
 )
 
@@ -27,7 +27,7 @@ __all__ = [
     "LockstepCaseResult",
     "LockstepSuite",
     "SuiteCase",
-    "WorkloadSpec",
+    "Workload",
     "build_benchmark_record",
     "format_case_summary",
     "format_table",

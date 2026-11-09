@@ -10,12 +10,12 @@ import pytest
 from mini_infra.bench.spec import get_release_spec
 from mini_infra.bench.spec.common import sample_log_uniform_lengths, sample_poisson_arrivals
 from mini_infra.bench.spec.release import release_default_mode, release_workloads
-from mini_infra.bench.workloads import WORKLOAD_SCALES, WorkloadSpec
+from mini_infra.bench.workloads import WORKLOAD_SCALES, Workload
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "release_workloads_golden.json").read_text(encoding="utf-8"))
 
 
-def _encode(w: WorkloadSpec) -> dict[str, Any]:
+def _encode(w: Workload) -> dict[str, Any]:
     def as_list(x: Any) -> Any:
         return list(x) if isinstance(x, tuple) else x
 
@@ -68,7 +68,7 @@ def test_release_mode_override_keeps_workload_identical():
     b = release_workloads("scheduler", mode=paged)["small"]
     assert b.mode == paged
     assert (a.prompt_len, a.max_new_tokens, a.arrival_times_ms) == (b.prompt_len, b.max_new_tokens, b.arrival_times_ms)
-    # WorkloadSpec 相等比较忽略 repeats / warmup / seed，但包含 mode
+    # Workload 相等比较忽略 repeats / warmup / seed，但包含 mode
     assert a != b
 
 

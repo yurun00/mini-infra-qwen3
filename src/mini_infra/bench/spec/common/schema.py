@@ -174,7 +174,7 @@ class GroupSpec(_Strict):
         return self
 
 
-class WorkloadBody(_Strict):
+class WorkloadSpec(_Strict):
     """插值之后的具体请求负载。
 
     seed / seed_salt：随机分布（log_uniform / poisson）共用一个 `random.Random(seed * 1000 + seed_salt)`，
@@ -186,7 +186,7 @@ class WorkloadBody(_Strict):
     seed_salt: Annotated[int, Field(strict=True)] = 0
 
     @model_validator(mode="after")
-    def _stochastic_needs_seed(self) -> "WorkloadBody":
+    def _stochastic_needs_seed(self) -> "WorkloadSpec":
         stochastic = any(
             isinstance(g.prompt_len, LogUniformLength)
             or isinstance(g.output_len, LogUniformLength)
@@ -238,7 +238,7 @@ __all__ = [
     "PoissonArrival",
     "PositiveInt",
     "SuiteEngine",
-    "WorkloadBody",
+    "WorkloadSpec",
     "_Strict",
     "normalize_workload_body",
 ]
