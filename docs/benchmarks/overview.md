@@ -19,7 +19,66 @@
 
 ---
 
-## 二、Lockstep 齐步基准测试 (`bench lockstep`)
+## 二、评测系统架构与四阶段生命周期 (Bench System Architecture)
+
+评测系统采用分层解耦架构，数据流严格遵循「规格声明 $\to$ 评测执行 $\to$ 实测结果 $\to$ 落盘契约」单向流动：
+
+```mermaid
+flowchart TD
+    subgraph S1["阶段一：规格声明 (Specification Plane) [*Spec]"]
+        SS["SuiteSpec (YAML 根声明)"] --> CS["CaseSpec (单用例规格)"]
+        WS["WorkloadSpec (分布语法规则)"] --> RWS["ResolvedWorkloadSpec (数值流量画像)"]
+        CS -.-> RWS
+        CompSpec["ComparisonSpec (对比配置)"]
+    end
+
+    subgraph S2["阶段二：评测执行 (Execution Plane) [*Suite, *Case, *Payload, *Plan, Comparison]"]
+        BS["BenchmarkSuite[CaseT] (套件运行时容器)"] --> SC["SchedulerCase / LockstepCase"]
+        CompSpec -->|build| Comp["Comparison (运行时对比配置)"]
+        RWS -->|synthesize_request_payload| RP["RequestPayload (Token 序列载荷)"]
+        RP -.-> SC
+        PR["PlannedRun (执行排期步)"] -.-> SC
+    end
+
+    subgraph S3["阶段三：实测结果 (Measurement Plane) [*Result]"]
+        SC -->|run_case_once / run_case| CR["SchedulerCaseResult / LockstepCaseResult"]
+        CR --- CK["统一持有 key: CaseKey + DistributionStats (无兼容代理)"]
+        CR & Comp -->|compute_comparisons| MC["MetricComparison (指标对比结果)"]
+    end
+
+    subgraph S4["阶段四：落盘契约 (Persistence Plane) [*Record]"]
+        CR -->|build_benchmark_record| BR["*CaseRecord / *BenchmarkRecord"]
+    end
+
+    S1 -->|加载与解析| S2
+    S2 -->|执行与采样| S3
+    S3 -->|序列化归档| S4
+```
+
+### 核心设计原则与架构不变量
+
+1. **规格与执行严格解耦（Specification vs Execution）**
+   - **规格声明层（Specification Plane）**：全部以 `*Spec` 命名（如 `SuiteSpec`、`CaseSpec`、`WorkloadSpec`、`ResolvedWorkloadSpec`、`ComparisonSpec`）。纯粹负责 YAML 反序列化、分布展开与参数合法性校验，零 Token 序列依赖，不触碰执行逻辑。
+   - **评测执行层（Execution Plane）**：套件由统一泛型基类 `BenchmarkSuite[CaseT]` 承载；通过 `ComparisonSpec.build()` 构建运行时对比对象 `Comparison`；在 `suite.cases(vocab_size)` 中提前分词并绑定生成 `RequestPayload`；用例实体 `SchedulerCase` 与 `LockstepCase` 对齐持有 `key: CaseKey` 与 `payload: RequestPayload`。
+2. **流量画像单一真相源（SSOT）**
+   - 彻底废除重复冗余的 `Workload` 类，全仓统一以 `ResolvedWorkloadSpec` 作为唯一权威数值流量画像。
+   - 显式字段 `num_total_requests: int` 与请求级列表（`prompt_lens`、`output_budgets`、`arrival_ms`）严格校验守恒；运行时通过 `synthesize_request_payload(spec, vocab_size)` 显式生成持有实际 Token 序列载荷的 `RequestPayload`，彻底杜绝纯数字画像与具体 Token 载荷的混淆。
+3. **两套引擎绝对结构对称（Two-Engine Symmetry）**
+   - `Lockstep` 与 `Scheduler` 在套件抽象（`BenchmarkSuite[CaseT]`）、载荷类型（`RequestPayload`）、执行分层（原子 `run_case_once` 与统计多轮 `run_case`）、以及结果身份凭证（`key: CaseKey`）上保持 100% 对齐。
+   - 杜绝向后兼容包袱（严格遵循 YAGNI）：不保留兼容代理属性（如 `res.mode`），所有调用点直接访问规范路径 `res.key.mode`。
+
+### 核心类型与生命周期映射表
+
+| 生命周期阶段 | 核心类型 / 函数 | 命名规范 | 职责边界 |
+| :--- | :--- | :--- | :--- |
+| **阶段一：规格声明** | `SuiteSpec` / `CaseSpec` / `ResolvedWorkloadSpec` / `ComparisonSpec` | `*Spec` | YAML 声明解析、场景展开与参数校验，无状态与纯数值元数据 |
+| **阶段二：评测执行** | `BenchmarkSuite[CaseT]` / `SchedulerCase` / `LockstepCase` / `RequestPayload` / `Comparison` | `*Suite`, `*Case`, `RequestPayload`, `Comparison` | 运行时套件容器、Token 载荷绑定、对比策略与单步执行排期 |
+| **阶段三：实测结果** | `run_case_once` / `run_case` / `SchedulerCaseResult` / `LockstepCaseResult` / `MetricComparison` | `run_case*`, `*Result`, `MetricComparison` | 单次/多轮测量采样、时钟打点、指标聚合与统计中位数比对 |
+| **阶段四：落盘契约** | `LockstepBenchmarkRecord` / `SchedulerBenchmarkRecord` / `save_benchmark_record` | `*Record` | Pydantic v2 Schema 校验、JSON 序列化与历史基准归档 |
+
+---
+
+## 三、Lockstep 齐步基准测试 (`bench lockstep`)
 
 面向**无队列调度器**的推理底座（基于 `generate` / `lockstep_loop`），覆盖单请求与整批同步前向（Fixed Batching）。
 
@@ -98,7 +157,7 @@ mini-infra bench sweep --engine lockstep \
 
 ---
 
-## 三、scheduler 调度器基准测试 (`bench scheduler`)
+## 四、scheduler 调度器基准测试 (`bench scheduler`)
 
 面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出、`DenseSlotCache`（batch slot 管理）与 `PagedKVCachePool`（physical block pool 管理）。
 
@@ -202,7 +261,7 @@ mini-infra bench sweep --engine scheduler \
 
 ---
 
-## 四、性能图表绘制与对比分析 (`bench plot`)
+## 五、性能图表绘制与对比分析 (`bench plot`)
 
 ### 1. 跨版本演化全景图 (`plot history`)
 读取 `benchmarks/results/history/{lockstep,scheduler}/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
@@ -234,7 +293,7 @@ mini-infra bench plot compare \
 
 ---
 
-## 五、轻量性能回归守门 (`bench check-regression`)
+## 六、轻量性能回归守门 (`bench check-regression`)
 
 作为 CI 门禁与 Pre-push Hook 的核心守门工具，耗时约 1 分钟，现场运行轻量 Benchmark 并与 `benchmarks/data/reference.json` 比对。
 
@@ -251,7 +310,7 @@ mini-infra bench check-regression --update-reference
 
 ---
 
-## 六、声明式 Suite（YAML）：新增与检视
+## 七、声明式 Suite（YAML）：新增与检视
 
 所有 suite 均由 [`benchmarks/specs/{lockstep,scheduler}/<name>.yaml`](../../benchmarks/specs/) 声明；**新增 suite = 新增一个 YAML 文件，无需改 Python**。`name` 必须与文件名一致，`_bases/` 下的文件仅供 `extends` 复用、不可直接运行。
 
@@ -324,9 +383,24 @@ mini-infra bench sweep --engine scheduler --tag dev --all --set execution.repeat
 
 ---
 
-## 七、测试数据产物与输出目录约定
+## 八、测试数据产物与输出目录约定
 
-为保持工作区整洁，所有 Benchmark 命令的输出落盘建议遵循以下规范：
+评测系统产物严格按功能与受控属性隔离，根目录布局如下：
+
+```text
+benchmarks/
+├── data/                          # 权威黄金数据（git 追踪：golden_output_tokens.json, reference.json）
+├── specs/                         # 声明式评测规范 YAML 根目录
+│   ├── lockstep/                  # 齐步测试套件 YAML 声明
+│   ├── scheduler/                 # 调度器测试套件 YAML 声明
+│   ├── _bases/                    # 基础模板（供 extends 复用）
+│   └── release/                   # 发版标准负载声明（lockstep.yaml, scheduler.yaml）
+├── results/                       # 评测输出与历史沉淀根目录（消除 suites 与 specs 命名倒置）
+│   ├── suites/                    # 预设套件执行产物（按 {lockstep,scheduler}/<name>/ 分域）
+│   └── history/                   # 正式发版多规模基准历史（按 {lockstep,scheduler}/<commit>_<tag>.json 归档）
+├── reports/                       # 演进报告与分析图表（SUMMARY.md, *.png）
+└── tmp/results/suites/            # 临时/实验性套件运行产物（已被 .gitignore 忽略，防污染）
+```
 
 1. **`benchmarks/results/history/`**：
    - 仅存放发版时固化的正式基准文件（格式为 `<commit>_<tag>.json`），由 `mini-infra bench plot history` 消费。
