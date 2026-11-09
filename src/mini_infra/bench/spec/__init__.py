@@ -33,7 +33,7 @@ from mini_infra.bench.spec.release import (
     resolve_release_spec,
 )
 from mini_infra.bench.spec.suite import (
-    CaseBlueprint,
+    CaseSpec,
     ComparisonSpec,
     LoadedSuiteSpec,
     MetricSpec,
@@ -47,7 +47,7 @@ from mini_infra.bench.spec.suite import (
 
 __all__ = [
     "RELEASE_SCALES",
-    "CaseBlueprint",
+    "CaseSpec",
     "CheckSpec",
     "ComparisonSpec",
     "LoadedReleaseSpec",

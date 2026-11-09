@@ -327,12 +327,12 @@ workload:
 """
     path = tmp_path / "seeded.yaml"
     path.write_text(text, encoding="utf-8")
-    (a,) = [bp.workload for bp in load_suite_spec(path).blueprints[:1]]
-    (b,) = [bp.workload for bp in load_suite_spec(path, {}).blueprints[:1]]
+    (a,) = [cs.workload for cs in load_suite_spec(path).cases[:1]]
+    (b,) = [cs.workload for cs in load_suite_spec(path, {}).cases[:1]]
     assert a == b
     assert len(a.prompt_lens) == 12 and all(8 <= x <= 64 for x in a.prompt_lens)
     assert a.arrival_ms[:3] == (0.0, 0.0, 0.0) and list(a.arrival_ms) == sorted(a.arrival_ms)
-    other = load_suite_spec(path, {"workload.seed": 8}).blueprints[0].workload
+    other = load_suite_spec(path, {"workload.seed": 8}).cases[0].workload
     assert other.prompt_lens != a.prompt_lens
 
 

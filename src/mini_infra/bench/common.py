@@ -267,7 +267,7 @@ def _match_gpu_spec(gpu_name: str) -> tuple[float | None, float | None]:
     return GPU_PEAK_SPECS[best_key] if best_key else (None, None)
 
 
-def resolve_peak_specs(
+def lookup_gpu_peak_specs(
     gpu_name: str,
     bandwidth_gbs: float | None = None,
     tflops: float | None = None,
@@ -594,7 +594,7 @@ __all__ = [
     "gpu_info",
     "model_cost",
     "require_cuda",
-    "resolve_peak_specs",
+    "lookup_gpu_peak_specs",
     "save_benchmark_record",
     "summarize_samples",
 ]

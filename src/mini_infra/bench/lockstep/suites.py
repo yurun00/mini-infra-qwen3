@@ -24,7 +24,7 @@ from typing import Any
 
 from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.spec import (
-    CaseBlueprint,
+    CaseSpec,
     LoadedSuiteSpec,
     discover_suite_specs,
     get_suite_spec,
@@ -36,10 +36,10 @@ from mini_infra.engine import Mode
 
 @dataclass(frozen=True)
 class LockstepSuite:
-    """一个已加载的 Lockstep 评测套件（YAML 声明 + 展开后的用例蓝图）。"""
+    """一个已加载的 Lockstep 评测套件（YAML 声明 + 展开后的用例规格）。"""
 
     loaded: LoadedSuiteSpec
-    blueprints: tuple[CaseBlueprint, ...]
+    case_specs: tuple[CaseSpec, ...]
 
     @property
     def name(self) -> str:
@@ -55,21 +55,21 @@ class LockstepSuite:
 
     def modes(self) -> list[Mode]:
         """按展开顺序去重后的运行模式列表。"""
-        return list(dict.fromkeys(bp.mode for bp in self.blueprints))
+        return list(dict.fromkeys(cs.mode for cs in self.case_specs))
 
     def cases(self) -> list[LockstepCase]:
         return [
             LockstepCase(
                 workload=Workload(
-                    num_total_requests=bp.workload.num_requests,
-                    prompt_len=bp.workload.prompt_len,
-                    max_new_tokens=bp.workload.max_new_tokens,
-                    workload_id=bp.workload.workload_id,
+                    num_total_requests=cs.workload.num_requests,
+                    prompt_len=cs.workload.prompt_len,
+                    max_new_tokens=cs.workload.max_new_tokens,
+                    workload_id=cs.workload.workload_id,
                 ),
-                mode=bp.mode,
+                mode=cs.mode,
                 suite_name=self.name,
             )
-            for bp in self.blueprints
+            for cs in self.case_specs
         ]
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,7 +78,7 @@ class LockstepSuite:
 
 
 def suite_from_loaded(loaded: LoadedSuiteSpec) -> LockstepSuite:
-    return LockstepSuite(loaded=loaded, blueprints=loaded.blueprints)
+    return LockstepSuite(loaded=loaded, case_specs=loaded.cases)
 
 
 def load_lockstep_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> LockstepSuite:

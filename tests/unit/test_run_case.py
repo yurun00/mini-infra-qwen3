@@ -4,65 +4,65 @@ import pytest
 import torch
 
 from mini_infra.bench.cases import LockstepCase
-from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
+from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
 from mini_infra.bench.workloads import Workload
 from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
-def test_resolve_case_specs_scalars():
-    bs, pl, mnt = resolve_case_specs([32], [16])
+def test_broadcast_case_lengths_scalars():
+    bs, pl, mnt = broadcast_case_lengths([32], [16])
     assert bs == 1
     assert pl == 32
     assert mnt == 16
 
 
-def test_resolve_case_specs_scalar_broadcast_with_explicit_batch_size():
-    bs, pl, mnt = resolve_case_specs([128], [32], batch_size=4)
+def test_broadcast_case_lengths_scalar_broadcast_with_explicit_batch_size():
+    bs, pl, mnt = broadcast_case_lengths([128], [32], batch_size=4)
     assert bs == 4
     assert pl == 128
     assert mnt == 32
 
 
-def test_resolve_case_specs_variable_prompt_inferred_batch_size():
-    bs, pl, mnt = resolve_case_specs([16, 32, 64, 128], [32])
+def test_broadcast_case_lengths_variable_prompt_inferred_batch_size():
+    bs, pl, mnt = broadcast_case_lengths([16, 32, 64, 128], [32])
     assert bs == 4
     assert pl == (16, 32, 64, 128)
     assert mnt == 32
 
 
-def test_resolve_case_specs_variable_output_inferred_batch_size():
-    bs, pl, mnt = resolve_case_specs([128], [8, 16, 32, 64])
+def test_broadcast_case_lengths_variable_output_inferred_batch_size():
+    bs, pl, mnt = broadcast_case_lengths([128], [8, 16, 32, 64])
     assert bs == 4
     assert pl == 128
     assert mnt == (8, 16, 32, 64)
 
 
-def test_resolve_case_specs_both_variable_inferred_batch_size():
-    bs, pl, mnt = resolve_case_specs([16, 32], [8, 16])
+def test_broadcast_case_lengths_both_variable_inferred_batch_size():
+    bs, pl, mnt = broadcast_case_lengths([16, 32], [8, 16])
     assert bs == 2
     assert pl == (16, 32)
     assert mnt == (8, 16)
 
 
-def test_resolve_case_specs_shape_mismatches():
+def test_broadcast_case_lengths_shape_mismatches():
     # prompt 与 output 长度不相等且均 > 1
     with pytest.raises(ValueError, match="不匹配"):
-        resolve_case_specs([16, 32], [8, 16, 32])
+        broadcast_case_lengths([16, 32], [8, 16, 32])
 
     # 与显式 batch_size 不匹配
     with pytest.raises(ValueError, match="既不为 1，也不等于指定的 batch_size"):
-        resolve_case_specs([16, 32], [8], batch_size=3)
+        broadcast_case_lengths([16, 32], [8], batch_size=3)
 
     with pytest.raises(ValueError, match="既不为 1，也不等于指定的 batch_size"):
-        resolve_case_specs([16], [8, 16], batch_size=3)
+        broadcast_case_lengths([16], [8, 16], batch_size=3)
 
     # 长度非法
     with pytest.raises(ValueError):
-        resolve_case_specs([], [8])
+        broadcast_case_lengths([], [8])
 
     with pytest.raises(ValueError):
-        resolve_case_specs([16], [1])  # max_new_tokens 至少为 2
+        broadcast_case_lengths([16], [1])  # max_new_tokens 至少为 2
 
 
 def test_parse_args_run_case():

@@ -20,9 +20,9 @@ from mini_infra.bench.common import (
     format_lengths,
     git_info,
     gpu_info,
+    lookup_gpu_peak_specs,
     model_cost,
     require_cuda,
-    resolve_peak_specs,
     save_benchmark_record,
 )
 from mini_infra.bench.lockstep.format import (
@@ -30,7 +30,7 @@ from mini_infra.bench.lockstep.format import (
     format_suite_plan,
     format_table,
 )
-from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
+from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import LockstepSuite
 from mini_infra.bench.schema import build_benchmark_record
@@ -97,7 +97,7 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 def handle_case(args: argparse.Namespace) -> int:
     device = require_cuda()
 
-    target_bs, resolved_prompt_len, resolved_max_new_tokens = resolve_case_specs(
+    target_bs, resolved_prompt_len, resolved_max_new_tokens = broadcast_case_lengths(
         args.prompt_lens, args.max_new_tokens, args.batch_size
     )
 
@@ -124,7 +124,7 @@ def handle_case(args: argparse.Namespace) -> int:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    peaks = lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
     cost = model_cost(model)
     if None in peaks.values():
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
@@ -202,7 +202,7 @@ def prepare_lockstep_env(args: argparse.Namespace) -> LockstepRunEnv:
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
     env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    peaks = lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
     if None in peaks.values():
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     return LockstepRunEnv(

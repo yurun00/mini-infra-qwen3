@@ -13,7 +13,7 @@ import yaml
 from mini_infra.bench.cases import CaseKey
 from mini_infra.bench.common import format_lengths
 from mini_infra.bench.spec import (
-    CaseBlueprint,
+    CaseSpec,
     LoadedSuiteSpec,
     SuiteEngine,
     discover_suite_specs,
@@ -48,13 +48,21 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     return suites_parser
 
 
-def _describe_case(engine: SuiteEngine, bp: CaseBlueprint) -> str:
+def _describe_case(engine: SuiteEngine, case_spec: CaseSpec) -> str:
     if engine == "scheduler":
-        assert bp.max_running_requests is not None
-        return str(CaseKey(bp.workload.workload_id, bp.mode, bp.max_running_requests, bp.paged_cache_config))
+        assert case_spec.max_running_requests is not None
+        return str(
+            CaseKey(
+                case_spec.workload.workload_id,
+                case_spec.mode,
+                case_spec.max_running_requests,
+                case_spec.paged_cache_config,
+            )
+        )
     return (
-        f"[{bp.workload.workload_id}] | {bp.mode} | batch={bp.workload.num_requests} "
-        f"prompt={format_lengths(bp.workload.prompt_len)} max_new_tokens={format_lengths(bp.workload.max_new_tokens)}"
+        f"[{case_spec.workload.workload_id}] | {case_spec.mode} | batch={case_spec.workload.num_requests} "
+        f"prompt={format_lengths(case_spec.workload.prompt_len)} "
+        f"max_new_tokens={format_lengths(case_spec.workload.max_new_tokens)}"
     )
 
 
@@ -81,7 +89,7 @@ def handle_list(args: argparse.Namespace) -> int:
         for name, path in discover_suite_specs(engine).items():
             loaded = load_suite_spec(path)
             summary = loaded.spec.description.strip().splitlines()[0] if loaded.spec.description.strip() else ""
-            rows.append((engine, name, len(loaded.blueprints), summary))
+            rows.append((engine, name, len(loaded.cases), summary))
     if not rows:
         print("未发现任何 suite（benchmarks/specs/<engine>/*.yaml）")
         return 0
@@ -100,10 +108,10 @@ def handle_show(args: argparse.Namespace) -> int:
     engine = loaded.spec.engine
     print(f"# {loaded.path}  (sha256={loaded.sha256[:12]})")
     print(yaml.safe_dump(loaded.raw, sort_keys=False, allow_unicode=True).rstrip())
-    blueprints = loaded.blueprints
-    print(f"\n# 展开后的用例（共 {len(blueprints)} 个，顺序即执行顺序）")
-    for i, bp in enumerate(blueprints, 1):
-        print(f"  [{i:02d}] {_describe_case(engine, bp)}")
+    cases = loaded.cases
+    print(f"\n# 展开后的用例（共 {len(cases)} 个，顺序即执行顺序）")
+    for i, case_spec in enumerate(cases, 1):
+        print(f"  [{i:02d}] {_describe_case(engine, case_spec)}")
     return 0
 
 

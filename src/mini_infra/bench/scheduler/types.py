@@ -7,8 +7,8 @@ from typing import Any
 from mini_infra.bench.cases import (
     CaseDimensionValue,
     CaseKey,
+    Comparison,
     MetricKind,
-    ResolvedComparisonSpec,
 )
 from mini_infra.bench.common import (
     DistributionStats,
@@ -87,8 +87,8 @@ class MetricComparison:
         }
 
 
-def resolve_metric_value(obj: Any, path: str) -> float:
-    """沿点分路径从对象中解析出目标标量浮点值。"""
+def extract_metric_by_path(obj: Any, path: str) -> float:
+    """沿点分路径从对象中提取目标标量浮点值。"""
     curr = obj
     for segment in path.split("."):
         if not hasattr(curr, segment):
@@ -99,33 +99,33 @@ def resolve_metric_value(obj: Any, path: str) -> float:
     elif isinstance(curr, (int, float)):
         val = curr
     else:
-        raise TypeError(f"指标 '{path}' 解析得到不可转换为数值的对象: {curr!r} ({type(curr)})")
+        raise TypeError(f"指标 '{path}' 提取得到不可转换为数值的对象: {curr!r} ({type(curr)})")
     return float(val)
 
 
 def compute_comparisons(
     case_results: Sequence["SchedulerCaseResult"],
-    spec: ResolvedComparisonSpec,
+    comparison: Comparison,
 ) -> list[MetricComparison]:
-    """根据 ResolvedComparisonSpec 将 case_results 分组，在每组中按 baseline 规则选出基线并计算指标对比。"""
+    """根据 Comparison 将 case_results 分组，在每组中按 baseline 规则选出基线并计算指标对比。"""
     groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerCaseResult]] = {}
     for r in case_results:
-        g_key = r.key.project(spec.group_by)
+        g_key = r.key.project(comparison.group_by)
         groups.setdefault(g_key, []).append(r)
 
     comparisons: list[MetricComparison] = []
     for g_key, group in groups.items():
         matching_baselines = [
-            r for r in group if all(r.key.value(dim) == expected for dim, expected in spec.baseline.items())
+            r for r in group if all(r.key.value(dim) == expected for dim, expected in comparison.baseline.items())
         ]
         if len(matching_baselines) == 0:
             raise ValueError(
-                f"分组 {g_key} 内未找到符合 baseline 约束 {spec.baseline} 的基线用例。"
+                f"分组 {g_key} 内未找到符合 baseline 约束 {comparison.baseline} 的基线用例。"
                 f"组内用例 keys: {[r.key.display_name for r in group]}"
             )
         if len(matching_baselines) > 1:
             raise ValueError(
-                f"分组 {g_key} 内找到多个符合 baseline 约束 {spec.baseline} 的候选用例: "
+                f"分组 {g_key} 内找到多个符合 baseline 约束 {comparison.baseline} 的候选用例: "
                 f"{[r.key.display_name for r in matching_baselines]}"
             )
         baseline_res = matching_baselines[0]
@@ -133,9 +133,9 @@ def compute_comparisons(
         for candidate_res in group:
             if candidate_res.key == baseline_res.key:
                 continue
-            for metric in spec.metrics:
-                b_val = resolve_metric_value(baseline_res, metric.path)
-                c_val = resolve_metric_value(candidate_res, metric.path)
+            for metric in comparison.metrics:
+                b_val = extract_metric_by_path(baseline_res, metric.path)
+                c_val = extract_metric_by_path(candidate_res, metric.path)
                 ratio = c_val / b_val if b_val != 0 else 1.0
                 rel_delta = (c_val - b_val) / b_val if b_val != 0 else 0.0
 
@@ -401,7 +401,7 @@ __all__ = [
     "Workload",
     "compute_comparisons",
     "extract_workload_from_schedule_result",
-    "resolve_metric_value",
+    "extract_metric_by_path",
     "summarize_same_case_runs",
     "summarize_samples",
 ]

@@ -21,9 +21,9 @@ from pydantic import Field, field_validator, model_validator
 from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
+    Comparison,
     ComparisonMetric,
     MetricKind,
-    ResolvedComparisonSpec,
 )
 from mini_infra.bench.spec.common.schema import (
     CheckSpec,
@@ -91,8 +91,8 @@ class ComparisonSpec(_Strict):
     group_by: Annotated[list[CaseDimension], Field(min_length=1)]
     baseline: Annotated[dict[CaseDimension, str | int], Field(min_length=1)]
 
-    def resolve(self) -> ResolvedComparisonSpec:
-        """转换为已解析强类型的 ResolvedComparisonSpec（baseline 取值按维度还原为强类型）。"""
+    def build(self) -> Comparison:
+        """转换为已解析强类型的 Comparison 运行时对比配置（baseline 取值按维度还原为强类型）。"""
         baseline: dict[CaseDimension, CaseDimensionValue] = {}
         for dim, raw in self.baseline.items():
             if dim is CaseDimension.BATCHING_METHOD:
@@ -107,7 +107,7 @@ class ComparisonSpec(_Strict):
                 baseline[dim] = raw
             else:
                 raise ValueError(f"baseline 不支持维度 {dim.value}")
-        return ResolvedComparisonSpec(
+        return Comparison(
             metrics=tuple(ComparisonMetric(m.path, m.kind, m.name) for m in self.metrics),
             group_by=tuple(self.group_by),
             baseline=baseline,

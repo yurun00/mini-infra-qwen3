@@ -8,19 +8,19 @@ from typing import Any
 from mini_infra.bench.common import SPECS_DIR
 from mini_infra.bench.spec.common.overrides import apply_overrides
 from mini_infra.bench.spec.common.raw import _sha256, load_raw_spec
-from mini_infra.bench.spec.suite.expand import CaseBlueprint, expand_suite_spec
+from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec
 from mini_infra.bench.spec.suite.schema import SuiteEngine, SuiteSpec
 
 
 @dataclass(frozen=True)
 class LoadedSuiteSpec:
-    """已校验并已展开的 suite 声明：`blueprints` 为全部 sweep 点展开后的有序用例蓝图。"""
+    """已校验并已展开的 suite 声明：`cases` 为全部 sweep 点展开后的有序用例规格。"""
 
     spec: SuiteSpec
     path: Path
     raw: dict[str, Any]
     sha256: str
-    blueprints: tuple[CaseBlueprint, ...]
+    cases: tuple[CaseSpec, ...]
     overrides: dict[str, Any] = field(default_factory=dict)
 
     def info(self) -> dict[str, Any]:
@@ -52,7 +52,7 @@ def load_suite_spec(path: Path, overrides: Mapping[str, Any] | None = None) -> L
         path=path,
         raw=raw,
         sha256=_sha256(raw),
-        blueprints=tuple(expand_suite_spec(spec)),
+        cases=tuple(expand_suite_spec(spec)),
         overrides=dict(overrides or {}),
     )
 

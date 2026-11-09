@@ -41,7 +41,7 @@ from mini_infra.engine.metrics import (
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
-def resolve_case_specs(
+def broadcast_case_lengths(
     prompt_lens: Sequence[int],
     max_new_tokens: Sequence[int],
     batch_size: int | None = None,
@@ -232,6 +232,6 @@ def run_case(
 
 
 __all__ = [
-    "resolve_case_specs",
+    "broadcast_case_lengths",
     "run_case",
 ]

@@ -2,7 +2,7 @@
 
 import torch
 
-from mini_infra.bench.cases import CaseDimension, ResolvedWorkload, SchedulerCase
+from mini_infra.bench.cases import CaseDimension, RequestPayload, SchedulerCase
 from mini_infra.bench.scheduler import (
     build_benchmark_record,
     extract_workload_from_schedule_result,
@@ -236,7 +236,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = SchedulerCase(
-        workload=ResolvedWorkload(workload_id="test-cont-case", specs=specs),
+        workload=RequestPayload(workload_id="test-cont-case", specs=specs),
         mode=mode,
         max_running_requests=2,
         suite_name="test-cont-case",
@@ -355,7 +355,7 @@ def test_run_scheduler_paged_case_on_cpu():
     paged_config = PagedCacheConfig(block_size=4)
 
     case = SchedulerCase(
-        workload=ResolvedWorkload(workload_id="stress_case", specs=specs),
+        workload=RequestPayload(workload_id="stress_case", specs=specs),
         mode=mode,
         max_running_requests=2,
         paged_cache_config=paged_config,
@@ -401,26 +401,26 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
     cases = [
         SchedulerCase(
-            workload=ResolvedWorkload(workload_id="workload_0", specs=spec_w0),
+            workload=RequestPayload(workload_id="workload_0", specs=spec_w0),
             mode=dense_mode,
             max_running_requests=2,
             suite_name="multi-workload-suite",
         ),
         SchedulerCase(
-            workload=ResolvedWorkload(workload_id="workload_0", specs=spec_w0),
+            workload=RequestPayload(workload_id="workload_0", specs=spec_w0),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=paged_config,
             suite_name="multi-workload-suite",
         ),
         SchedulerCase(
-            workload=ResolvedWorkload(workload_id="workload_1", specs=spec_w1),
+            workload=RequestPayload(workload_id="workload_1", specs=spec_w1),
             mode=dense_mode,
             max_running_requests=2,
             suite_name="multi-workload-suite",
         ),
         SchedulerCase(
-            workload=ResolvedWorkload(workload_id="workload_1", specs=spec_w1),
+            workload=RequestPayload(workload_id="workload_1", specs=spec_w1),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=paged_config,

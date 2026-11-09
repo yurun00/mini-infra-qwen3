@@ -1,7 +1,7 @@
 """Suite 领域规格声明、校验、展开与加载。"""
 
 from mini_infra.bench.spec.suite.checks import run_check
-from mini_infra.bench.spec.suite.expand import CaseBlueprint, expand_suite_spec, resolve_workload
+from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec, resolve_workload
 from mini_infra.bench.spec.suite.loader import (
     LoadedSuiteSpec,
     discover_suite_specs,
@@ -25,7 +25,7 @@ from mini_infra.bench.spec.suite.schema import (
 )
 
 __all__ = [
-    "CaseBlueprint",
+    "CaseSpec",
     "CheckSpec",
     "ComparisonSpec",
     "LoadedSuiteSpec",

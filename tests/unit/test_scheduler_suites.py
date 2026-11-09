@@ -7,10 +7,10 @@ import pytest
 from mini_infra.bench.cases import (
     CaseDimension,
     CaseKey,
+    Comparison,
     ComparisonMetric,
     MetricKind,
-    ResolvedComparisonSpec,
-    ResolvedWorkload,
+    RequestPayload,
     SchedulerCase,
 )
 from mini_infra.bench.scheduler.suites import (
@@ -170,7 +170,7 @@ def test_dense_vs_paged_block_size_suite():
 
 def test_comparison_spec_from_yaml_is_typed():
     comparison = get_scheduler_suite("dense-vs-paged-block-size").comparison
-    assert isinstance(comparison, ResolvedComparisonSpec)
+    assert isinstance(comparison, Comparison)
     assert comparison.group_by == (CaseDimension.WORKLOAD_ID,)
     assert comparison.baseline == {CaseDimension.CACHING_METHOD: CachingMethod.DENSE}
     assert [m.display_name for m in comparison.metrics] == ["makespan", "throughput", "KV-read", "pool"]
@@ -189,7 +189,7 @@ def test_scheduler_suite_case_paged_validation():
     # 1. Paged 模式不传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
         SchedulerCase(
-            workload=ResolvedWorkload(workload_id="test", specs=(spec,)),
+            workload=RequestPayload(workload_id="test", specs=(spec,)),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=None,
@@ -199,7 +199,7 @@ def test_scheduler_suite_case_paged_validation():
     # 2. 非 Paged 模式传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
         SchedulerCase(
-            workload=ResolvedWorkload(workload_id="test", specs=(spec,)),
+            workload=RequestPayload(workload_id="test", specs=(spec,)),
             mode=dense_mode,
             max_running_requests=2,
             paged_cache_config=PagedCacheConfig(block_size=16),
@@ -208,14 +208,14 @@ def test_scheduler_suite_case_paged_validation():
 
     # 3. workload_id 为空报错
     with pytest.raises(ValueError, match="workload_id 不能为空"):
-        ResolvedWorkload(
+        RequestPayload(
             workload_id="",
             specs=(spec,),
         )
 
     # 4. 正确传参合法构造
     case_paged = SchedulerCase(
-        workload=ResolvedWorkload(workload_id="workload_0", specs=(spec,)),
+        workload=RequestPayload(workload_id="workload_0", specs=(spec,)),
         mode=paged_mode,
         max_running_requests=2,
         paged_cache_config=PagedCacheConfig(block_size=16),
@@ -359,7 +359,7 @@ def test_compute_comparisons():
         bs=32,
     )
 
-    spec = ResolvedComparisonSpec(
+    comparison = Comparison(
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: CachingMethod.DENSE},
         metrics=(
@@ -371,7 +371,7 @@ def test_compute_comparisons():
     )
 
     cases = [dense_case, paged_16, paged_32]
-    comparisons = compute_comparisons(cases, spec)
+    comparisons = compute_comparisons(cases, comparison)
     # 2 candidate cases * 4 metrics = 8 comparisons
     assert len(comparisons) == 8
 
@@ -417,10 +417,10 @@ def test_compute_comparisons():
     assert "speedup 1.25x" in comp_line
 
     # 验证 baseline 找不到时报错
-    bad_spec_no_baseline = ResolvedComparisonSpec(
+    bad_spec_no_baseline = Comparison(
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: CachingMethod.NONE},
-        metrics=spec.metrics,
+        metrics=comparison.metrics,
     )
     with pytest.raises(ValueError, match="未找到符合 baseline 约束"):
         compute_comparisons(cases, bad_spec_no_baseline)
@@ -436,7 +436,7 @@ def test_compute_comparisons():
         mrr=16,
     )
     with pytest.raises(ValueError, match="找到多个符合 baseline 约束"):
-        compute_comparisons([dense_case, dup_dense, paged_16], spec)
+        compute_comparisons([dense_case, dup_dense, paged_16], comparison)
 
     # 验证 format_case_summary 与 format_table
     summary_str = format_case_summary(paged_16)

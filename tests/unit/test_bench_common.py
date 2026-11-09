@@ -2,7 +2,7 @@
 
 import pytest
 
-from mini_infra.bench.common import format_lengths, resolve_peak_specs
+from mini_infra.bench.common import format_lengths, lookup_gpu_peak_specs
 from mini_infra.utils import percentile
 
 
@@ -19,14 +19,14 @@ from mini_infra.utils import percentile
         ("NVIDIA GeForce RTX 4090", 1008.0, 165.0),
     ],
 )
-def test_resolve_peak_specs_matches_exact_model(gpu_name, expected_bandwidth, expected_tflops):
-    peaks = resolve_peak_specs(gpu_name)
+def test_lookup_gpu_peak_specs_matches_exact_model(gpu_name, expected_bandwidth, expected_tflops):
+    peaks = lookup_gpu_peak_specs(gpu_name)
     assert peaks == {"bandwidth_gbs": expected_bandwidth, "tflops": expected_tflops}
 
 
-def test_resolve_peak_specs_unknown_gpu_and_overrides():
-    assert resolve_peak_specs("Unknown GPU") == {"bandwidth_gbs": None, "tflops": None}
-    assert resolve_peak_specs("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == {
+def test_lookup_gpu_peak_specs_unknown_gpu_and_overrides():
+    assert lookup_gpu_peak_specs("Unknown GPU") == {"bandwidth_gbs": None, "tflops": None}
+    assert lookup_gpu_peak_specs("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == {
         "bandwidth_gbs": 100.0,
         "tflops": 10.0,
     }

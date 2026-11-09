@@ -148,10 +148,8 @@ def _write(tmp_path: Path, text: str, name: str = "demo") -> Path:
 
 def test_block_size_sweep_only_expands_paged_modes(tmp_path):
     text = _SCHEDULER_BASE + "sweep:\n  system:\n    block_size: [4, 8]\n"
-    blueprints = load_suite_spec(_write(tmp_path, text)).blueprints
-    assert [
-        (bp.mode.caching_method, bp.paged_cache_config and bp.paged_cache_config.block_size) for bp in blueprints
-    ] == [
+    cases = load_suite_spec(_write(tmp_path, text)).cases
+    assert [(cs.mode.caching_method, cs.paged_cache_config and cs.paged_cache_config.block_size) for cs in cases] == [
         (CachingMethod.DENSE, None),
         (CachingMethod.PAGED, 4),
         (CachingMethod.PAGED, 8),
@@ -177,8 +175,8 @@ sweep:
     n: [1, 2]
     plen: [8, 16]
 """
-    blueprints = expand_suite_spec(load_suite_spec(_write(tmp_path, text)).spec)
-    assert [(bp.workload.workload_id, bp.workload.num_requests, bp.workload.prompt_lens[0]) for bp in blueprints] == [
+    case_specs = expand_suite_spec(load_suite_spec(_write(tmp_path, text)).spec)
+    assert [(cs.workload.workload_id, cs.workload.num_requests, cs.workload.prompt_lens[0]) for cs in case_specs] == [
         ("w_1_8", 1, 8),
         ("w_1_16", 1, 16),
         ("w_2_8", 2, 8),
@@ -199,9 +197,9 @@ workload:
   prompt_len: [8, 8]
   output_len: 4
 """
-    (bp,) = load_suite_spec(_write(tmp_path, text)).blueprints
-    assert bp.workload.prompt_len == (8, 8)
-    assert bp.workload.max_new_tokens == 4
+    (cs,) = load_suite_spec(_write(tmp_path, text)).cases
+    assert cs.workload.prompt_len == (8, 8)
+    assert cs.workload.max_new_tokens == 4
 
 
 def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):

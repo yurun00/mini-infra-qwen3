@@ -108,8 +108,8 @@ class ComparisonMetric:
 
 
 @dataclass(frozen=True)
-class ResolvedComparisonSpec:
-    """Suite 级泛型对比规范（已解析为强类型，纯 CPU，零 PyTorch 依赖）。"""
+class Comparison:
+    """Suite 级泛型对比配置（已解析为强类型，纯 CPU，零 PyTorch 依赖）。"""
 
     metrics: tuple[ComparisonMetric, ...]
     group_by: tuple[CaseDimension, ...]
@@ -127,8 +127,8 @@ class ResolvedComparisonSpec:
 
 
 @dataclass(frozen=True)
-class ResolvedWorkload:
-    """已绑定具体 Token 序列的确定性执行负载（Traffic Payload，纯 CPU，零 PyTorch 依赖）。"""
+class RequestPayload:
+    """已绑定具体 Token 序列的确定性执行载荷（Traffic Payload，纯 CPU，零 PyTorch 依赖）。"""
 
     workload_id: str
     specs: tuple[RequestSpec, ...]
@@ -160,7 +160,7 @@ class ResolvedWorkload:
 class SchedulerCase:
     """Scheduler 评测最小单用例配置：包含输入负载与 System 维度。"""
 
-    workload: ResolvedWorkload
+    workload: RequestPayload
     mode: Mode
     max_running_requests: int
     paged_cache_config: PagedCacheConfig | None = None
@@ -232,10 +232,10 @@ __all__ = [
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
+    "Comparison",
     "ComparisonMetric",
     "LockstepCase",
     "MetricKind",
-    "ResolvedComparisonSpec",
-    "ResolvedWorkload",
+    "RequestPayload",
     "SchedulerCase",
 ]

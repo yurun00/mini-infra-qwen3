@@ -5,8 +5,8 @@
     benchmarks/specs/scheduler/<name>.yaml        # name 必须与文件名一致
     benchmarks/specs/scheduler/_bases/*.yaml      # 仅供 extends 复用，不可直接运行
 
-`SchedulerSuite` 持有已校验的 `LoadedSuiteSpec` 与展开后的 `CaseBlueprint`；
-`cases(vocab_size)` 把蓝图绑定到合成 token，得到 run_suite 消费的 `SchedulerCase` 列表。
+`SchedulerSuite` 持有已校验的 `LoadedSuiteSpec` 与展开后的 `CaseSpec`；
+`cases(vocab_size)` 把用例规格绑定到合成 token，得到 run_suite 消费的 `SchedulerCase` 列表。
 """
 
 from collections.abc import Mapping, Sequence
@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import CaseDimension, ResolvedComparisonSpec, ResolvedWorkload, SchedulerCase
+from mini_infra.bench.cases import CaseDimension, Comparison, RequestPayload, SchedulerCase
 from mini_infra.bench.spec import (
-    CaseBlueprint,
+    CaseSpec,
     LoadedSuiteSpec,
     ResolvedWorkloadSpec,
     discover_suite_specs,
@@ -30,10 +30,10 @@ from mini_infra.engine import Mode
 
 @dataclass(frozen=True)
 class SchedulerSuite:
-    """一个已加载的 Scheduler 评测套件（YAML 声明 + 展开后的用例蓝图）。"""
+    """一个已加载的 Scheduler 评测套件（YAML 声明 + 展开后的用例规格）。"""
 
     loaded: LoadedSuiteSpec
-    blueprints: tuple[CaseBlueprint, ...]
+    case_specs: tuple[CaseSpec, ...]
 
     @property
     def name(self) -> str:
@@ -52,20 +52,20 @@ class SchedulerSuite:
         return tuple(self.loaded.spec.execution.interleave)
 
     @property
-    def comparison(self) -> ResolvedComparisonSpec | None:
+    def comparison(self) -> Comparison | None:
         spec = self.loaded.spec.comparison
-        return None if spec is None else spec.resolve()
+        return None if spec is None else spec.build()
 
     def modes(self) -> list[Mode]:
         """按展开顺序去重后的运行模式列表。"""
-        return list(dict.fromkeys(bp.mode for bp in self.blueprints))
+        return list(dict.fromkeys(cs.mode for cs in self.case_specs))
 
     def cases(self, vocab_size: int) -> list[SchedulerCase]:
-        """把用例蓝图绑定到合成 token；同一 workload 下的各 case 共享同一份请求规格。"""
-        workloads_by_spec: dict[ResolvedWorkloadSpec, ResolvedWorkload] = {}
+        """把用例规格绑定到合成 token；同一 workload 下的各 case 共享同一份请求规格。"""
+        workloads_by_spec: dict[ResolvedWorkloadSpec, RequestPayload] = {}
         cases: list[SchedulerCase] = []
-        for bp in self.blueprints:
-            spec = bp.workload
+        for cs in self.case_specs:
+            spec = cs.workload
             if spec not in workloads_by_spec:
                 specs = tuple(
                     make_request_specs(
@@ -74,14 +74,14 @@ class SchedulerSuite:
                         spec.arrival_ms,
                     )
                 )
-                workloads_by_spec[spec] = ResolvedWorkload(workload_id=spec.workload_id, specs=specs)
-            assert bp.max_running_requests is not None
+                workloads_by_spec[spec] = RequestPayload(workload_id=spec.workload_id, specs=specs)
+            assert cs.max_running_requests is not None
             cases.append(
                 SchedulerCase(
                     workload=workloads_by_spec[spec],
-                    mode=bp.mode,
-                    max_running_requests=bp.max_running_requests,
-                    paged_cache_config=bp.paged_cache_config,
+                    mode=cs.mode,
+                    max_running_requests=cs.max_running_requests,
+                    paged_cache_config=cs.paged_cache_config,
                     suite_name=self.name,
                 )
             )
@@ -93,7 +93,7 @@ class SchedulerSuite:
 
 
 def _suite_from_loaded(loaded: LoadedSuiteSpec) -> SchedulerSuite:
-    return SchedulerSuite(loaded=loaded, blueprints=loaded.blueprints)
+    return SchedulerSuite(loaded=loaded, case_specs=loaded.cases)
 
 
 def load_scheduler_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> SchedulerSuite:

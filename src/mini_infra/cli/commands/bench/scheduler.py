@@ -11,16 +11,16 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import ResolvedWorkload, SchedulerCase
+from mini_infra.bench.cases import RequestPayload, SchedulerCase
 from mini_infra.bench.common import (
     CASE_DIR,
     add_common_args,
     check_correctness,
     git_info,
     gpu_info,
+    lookup_gpu_peak_specs,
     model_cost,
     require_cuda,
-    resolve_peak_specs,
     save_benchmark_record,
 )
 from mini_infra.bench.scheduler.format import (
@@ -155,7 +155,7 @@ def handle_case(args: argparse.Namespace) -> int:
     specs = tuple(build_scheduler_request_specs(workload, vocab))
     case_name = "custom"
 
-    resolved_workload = ResolvedWorkload(workload_id="custom", specs=specs)
+    resolved_workload = RequestPayload(workload_id="custom", specs=specs)
     case = SchedulerCase(
         workload=resolved_workload,
         mode=target_mode,
@@ -191,7 +191,7 @@ def handle_case(args: argparse.Namespace) -> int:
     print(format_case_summary(result))
 
     env = gpu_info(device)
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    peaks = lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
     cost = model_cost(model)
     git = git_info()
     record = build_benchmark_record(
@@ -244,7 +244,7 @@ def prepare_scheduler_env(args: argparse.Namespace) -> SchedulerRunEnv:
         device=device,
         vocab=model.config.vocab_size,
         env=env,
-        peaks=resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops),
+        peaks=lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops),
         cost=model_cost(model),
         git=git_info(),
     )
@@ -270,7 +270,7 @@ def execute_scheduler_suite(
     interleave_features = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
 
     print(
-        f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.blueprints)} "
+        f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.case_specs)} "
         f"warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
