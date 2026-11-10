@@ -39,8 +39,8 @@ from mini_infra.bench.scheduler.suites import (
     load_scheduler_suite,
 )
 from mini_infra.bench.scheduler.types import (
+    ComparisonResult,
     DistributionStats,
-    MetricComparison,
     SchedulerCaseResult,
     compute_comparisons,
     extract_metric_by_path,
@@ -55,8 +55,8 @@ __all__ = [
     "CaseKey",
     "Comparison",
     "ComparisonMetric",
+    "ComparisonResult",
     "DistributionStats",
-    "MetricComparison",
     "MetricKind",
     "PlannedRun",
     "RunPhase",

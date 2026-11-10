@@ -48,7 +48,7 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
 | **Execution** | `Comparison` | `bench.cases` | 经 `Comparison.from_spec(spec)` 装配生成的强类型运行时对比配置，指导多用例结果分组与基准指标计算 |
 | **Result** | `SchedulerCaseResult` | `bench.scheduler.types` | Scheduler 多轮测量聚合结果，持有 `key: CaseKey`、`workload: WorkloadProfile` 与 `DistributionStats` 统计画像 |
 | **Result** | `LockstepCaseResult` | `bench.lockstep.types` | Lockstep 多轮测量聚合结果，持有 `key: CaseKey`、`workload: WorkloadProfile` 与 `DistributionStats` 统计画像 |
-| **Result** | `MetricComparison` | `bench.scheduler.types` | 两个用例间基准指标的相对对比结果（Speedup、Gain、Reduction） |
+| **Result** | `ComparisonResult` | `bench.scheduler.types` | 两个用例间基准指标的相对对比结果（Speedup、Gain、Reduction） |
 | **Record** | `SchedulerCaseRecord` | `bench.schema` | Scheduler 单用例持久化 Pydantic 模型 |
 | **Record** | `LockstepCaseRecord` | `bench.schema` | Lockstep 单用例持久化 Pydantic 模型 |
 | **Record** | `SchedulerBenchmarkRecord` | `bench.schema` | Scheduler 完整评测结果 JSON 顶层信封 |

@@ -43,7 +43,7 @@ flowchart TD
     subgraph S3["阶段三：实测结果 (Measurement Plane) [*Result]"]
         SC -->|run_case_once / run_case| CR["SchedulerCaseResult / LockstepCaseResult"]
         CR --- CK["统一持有 key: CaseKey + DistributionStats (无兼容代理)"]
-        CR & Comp -->|compute_comparisons| MC["MetricComparison (指标对比结果)"]
+        CR & Comp -->|compute_comparisons| MC["ComparisonResult (指标对比结果)"]
     end
 
     subgraph S4["阶段四：落盘契约 (Persistence Plane) [*Record]"]
@@ -73,7 +73,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- |
 | **阶段一：规格声明** | `SuiteSpec` / `CaseSpec` / `ResolvedWorkloadSpec` / `ComparisonSpec` | `*Spec` | YAML 声明解析、场景展开与参数校验，无状态与纯数值元数据 |
 | **阶段二：评测执行** | `BenchmarkSuite[CaseT]` / `SchedulerCase` / `LockstepCase` / `Comparison` / `WorkloadProfile.to_payload` | `*Suite`, `*Case`, `Comparison`, `to_payload` | 运行时套件容器、轻量用例定义、对比策略、单步执行排期与按需局部载荷装配 |
-| **阶段三：实测结果** | `run_case_once` / `run_case` / `SchedulerCaseResult` / `LockstepCaseResult` / `MetricComparison` | `run_case*`, `*Result`, `MetricComparison` | 单次/多轮测量采样、时钟打点、指标聚合与统计中位数比对 |
+| **阶段三：实测结果** | `run_case_once` / `run_case` / `SchedulerCaseResult` / `LockstepCaseResult` / `ComparisonResult` | `run_case*`, `*Result` | 单次/多轮测量采样、时钟打点、指标聚合与统计中位数比对 |
 | **阶段四：落盘契约** | `LockstepBenchmarkRecord` / `SchedulerBenchmarkRecord` / `save_benchmark_record` | `*Record` | Pydantic v2 Schema 校验、JSON 序列化与历史基准归档 |
 
 ---

@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from mini_infra.bench.cases import CaseKey
-from mini_infra.bench.scheduler.types import MetricComparison, SchedulerCaseResult
+from mini_infra.bench.scheduler.types import ComparisonResult, SchedulerCaseResult
 from mini_infra.bench.schema import build_benchmark_record
 
 
@@ -120,7 +120,7 @@ def format_case_summary(result: SchedulerCaseResult) -> str:
     )
 
 
-def format_comparison(comp: MetricComparison) -> str:
+def format_comparison(comp: ComparisonResult) -> str:
     """格式化单条基准对比摘要行。"""
     prefix = f"  [{_abbreviate_workload_id(comp.candidate_key.workload_id)}]"
     cand_info = _abbreviate_mode(str(comp.candidate_key.mode))

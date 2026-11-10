@@ -248,7 +248,7 @@ def test_compute_comparisons():
         format_table,
     )
     from mini_infra.bench.scheduler.types import (
-        MetricComparison,
+        ComparisonResult,
         SchedulerCaseResult,
         compute_comparisons,
     )
@@ -386,7 +386,7 @@ def test_compute_comparisons():
 
     # 验证 paged_16 的 makespan speedup
     c0 = comparisons[0]
-    assert isinstance(c0, MetricComparison)
+    assert isinstance(c0, ComparisonResult)
     assert c0.candidate_key == paged_16.key
     assert c0.baseline_key == dense_case.key
     assert c0.metric_name == "makespan"

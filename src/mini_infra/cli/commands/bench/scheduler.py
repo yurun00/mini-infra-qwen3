@@ -35,7 +35,7 @@ from mini_infra.bench.scheduler.run_suite import (
     run_suite,
 )
 from mini_infra.bench.scheduler.suites import SchedulerSuite
-from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
+from mini_infra.bench.scheduler.types import ComparisonResult, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.bench.workloads import make_arrival_times
@@ -307,7 +307,7 @@ def execute_scheduler_suite(
     for res in results:
         print(format_case_summary(res))
 
-    comparisons: list[MetricComparison] = []
+    comparisons: list[ComparisonResult] = []
     if suite.comparison is not None:
         comparisons = compute_comparisons(results, suite.comparison)
         if comparisons:

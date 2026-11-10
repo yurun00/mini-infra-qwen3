@@ -29,7 +29,7 @@ from mini_infra.engine.results import ScheduleResult
 
 
 @dataclass(frozen=True)
-class MetricComparison:
+class ComparisonResult:
     """通用基准指标相对对比结果项。"""
 
     baseline_key: CaseKey
@@ -105,14 +105,14 @@ def extract_metric_by_path(obj: Any, path: str) -> float:
 def compute_comparisons(
     case_results: Sequence["SchedulerCaseResult"],
     comparison: Comparison,
-) -> list[MetricComparison]:
+) -> list[ComparisonResult]:
     """根据 Comparison 将 case_results 分组，在每组中按 baseline 规则选出基线并计算指标对比。"""
     groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerCaseResult]] = {}
     for r in case_results:
         g_key = r.key.project(comparison.group_by)
         groups.setdefault(g_key, []).append(r)
 
-    comparisons: list[MetricComparison] = []
+    comparisons: list[ComparisonResult] = []
     for g_key, group in groups.items():
         matching_baselines = [
             r for r in group if all(r.key.value(dim) == expected for dim, expected in comparison.baseline.items())
@@ -139,7 +139,7 @@ def compute_comparisons(
                 rel_delta = (c_val - b_val) / b_val if b_val != 0 else 0.0
 
                 comparisons.append(
-                    MetricComparison(
+                    ComparisonResult(
                         baseline_key=baseline_res.key,
                         candidate_key=candidate_res.key,
                         metric_path=metric.path,
@@ -394,8 +394,8 @@ def summarize_same_case_runs(
 
 
 __all__ = [
+    "ComparisonResult",
     "DistributionStats",
-    "MetricComparison",
     "SchedulerCaseResult",
     "compute_comparisons",
     "extract_workload_profile",

@@ -47,7 +47,7 @@ from mini_infra.bench.common import (
 
 if TYPE_CHECKING:
     from mini_infra.bench.lockstep.types import LockstepCaseResult
-    from mini_infra.bench.scheduler.types import MetricComparison, SchedulerCaseResult
+    from mini_infra.bench.scheduler.types import ComparisonResult, SchedulerCaseResult
 
 
 # ============================================================================
@@ -254,7 +254,7 @@ class SchedulerCaseRecord(BaseCaseRecord):
     paged_cache_config: PagedCacheConfigRecord | None = None
 
 
-class MetricComparisonRecord(_DictAccessModel):
+class ComparisonResultRecord(_DictAccessModel):
     """通用基准指标相对对比统计。"""
 
     baseline_key: CaseKeyRecord
@@ -306,7 +306,7 @@ class SchedulerBenchmarkRecord(BenchmarkEnvelopeBase):
 
     engine: Literal["scheduler"] = "scheduler"
     cases: list[SchedulerCaseRecord]
-    comparisons: list[MetricComparisonRecord] = Field(default_factory=list)
+    comparisons: list[ComparisonResultRecord] = Field(default_factory=list)
 
 
 AnyBenchmarkRecord = Annotated[
@@ -333,7 +333,7 @@ def build_benchmark_record(
     repeats: int,
     suite_info: dict[str, Any] | None = None,
     engine: Literal["lockstep", "scheduler"] | None = None,
-    comparisons: Sequence["MetricComparison"] | None = None,
+    comparisons: Sequence["ComparisonResult"] | None = None,
 ) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
     """统一构建 Lockstep 或 Scheduler 标准评测结果信封（由 Pydantic 校验并返回模型）。"""
     if engine is None:
@@ -455,13 +455,13 @@ __all__ = [
     "BaseCaseRecord",
     "BenchmarkEnvelopeBase",
     "CaseKeyRecord",
+    "ComparisonResultRecord",
     "DistributionStatsRecord",
     "EfficiencyMetricsRecord",
     "KVCacheProfileRecord",
     "LockstepBenchmarkRecord",
     "LockstepCaseRecord",
     "MemoryProfileRecord",
-    "MetricComparisonRecord",
     "PackingInfoRecord",
     "PagedCacheConfigRecord",
     "PagedCacheProfileRecord",
