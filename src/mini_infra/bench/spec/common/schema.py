@@ -232,8 +232,8 @@ class PagedSpec(_Strict):
 
 class SystemSpec(_Strict):
     max_running_requests: PositiveInt | None = None
-    batching_method: Annotated[list[BatchingMethod], Field(min_length=1)]
-    caching_method: Annotated[list[CachingMethod], Field(min_length=1)]
+    batching_method: BatchingMethod
+    caching_method: CachingMethod
     paged: PagedSpec = PagedSpec()
 
 

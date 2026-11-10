@@ -8,8 +8,8 @@ execution:
   warmup: 1
   repeats: 3
 system:
-  batching_method: [fixed-batching]
-  caching_method: [dense-kv-cache]
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
 workload:
   vars:
     scenario: uniform

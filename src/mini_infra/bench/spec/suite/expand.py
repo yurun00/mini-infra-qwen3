@@ -5,6 +5,7 @@
 """
 
 import itertools
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,7 +13,7 @@ from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_
 from mini_infra.bench.spec.suite.checks import run_check
 from mini_infra.bench.spec.suite.schema import SuiteSpec
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.engine import CachingMethod, Mode
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ class CaseSpec:
     paged_cache_config: PagedCacheConfig | None
 
 
-def _workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:
+def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:
     sweep = spec.sweep.workload
     if not sweep:
         return [{}]
@@ -42,45 +43,82 @@ def resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkload
     return resolve_workload_body(spec.workload.id, spec.workload.body, variables, context)
 
 
+def expand_workload(spec: SuiteSpec) -> list[ResolvedWorkloadSpec]:
+    """把 SuiteSpec 的 workload 模板按 sweep.workload 展开为 ResolvedWorkloadSpec 列表。"""
+    return [resolve_workload(spec, point) for point in _expand_workload_points(spec)]
+
+
+def _generate_system_cases(
+    spec: SuiteSpec,
+) -> Iterator[tuple[int | None, Mode, PagedCacheConfig | None]]:
+    """展开系统配置维度的组合：(max_running_requests, mode, paged_cache_config)。"""
+    base_sys = spec.system
+    sweep_sys = spec.sweep.system
+
+    mrr_axis: list[int | None] = (
+        list(sweep_sys.max_running_requests)
+        if sweep_sys.max_running_requests is not None
+        else [base_sys.max_running_requests]
+    )
+    batching_axis: list[BatchingMethod] = (
+        list(sweep_sys.batching_method) if sweep_sys.batching_method is not None else [base_sys.batching_method]
+    )
+    caching_axis: list[CachingMethod] = (
+        list(sweep_sys.caching_method) if sweep_sys.caching_method is not None else [base_sys.caching_method]
+    )
+    block_axis: list[int] = (
+        list(sweep_sys.block_size) if sweep_sys.block_size is not None else [base_sys.paged.block_size]
+    )
+
+    for mrr, batch, cache in itertools.product(mrr_axis, batching_axis, caching_axis):
+        mode = Mode(cache, batching_method=batch)
+        if cache is CachingMethod.PAGED:
+            for bs in block_axis:
+                yield mrr, mode, PagedCacheConfig(block_size=bs, num_blocks=base_sys.paged.num_blocks)
+        else:
+            yield mrr, mode, None
+
+
+def _validate_checks(
+    spec: SuiteSpec,
+    workloads: list[ResolvedWorkloadSpec],
+    sys_cases: list[tuple[int | None, Mode, PagedCacheConfig | None]],
+) -> None:
+    if not spec.checks:
+        return
+    mrr_axis = list(dict.fromkeys(mrr for mrr, _, _ in sys_cases))
+    for workload, mrr in itertools.product(workloads, mrr_axis):
+        for check in spec.checks:
+            run_check(
+                check,
+                suite_name=spec.name,
+                max_running_requests=mrr,
+                output_budgets=workload.output_budgets,
+                arrival_ms=workload.arrival_ms,
+            )
+
+
 def expand_suite_spec(spec: SuiteSpec) -> list[CaseSpec]:
     """把 SuiteSpec 展开为有序的 CaseSpec 列表。"""
-    system = spec.system
-    mrr_axis: list[int | None] = list(spec.sweep.system.get("max_running_requests", [system.max_running_requests]))
-    block_axis = spec.sweep.system.get("block_size", [system.paged.block_size])
+    workloads = expand_workload(spec)
+    sys_cases = list(_generate_system_cases(spec))
+    _validate_checks(spec, workloads, sys_cases)
 
-    case_specs: list[CaseSpec] = []
-    for point in _workload_points(spec):
-        workload = resolve_workload(spec, point)
-        for mrr in mrr_axis:
-            for check in spec.checks:
-                run_check(
-                    check,
-                    suite_name=spec.name,
-                    max_running_requests=mrr,
-                    output_budgets=workload.output_budgets,
-                    arrival_ms=workload.arrival_ms,
-                )
-            for batching_method in system.batching_method:
-                for caching_method in system.caching_method:
-                    paged_configs: list[PagedCacheConfig | None] = (
-                        [PagedCacheConfig(block_size=bs, num_blocks=system.paged.num_blocks) for bs in block_axis]
-                        if caching_method is CachingMethod.PAGED
-                        else [None]
-                    )
-                    for paged_cache_config in paged_configs:
-                        case_specs.append(
-                            CaseSpec(
-                                workload=workload,
-                                mode=Mode(caching_method, batching_method=batching_method),
-                                max_running_requests=mrr,
-                                paged_cache_config=paged_cache_config,
-                            )
-                        )
-    return case_specs
+    return [
+        CaseSpec(
+            workload=workload,
+            mode=mode,
+            max_running_requests=mrr,
+            paged_cache_config=paged_config,
+        )
+        for workload in workloads
+        for mrr, mode, paged_config in sys_cases
+    ]
 
 
 __all__ = [
     "CaseSpec",
     "expand_suite_spec",
+    "expand_workload",
     "resolve_workload",
 ]

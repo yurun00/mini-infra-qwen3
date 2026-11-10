@@ -55,7 +55,7 @@ class ReleaseSpec(_Strict):
         if self.engine == "lockstep":
             if self.system.max_running_requests is not None:
                 raise ValueError("lockstep release 不支持 system.max_running_requests")
-            if CachingMethod.PAGED in self.system.caching_method:
+            if self.system.caching_method is CachingMethod.PAGED:
                 raise ValueError("lockstep release 不支持 paged-kv-cache")
             for check in self.checks:
                 if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):

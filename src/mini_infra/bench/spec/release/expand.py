@@ -48,7 +48,7 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
 
 def release_spec_default_mode(spec: ReleaseSpec) -> Mode:
     """Release YAML 声明的默认运行模式。"""
-    return Mode(spec.system.caching_method[0], batching_method=spec.system.batching_method[0])
+    return Mode(spec.system.caching_method, batching_method=spec.system.batching_method)
 
 
 def expand_release_scales(spec: ReleaseSpec, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:

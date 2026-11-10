@@ -30,8 +30,11 @@ engine: scheduler
 execution: {{warmup: 0, repeats: 1, interleave: [batching_method]}}
 system:
   max_running_requests: 4
-  batching_method: [fixed-batching, continuous-batching]
-  caching_method: [dense-kv-cache]
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
+sweep:
+  system:
+    batching_method: [fixed-batching, continuous-batching]
 workload: {{id: w, count: 2, prompt_len: 4, output_len: {{alternating: [2, 3]}}}}
 """
 
@@ -39,7 +42,7 @@ _LOCKSTEP_YAML = """
 name: {name}
 engine: lockstep
 execution: {{warmup: 0, repeats: 1}}
-system: {{batching_method: [fixed-batching], caching_method: [dense-kv-cache]}}
+system: {{batching_method: fixed-batching, caching_method: dense-kv-cache}}
 workload: {{id: w, count: 2, prompt_len: 4, output_len: 2}}
 """
 
@@ -315,7 +318,7 @@ def test_suite_with_seeded_distributions_is_deterministic(tmp_path):
     text = """
 name: seeded
 engine: scheduler
-system: {max_running_requests: 4, batching_method: [continuous-batching], caching_method: [dense-kv-cache]}
+system: {max_running_requests: 4, batching_method: continuous-batching, caching_method: dense-kv-cache}
 workload:
   id: w
   seed: 7
@@ -354,7 +357,7 @@ workload:
 def test_seeded_distribution_validation(tmp_path, line, message):
     text = (
         "name: bad\nengine: scheduler\n"
-        "system: {max_running_requests: 4, batching_method: [continuous-batching], caching_method: [dense-kv-cache]}\n"
+        "system: {max_running_requests: 4, batching_method: continuous-batching, caching_method: dense-kv-cache}\n"
         "workload:\n  id: w\n  count: 4\n  output_len: 4\n" + line
     )
     path = tmp_path / "bad.yaml"
@@ -372,9 +375,9 @@ def test_builtin_release_specs_are_valid():
 def _release_raw(engine="scheduler", **override):
     scale = {"seed_salt": 1, "max_running_requests": 4, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
     system = (
-        {"batching_method": ["continuous-batching"], "caching_method": ["dense-kv-cache"]}
+        {"batching_method": "continuous-batching", "caching_method": "dense-kv-cache"}
         if engine == "scheduler"
-        else {"batching_method": ["fixed-batching"], "caching_method": ["dense-kv-cache"]}
+        else {"batching_method": "fixed-batching", "caching_method": "dense-kv-cache"}
     )
     raw = {
         "engine": engine,
@@ -395,8 +398,8 @@ def test_release_spec_validation():
         ReleaseSpec.model_validate(_release_raw(scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr}))
     # 允许在 system 顶层提供默认 max_running_requests 供各 scale 继承
     system_with_mrr = {
-        "batching_method": ["continuous-batching"],
-        "caching_method": ["dense-kv-cache"],
+        "batching_method": "continuous-batching",
+        "caching_method": "dense-kv-cache",
         "max_running_requests": 4,
     }
     inherited = ReleaseSpec.model_validate(
@@ -419,7 +422,7 @@ def _write_release(
     scale = f"{{seed_salt: 1, max_running_requests: 4, workload: {workload}}}"
     path.write_text(
         f"engine: {name}\ndefault_seed: 42\n"
-        "system: {batching_method: [continuous-batching], caching_method: [dense-kv-cache]}\n"
+        "system: {batching_method: continuous-batching, caching_method: dense-kv-cache}\n"
         f"checks: {checks}\n"
         f"scales: {{small: {scale}, medium: {scale}, large: {scale}}}\n",
         encoding="utf-8",

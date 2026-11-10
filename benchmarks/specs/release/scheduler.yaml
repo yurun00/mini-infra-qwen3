@@ -8,8 +8,8 @@ description: Scheduler 标准伪随机负载：对数均匀的长度分布 + 带
 default_seed: 42
 execution: {warmup: 2, repeats: 5}
 system:
-  batching_method: [continuous-batching]
-  caching_method: [dense-kv-cache]
+  batching_method: continuous-batching
+  caching_method: dense-kv-cache
 scales:
   small:
     seed_salt: 601

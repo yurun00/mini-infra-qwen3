@@ -173,20 +173,10 @@
           "title": "Max Running Requests"
         },
         "batching_method": {
-          "items": {
-            "$ref": "#/$defs/BatchingMethod"
-          },
-          "minItems": 1,
-          "title": "Batching Method",
-          "type": "array"
+          "$ref": "#/$defs/BatchingMethod"
         },
         "caching_method": {
-          "items": {
-            "$ref": "#/$defs/CachingMethod"
-          },
-          "minItems": 1,
-          "title": "Caching Method",
-          "type": "array"
+          "$ref": "#/$defs/CachingMethod"
         },
         "paged": {
           "$ref": "#/$defs/PagedSpec",

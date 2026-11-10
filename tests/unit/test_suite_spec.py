@@ -14,6 +14,7 @@ from mini_infra.bench.spec import (
     deep_merge,
     discover_suite_specs,
     expand_suite_spec,
+    expand_workload,
     get_suite_spec,
     load_raw_spec,
     load_suite_spec,
@@ -120,7 +121,12 @@ def test_suite_info_is_json_serializable_and_hash_is_stable():
     json.dumps(info)
     assert info["name"] == "dense-vs-paged-block-size"
     assert info["spec_sha256"] == get_suite_spec("scheduler", "dense-vs-paged-block-size").sha256
-    assert info["spec"]["sweep"] == {"system": {"block_size": [8, 16, 32, 64]}}
+    assert info["spec"]["sweep"] == {
+        "system": {
+            "caching_method": ["dense-kv-cache", "paged-kv-cache"],
+            "block_size": [8, 16, 32, 64],
+        }
+    }
 
 
 # --------------------------------------------------------------------------- 合成 YAML 的行为测试
@@ -130,8 +136,8 @@ name: demo
 engine: scheduler
 system:
   max_running_requests: 4
-  batching_method: [continuous-batching]
-  caching_method: [dense-kv-cache, paged-kv-cache]
+  batching_method: continuous-batching
+  caching_method: dense-kv-cache
 workload:
   id: w
   count: 2
@@ -147,7 +153,10 @@ def _write(tmp_path: Path, text: str, name: str = "demo") -> Path:
 
 
 def test_block_size_sweep_only_expands_paged_modes(tmp_path):
-    text = _SCHEDULER_BASE + "sweep:\n  system:\n    block_size: [4, 8]\n"
+    text = (
+        _SCHEDULER_BASE
+        + "sweep:\n  system:\n    caching_method: [dense-kv-cache, paged-kv-cache]\n    block_size: [4, 8]\n"
+    )
     cases = load_suite_spec(_write(tmp_path, text)).cases
     assert [(cs.mode.caching_method, cs.paged_cache_config and cs.paged_cache_config.block_size) for cs in cases] == [
         (CachingMethod.DENSE, None),
@@ -162,8 +171,8 @@ name: demo
 engine: scheduler
 system:
   max_running_requests: 4
-  batching_method: [fixed-batching]
-  caching_method: [dense-kv-cache]
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
 workload:
   vars: {n: 1, plen: 8}
   id: "w_${n}_${plen}"
@@ -175,7 +184,15 @@ sweep:
     n: [1, 2]
     plen: [8, 16]
 """
-    case_specs = expand_suite_spec(load_suite_spec(_write(tmp_path, text)).spec)
+    spec = load_suite_spec(_write(tmp_path, text)).spec
+    workloads = expand_workload(spec)
+    assert [(w.workload_id, w.num_total_requests, w.prompt_lens[0]) for w in workloads] == [
+        ("w_1_8", 1, 8),
+        ("w_1_16", 1, 16),
+        ("w_2_8", 2, 8),
+        ("w_2_16", 2, 16),
+    ]
+    case_specs = expand_suite_spec(spec)
     assert [
         (cs.workload.workload_id, cs.workload.num_total_requests, cs.workload.prompt_lens[0]) for cs in case_specs
     ] == [
@@ -191,8 +208,8 @@ def test_scalar_length_is_broadcast_and_list_is_per_request(tmp_path):
 name: demo
 engine: lockstep
 system:
-  batching_method: [fixed-batching]
-  caching_method: [dense-kv-cache]
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
 workload:
   id: w
   count: 2
@@ -206,23 +223,23 @@ workload:
 
 def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
     (tmp_path / "base.yaml").write_text(
-        "system:\n  max_running_requests: 4\n  batching_method: [fixed-batching, continuous-batching]\n"
-        "  caching_method: [dense-kv-cache]\nengine: scheduler\n",
+        "system:\n  max_running_requests: 4\n  batching_method: fixed-batching\n  caching_method: dense-kv-cache\n"
+        "sweep:\n  system:\n    batching_method: [fixed-batching, continuous-batching]\nengine: scheduler\n",
         encoding="utf-8",
     )
     child = _write(
         tmp_path,
-        "name: demo\nextends: base.yaml\nsystem:\n  batching_method: [continuous-batching]\n"
+        "name: demo\nextends: base.yaml\nsystem:\n  batching_method: continuous-batching\n"
         "workload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
     )
     raw = load_raw_spec(child)
     assert raw["system"] == {
         "max_running_requests": 4,
-        "batching_method": ["continuous-batching"],
-        "caching_method": ["dense-kv-cache"],
+        "batching_method": "continuous-batching",
+        "caching_method": "dense-kv-cache",
     }
     assert "extends" not in raw
-    assert load_suite_spec(child).spec.system.batching_method == [BatchingMethod.CONTINUOUS]
+    assert load_suite_spec(child).spec.system.batching_method == BatchingMethod.CONTINUOUS
 
 
 def test_extends_cycle_is_rejected(tmp_path):
@@ -253,10 +270,7 @@ def test_deep_merge_does_not_mutate_inputs():
         (lambda t: t + "sweep:\n  workload:\n    nope: [1]\n", "未在 workload.vars 中声明"),
         (lambda t: t + "sweep:\n  system:\n    block_size: []\n", "at least 1"),
         (
-            lambda t: (
-                t.replace("[dense-kv-cache, paged-kv-cache]", "[dense-kv-cache]")
-                + "sweep:\n  system:\n    block_size: [8]\n"
-            ),
+            lambda t: t + "sweep:\n  system:\n    block_size: [8]\n",
             "block_size",
         ),
         (lambda t: t.replace("output_len: 4", "output_len: ${missing}"), "未定义的变量"),
@@ -296,8 +310,8 @@ def test_lockstep_rejects_scheduler_only_features(tmp_path, extra):
 name: demo
 engine: lockstep
 system:
-  {system_extra}batching_method: [fixed-batching]
-  caching_method: [{caching}]
+  {system_extra}batching_method: fixed-batching
+  caching_method: {caching}
 workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
 {tail}"""
     system_extra = "max_running_requests: 4\n  " if extra == "system_mrr" else ""

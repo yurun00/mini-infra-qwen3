@@ -7,8 +7,11 @@ execution:
   interleave: [batching_method]
 system:
   max_running_requests: 4
-  batching_method: [fixed-batching, continuous-batching]
-  caching_method: [dense-kv-cache]
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
+sweep:
+  system:
+    batching_method: [fixed-batching, continuous-batching]
 comparison:
   group_by: [workload_id]
   baseline: {batching_method: fixed-batching}

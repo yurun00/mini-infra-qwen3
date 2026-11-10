@@ -227,22 +227,7 @@
           "title": "Workload"
         },
         "system": {
-          "additionalProperties": {
-            "items": {
-              "exclusiveMinimum": 0,
-              "type": "integer"
-            },
-            "minItems": 1,
-            "type": "array"
-          },
-          "propertyNames": {
-            "enum": [
-              "max_running_requests",
-              "block_size"
-            ]
-          },
-          "title": "System",
-          "type": "object"
+          "$ref": "#/$defs/SystemSweepSpec"
         }
       },
       "title": "SweepSpec",
@@ -265,20 +250,10 @@
           "title": "Max Running Requests"
         },
         "batching_method": {
-          "items": {
-            "$ref": "#/$defs/BatchingMethod"
-          },
-          "minItems": 1,
-          "title": "Batching Method",
-          "type": "array"
+          "$ref": "#/$defs/BatchingMethod"
         },
         "caching_method": {
-          "items": {
-            "$ref": "#/$defs/CachingMethod"
-          },
-          "minItems": 1,
-          "title": "Caching Method",
-          "type": "array"
+          "$ref": "#/$defs/CachingMethod"
         },
         "paged": {
           "$ref": "#/$defs/PagedSpec",
@@ -293,6 +268,80 @@
         "caching_method"
       ],
       "title": "SystemSpec",
+      "type": "object"
+    },
+    "SystemSweepSpec": {
+      "additionalProperties": false,
+      "description": "系统层扫描轴：仅显式指定的字段会在 expand 阶段展开为多个候选点。",
+      "properties": {
+        "max_running_requests": {
+          "anyOf": [
+            {
+              "items": {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Running Requests"
+        },
+        "batching_method": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BatchingMethod"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batching Method"
+        },
+        "caching_method": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/CachingMethod"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caching Method"
+        },
+        "block_size": {
+          "anyOf": [
+            {
+              "items": {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Block Size"
+        }
+      },
+      "title": "SystemSweepSpec",
       "type": "object"
     },
     "AlternatingLength": {
@@ -690,7 +739,12 @@
       "$ref": "#/$defs/SweepSpec",
       "default": {
         "workload": {},
-        "system": {}
+        "system": {
+          "batching_method": null,
+          "block_size": null,
+          "caching_method": null,
+          "max_running_requests": null
+        }
       }
     },
     "comparison": {
