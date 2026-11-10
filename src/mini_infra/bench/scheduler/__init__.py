@@ -9,6 +9,7 @@ from mini_infra.bench.cases import (
     MetricKind,
     RequestPayload,
     SchedulerCase,
+    WorkloadProfile,
 )
 from mini_infra.bench.scheduler.format import (
     build_benchmark_record,
@@ -44,7 +45,7 @@ from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
     compute_comparisons,
     extract_metric_by_path,
-    extract_workload_from_schedule_result,
+    extract_workload_profile,
     summarize_same_case_runs,
     summarize_samples,
 )
@@ -64,11 +65,12 @@ __all__ = [
     "SchedulerCase",
     "SchedulerCaseResult",
     "SchedulerSuite",
+    "WorkloadProfile",
     "build_benchmark_record",
     "build_scheduler_run_plan",
     "compute_comparisons",
     "extract_metric_by_path",
-    "extract_workload_from_schedule_result",
+    "extract_workload_profile",
     "format_case_summary",
     "format_comparison",
     "format_scheduler_run_plan",

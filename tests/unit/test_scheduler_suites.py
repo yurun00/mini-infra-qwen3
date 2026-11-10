@@ -237,6 +237,7 @@ def test_scheduler_suite_case_paged_validation():
 
 
 def test_compute_comparisons():
+    from mini_infra.bench.cases import WorkloadProfile
     from mini_infra.bench.common import DistributionStats
     from mini_infra.bench.scheduler.format import (
         format_case_summary,
@@ -248,7 +249,6 @@ def test_compute_comparisons():
         SchedulerCaseResult,
         compute_comparisons,
     )
-    from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.metrics import (
         KVCacheProfile,
@@ -272,11 +272,9 @@ def test_compute_comparisons():
         mrr: int = 8,
     ) -> SchedulerCaseResult:
         mode = Mode(cm, batching_method=BatchingMethod.CONTINUOUS)
-        workload = ResolvedWorkloadSpec(
+        workload = WorkloadProfile(
             workload_id=wid,
             num_total_requests=8,
-            prompt_len=128,
-            max_new_tokens=64,
             prompt_lens=(128,) * 8,
             output_budgets=(64,) * 8,
             arrival_ms=(0.0,) * 8,

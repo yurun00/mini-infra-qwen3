@@ -43,14 +43,12 @@ class LockstepSuite(BenchmarkSuite[LockstepCase]):
         for cs in self.case_specs:
             spec = cs.workload
             if spec not in payloads_by_spec:
-                payloads_by_spec[spec] = RequestPayload.from_spec(spec, vocab_size)
+                payloads_by_spec[spec] = RequestPayload.from_profile(spec.to_profile(), vocab_size)
             cases.append(
                 LockstepCase(
                     payload=payloads_by_spec[spec],
                     mode=cs.mode,
                     suite_name=self.name,
-                    prompt_len=spec.prompt_len,
-                    max_new_tokens=spec.max_new_tokens,
                 )
             )
         return cases

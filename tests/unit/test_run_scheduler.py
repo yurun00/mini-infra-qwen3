@@ -5,7 +5,7 @@ import torch
 from mini_infra.bench.cases import CaseDimension, RequestPayload, SchedulerCase
 from mini_infra.bench.scheduler import (
     build_benchmark_record,
-    extract_workload_from_schedule_result,
+    extract_workload_profile,
     format_case_summary,
     format_table,
     run_case,
@@ -242,11 +242,11 @@ def test_run_scheduler_case_and_step_on_cpu():
         suite_name="test-cont-case",
     )
 
-    # 1. 验证原子 run_case_once 与 extract_workload_from_schedule_result
+    # 1. 验证原子 run_case_once 与 extract_workload_profile
     single_res = run_case_once(model, device, case)
     assert single_res.step_agg_metrics.e2e_wall_ms > 0
     assert len(single_res.sequences) == 2
-    sw = extract_workload_from_schedule_result(single_res, workload_id=case.workload_id)
+    sw = extract_workload_profile(single_res, workload_id=case.workload_id)
     assert sw.num_total_requests == 2
 
     # 2. 验证多轮 run_case

@@ -4,14 +4,13 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from mini_infra.bench.cases import CaseKey
+from mini_infra.bench.cases import CaseKey, WorkloadProfile
 from mini_infra.bench.common import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
     summarize_samples,
 )
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.engine import CachingMethod, Mode
 from mini_infra.engine.metrics import BatchScheduleInfo, KVCacheProfile, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
@@ -50,11 +49,9 @@ def test_distribution_stats_computation_and_immutability():
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
     mode = Mode(CachingMethod.DENSE)
-    workload = ResolvedWorkloadSpec(
+    workload = WorkloadProfile(
         workload_id="custom",
         num_total_requests=2,
-        prompt_len=(16, 32),
-        max_new_tokens=16,
         prompt_lens=(16, 32),
         output_budgets=(16, 16),
         arrival_ms=(0.0, 0.0),

@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mini_infra.bench import release_default_mode
+from mini_infra.bench.cases import WorkloadProfile
 from mini_infra.bench.common import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
@@ -54,7 +55,7 @@ from mini_infra.bench.common import (
     SCHEDULER_RESULT_HISTORY_DIR,
     git_info,
 )
-from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, ResolvedWorkloadSpec, get_release_spec
+from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, get_release_spec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
@@ -68,7 +69,7 @@ class ReleaseStep:
 
 
 def build_lockstep_case_cmd(
-    workload: ResolvedWorkloadSpec,
+    workload: WorkloadProfile,
     tag: str,
     release_feature: str,
     mode: Mode,
@@ -78,7 +79,7 @@ def build_lockstep_case_cmd(
     seed: int | None = None,
     profile_mode: str | None = "extra-profile",
 ) -> list[str]:
-    """将 ResolvedWorkloadSpec 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
+    """将 WorkloadProfile 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
     prompt_args = (
         [str(workload.prompt_len)] if isinstance(workload.prompt_len, int) else [str(x) for x in workload.prompt_len]
     )
@@ -123,7 +124,7 @@ def build_lockstep_case_cmd(
 
 
 def build_scheduler_case_cmd(
-    workload: ResolvedWorkloadSpec,
+    workload: WorkloadProfile,
     tag: str,
     release_feature: str,
     mode: Mode,
@@ -135,7 +136,7 @@ def build_scheduler_case_cmd(
     block_size: int | None = None,
     output: Path | str | None = None,
 ) -> list[str]:
-    """将 ResolvedWorkloadSpec 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
+    """将 WorkloadProfile 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
     cmd = [
         sys.executable,
         "-u",
@@ -333,7 +334,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
                 ReleaseStep(
                     description=f"运行 Lockstep 基准 [{sc}] ({args.tag}: {args.release_feature})",
                     cmd=build_lockstep_case_cmd(
-                        res_scale.workload,
+                        res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
                         mode=mode,
@@ -374,7 +375,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
                     cmd=build_scheduler_case_cmd(
-                        res_scale.workload,
+                        res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
                         mode=target_mode,

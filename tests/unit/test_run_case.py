@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from mini_infra.bench.cases import LockstepCase, RequestPayload
+from mini_infra.bench.cases import LockstepCase, RequestPayload, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case, run_case_once
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import Mode
@@ -105,6 +105,7 @@ def test_run_case_on_cpu():
         repeats=1,
     )
     assert res_scalar.key.mode == mode
+    assert isinstance(res_scalar.workload, WorkloadProfile)
     assert res_scalar.workload.num_total_requests == 1
     assert res_scalar.workload.prompt_len == 4
     assert res_scalar.workload.max_new_tokens == 2

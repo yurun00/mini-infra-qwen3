@@ -214,8 +214,6 @@ def test_bench_run_profile_modes():
     case = LockstepCase(
         payload=payload,
         mode=mode,
-        prompt_len=4,
-        max_new_tokens=2,
     )
 
     # Mode 1: profile_mode=None -> 无 op_latency_breakdown

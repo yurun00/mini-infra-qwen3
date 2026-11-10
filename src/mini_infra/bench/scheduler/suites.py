@@ -45,7 +45,7 @@ class SchedulerSuite(BenchmarkSuite[SchedulerCase]):
         for cs in self.case_specs:
             spec = cs.workload
             if spec not in payloads_by_spec:
-                payloads_by_spec[spec] = RequestPayload.from_spec(spec, vocab_size)
+                payloads_by_spec[spec] = RequestPayload.from_profile(spec.to_profile(), vocab_size)
             assert cs.max_running_requests is not None
             cases.append(
                 SchedulerCase(

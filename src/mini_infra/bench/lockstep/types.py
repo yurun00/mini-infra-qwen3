@@ -1,7 +1,7 @@
 """基准评测用例级强类型领域模型（LockstepCaseResult）。
 
 遵循标准三层正交领域模型：
-1. 负载规格层：ResolvedWorkloadSpec
+1. 负载画像层：WorkloadProfile
 2. 统计分布汇总与共享画像层：DistributionStats, StepAggregatedMetrics,
    MemoryProfile, BatchScheduleInfo, EfficiencyMetrics
 3. 诊断与明细层：OpLatencyBreakdown
@@ -10,13 +10,12 @@
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from mini_infra.bench.cases import CaseKey
+from mini_infra.bench.cases import CaseKey, WorkloadProfile
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
     summarize_samples,
 )
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import OpLatencyBreakdown
 
@@ -30,7 +29,7 @@ class LockstepCaseResult:
     """
 
     key: CaseKey
-    workload: ResolvedWorkloadSpec
+    workload: WorkloadProfile
     metrics: StepAggregatedMetrics[DistributionStats]
     memory: MemoryProfile
     repeats: int = 1

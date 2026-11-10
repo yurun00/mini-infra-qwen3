@@ -31,7 +31,6 @@ from mini_infra.bench.lockstep.types import (
     LockstepCaseResult,
     summarize_samples,
 )
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.engine import GenerationOptions, GenerationResult, generate
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -123,7 +122,6 @@ def run_case(
     seed: int | None = None,
 ) -> LockstepCaseResult:
     """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
-    prompt_lens = case.payload.prompt_lengths
     output_budgets = case.payload.output_budgets
     batch_size = case.payload.request_count
 
@@ -131,25 +129,7 @@ def run_case(
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
 
-    prompt_len = (
-        case.prompt_len
-        if case.prompt_len is not None
-        else (prompt_lens[0] if len(set(prompt_lens)) == 1 else prompt_lens)
-    )
-    max_new_tokens = (
-        case.max_new_tokens
-        if case.max_new_tokens is not None
-        else (output_budgets[0] if len(set(output_budgets)) == 1 else output_budgets)
-    )
-    workload = ResolvedWorkloadSpec(
-        workload_id=case.payload.workload_id,
-        num_total_requests=batch_size,
-        prompt_len=prompt_len,
-        max_new_tokens=max_new_tokens,
-        prompt_lens=prompt_lens,
-        output_budgets=output_budgets,
-        arrival_ms=case.payload.arrival_times_ms,
-    )
+    workload = case.payload.profile
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
@@ -212,8 +192,8 @@ def run_case(
             cost,
             peaks,
             batch_size,
-            prompt_len,
-            max_new_tokens,
+            workload.prompt_len,
+            workload.max_new_tokens,
             metrics.ttft_ms.median if metrics.ttft_ms is not None else 0.0,
             metrics.mean_tpot_ms.median if metrics.mean_tpot_ms is not None else 0.0,
         )

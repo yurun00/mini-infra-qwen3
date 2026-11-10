@@ -1,13 +1,18 @@
 """通用 Workload 解析与变量插值（纯 CPU）。"""
 
+from __future__ import annotations
+
 import copy
 import random
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mini_infra.bench.spec.common.lengths import expand_arrival, expand_length
 from mini_infra.bench.spec.common.schema import ConstantLength, WorkloadSpec, normalize_workload_body
+
+if TYPE_CHECKING:
+    from mini_infra.bench.cases import WorkloadProfile
 
 _PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
@@ -43,6 +48,20 @@ class ResolvedWorkloadSpec:
             raise ValueError(
                 f"arrival_ms 长度 ({len(self.arrival_ms)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
             )
+
+    def to_profile(self) -> WorkloadProfile:
+        """转换为运行期轻量数值画像 WorkloadProfile。"""
+        from mini_infra.bench.cases import WorkloadProfile
+
+        return WorkloadProfile(
+            workload_id=self.workload_id,
+            num_total_requests=self.num_total_requests,
+            prompt_lens=self.prompt_lens,
+            output_budgets=self.output_budgets,
+            arrival_ms=self.arrival_ms,
+            prompt_len=self.prompt_len,
+            max_new_tokens=self.max_new_tokens,
+        )
 
 
 def interpolate(node: Any, variables: dict[str, Any]) -> Any:

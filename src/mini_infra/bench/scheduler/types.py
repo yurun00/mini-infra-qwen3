@@ -9,13 +9,13 @@ from mini_infra.bench.cases import (
     CaseKey,
     Comparison,
     MetricKind,
+    WorkloadProfile,
 )
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
     summarize_samples,
 )
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
@@ -162,7 +162,7 @@ class SchedulerCaseResult:
     """
 
     key: CaseKey
-    workload: ResolvedWorkloadSpec
+    workload: WorkloadProfile
     metrics: StepAggregatedMetrics[DistributionStats]
     schedule_metrics: ScheduleMetrics[DistributionStats]
     memory: MemoryProfile
@@ -270,18 +270,14 @@ class SchedulerCaseResult:
         return rec
 
 
-def extract_workload_from_schedule_result(res: ScheduleResult, workload_id: str | None = None) -> ResolvedWorkloadSpec:
-    """从单次调度结果提取纯请求负载规格 ResolvedWorkloadSpec（纯 CPU）。"""
+def extract_workload_profile(res: ScheduleResult, workload_id: str | None = None) -> WorkloadProfile:
+    """从单次调度结果提取纯请求负载画像 WorkloadProfile（纯 CPU）。"""
     prompt_lengths = tuple(s.prompt_len for s in res.sequences)
     output_budgets = tuple(r.num_output_tokens for r in res.request_metrics)
     arrivals = tuple(r.arrival_ms for r in res.request_metrics)
-    prompt_len = prompt_lengths[0] if len(set(prompt_lengths)) == 1 else prompt_lengths
-    max_new_tokens = output_budgets[0] if len(set(output_budgets)) == 1 else output_budgets
-    return ResolvedWorkloadSpec(
+    return WorkloadProfile(
         workload_id=workload_id or "unknown",
         num_total_requests=len(prompt_lengths),
-        prompt_len=prompt_len,
-        max_new_tokens=max_new_tokens,
         prompt_lens=prompt_lengths,
         output_budgets=output_budgets,
         arrival_ms=arrivals,
@@ -301,8 +297,8 @@ def summarize_same_case_runs(
         raise ValueError("runs 不能为空")
 
     first_run = runs[0]
-    first_workload = extract_workload_from_schedule_result(first_run, workload_id=case_key.workload_id)
-    if any(extract_workload_from_schedule_result(r, workload_id=case_key.workload_id) != first_workload for r in runs):
+    first_workload = extract_workload_profile(first_run, workload_id=case_key.workload_id)
+    if any(extract_workload_profile(r, workload_id=case_key.workload_id) != first_workload for r in runs):
         raise ValueError("summarize_same_case_runs 中的所有 run 必须具有相同的负载规格")
     workload = first_workload
 
@@ -402,7 +398,7 @@ __all__ = [
     "MetricComparison",
     "SchedulerCaseResult",
     "compute_comparisons",
-    "extract_workload_from_schedule_result",
+    "extract_workload_profile",
     "extract_metric_by_path",
     "summarize_same_case_runs",
     "summarize_samples",

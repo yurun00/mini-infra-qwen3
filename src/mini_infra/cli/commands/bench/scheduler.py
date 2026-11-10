@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import RequestPayload, SchedulerCase
+from mini_infra.bench.cases import RequestPayload, SchedulerCase, WorkloadProfile
 from mini_infra.bench.common import (
     CASE_DIR,
     add_common_args,
@@ -37,7 +37,6 @@ from mini_infra.bench.scheduler.run_suite import (
 from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.bench.workloads import make_arrival_times
 from mini_infra.core.block_manager import PagedCacheConfig
@@ -154,16 +153,14 @@ def handle_case(args: argparse.Namespace) -> int:
         if arrivals is None
         else (tuple(arrivals) if isinstance(arrivals, tuple) else (float(arrivals),) * req_count)
     )
-    workload_spec = ResolvedWorkloadSpec(
+    workload_profile = WorkloadProfile(
         workload_id="custom",
         num_total_requests=req_count,
-        prompt_len=prompt_len,
-        max_new_tokens=max_new_tokens,
         prompt_lens=prompt_lens,
         output_budgets=output_budgets,
         arrival_ms=arrival_ms,
     )
-    resolved_payload = RequestPayload.from_spec(workload_spec, vocab)
+    resolved_payload = RequestPayload.from_profile(workload_profile, vocab)
     case_name = "custom"
 
     case = SchedulerCase(

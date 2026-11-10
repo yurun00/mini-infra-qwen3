@@ -161,11 +161,12 @@ def test_canonical_workloads_and_build_payload():
         assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.num_total_requests
         assert isinstance(sw.arrival_ms, tuple) and len(sw.arrival_ms) == sw.num_total_requests
 
-        payload = RequestPayload.from_spec(sw, vocab_size=32000)
+        payload = RequestPayload.from_profile(sw.to_profile(), vocab_size=32000)
         assert payload.request_count == sw.num_total_requests
         assert payload.prompt_lengths == sw.prompt_lens
         assert payload.output_budgets == sw.output_budgets
         assert payload.arrival_times_ms == sw.arrival_ms
+        assert payload.profile.workload_id == sw.workload_id
 
     # Different seeds produce different pseudo-random configurations
     assert (
