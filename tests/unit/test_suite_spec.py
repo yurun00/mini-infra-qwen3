@@ -357,3 +357,60 @@ def test_negative_arrival_and_unknown_length_kind_are_rejected():
         GroupSpec.model_validate({"count": 1, "prompt_len": 8, "output_len": 4, "arrival_ms": -1})
     with pytest.raises(ValueError):
         GroupSpec.model_validate({"count": 1, "prompt_len": {"zipf": 1}, "output_len": 4})
+
+
+def test_system_spec_caching_method_discriminated_union():
+    from mini_infra.bench.spec.common import (
+        DenseCacheSpec,
+        NoCacheSpec,
+        PagedCacheSpec,
+        SystemSpec,
+    )
+
+    # 1. 默认与标量字符串简写
+    s_default = SystemSpec.model_validate({"batching_method": "fixed-batching"})
+    assert isinstance(s_default.caching_method, DenseCacheSpec)
+    assert s_default.caching_method.method == CachingMethod.DENSE
+
+    s_none = SystemSpec.model_validate({"batching_method": "fixed-batching", "caching_method": "none"})
+    assert isinstance(s_none.caching_method, NoCacheSpec)
+    assert s_none.caching_method.method == CachingMethod.NONE
+
+    # 2. Paged 显式声明与默认参数
+    s_paged_str = SystemSpec.model_validate(
+        {"batching_method": "continuous-batching", "caching_method": "paged-kv-cache"}
+    )
+    assert isinstance(s_paged_str.caching_method, PagedCacheSpec)
+    assert s_paged_str.caching_method.block_size == 16
+    assert s_paged_str.caching_method.num_blocks is None
+
+    # 3. Paged 字典形式定制子 field
+    s_paged_dict = SystemSpec.model_validate(
+        {
+            "batching_method": "continuous-batching",
+            "caching_method": {"kind": "paged-kv-cache", "block_size": 32, "num_blocks": 64},
+        }
+    )
+    assert isinstance(s_paged_dict.caching_method, PagedCacheSpec)
+    assert s_paged_dict.caching_method.block_size == 32
+    assert s_paged_dict.caching_method.num_blocks == 64
+    assert s_paged_dict.caching_method.paged_cache_config.block_size == 32
+
+    # 4. 非法状态不可表达：dense-kv-cache 下传入 block_size 被拒绝
+    with pytest.raises(ValueError):
+        SystemSpec.model_validate(
+            {
+                "batching_method": "continuous-batching",
+                "caching_method": {"kind": "dense-kv-cache", "block_size": 32},
+            }
+        )
+
+    # 5. 非法状态不可表达：SystemSpec 下传入已废除的顶层 paged 字段被拒绝
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SystemSpec.model_validate(
+            {
+                "batching_method": "continuous-batching",
+                "caching_method": "dense-kv-cache",
+                "paged": {"block_size": 16},
+            }
+        )

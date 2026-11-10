@@ -23,12 +23,15 @@ from mini_infra.bench.cases import (
     MetricKind,
 )
 from mini_infra.bench.spec.common.schema import (
+    CachingSpec,
     CheckSpec,
+    DenseCacheSpec,
     ExecutionSpec,
     GroupSpec,
     MinMaxRunningRequestsCheck,
     MinOutputLenCheck,
-    PagedSpec,
+    NoCacheSpec,
+    PagedCacheSpec,
     PositiveInt,
     SuiteEngine,
     SystemSpec,
@@ -160,7 +163,7 @@ class SuiteSpec(_Strict):
         effective_caching_methods = (
             self.sweep.system.caching_method
             if self.sweep.system.caching_method is not None
-            else [self.system.caching_method]
+            else [self.system.caching_method.method]
         )
         effective_batching_methods = (
             self.sweep.system.batching_method
@@ -237,12 +240,15 @@ def suite_json_schema() -> dict[str, Any]:
 
 
 __all__ = [
+    "CachingSpec",
     "CheckSpec",
     "ComparisonSpec",
+    "DenseCacheSpec",
     "MetricSpec",
     "MinMaxRunningRequestsCheck",
     "MinOutputLenCheck",
-    "PagedSpec",
+    "NoCacheSpec",
+    "PagedCacheSpec",
     "SuiteEngine",
     "SuiteSpec",
     "SweepSpec",

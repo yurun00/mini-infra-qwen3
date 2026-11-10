@@ -7,8 +7,11 @@
 """
 
 from mini_infra.bench.spec.common import (
+    CachingSpec,
     CheckSpec,
-    PagedSpec,
+    DenseCacheSpec,
+    NoCacheSpec,
+    PagedCacheSpec,
     ResolvedWorkloadSpec,
     SuiteEngine,
     SystemSpec,
@@ -47,14 +50,17 @@ from mini_infra.bench.spec.suite import (
 )
 
 __all__ = [
-    "RELEASE_SCALES",
+    "CachingSpec",
     "CaseSpec",
     "CheckSpec",
     "ComparisonSpec",
+    "DenseCacheSpec",
     "LoadedReleaseSpec",
     "LoadedSuiteSpec",
     "MetricSpec",
-    "PagedSpec",
+    "NoCacheSpec",
+    "PagedCacheSpec",
+    "RELEASE_SCALES",
     "ReleaseScale",
     "ReleaseSpec",
     "ResolvedReleaseScale",

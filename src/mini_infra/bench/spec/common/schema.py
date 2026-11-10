@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from mini_infra.bench.cases import CaseDimension
+from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod
 
 SuiteEngine = Literal["scheduler", "lockstep"]
@@ -225,16 +226,62 @@ class ExecutionSpec(_Strict):
 # --------------------------------------------------------------------------- 被测系统
 
 
-class PagedSpec(_Strict):
+class NoCacheSpec(_Strict):
+    """不启用 KV Cache。"""
+
+    kind: Literal["none"] = "none"
+
+    @property
+    def method(self) -> CachingMethod:
+        return CachingMethod.NONE
+
+
+class DenseCacheSpec(_Strict):
+    """Dense KV Cache（预分配连续槽位）。"""
+
+    kind: Literal["dense-kv-cache"] = "dense-kv-cache"
+
+    @property
+    def method(self) -> CachingMethod:
+        return CachingMethod.DENSE
+
+
+class PagedCacheSpec(_Strict):
+    """Paged KV Cache（物理显存块池，按需动态分配）。"""
+
+    kind: Literal["paged-kv-cache"] = "paged-kv-cache"
     block_size: PositiveInt = 16
     num_blocks: Annotated[int, Field(strict=True, ge=2)] | None = None
+
+    @property
+    def method(self) -> CachingMethod:
+        return CachingMethod.PAGED
+
+    @property
+    def paged_cache_config(self) -> PagedCacheConfig:
+        return PagedCacheConfig(block_size=self.block_size, num_blocks=self.num_blocks)
+
+
+def _normalize_caching(raw: Any) -> Any:
+    """归一化 caching_method 输入：将标量字符串或枚举提升为标准判别字典。"""
+    if isinstance(raw, str):
+        return {"kind": raw}
+    if isinstance(raw, CachingMethod):
+        return {"kind": raw.value}
+    return raw
+
+
+CachingSpec = Annotated[
+    NoCacheSpec | DenseCacheSpec | PagedCacheSpec,
+    Field(discriminator="kind"),
+    BeforeValidator(_normalize_caching),
+]
 
 
 class SystemSpec(_Strict):
     max_running_requests: PositiveInt | None = None
     batching_method: BatchingMethod
-    caching_method: CachingMethod
-    paged: PagedSpec = PagedSpec()
+    caching_method: CachingSpec = DenseCacheSpec()
 
 
 # --------------------------------------------------------------------------- 语义检查守卫
@@ -254,9 +301,11 @@ CheckSpec = Literal["free_batch_slot_at_t0"] | MinMaxRunningRequestsCheck | MinO
 __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
+    "CachingSpec",
     "CheckSpec",
     "ConstantArrival",
     "ConstantLength",
+    "DenseCacheSpec",
     "ExecutionSpec",
     "ExplicitArrival",
     "ExplicitLength",
@@ -267,8 +316,9 @@ __all__ = [
     "LogUniformLength",
     "MinMaxRunningRequestsCheck",
     "MinOutputLenCheck",
+    "NoCacheSpec",
     "NonNegativeFloat",
-    "PagedSpec",
+    "PagedCacheSpec",
     "PoissonArrival",
     "PositiveInt",
     "SuiteEngine",

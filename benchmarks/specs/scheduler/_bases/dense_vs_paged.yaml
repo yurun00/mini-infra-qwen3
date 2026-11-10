@@ -10,8 +10,6 @@ system:
   max_running_requests: 8
   batching_method: continuous-batching
   caching_method: dense-kv-cache
-  paged:
-    block_size: 16
 sweep:
   system:
     caching_method: [dense-kv-cache, paged-kv-cache]

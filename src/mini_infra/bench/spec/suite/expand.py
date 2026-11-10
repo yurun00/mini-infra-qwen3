@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+from mini_infra.bench.spec.common.schema import PagedCacheSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.checks import run_check
 from mini_infra.bench.spec.suite.schema import SuiteSpec
@@ -64,17 +65,23 @@ def _generate_system_cases(
         list(sweep_sys.batching_method) if sweep_sys.batching_method is not None else [base_sys.batching_method]
     )
     caching_axis: list[CachingMethod] = (
-        list(sweep_sys.caching_method) if sweep_sys.caching_method is not None else [base_sys.caching_method]
+        list(sweep_sys.caching_method) if sweep_sys.caching_method is not None else [base_sys.caching_method.method]
     )
-    block_axis: list[int] = (
-        list(sweep_sys.block_size) if sweep_sys.block_size is not None else [base_sys.paged.block_size]
-    )
+
+    if isinstance(base_sys.caching_method, PagedCacheSpec):
+        default_block_size = base_sys.caching_method.block_size
+        default_num_blocks = base_sys.caching_method.num_blocks
+    else:
+        default_block_size = 16
+        default_num_blocks = None
+
+    block_axis: list[int] = list(sweep_sys.block_size) if sweep_sys.block_size is not None else [default_block_size]
 
     for mrr, batch, cache in itertools.product(mrr_axis, batching_axis, caching_axis):
         mode = Mode(cache, batching_method=batch)
         if cache is CachingMethod.PAGED:
             for bs in block_axis:
-                yield mrr, mode, PagedCacheConfig(block_size=bs, num_blocks=base_sys.paged.num_blocks)
+                yield mrr, mode, PagedCacheConfig(block_size=bs, num_blocks=default_num_blocks)
         else:
             yield mrr, mode, None
 

@@ -80,6 +80,20 @@
       "title": "ComparisonSpec",
       "type": "object"
     },
+    "DenseCacheSpec": {
+      "additionalProperties": false,
+      "description": "Dense KV Cache（预分配连续槽位）。",
+      "properties": {
+        "kind": {
+          "const": "dense-kv-cache",
+          "default": "dense-kv-cache",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "DenseCacheSpec",
+      "type": "object"
+    },
     "ExecutionSpec": {
       "additionalProperties": false,
       "properties": {
@@ -177,9 +191,30 @@
       "title": "MinOutputLenCheck",
       "type": "object"
     },
-    "PagedSpec": {
+    "NoCacheSpec": {
       "additionalProperties": false,
+      "description": "不启用 KV Cache。",
       "properties": {
+        "kind": {
+          "const": "none",
+          "default": "none",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "NoCacheSpec",
+      "type": "object"
+    },
+    "PagedCacheSpec": {
+      "additionalProperties": false,
+      "description": "Paged KV Cache（物理显存块池，按需动态分配）。",
+      "properties": {
+        "kind": {
+          "const": "paged-kv-cache",
+          "default": "paged-kv-cache",
+          "title": "Kind",
+          "type": "string"
+        },
         "block_size": {
           "default": 16,
           "exclusiveMinimum": 0,
@@ -200,7 +235,7 @@
           "title": "Num Blocks"
         }
       },
-      "title": "PagedSpec",
+      "title": "PagedCacheSpec",
       "type": "object"
     },
     "SweepSpec": {
@@ -253,19 +288,33 @@
           "$ref": "#/$defs/BatchingMethod"
         },
         "caching_method": {
-          "$ref": "#/$defs/CachingMethod"
-        },
-        "paged": {
-          "$ref": "#/$defs/PagedSpec",
           "default": {
-            "block_size": 16,
-            "num_blocks": null
-          }
+            "kind": "dense-kv-cache"
+          },
+          "discriminator": {
+            "mapping": {
+              "dense-kv-cache": "#/$defs/DenseCacheSpec",
+              "none": "#/$defs/NoCacheSpec",
+              "paged-kv-cache": "#/$defs/PagedCacheSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NoCacheSpec"
+            },
+            {
+              "$ref": "#/$defs/DenseCacheSpec"
+            },
+            {
+              "$ref": "#/$defs/PagedCacheSpec"
+            }
+          ],
+          "title": "Caching Method"
         }
       },
       "required": [
-        "batching_method",
-        "caching_method"
+        "batching_method"
       ],
       "title": "SystemSpec",
       "type": "object"

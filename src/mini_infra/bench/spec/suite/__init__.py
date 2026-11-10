@@ -9,12 +9,15 @@ from mini_infra.bench.spec.suite.loader import (
     load_suite_spec,
 )
 from mini_infra.bench.spec.suite.schema import (
+    CachingSpec,
     CheckSpec,
     ComparisonSpec,
+    DenseCacheSpec,
     MetricSpec,
     MinMaxRunningRequestsCheck,
     MinOutputLenCheck,
-    PagedSpec,
+    NoCacheSpec,
+    PagedCacheSpec,
     SuiteEngine,
     SuiteSpec,
     SweepSpec,
@@ -26,14 +29,17 @@ from mini_infra.bench.spec.suite.schema import (
 )
 
 __all__ = [
+    "CachingSpec",
     "CaseSpec",
     "CheckSpec",
     "ComparisonSpec",
+    "DenseCacheSpec",
     "LoadedSuiteSpec",
     "MetricSpec",
     "MinMaxRunningRequestsCheck",
     "MinOutputLenCheck",
-    "PagedSpec",
+    "NoCacheSpec",
+    "PagedCacheSpec",
     "SuiteEngine",
     "SuiteSpec",
     "SweepSpec",
