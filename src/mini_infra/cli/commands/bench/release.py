@@ -80,14 +80,8 @@ def build_lockstep_case_cmd(
     profile_mode: str | None = "extra-profile",
 ) -> list[str]:
     """将 WorkloadProfile 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
-    prompt_args = (
-        [str(workload.prompt_len)] if isinstance(workload.prompt_len, int) else [str(x) for x in workload.prompt_len]
-    )
-    budget_args = (
-        [str(workload.max_new_tokens)]
-        if isinstance(workload.max_new_tokens, int)
-        else [str(x) for x in workload.max_new_tokens]
-    )
+    prompt_args = [str(x) for x in workload.prompt_lens]
+    budget_args = [str(x) for x in workload.output_budgets]
     cmd = [
         sys.executable,
         "-u",
@@ -169,15 +163,8 @@ def build_scheduler_case_cmd(
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
 
-    if isinstance(workload.prompt_len, int):
-        cmd.extend(["--prompt-length", str(workload.prompt_len)])
-    else:
-        cmd.extend(["--prompt-lens", *[str(x) for x in workload.prompt_len]])
-
-    if isinstance(workload.max_new_tokens, int):
-        cmd.extend(["--output-budget", str(workload.max_new_tokens)])
-    else:
-        cmd.extend(["--output-budgets", *[str(x) for x in workload.max_new_tokens]])
+    cmd.extend(["--prompt-lens", *[str(x) for x in workload.prompt_lens]])
+    cmd.extend(["--output-budgets", *[str(x) for x in workload.output_budgets]])
 
     if isinstance(workload.arrival_ms, tuple | list):
         cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_ms]])

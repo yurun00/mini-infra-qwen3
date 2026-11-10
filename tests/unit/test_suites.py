@@ -212,7 +212,8 @@ sweep:
         (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 2),
     ]
     for r in results:
-        assert r.workload.prompt_len == 4 and r.workload.max_new_tokens == 2
+        assert set(r.workload.prompt_lens) == {4} and set(r.workload.output_budgets) == {2}
+        assert r.to_record_dict()["prompt_len"] == 4 and r.to_record_dict()["max_new_tokens"] == 2
         assert r.metrics.throughput_req_s.median > 0
         assert r.metrics.throughput_tok_s.median > 0
 

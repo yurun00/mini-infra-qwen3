@@ -16,6 +16,7 @@ from mini_infra.bench.common import (
     EfficiencyMetrics,
     summarize_samples,
 )
+from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import OpLatencyBreakdown
 
@@ -42,18 +43,12 @@ class LockstepCaseResult:
 
     def to_record_dict(self) -> dict[str, Any]:
         """导出为标准评测记录字典格式（批处理打包与槽位利用率统一序列化至 'packing' 字段）。"""
+        pl = collapse_uniform(self.workload.prompt_lens)
+        mn = collapse_uniform(self.workload.output_budgets)
         rec: dict[str, Any] = {
             "mode": str(self.key.mode),
-            "prompt_len": (
-                list(self.workload.prompt_len)
-                if isinstance(self.workload.prompt_len, tuple)
-                else self.workload.prompt_len
-            ),
-            "max_new_tokens": (
-                list(self.workload.max_new_tokens)
-                if isinstance(self.workload.max_new_tokens, tuple)
-                else self.workload.max_new_tokens
-            ),
+            "prompt_len": list(pl) if isinstance(pl, tuple) else pl,
+            "max_new_tokens": list(mn) if isinstance(mn, tuple) else mn,
             "num_total_requests": self.workload.num_total_requests,
             "repeats": self.repeats,
             "warmup": self.warmup,

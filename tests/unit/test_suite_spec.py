@@ -18,6 +18,7 @@ from mini_infra.bench.spec import (
     load_raw_spec,
     load_suite_spec,
 )
+from mini_infra.core.types import collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
@@ -61,22 +62,24 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
 
 def _lockstep_entry(name: str) -> dict[str, Any]:
     suite = get_lockstep_suite(name)
+    cases = []
+    for cs in suite.case_specs:
+        prof = cs.workload.to_profile()
+        pl = collapse_uniform(prof.prompt_lens)
+        mn = collapse_uniform(prof.output_budgets)
+        cases.append(
+            {
+                "mode": str(cs.mode),
+                "num_total_requests": cs.workload.num_total_requests,
+                "prompt_len": list(pl) if isinstance(pl, tuple) else pl,
+                "max_new_tokens": list(mn) if isinstance(mn, tuple) else mn,
+            }
+        )
     return {
         "warmup": suite.warmup,
         "repeats": suite.repeats,
         "modes": [str(m) for m in suite.modes()],
-        "cases": [
-            {
-                "mode": str(cs.mode),
-                "num_total_requests": cs.workload.num_total_requests,
-                "prompt_len": (list(prof.prompt_len) if isinstance(prof.prompt_len, tuple) else prof.prompt_len),
-                "max_new_tokens": (
-                    list(prof.max_new_tokens) if isinstance(prof.max_new_tokens, tuple) else prof.max_new_tokens
-                ),
-            }
-            for cs in suite.case_specs
-            for prof in [cs.workload.to_profile()]
-        ],
+        "cases": cases,
     }
 
 

@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.core.types import collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
 
 if TYPE_CHECKING:
@@ -166,8 +165,6 @@ class WorkloadProfile:
     prompt_lens: tuple[int, ...]
     output_budgets: tuple[int, ...]
     arrival_ms: tuple[float, ...]
-    prompt_len: int | tuple[int, ...] | None = None
-    max_new_tokens: int | tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.workload_id:
@@ -187,10 +184,6 @@ class WorkloadProfile:
             raise ValueError(
                 f"arrival_ms 长度 ({len(self.arrival_ms)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
             )
-        if self.prompt_len is None:
-            object.__setattr__(self, "prompt_len", collapse_uniform(self.prompt_lens))
-        if self.max_new_tokens is None:
-            object.__setattr__(self, "max_new_tokens", collapse_uniform(self.output_budgets))
 
     def to_payload(self, vocab_size: int) -> tuple[RequestSpec, ...]:
         """把数值画像按需装配为具体合成 Token 序列的 RequestSpec 载荷元组（即用即弃，函数局部变量）。"""

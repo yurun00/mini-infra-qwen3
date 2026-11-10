@@ -456,13 +456,13 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
     assert len(results) == 4
     # 验证返回顺序与 cases 一致，且负载规格与各 case 匹配
-    assert results[0].workload.prompt_len == 2
+    assert results[0].workload.prompt_lens == (2, 2)
     assert results[0].mode == dense_mode
-    assert results[1].workload.prompt_len == 2
+    assert results[1].workload.prompt_lens == (2, 2)
     assert results[1].mode == paged_mode
-    assert results[2].workload.prompt_len == 3
+    assert results[2].workload.prompt_lens == (3, 3)
     assert results[2].mode == dense_mode
-    assert results[3].workload.prompt_len == 3
+    assert results[3].workload.prompt_lens == (3, 3)
     assert results[3].mode == paged_mode
 
 

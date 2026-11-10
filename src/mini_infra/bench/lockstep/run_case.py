@@ -199,8 +199,8 @@ def run_case(
             cost,
             peaks,
             batch_size,
-            workload.prompt_len,
-            workload.max_new_tokens,
+            workload.prompt_lens,
+            workload.output_budgets,
             metrics.ttft_ms.median if metrics.ttft_ms is not None else 0.0,
             metrics.mean_tpot_ms.median if metrics.mean_tpot_ms is not None else 0.0,
         )

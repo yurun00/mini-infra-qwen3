@@ -106,11 +106,14 @@ def test_run_case_on_cpu():
     assert res_scalar.key.mode == mode
     assert isinstance(res_scalar.workload, WorkloadProfile)
     assert res_scalar.workload.num_total_requests == 1
-    assert res_scalar.workload.prompt_len == 4
-    assert res_scalar.workload.max_new_tokens == 2
+    assert res_scalar.workload.prompt_lens == (4,)
+    assert res_scalar.workload.output_budgets == (2,)
     assert res_scalar.metrics.throughput_tok_s.median > 0
     assert res_scalar.metrics.throughput_req_s.median > 0
-    assert res_scalar.to_record_dict()["num_total_requests"] == 1
+    rec_scalar = res_scalar.to_record_dict()
+    assert rec_scalar["num_total_requests"] == 1
+    assert rec_scalar["prompt_len"] == 4
+    assert rec_scalar["max_new_tokens"] == 2
 
     # 2. 变长 prompt 执行
     s1 = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
@@ -128,6 +131,9 @@ def test_run_case_on_cpu():
     )
     assert res_var.key.mode == mode
     assert res_var.workload.num_total_requests == 2
-    assert res_var.workload.prompt_len == (2, 4)
-    assert res_var.workload.max_new_tokens == 2
-    assert res_var.to_record_dict()["num_total_requests"] == 2
+    assert res_var.workload.prompt_lens == (2, 4)
+    assert res_var.workload.output_budgets == (2, 2)
+    rec_var = res_var.to_record_dict()
+    assert rec_var["num_total_requests"] == 2
+    assert rec_var["prompt_len"] == [2, 4]
+    assert rec_var["max_new_tokens"] == 2

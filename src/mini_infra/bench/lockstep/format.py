@@ -14,8 +14,8 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     tpot = w.metrics.mean_tpot_ms
     row = [
         str(w.key.mode),
-        format_lengths(w.workload.prompt_len),
-        format_lengths(w.workload.max_new_tokens),
+        format_lengths(w.workload.prompt_lens),
+        format_lengths(w.workload.output_budgets),
         f"{(ttft.mean if ttft else 0.0):.3f}",
         f"{(tpot.mean if tpot else 0.0):.3f}",
         f"{(tpot.median if tpot else 0.0):.3f}",
