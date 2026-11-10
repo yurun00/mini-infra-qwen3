@@ -73,20 +73,10 @@
   "uniform-vs-variable-budget-slots": {
    "cases": [
     {
-     "max_new_tokens": [
-      64,
-      64,
-      64,
-      64
-     ],
+     "max_new_tokens": 64,
      "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
-     "prompt_len": [
-      128,
-      128,
-      128,
-      128
-     ]
+     "prompt_len": 128
     },
     {
      "max_new_tokens": [
@@ -97,12 +87,7 @@
      ],
      "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
-     "prompt_len": [
-      128,
-      128,
-      128,
-      128
-     ]
+     "prompt_len": 128
     }
    ],
    "modes": [
@@ -117,12 +102,7 @@
      "max_new_tokens": 32,
      "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
-     "prompt_len": [
-      128,
-      128,
-      128,
-      128
-     ]
+     "prompt_len": 128
     },
     {
      "max_new_tokens": 32,

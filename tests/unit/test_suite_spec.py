@@ -69,18 +69,13 @@ def _lockstep_entry(name: str) -> dict[str, Any]:
             {
                 "mode": str(cs.mode),
                 "num_total_requests": cs.workload.num_total_requests,
-                "prompt_len": (
-                    list(cs.workload.prompt_len)
-                    if isinstance(cs.workload.prompt_len, tuple)
-                    else cs.workload.prompt_len
-                ),
+                "prompt_len": (list(prof.prompt_len) if isinstance(prof.prompt_len, tuple) else prof.prompt_len),
                 "max_new_tokens": (
-                    list(cs.workload.max_new_tokens)
-                    if isinstance(cs.workload.max_new_tokens, tuple)
-                    else cs.workload.max_new_tokens
+                    list(prof.max_new_tokens) if isinstance(prof.max_new_tokens, tuple) else prof.max_new_tokens
                 ),
             }
             for cs in suite.case_specs
+            for prof in [cs.workload.to_profile()]
         ],
     }
 
@@ -202,8 +197,8 @@ workload:
   output_len: 4
 """
     (cs,) = load_suite_spec(_write(tmp_path, text)).cases
-    assert cs.workload.prompt_len == (8, 8)
-    assert cs.workload.max_new_tokens == 4
+    assert cs.workload.prompt_lens == (8, 8)
+    assert cs.workload.output_budgets == (4, 4)
 
 
 def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):

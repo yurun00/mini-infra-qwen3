@@ -150,14 +150,14 @@ def test_canonical_workloads_and_build_payload():
         lw = lockstep_workloads[scale]
         assert isinstance(lw, ResolvedWorkloadSpec)
         assert lw.workload_id == f"lockstep_{scale}"
-        assert isinstance(lw.prompt_len, tuple) and len(lw.prompt_len) == lw.num_total_requests
-        assert isinstance(lw.max_new_tokens, tuple) and len(lw.max_new_tokens) == lw.num_total_requests
+        assert isinstance(lw.prompt_lens, tuple) and len(lw.prompt_lens) == lw.num_total_requests
+        assert isinstance(lw.output_budgets, tuple) and len(lw.output_budgets) == lw.num_total_requests
 
         sw = scheduler_workloads[scale]
         assert isinstance(sw, ResolvedWorkloadSpec)
         assert sw.workload_id == f"scheduler_{scale}"
-        assert isinstance(sw.prompt_len, tuple) and len(sw.prompt_len) == sw.num_total_requests
-        assert isinstance(sw.max_new_tokens, tuple) and len(sw.max_new_tokens) == sw.num_total_requests
+        assert isinstance(sw.prompt_lens, tuple) and len(sw.prompt_lens) == sw.num_total_requests
+        assert isinstance(sw.output_budgets, tuple) and len(sw.output_budgets) == sw.num_total_requests
         assert isinstance(sw.arrival_ms, tuple) and len(sw.arrival_ms) == sw.num_total_requests
 
         profile = sw.to_profile()
@@ -170,8 +170,8 @@ def test_canonical_workloads_and_build_payload():
 
     # Different seeds produce different pseudo-random configurations
     assert (
-        release_workloads("lockstep", seed=42)["medium"].prompt_len
-        != release_workloads("lockstep", seed=43)["medium"].prompt_len
+        release_workloads("lockstep", seed=42)["medium"].prompt_lens
+        != release_workloads("lockstep", seed=43)["medium"].prompt_lens
     )
     assert (
         release_workloads("scheduler", seed=42)["medium"].arrival_ms

@@ -240,11 +240,11 @@ sweep:
 
     # uniform: [4, 4, 4, 4]，padding efficiency 应该为 100%
     assert res_homo.workload.num_total_requests == 4
-    assert res_homo.workload.prompt_len == (4, 4, 4, 4)
+    assert res_homo.workload.prompt_lens == (4, 4, 4, 4)
     assert res_homo.packing is not None and res_homo.packing.padding_efficiency.mean == 1.0
 
     # variable: [max(1, 4//8), max(1, 4//4), max(1, 4//2), 4] = [1, 1, 2, 4]
-    assert res_mixed.workload.prompt_len == (1, 1, 2, 4)
+    assert res_mixed.workload.prompt_lens == (1, 1, 2, 4)
     assert res_mixed.packing is not None and res_mixed.packing.padding_efficiency.mean == (1 + 1 + 2 + 4) / 16
     assert res_mixed.packing.padding_efficiency.mean < 1.0
 
@@ -271,12 +271,12 @@ sweep:
     res_uniform, res_variable = _run_cases(tiny)
 
     # uniform: [4, 4, 4, 4]，slot utilization 应该为 100%
-    assert res_uniform.workload.max_new_tokens == (4, 4, 4, 4)
+    assert res_uniform.workload.output_budgets == (4, 4, 4, 4)
     assert res_uniform.packing is not None and res_uniform.packing.slot_utilization.mean == 1.0
 
     # variable: [max(2, 4//8), max(2, 4//4), max(2, 4//2), 4] = [2, 2, 2, 4]，slot utilization = 10 / 16
-    assert res_variable.workload.prompt_len == (4, 4, 4, 4)
-    assert res_variable.workload.max_new_tokens == (2, 2, 2, 4)
+    assert res_variable.workload.prompt_lens == (4, 4, 4, 4)
+    assert res_variable.workload.output_budgets == (2, 2, 2, 4)
     assert res_variable.packing is not None and res_variable.packing.slot_utilization.mean == (2 + 2 + 2 + 4) / 16
     assert res_variable.packing.slot_utilization.mean < 1.0
 

@@ -23,8 +23,8 @@ def _encode(w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int) -> d
     return {
         "mode": str(release_default_mode(engine)),
         "num_total_requests": w.num_total_requests,
-        "prompt_len": as_list(w.prompt_len),
-        "max_new_tokens": as_list(w.max_new_tokens),
+        "prompt_len": as_list(w.prompt_lens),
+        "max_new_tokens": as_list(w.output_budgets),
         "seed": seed,
         "scale": scale,
         "max_running_requests": resolved.max_running_requests,
@@ -60,7 +60,7 @@ def test_release_default_modes():
 def test_release_seed_changes_workload():
     base = release_workloads("scheduler", seed=42)["medium"]
     other = release_workloads("scheduler", seed=43)["medium"]
-    assert base.prompt_len != other.prompt_len
+    assert base.prompt_lens != other.prompt_lens
     assert base.arrival_ms != other.arrival_ms
 
 

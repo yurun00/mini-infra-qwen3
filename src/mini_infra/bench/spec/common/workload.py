@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from mini_infra.bench.spec.common.lengths import expand_arrival, expand_length
-from mini_infra.bench.spec.common.schema import ConstantLength, WorkloadSpec, normalize_workload_body
+from mini_infra.bench.spec.common.schema import WorkloadSpec, normalize_workload_body
 
 if TYPE_CHECKING:
     from mini_infra.bench.cases import WorkloadProfile
@@ -21,13 +21,11 @@ _PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 class ResolvedWorkloadSpec:
     """插值并展开后的具体请求负载规格（纯 CPU，不依赖 vocab 与 torch）。
 
-    prompt_len / max_new_tokens 保留 lockstep 的广播语义：单组且为 constant 时是标量 int，其余为逐请求 tuple。
+    持有确定性的逐请求流量序列（prompt_lens / output_budgets / arrival_ms）。
     """
 
     workload_id: str
     num_total_requests: int
-    prompt_len: int | tuple[int, ...]
-    max_new_tokens: int | tuple[int, ...]
     prompt_lens: tuple[int, ...]
     output_budgets: tuple[int, ...]
     arrival_ms: tuple[float, ...]
@@ -59,8 +57,6 @@ class ResolvedWorkloadSpec:
             prompt_lens=self.prompt_lens,
             output_budgets=self.output_budgets,
             arrival_ms=self.arrival_ms,
-            prompt_len=self.prompt_len,
-            max_new_tokens=self.max_new_tokens,
         )
 
 
@@ -109,19 +105,9 @@ def resolve_workload_body(
         budgets.extend(expand_length(group.output_len, group.count, rng))
         arrivals.extend(expand_arrival(group.arrival_ms, group.count, rng))
 
-    first = parsed.groups[0]
-    single_group = len(parsed.groups) == 1
-    prompt_len: int | tuple[int, ...] = (
-        first.prompt_len.value if single_group and isinstance(first.prompt_len, ConstantLength) else tuple(prompt_lens)
-    )
-    max_new_tokens: int | tuple[int, ...] = (
-        first.output_len.value if single_group and isinstance(first.output_len, ConstantLength) else tuple(budgets)
-    )
     return ResolvedWorkloadSpec(
         workload_id=resolved_id,
         num_total_requests=len(prompt_lens),
-        prompt_len=prompt_len,
-        max_new_tokens=max_new_tokens,
         prompt_lens=tuple(prompt_lens),
         output_budgets=tuple(budgets),
         arrival_ms=tuple(arrivals),

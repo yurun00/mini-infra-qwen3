@@ -61,8 +61,8 @@ def _describe_case(engine: SuiteEngine, case_spec: CaseSpec) -> str:
         )
     return (
         f"[{case_spec.workload.workload_id}] | {case_spec.mode} | batch={case_spec.workload.num_total_requests} "
-        f"prompt={format_lengths(case_spec.workload.prompt_len)} "
-        f"max_new_tokens={format_lengths(case_spec.workload.max_new_tokens)}"
+        f"prompt={format_lengths(case_spec.workload.prompt_lens)} "
+        f"max_new_tokens={format_lengths(case_spec.workload.output_budgets)}"
     )
 
 
