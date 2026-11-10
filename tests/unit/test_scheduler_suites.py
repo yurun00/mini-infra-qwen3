@@ -242,10 +242,6 @@ def test_scheduler_suite_case_paged_validation():
         paged_cache_config=PagedCacheConfig(block_size=16),
     )
 
-    spec_dict = case_paged.to_spec_dict()
-    assert spec_dict["workload_id"] == "workload_0"
-    assert spec_dict["paged_cache_config"]["block_size"] == 16
-
 
 def test_compute_comparisons():
     from mini_infra.bench.cases import WorkloadProfile

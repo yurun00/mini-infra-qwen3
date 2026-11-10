@@ -12,7 +12,6 @@ from typing import Any
 from mini_infra.bench.common import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
-    REPORTS_DIR,
     RESULT_HISTORY_DIR,
     SCHEDULER_REPORTS_DIR,
     SCHEDULER_RESULT_HISTORY_DIR,
@@ -227,7 +226,6 @@ def handle_compare(args: argparse.Namespace) -> int:
 __all__ = [
     "LOCKSTEP_REPORTS_DIR",
     "LOCKSTEP_RESULT_HISTORY_DIR",
-    "REPORTS_DIR",
     "RESULT_HISTORY_DIR",
     "SCHEDULER_REPORTS_DIR",
     "SCHEDULER_RESULT_HISTORY_DIR",

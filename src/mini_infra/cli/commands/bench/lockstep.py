@@ -74,12 +74,6 @@ def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParse
     return p
 
 
-def build_case_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行单用例齐步（Lockstep）基准测试")
-    add_lockstep_case_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
     """在 bench 下注册 lockstep 组及 case 子命令。"""
     lockstep_parser = subparsers.add_parser("lockstep", help="齐步（Lockstep：所有请求同时开始，无调度器）推理基准测试")

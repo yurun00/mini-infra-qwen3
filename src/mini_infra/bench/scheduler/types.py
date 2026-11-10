@@ -189,11 +189,6 @@ class SchedulerCaseResult:
         """与 ScheduleResult.step_agg_metrics 保持一致的别名。"""
         return self.metrics
 
-    @property
-    def batch_info(self) -> BatchScheduleInfo[DistributionStats] | None:
-        """与 ScheduleResult.batch_info 保持一致的别名。"""
-        return self.packing
-
     def to_record_dict(self) -> dict[str, Any]:
         """导出为与 BaseCaseRecord / SchedulerCaseRecord 完全对齐的标准字典结构。"""
         sm = self.schedule_metrics

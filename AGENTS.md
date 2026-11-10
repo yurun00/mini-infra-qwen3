@@ -16,8 +16,9 @@
    - **基线可对照性**：新增优化必须经模式或策略抽象接入，**不得破坏既有 Baseline 路径的可运行性与可对比性**。
    - **零黑盒依赖**：核心运行时（`model/`、`worker/`、`core/`、`engine/`、`entrypoints/`）只用原生 Python 与 PyTorch，**严禁引入 `transformers`、`tokenizers` 等外部封装库**（`transformers` 仅限 `verification/parity/` 与 `tests/gpu/parity/` 作 Golden Reference）。
 
-3. **YAGNI：禁止无声明的向后兼容**
+3. **YAGNI：禁废弃代码与 dead code**
    - 严禁为兼容旧逻辑保留废弃代码：废弃 member field、过时 method name、兼容性 property、无用参数默认值、forwarding wrapper。
+   - 严禁新增 dead code：无调用点的函数/方法、无读取点的字段。
 
 4. **结果指标变更的端到端联动守恒**
    - **增删改任何结果指标**（延迟、吞吐、显存统计、调度事件字段等）必须同步下游：

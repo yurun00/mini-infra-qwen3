@@ -335,26 +335,6 @@ class BenchmarkCase:
             paged_cache_config=self.paged_cache_config,
         )
 
-    def to_spec_dict(self) -> dict[str, Any]:
-        """导出用例负载规格字典。"""
-        data: dict[str, Any] = {
-            "workload_id": self.workload_id,
-            "mode": str(self.mode),
-            "max_running_requests": self.max_running_requests,
-            "request_count": self.profile.num_total_requests,
-            "prompt_lengths": list(self.profile.prompt_lens),
-            "output_budgets": list(self.profile.output_budgets),
-            "arrival_times_ms": list(self.profile.arrival_ms),
-        }
-        if self.suite_name is not None:
-            data["suite_name"] = self.suite_name
-        if self.paged_cache_config is not None:
-            data["paged_cache_config"] = {
-                "block_size": self.paged_cache_config.block_size,
-                "num_blocks": self.paged_cache_config.num_blocks,
-            }
-        return data
-
 
 __all__ = [
     "BenchmarkCase",

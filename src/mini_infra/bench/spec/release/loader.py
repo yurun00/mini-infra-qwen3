@@ -32,10 +32,6 @@ class LoadedReleaseSpec:
         """以指定 seed 重新展开三档负载（seed 缺省即 `scales`，取 default_seed）。"""
         return self.scales if seed is None else resolve_release_spec(self.spec, seed)
 
-    def expand_scales(self, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
-        """转换为运行期三档 ResolvedWorkloadSpec。"""
-        return expand_release_scales(self.spec, seed=seed)
-
 
 def load_release_spec(path: Path) -> LoadedReleaseSpec:
     """加载、校验并展开一份 release YAML（默认 seed）；非法负载在加载期暴露。"""

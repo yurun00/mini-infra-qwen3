@@ -237,8 +237,8 @@ class CaseKeyRecord(_DictAccessModel):
     """用例身份键记录。"""
 
     workload_id: str
-    mode: str
     max_running_requests: int
+    mode: str | None = None
     paged_cache_config: PagedCacheConfigRecord | None = None
     caching_method: str | None = None
     batching_method: str | None = None

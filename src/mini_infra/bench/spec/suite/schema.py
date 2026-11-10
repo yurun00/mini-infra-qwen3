@@ -23,16 +23,10 @@ from mini_infra.bench.cases import (
     MetricKind,
 )
 from mini_infra.bench.spec.common.schema import (
-    CachingSpec,
     CheckSpec,
-    DenseCacheSpec,
-    EngineModeSpec,
     ExecutionSpec,
     GroupSpec,
-    LockstepEngineSpec,
     MinMaxRunningRequestsCheck,
-    MinOutputLenCheck,
-    NoCacheSpec,
     PagedCacheSpec,
     PositiveInt,
     SchedulerEngineSpec,
@@ -248,16 +242,10 @@ def suite_json_schema() -> dict[str, Any]:
 
 
 __all__ = [
-    "CachingSpec",
     "CheckSpec",
     "ComparisonSpec",
-    "DenseCacheSpec",
-    "EngineModeSpec",
-    "LockstepEngineSpec",
     "MetricSpec",
     "MinMaxRunningRequestsCheck",
-    "MinOutputLenCheck",
-    "NoCacheSpec",
     "PagedCacheSpec",
     "SchedulerEngineSpec",
     "SuiteEngine",

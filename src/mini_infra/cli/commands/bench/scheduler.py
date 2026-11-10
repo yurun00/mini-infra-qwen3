@@ -85,12 +85,6 @@ def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPars
     return p
 
 
-def build_case_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行单用例 Scheduler 基准测试")
-    add_scheduler_case_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
     """在 bench 下注册 scheduler 组及 case 子命令。"""
     scheduler_parser = subparsers.add_parser("scheduler", help="队列调度器（Scheduler: Fixed vs Continuous）基准测试")
