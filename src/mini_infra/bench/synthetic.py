@@ -1,4 +1,4 @@
-"""基准测试合成序列生成与到达时间序列辅助工具。"""
+"""基准测试合成序列生成辅助工具（基于 CPU PyTorch 随机生成器）。"""
 
 from __future__ import annotations
 
@@ -50,43 +50,8 @@ def make_sequences(
     return [make_sequence(length, vocab_size, salt=23 * (index + 1)) for index, length in enumerate(lengths)]
 
 
-def make_prompt(
-    vocab_size: int,
-    length: int | Sequence[int],
-    batch_size: int = 1,
-) -> list[list[int]]:
-    """合成 prompt 生成函数（支持等长或不等长变长序列列表）。
-
-    Args:
-        vocab_size: 词表大小。
-        length: 单个序列长度 int，或各序列长度列表 Sequence[int]。
-        batch_size: 当 length 为 int 时的批大小，默认 1。
-
-    Returns:
-        嵌套 Python int 列表，形状为 [batch_size, length] 或对应不等长列表。
-    """
-    if isinstance(length, int):
-        generator = torch.Generator(device="cpu").manual_seed(1234 + length)
-        low = 1000 if vocab_size > 1000 else 1
-        high = min(vocab_size, 100000)
-        ids = torch.randint(low, high, (batch_size, length), generator=generator)
-        return ids.tolist()
-
-    return make_sequences(length, vocab_size)
-
-
-def make_arrival_times(count: int, interval_ms: float) -> list[float]:
-    """生成等间隔到达时间列表（单位 ms）。"""
-    if count < 1:
-        raise ValueError("count 必须大于 0")
-    if interval_ms < 0:
-        raise ValueError("interval_ms 不能小于 0")
-    return [i * float(interval_ms) for i in range(count)]
-
-
 __all__ = [
-    "make_arrival_times",
-    "make_prompt",
     "make_sequence",
     "make_sequences",
 ]
+

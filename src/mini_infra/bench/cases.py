@@ -277,7 +277,7 @@ class WorkloadProfile:
 
     def to_payload(self, vocab_size: int) -> tuple[RequestSpec, ...]:
         """把数值画像按需装配为具体合成 Token 序列的 RequestSpec 载荷元组（即用即弃，函数局部变量）。"""
-        from mini_infra.bench.workloads import make_sequences
+        from mini_infra.bench.synthetic import make_sequences
 
         return tuple(
             make_request_specs(

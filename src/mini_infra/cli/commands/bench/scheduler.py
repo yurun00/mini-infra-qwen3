@@ -37,8 +37,8 @@ from mini_infra.bench.scheduler.run_suite import (
 from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import ComparisonResult, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.bench.sweep import SuiteRunSummary
-from mini_infra.bench.workloads import make_arrival_times
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory

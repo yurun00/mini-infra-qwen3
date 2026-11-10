@@ -77,6 +77,15 @@ def expand_length(spec: LengthSpec, count: int, rng: random.Random | None = None
     raise TypeError(f"未知长度规格: {spec!r}")
 
 
+def make_arrival_times(count: int, interval_ms: float) -> list[float]:
+    """生成等间隔到达时间列表（单位 ms）。"""
+    if count < 1:
+        raise ValueError("count 必须大于 0")
+    if interval_ms < 0:
+        raise ValueError("interval_ms 不能小于 0")
+    return [i * float(interval_ms) for i in range(count)]
+
+
 def expand_arrival(spec: ArrivalSpec, count: int, rng: random.Random | None = None) -> tuple[float, ...]:
     """把到达过程展开为 count 个请求的逐请求到达时间（ms）；poisson 需要传入 rng。"""
     if isinstance(spec, ConstantArrival):
@@ -84,11 +93,17 @@ def expand_arrival(spec: ArrivalSpec, count: int, rng: random.Random | None = No
     if isinstance(spec, ExplicitArrival):
         return tuple(float(v) for v in spec.values)
     if isinstance(spec, IntervalArrival):
-        return tuple(i * float(spec.interval_ms) for i in range(count))
+        return tuple(make_arrival_times(count, spec.interval_ms))
     if isinstance(spec, PoissonArrival):
         assert rng is not None
         return sample_poisson_arrivals(rng, count, spec.initial_burst, spec.mean_interval_ms)
     raise TypeError(f"未知到达规格: {spec!r}")
 
 
-__all__ = ["expand_arrival", "expand_length", "sample_log_uniform_lengths", "sample_poisson_arrivals"]
+__all__ = [
+    "expand_arrival",
+    "expand_length",
+    "make_arrival_times",
+    "sample_log_uniform_lengths",
+    "sample_poisson_arrivals",
+]

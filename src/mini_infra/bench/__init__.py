@@ -67,6 +67,7 @@ from mini_infra.bench.schema import (
     load_benchmark_record,
     validate_benchmark_record,
 )
+from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.bench.spec.release import (
     RELEASE_SCALES,
     ReleaseScale,
@@ -74,9 +75,7 @@ from mini_infra.bench.spec.release import (
     release_workloads,
 )
 from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.workloads import (
-    make_arrival_times,
-    make_prompt,
+from mini_infra.bench.synthetic import (
     make_sequence,
     make_sequences,
 )
@@ -133,7 +132,6 @@ __all__ = [
     "gpu_info",
     "load_benchmark_record",
     "make_arrival_times",
-    "make_prompt",
     "make_sequence",
     "make_sequences",
     "model_cost",

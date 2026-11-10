@@ -91,7 +91,7 @@ mini-infra-qwen3/
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── schema.py              # 统一 Pydantic v2 Schema 与多态信封（Lockstep & Scheduler）
 │           ├── suite.py               # BenchmarkSuite[CaseT] 评测套件泛型基类
-│           ├── workloads.py           # 合成 Prompt 序列载荷生成工具
+│           ├── synthetic.py           # 合成 Prompt 序列载荷生成工具
 │           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比
 │           ├── check_regression.py    # 性能回归质量门禁核心逻辑
 │           ├── cases.py               # CaseKey / CaseDimension / Comparison / WorkloadProfile / SchedulerCase / LockstepCase

@@ -4,6 +4,7 @@ from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.lengths import (
     expand_arrival,
     expand_length,
+    make_arrival_times,
     sample_log_uniform_lengths,
     sample_poisson_arrivals,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "expand_length",
     "interpolate",
     "load_raw_spec",
+    "make_arrival_times",
     "normalize_workload_body",
     "parse_set_args",
     "resolve_workload_body",
