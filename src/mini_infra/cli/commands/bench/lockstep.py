@@ -226,7 +226,7 @@ def execute_lockstep_suite(
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 lockstep suite：正确性检查 → 执行 → 落盘 → 打印表格。"""
     modes = suite.modes()
-    cases = suite.cases(run_env.vocab)
+    cases = suite.cases
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
     mode_label = ",".join(str(m) for m in modes)
@@ -259,7 +259,6 @@ def execute_lockstep_suite(
         model=run_env.model,
         device=run_env.device,
         suite=suite,
-        vocab=run_env.vocab,
         warmup=warmup,
         repeats=repeats,
         cost=run_env.cost,
@@ -295,4 +294,4 @@ def print_lockstep_dry_run(args: argparse.Namespace, suite: LockstepSuite) -> No
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
     print(f"=== [Dry Run] Suite: {suite.name} ===")
-    print(format_suite_plan(suite.name, suite.cases(), warmup, repeats))
+    print(format_suite_plan(suite.name, suite.cases, warmup, repeats))

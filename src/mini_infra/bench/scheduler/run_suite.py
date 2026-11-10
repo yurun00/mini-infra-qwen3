@@ -56,7 +56,7 @@ def run_suite(
     repeats_val = repeats if repeats is not None else suite.repeats
     interleave_dims = tuple(interleave) if interleave is not None else suite.interleave
 
-    cases = suite.cases(vocab_size)
+    cases = suite.cases
 
     # 局部材质化同一 workload 的 request_specs，保证 suite 内同 workload 严格使用同一份输入
     specs_by_workload = {case.workload_id: case.profile.to_payload(vocab_size) for case in cases}

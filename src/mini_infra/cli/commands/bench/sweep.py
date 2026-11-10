@@ -14,7 +14,7 @@ from pathlib import Path
 from mini_infra.bench.common import add_common_args
 from mini_infra.bench.lockstep.suites import LockstepSuite, load_lockstep_suite
 from mini_infra.bench.scheduler.suites import SchedulerSuite, load_scheduler_suite
-from mini_infra.bench.spec import LoadedSuiteSpec, SuiteEngine, discover_suite_specs, parse_set_args
+from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli.commands.bench.lockstep import (
     execute_lockstep_suite,
@@ -115,8 +115,7 @@ def handle_sweep(args: argparse.Namespace) -> int:
                 print_lockstep_dry_run(args, suite)
         return 0
 
-    experimental_by_loaded = {id(s.loaded): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)}
-    suite_by_loaded = {id(s.loaded): s for s in suites}
+    experimental_by_suite = {id(s): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)}
 
     run_one: Callable[[AnySuite, Path], SuiteRunSummary]
     if args.engine == "scheduler":
@@ -135,22 +134,21 @@ def handle_sweep(args: argparse.Namespace) -> int:
             assert isinstance(suite, LockstepSuite)
             return execute_lockstep_suite(lock_env, args, suite, output)
 
-    def execute(loaded: LoadedSuiteSpec) -> SuiteRunSummary:
-        suite = suite_by_loaded[id(loaded)]
+    def execute(suite: AnySuite) -> SuiteRunSummary:
         if args.output is not None:
             output = args.output
         elif args.output_dir is not None:
             output = args.output_dir / args.engine / suite.name / f"{commit}_{args.tag}.json"
         else:
             output = suite_output_path(
-                args, args.engine, suite.name, commit, experimental=experimental_by_loaded[id(loaded)]
+                args, args.engine, suite.name, commit, experimental=experimental_by_suite[id(suite)]
             )
         return run_one(suite, output)
 
-    def on_start(index: int, total: int, loaded: LoadedSuiteSpec) -> None:
-        print(f"\n===== [sweep {index}/{total}] {loaded.spec.name} =====", flush=True)
+    def on_start(index: int, total: int, suite: AnySuite) -> None:
+        print(f"\n===== [sweep {index}/{total}] {suite.name} =====", flush=True)
 
-    summaries = run_sweep([s.loaded for s in suites], execute, on_start=on_start)
+    summaries = run_sweep(suites, execute, on_start=on_start)
     print()
     print(format_sweep_summary(summaries))
     return 0

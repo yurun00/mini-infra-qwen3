@@ -349,7 +349,7 @@ def print_scheduler_dry_run(args: argparse.Namespace, suite: SchedulerSuite) -> 
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
     interleave_features = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
-    cases = suite.cases()
+    cases = suite.cases
     plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
     print(f"=== [Dry Run] Suite: {suite.name} ===")
     print(format_scheduler_run_plan(plan))
