@@ -287,10 +287,11 @@ def test_run_scheduler_suite_on_cpu(tmp_path):
     spec_path.write_text(
         """
 name: tiny-fixed-vs-continuous
-engine: scheduler
 execution: {warmup: 0, repeats: 2, interleave: [batching_method]}
 system:
-  max_running_requests: 4
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 sweep:

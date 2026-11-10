@@ -64,6 +64,20 @@
       "title": "ExecutionSpec",
       "type": "object"
     },
+    "LockstepEngineSpec": {
+      "additionalProperties": false,
+      "description": "Lockstep 离线执行引擎（全批次同步推进，无调度队列与动态到达）。",
+      "properties": {
+        "kind": {
+          "const": "lockstep",
+          "default": "lockstep",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "LockstepEngineSpec",
+      "type": "object"
+    },
     "MinMaxRunningRequestsCheck": {
       "additionalProperties": false,
       "properties": {
@@ -181,9 +195,16 @@
       "title": "ScaleSpec",
       "type": "object"
     },
-    "SystemSpec": {
+    "SchedulerEngineSpec": {
       "additionalProperties": false,
+      "description": "Scheduler 离散事件调度引擎（支持到达队列、Running 并发容量管理）。",
       "properties": {
+        "kind": {
+          "const": "scheduler",
+          "default": "scheduler",
+          "title": "Kind",
+          "type": "string"
+        },
         "max_running_requests": {
           "anyOf": [
             {
@@ -196,6 +217,31 @@
           ],
           "default": null,
           "title": "Max Running Requests"
+        }
+      },
+      "title": "SchedulerEngineSpec",
+      "type": "object"
+    },
+    "SystemSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "engine_mode": {
+          "discriminator": {
+            "mapping": {
+              "lockstep": "#/$defs/LockstepEngineSpec",
+              "scheduler": "#/$defs/SchedulerEngineSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LockstepEngineSpec"
+            },
+            {
+              "$ref": "#/$defs/SchedulerEngineSpec"
+            }
+          ],
+          "title": "Engine Mode"
         },
         "batching_method": {
           "$ref": "#/$defs/BatchingMethod"
@@ -227,6 +273,7 @@
         }
       },
       "required": [
+        "engine_mode",
         "batching_method"
       ],
       "title": "SystemSpec",
@@ -569,14 +616,6 @@
   },
   "additionalProperties": false,
   "properties": {
-    "engine": {
-      "enum": [
-        "scheduler",
-        "lockstep"
-      ],
-      "title": "Engine",
-      "type": "string"
-    },
     "description": {
       "default": "",
       "title": "Description",

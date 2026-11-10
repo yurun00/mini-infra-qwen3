@@ -21,7 +21,7 @@ from mini_infra.verification.smoke import build_tiny_model
 
 def _tiny_suite(tmp_path: Path, name: str, body: str) -> LockstepSuite:
     path = tmp_path / f"{name}.yaml"
-    path.write_text(f"name: {name}\nengine: lockstep\n{body}", encoding="utf-8")
+    path.write_text(f"name: {name}\n{body}", encoding="utf-8")
     return load_lockstep_suite(path)
 
 
@@ -59,7 +59,7 @@ def test_lockstep_suites_registry():
 def test_load_lockstep_suite_rejects_other_engine(tmp_path):
     path = tmp_path / "demo.yaml"
     path.write_text(
-        "name: demo\nengine: scheduler\nsystem: {max_running_requests: 2, batching_method: fixed-batching,"
+        "name: demo\nsystem: {engine_mode: {kind: scheduler, max_running_requests: 2}, batching_method: fixed-batching,"
         " caching_method: dense-kv-cache}\nworkload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )
@@ -128,6 +128,7 @@ def test_uniform_vs_variable_budget_slots_cases():
 def test_lockstep_suite_rejects_invalid_config(tmp_path, old, new, message):
     body = """execution: {warmup: 0, repeats: 1}
 system:
+  engine_mode: lockstep
   batching_method: none
   caching_method: dense-kv-cache
 workload:
@@ -192,6 +193,7 @@ def test_serial_vs_fixed_batch_throughput_runs_end_to_end_on_cpu(tmp_path):
         "tiny-throughput",
         """execution: {warmup: 0, repeats: 1}
 system:
+  engine_mode: lockstep
   batching_method: none
   caching_method: dense-kv-cache
 workload:
@@ -228,7 +230,7 @@ def test_uniform_vs_variable_prompt_padding_runs_end_to_end_on_cpu(tmp_path):
         tmp_path,
         "tiny-padding",
         """execution: {warmup: 0, repeats: 1}
-system: {batching_method: fixed-batching, caching_method: dense-kv-cache}
+system: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}
 workload:
   vars: {scenario: uniform, prompt_len: [4, 4, 4, 4]}
   id: "${scenario}"
@@ -260,7 +262,7 @@ def test_uniform_vs_variable_budget_slots_runs_end_to_end_on_cpu(tmp_path):
         tmp_path,
         "tiny-slots",
         """execution: {warmup: 0, repeats: 1}
-system: {batching_method: fixed-batching, caching_method: dense-kv-cache}
+system: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}
 workload:
   vars: {scenario: uniform, output_len: [4, 4, 4, 4]}
   id: "${scenario}"
@@ -293,7 +295,7 @@ def test_run_suite_drives_cases_in_order(tmp_path):
         tmp_path,
         "tiny-run-suite",
         """execution: {warmup: 0, repeats: 1}
-system: {batching_method: fixed-batching, caching_method: dense-kv-cache}
+system: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}
 workload:
   vars: {num_requests: 1}
   id: "b_${num_requests}"

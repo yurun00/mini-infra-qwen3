@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from mini_infra.bench.spec.common.schema import PagedCacheSpec
+from mini_infra.bench.spec.common.schema import PagedCacheSpec, SchedulerEngineSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.checks import run_check
 from mini_infra.bench.spec.suite.schema import SuiteSpec
@@ -56,10 +56,13 @@ def _generate_system_cases(
     base_sys = spec.system
     sweep_sys = spec.sweep.system
 
+    if isinstance(base_sys.engine_mode, SchedulerEngineSpec):
+        base_mrr = base_sys.engine_mode.max_running_requests
+    else:
+        base_mrr = None
+
     mrr_axis: list[int | None] = (
-        list(sweep_sys.max_running_requests)
-        if sweep_sys.max_running_requests is not None
-        else [base_sys.max_running_requests]
+        list(sweep_sys.max_running_requests) if sweep_sys.max_running_requests is not None else [base_mrr]
     )
     batching_axis: list[BatchingMethod] = (
         list(sweep_sys.batching_method) if sweep_sys.batching_method is not None else [base_sys.batching_method]

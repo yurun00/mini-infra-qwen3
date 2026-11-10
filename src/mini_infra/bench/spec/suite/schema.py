@@ -26,13 +26,16 @@ from mini_infra.bench.spec.common.schema import (
     CachingSpec,
     CheckSpec,
     DenseCacheSpec,
+    EngineModeSpec,
     ExecutionSpec,
     GroupSpec,
+    LockstepEngineSpec,
     MinMaxRunningRequestsCheck,
     MinOutputLenCheck,
     NoCacheSpec,
     PagedCacheSpec,
     PositiveInt,
+    SchedulerEngineSpec,
     SuiteEngine,
     SystemSpec,
     _Strict,
@@ -108,7 +111,6 @@ class SuiteSpec(_Strict):
     """一份完整的 suite 声明。"""
 
     name: str
-    engine: SuiteEngine
     description: str = ""
     execution: ExecutionSpec = ExecutionSpec()
     system: SystemSpec
@@ -116,6 +118,10 @@ class SuiteSpec(_Strict):
     sweep: SweepSpec = SweepSpec()
     comparison: ComparisonSpec | None = None
     checks: list[CheckSpec] = Field(default_factory=list)
+
+    @property
+    def engine(self) -> SuiteEngine:
+        return self.system.engine_mode.kind
 
     @field_validator("name")
     @classmethod
@@ -176,9 +182,11 @@ class SuiteSpec(_Strict):
             raise ValueError("sweep.system.block_size 要求 caching_method 包含 paged-kv-cache")
 
         # 4. 根据引擎类别校验对应特性的支持边界
-        if self.engine == "scheduler":
-            if self.system.max_running_requests is None and self.sweep.system.max_running_requests is None:
-                raise ValueError("scheduler suite 必须提供 system.max_running_requests（或在 sweep.system 中扫描）")
+        if isinstance(self.system.engine_mode, SchedulerEngineSpec):
+            if self.system.engine_mode.max_running_requests is None and self.sweep.system.max_running_requests is None:
+                raise ValueError(
+                    "scheduler suite 必须提供 system.engine_mode.max_running_requests（或在 sweep.system 中扫描）"
+                )
         else:
             self._check_lockstep(effective_caching_methods, effective_batching_methods)
         return self
@@ -188,7 +196,7 @@ class SuiteSpec(_Strict):
         effective_caching_methods: list[CachingMethod],
         effective_batching_methods: list[BatchingMethod],
     ) -> None:
-        if self.system.max_running_requests is not None or self.sweep.system.max_running_requests is not None:
+        if self.sweep.system.max_running_requests is not None:
             raise ValueError("lockstep suite 不支持 max_running_requests")
         if CachingMethod.PAGED in effective_caching_methods:
             raise ValueError("lockstep suite 不支持 paged-kv-cache")
@@ -244,11 +252,14 @@ __all__ = [
     "CheckSpec",
     "ComparisonSpec",
     "DenseCacheSpec",
+    "EngineModeSpec",
+    "LockstepEngineSpec",
     "MetricSpec",
     "MinMaxRunningRequestsCheck",
     "MinOutputLenCheck",
     "NoCacheSpec",
     "PagedCacheSpec",
+    "SchedulerEngineSpec",
     "SuiteEngine",
     "SuiteSpec",
     "SweepSpec",

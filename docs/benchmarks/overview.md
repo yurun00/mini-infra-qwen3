@@ -329,9 +329,8 @@ workload:
 
 | 配置块 | 作用 |
 | :--- | :--- |
-| `engine` | `scheduler` 或 `lockstep`，决定 system 允许的键与 case 类型 |
 | `execution` | `warmup` / `repeats` / `interleave`（scheduler 交替维度，取值为 `CaseDimension`） |
-| `system` | 被测系统：`batching_method[]` × `caching_method[]`（× `paged.block_size`）与 `max_running_requests`（仅 scheduler） |
+| `system` | 被测系统：`engine_mode`（`lockstep` 或 `scheduler`，含 `max_running_requests`）× `batching_method[]` × `caching_method[]`（含 `block_size`） |
 | `workload` | `id`、`vars`，以及 `groups`（或单组简写 `count / prompt_len / output_len / arrival_ms`）；值中可用 `${var}`；随机分布需要 `seed`（可选 `seed_salt`） |
 | `sweep` | `workload`：dict-of-lists 为笛卡尔积，list-of-dicts 为显式场景；`system`：`block_size` / `max_running_requests` |
 | `comparison` | scheduler 专用：`group_by` / `baseline` / `metrics`（`speedup` \| `gain` \| `reduction`） |

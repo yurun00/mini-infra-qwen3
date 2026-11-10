@@ -1,6 +1,5 @@
 # yaml-language-server: $schema=../suite.schema.json
 name: uniform-vs-variable-prompt-padding
-engine: lockstep
 description: >-
   固定 batch=4 与输出长度，对比等长 Prompt（128×4，Padding 有效率 100%）
   与阶梯不等长 Prompt（16/32/64/128，Padding 有效率 46.88%）。
@@ -8,6 +7,7 @@ execution:
   warmup: 1
   repeats: 3
 system:
+  engine_mode: lockstep
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 workload:

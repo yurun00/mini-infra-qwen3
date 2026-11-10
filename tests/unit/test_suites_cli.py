@@ -13,10 +13,11 @@ from mini_infra.cli.commands.bench.suite_source import suite_output_path
 
 _SCHEDULER_YAML = """
 name: demo-spec
-engine: scheduler
 execution: {warmup: 0, repeats: 1, interleave: [batching_method]}
 system:
-  max_running_requests: 4
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 sweep:
@@ -36,9 +37,7 @@ def test_committed_json_schema_is_up_to_date():
 def test_json_schema_shape():
     schema = suite_json_schema()
     assert schema["required"] == ["name"]
-    assert {"name", "engine", "extends", "system", "workload", "sweep", "comparison", "checks"} <= set(
-        schema["properties"]
-    )
+    assert {"name", "extends", "system", "workload", "sweep", "comparison", "checks"} <= set(schema["properties"])
     assert "WorkloadTemplate" not in schema["$defs"] and "GroupSpec" in schema["$defs"]
 
 
@@ -120,8 +119,8 @@ def test_lockstep_suite_dry_run_uses_yaml_execution_defaults(capsys):
 def test_lockstep_suite_dry_run_with_spec(tmp_path, capsys):
     path = tmp_path / "demo-lockstep.yaml"
     path.write_text(
-        "name: demo-lockstep\nengine: lockstep\n"
-        "system: {batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
+        "name: demo-lockstep\n"
+        "system: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
         "workload: {id: w, count: 2, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )

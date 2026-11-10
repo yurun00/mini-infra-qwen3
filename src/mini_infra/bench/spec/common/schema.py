@@ -226,6 +226,33 @@ class ExecutionSpec(_Strict):
 # --------------------------------------------------------------------------- 被测系统
 
 
+class LockstepEngineSpec(_Strict):
+    """Lockstep 离线执行引擎（全批次同步推进，无调度队列与动态到达）。"""
+
+    kind: Literal["lockstep"] = "lockstep"
+
+
+class SchedulerEngineSpec(_Strict):
+    """Scheduler 离散事件调度引擎（支持到达队列、Running 并发容量管理）。"""
+
+    kind: Literal["scheduler"] = "scheduler"
+    max_running_requests: PositiveInt | None = None
+
+
+def _normalize_engine(raw: Any) -> Any:
+    """归一化 engine_mode 输入：将标量字符串提升为标准判别字典。"""
+    if isinstance(raw, str):
+        return {"kind": raw}
+    return raw
+
+
+EngineModeSpec = Annotated[
+    LockstepEngineSpec | SchedulerEngineSpec,
+    Field(discriminator="kind"),
+    BeforeValidator(_normalize_engine),
+]
+
+
 class NoCacheSpec(_Strict):
     """不启用 KV Cache。"""
 
@@ -279,7 +306,7 @@ CachingSpec = Annotated[
 
 
 class SystemSpec(_Strict):
-    max_running_requests: PositiveInt | None = None
+    engine_mode: EngineModeSpec
     batching_method: BatchingMethod
     caching_method: CachingSpec = DenseCacheSpec()
 
@@ -306,6 +333,7 @@ __all__ = [
     "ConstantArrival",
     "ConstantLength",
     "DenseCacheSpec",
+    "EngineModeSpec",
     "ExecutionSpec",
     "ExplicitArrival",
     "ExplicitLength",
@@ -313,6 +341,7 @@ __all__ = [
     "IntervalArrival",
     "LadderLength",
     "LengthSpec",
+    "LockstepEngineSpec",
     "LogUniformLength",
     "MinMaxRunningRequestsCheck",
     "MinOutputLenCheck",
@@ -321,6 +350,7 @@ __all__ = [
     "PagedCacheSpec",
     "PoissonArrival",
     "PositiveInt",
+    "SchedulerEngineSpec",
     "SuiteEngine",
     "SystemSpec",
     "WorkloadSpec",

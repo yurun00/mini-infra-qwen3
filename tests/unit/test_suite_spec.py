@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pydantic
 import pytest
 
 from mini_infra.bench.common import SPECS_DIR
@@ -53,7 +54,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
     return {
         "warmup": suite.warmup,
         "repeats": suite.repeats,
-        "max_running_requests": suite.loaded.spec.system.max_running_requests,
+        "max_running_requests": suite.loaded.spec.system.engine_mode.max_running_requests,
         "interleave": [d.value for d in suite.interleave],
         "modes": [str(m) for m in suite.modes()],
         "comparison": suite.comparison.to_dict(),
@@ -133,9 +134,10 @@ def test_suite_info_is_json_serializable_and_hash_is_stable():
 
 _SCHEDULER_BASE = """
 name: demo
-engine: scheduler
 system:
-  max_running_requests: 4
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
   batching_method: continuous-batching
   caching_method: dense-kv-cache
 workload:
@@ -168,9 +170,10 @@ def test_block_size_sweep_only_expands_paged_modes(tmp_path):
 def test_workload_cartesian_sweep_and_type_preserving_interpolation(tmp_path):
     text = """
 name: demo
-engine: scheduler
 system:
-  max_running_requests: 4
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 workload:
@@ -206,8 +209,8 @@ sweep:
 def test_scalar_length_is_broadcast_and_list_is_per_request(tmp_path):
     text = """
 name: demo
-engine: lockstep
 system:
+  engine_mode: lockstep
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 workload:
@@ -223,8 +226,15 @@ workload:
 
 def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
     (tmp_path / "base.yaml").write_text(
-        "system:\n  max_running_requests: 4\n  batching_method: fixed-batching\n  caching_method: dense-kv-cache\n"
-        "sweep:\n  system:\n    batching_method: [fixed-batching, continuous-batching]\nengine: scheduler\n",
+        "system:\n"
+        "  engine_mode:\n"
+        "    kind: scheduler\n"
+        "    max_running_requests: 4\n"
+        "  batching_method: fixed-batching\n"
+        "  caching_method: dense-kv-cache\n"
+        "sweep:\n"
+        "  system:\n"
+        "    batching_method: [fixed-batching, continuous-batching]\n",
         encoding="utf-8",
     )
     child = _write(
@@ -234,7 +244,10 @@ def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
     )
     raw = load_raw_spec(child)
     assert raw["system"] == {
-        "max_running_requests": 4,
+        "engine_mode": {
+            "kind": "scheduler",
+            "max_running_requests": 4,
+        },
         "batching_method": "continuous-batching",
         "caching_method": "dense-kv-cache",
     }
@@ -266,7 +279,7 @@ def test_deep_merge_does_not_mutate_inputs():
         (lambda t: t.replace("prompt_len: 8", "prompt_len: true"), "布尔"),
         (lambda t: t.replace("prompt_len: 8", "prompt_len: [8]"), "必须等于 count"),
         (lambda t: t.replace("prompt_len: 8", "prompt_len: {ladder: {max: 8}}"), "count == 4"),
-        (lambda t: t.replace("  max_running_requests: 4\n", ""), "max_running_requests"),
+        (lambda t: t.replace("    max_running_requests: 4\n", ""), "max_running_requests"),
         (lambda t: t + "sweep:\n  workload:\n    nope: [1]\n", "未在 workload.vars 中声明"),
         (lambda t: t + "sweep:\n  system:\n    block_size: []\n", "at least 1"),
         (
@@ -308,8 +321,8 @@ def test_free_batch_slot_check_counts_t0_arrivals(tmp_path):
 def test_lockstep_rejects_scheduler_only_features(tmp_path, extra):
     base = """
 name: demo
-engine: lockstep
 system:
+  engine_mode: lockstep
   {system_extra}batching_method: fixed-batching
   caching_method: {caching}
 workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
@@ -321,7 +334,7 @@ workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
         "  metrics: [{path: a.b, kind: speedup}]\n",
         "interleave": "execution: {interleave: [batching_method]}\n",
     }.get(extra, "")
-    with pytest.raises(Exception, match="lockstep"):
+    with pytest.raises((ValueError, pydantic.ValidationError)):
         load_suite_spec(_write(tmp_path, base.format(system_extra=system_extra, caching=caching, tail=tail)))
 
 
@@ -368,17 +381,19 @@ def test_system_spec_caching_method_discriminated_union():
     )
 
     # 1. 默认与标量字符串简写
-    s_default = SystemSpec.model_validate({"batching_method": "fixed-batching"})
+    s_default = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
     assert isinstance(s_default.caching_method, DenseCacheSpec)
     assert s_default.caching_method.method == CachingMethod.DENSE
 
-    s_none = SystemSpec.model_validate({"batching_method": "fixed-batching", "caching_method": "none"})
+    s_none = SystemSpec.model_validate(
+        {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_method": "none"}
+    )
     assert isinstance(s_none.caching_method, NoCacheSpec)
     assert s_none.caching_method.method == CachingMethod.NONE
 
     # 2. Paged 显式声明与默认参数
     s_paged_str = SystemSpec.model_validate(
-        {"batching_method": "continuous-batching", "caching_method": "paged-kv-cache"}
+        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_method": "paged-kv-cache"}
     )
     assert isinstance(s_paged_str.caching_method, PagedCacheSpec)
     assert s_paged_str.caching_method.block_size == 16
@@ -387,6 +402,7 @@ def test_system_spec_caching_method_discriminated_union():
     # 3. Paged 字典形式定制子 field
     s_paged_dict = SystemSpec.model_validate(
         {
+            "engine_mode": "scheduler",
             "batching_method": "continuous-batching",
             "caching_method": {"kind": "paged-kv-cache", "block_size": 32, "num_blocks": 64},
         }
@@ -400,6 +416,7 @@ def test_system_spec_caching_method_discriminated_union():
     with pytest.raises(ValueError):
         SystemSpec.model_validate(
             {
+                "engine_mode": "scheduler",
                 "batching_method": "continuous-batching",
                 "caching_method": {"kind": "dense-kv-cache", "block_size": 32},
             }
@@ -409,8 +426,68 @@ def test_system_spec_caching_method_discriminated_union():
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         SystemSpec.model_validate(
             {
+                "engine_mode": "scheduler",
                 "batching_method": "continuous-batching",
                 "caching_method": "dense-kv-cache",
                 "paged": {"block_size": 16},
+            }
+        )
+
+
+def test_system_spec_engine_mode_discriminated_union():
+    from mini_infra.bench.spec.common import (
+        LockstepEngineSpec,
+        SchedulerEngineSpec,
+        SystemSpec,
+    )
+    from mini_infra.bench.spec.suite import SuiteSpec
+
+    # 1. 标量简写
+    s_lockstep = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
+    assert isinstance(s_lockstep.engine_mode, LockstepEngineSpec)
+    assert s_lockstep.engine_mode.kind == "lockstep"
+
+    s_scheduler = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "fixed-batching"})
+    assert isinstance(s_scheduler.engine_mode, SchedulerEngineSpec)
+    assert s_scheduler.engine_mode.kind == "scheduler"
+    assert s_scheduler.engine_mode.max_running_requests is None
+
+    # 2. Scheduler 字典形式定制子 field
+    s_scheduler_mrr = SystemSpec.model_validate(
+        {
+            "engine_mode": {"kind": "scheduler", "max_running_requests": 8},
+            "batching_method": "continuous-batching",
+        }
+    )
+    assert isinstance(s_scheduler_mrr.engine_mode, SchedulerEngineSpec)
+    assert s_scheduler_mrr.engine_mode.max_running_requests == 8
+
+    # 3. 非法状态不可表达：lockstep 下传入 max_running_requests 被拒绝
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SystemSpec.model_validate(
+            {
+                "engine_mode": {"kind": "lockstep", "max_running_requests": 8},
+                "batching_method": "fixed-batching",
+            }
+        )
+
+    # 4. 非法状态不可表达：SystemSpec 下传入已废除的顶层 max_running_requests 被拒绝
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SystemSpec.model_validate(
+            {
+                "engine_mode": "scheduler",
+                "max_running_requests": 8,
+                "batching_method": "continuous-batching",
+            }
+        )
+
+    # 5. SuiteSpec 下传入已废除的顶层 engine 字段被拒绝
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        SuiteSpec.model_validate(
+            {
+                "name": "demo",
+                "engine": "scheduler",
+                "system": {"engine_mode": "scheduler", "batching_method": "fixed-batching"},
+                "workload": {"id": "w", "count": 1, "prompt_len": 8, "output_len": 4},
             }
         )

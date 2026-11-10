@@ -2,11 +2,11 @@
 # Lockstep 版本发布标准负载（small / medium / large）。
 # 每档随机分布共用 random.Random(seed * 1000 + seed_salt)；`mini-infra bench release --seed N` 只覆盖 seed。
 # 修改本文件会改变所有版本归档的可比性，仅在受控基准更新流程中变更（见 RELEASE.md）。
-engine: lockstep
 description: Lockstep 标准伪随机负载：分层对数均匀的 prompt 长度与输出预算，所有请求同时开始。
 default_seed: 42
 execution: {warmup: 2, repeats: 5}
 system:
+  engine_mode: lockstep
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 scales:

@@ -26,10 +26,11 @@ from mini_infra.verification.smoke import build_tiny_model
 
 _SCHEDULER_YAML = """
 name: {name}
-engine: scheduler
 execution: {{warmup: 0, repeats: 1, interleave: [batching_method]}}
 system:
-  max_running_requests: 4
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
   batching_method: fixed-batching
   caching_method: dense-kv-cache
 sweep:
@@ -40,9 +41,8 @@ workload: {{id: w, count: 2, prompt_len: 4, output_len: {{alternating: [2, 3]}}}
 
 _LOCKSTEP_YAML = """
 name: {name}
-engine: lockstep
 execution: {{warmup: 0, repeats: 1}}
-system: {{batching_method: fixed-batching, caching_method: dense-kv-cache}}
+system: {{engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}}
 workload: {{id: w, count: 2, prompt_len: 4, output_len: 2}}
 """
 
@@ -317,8 +317,12 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
 def test_suite_with_seeded_distributions_is_deterministic(tmp_path):
     text = """
 name: seeded
-engine: scheduler
-system: {max_running_requests: 4, batching_method: continuous-batching, caching_method: dense-kv-cache}
+system:
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
+  batching_method: continuous-batching
+  caching_method: dense-kv-cache
 workload:
   id: w
   seed: 7
@@ -356,8 +360,13 @@ workload:
 )
 def test_seeded_distribution_validation(tmp_path, line, message):
     text = (
-        "name: bad\nengine: scheduler\n"
-        "system: {max_running_requests: 4, batching_method: continuous-batching, caching_method: dense-kv-cache}\n"
+        "name: bad\n"
+        "system:\n"
+        "  engine_mode:\n"
+        "    kind: scheduler\n"
+        "    max_running_requests: 4\n"
+        "  batching_method: continuous-batching\n"
+        "  caching_method: dense-kv-cache\n"
         "workload:\n  id: w\n  count: 4\n  output_len: 4\n" + line
     )
     path = tmp_path / "bad.yaml"
@@ -375,12 +384,11 @@ def test_builtin_release_specs_are_valid():
 def _release_raw(engine="scheduler", **override):
     scale = {"seed_salt": 1, "max_running_requests": 4, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
     system = (
-        {"batching_method": "continuous-batching", "caching_method": "dense-kv-cache"}
+        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_method": "dense-kv-cache"}
         if engine == "scheduler"
-        else {"batching_method": "fixed-batching", "caching_method": "dense-kv-cache"}
+        else {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_method": "dense-kv-cache"}
     )
     raw = {
-        "engine": engine,
         "default_seed": 42,
         "system": system,
         "scales": {"small": scale, "medium": scale, "large": scale},
@@ -398,14 +406,14 @@ def test_release_spec_validation():
         ReleaseSpec.model_validate(_release_raw(scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr}))
     # 允许在 system 顶层提供默认 max_running_requests 供各 scale 继承
     system_with_mrr = {
+        "engine_mode": {"kind": "scheduler", "max_running_requests": 4},
         "batching_method": "continuous-batching",
         "caching_method": "dense-kv-cache",
-        "max_running_requests": 4,
     }
     inherited = ReleaseSpec.model_validate(
         _release_raw(system=system_with_mrr, scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr})
     )
-    assert inherited.system.max_running_requests == 4
+    assert inherited.system.engine_mode.max_running_requests == 4
     with pytest.raises(ValueError, match="不支持 max_running_requests"):
         ReleaseSpec.model_validate(_release_raw(engine="lockstep"))
     with pytest.raises(ValueError, match="interleave"):
@@ -421,8 +429,8 @@ def _write_release(
     path = tmp_path / f"{name}.yaml"
     scale = f"{{seed_salt: 1, max_running_requests: 4, workload: {workload}}}"
     path.write_text(
-        f"engine: {name}\ndefault_seed: 42\n"
-        "system: {batching_method: continuous-batching, caching_method: dense-kv-cache}\n"
+        f"default_seed: 42\n"
+        f"system: {{engine_mode: {name}, batching_method: continuous-batching, caching_method: dense-kv-cache}}\n"
         f"checks: {checks}\n"
         f"scales: {{small: {scale}, medium: {scale}, large: {scale}}}\n",
         encoding="utf-8",

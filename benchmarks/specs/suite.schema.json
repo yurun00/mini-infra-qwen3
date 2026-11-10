@@ -120,6 +120,20 @@
       "title": "ExecutionSpec",
       "type": "object"
     },
+    "LockstepEngineSpec": {
+      "additionalProperties": false,
+      "description": "Lockstep 离线执行引擎（全批次同步推进，无调度队列与动态到达）。",
+      "properties": {
+        "kind": {
+          "const": "lockstep",
+          "default": "lockstep",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "LockstepEngineSpec",
+      "type": "object"
+    },
     "MetricKind": {
       "description": "指标对比相对统计模式。",
       "enum": [
@@ -238,6 +252,33 @@
       "title": "PagedCacheSpec",
       "type": "object"
     },
+    "SchedulerEngineSpec": {
+      "additionalProperties": false,
+      "description": "Scheduler 离散事件调度引擎（支持到达队列、Running 并发容量管理）。",
+      "properties": {
+        "kind": {
+          "const": "scheduler",
+          "default": "scheduler",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_running_requests": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Running Requests"
+        }
+      },
+      "title": "SchedulerEngineSpec",
+      "type": "object"
+    },
     "SweepSpec": {
       "additionalProperties": false,
       "description": "dict-of-lists = 笛卡尔积；list-of-dicts（仅 workload）= 显式场景列表。",
@@ -271,18 +312,23 @@
     "SystemSpec": {
       "additionalProperties": false,
       "properties": {
-        "max_running_requests": {
-          "anyOf": [
+        "engine_mode": {
+          "discriminator": {
+            "mapping": {
+              "lockstep": "#/$defs/LockstepEngineSpec",
+              "scheduler": "#/$defs/SchedulerEngineSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
             {
-              "exclusiveMinimum": 0,
-              "type": "integer"
+              "$ref": "#/$defs/LockstepEngineSpec"
             },
             {
-              "type": "null"
+              "$ref": "#/$defs/SchedulerEngineSpec"
             }
           ],
-          "default": null,
-          "title": "Max Running Requests"
+          "title": "Engine Mode"
         },
         "batching_method": {
           "$ref": "#/$defs/BatchingMethod"
@@ -314,6 +360,7 @@
         }
       },
       "required": [
+        "engine_mode",
         "batching_method"
       ],
       "title": "SystemSpec",
@@ -733,14 +780,6 @@
   "properties": {
     "name": {
       "title": "Name",
-      "type": "string"
-    },
-    "engine": {
-      "enum": [
-        "scheduler",
-        "lockstep"
-      ],
-      "title": "Engine",
       "type": "string"
     },
     "description": {

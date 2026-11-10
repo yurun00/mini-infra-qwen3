@@ -3,11 +3,11 @@
 # 每档随机分布共用 random.Random(seed * 1000 + seed_salt)：先抽 prompt_len，再 output_len，最后 arrival_ms。
 # `mini-infra bench release --seed N` 只覆盖 seed。
 # 修改本文件会改变所有版本归档的可比性，仅在受控基准更新流程中变更（见 RELEASE.md）。
-engine: scheduler
 description: Scheduler 标准伪随机负载：对数均匀的长度分布 + 带初始突发的泊松到达。
 default_seed: 42
 execution: {warmup: 2, repeats: 5}
 system:
+  engine_mode: scheduler
   batching_method: continuous-batching
   caching_method: dense-kv-cache
 scales:

@@ -58,7 +58,7 @@ def test_scheduler_suites_registry():
 def test_load_scheduler_suite_rejects_other_engine(tmp_path):
     path = tmp_path / "demo.yaml"
     path.write_text(
-        "name: demo\nengine: lockstep\nsystem: {batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
+        "name: demo\nsystem: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
         "workload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )
@@ -111,7 +111,7 @@ def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
     base = suite.loaded.path.parent / "_bases" / "fixed_vs_continuous.yaml"
     path = tmp_path / "demo.yaml"
     path.write_text(
-        f"name: demo\nextends: {base}\nsystem: {{max_running_requests: 2}}\n"
+        f"name: demo\nextends: {base}\nsystem: {{engine_mode: {{kind: scheduler, max_running_requests: 2}}}}\n"
         "workload: {id: w, groups: [{count: 1, prompt_len: 8, output_len: 4}]}\n"
         "checks: [{min_max_running_requests: 3}]\n",
         encoding="utf-8",
