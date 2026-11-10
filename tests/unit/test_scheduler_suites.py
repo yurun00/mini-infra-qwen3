@@ -13,13 +13,13 @@ from mini_infra.bench.cases import (
     MetricKind,
     WorkloadProfile,
 )
-from mini_infra.bench.scheduler.suites import (
-    get_all_scheduler_suites,
-    get_scheduler_suite,
-    list_scheduler_suite_names,
-    load_scheduler_suite,
-)
 from mini_infra.bench.suite import BenchmarkSuite
+from mini_infra.bench.suites import (
+    get_all_benchmark_suites,
+    get_benchmark_suite,
+    list_benchmark_suite_names,
+    load_benchmark_suite,
+)
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 FIXED_VS_CONTINUOUS = [
@@ -31,7 +31,7 @@ FIXED_VS_CONTINUOUS = [
 
 
 def test_scheduler_suites_registry():
-    assert list_scheduler_suite_names() == sorted(
+    assert list_benchmark_suite_names("scheduler") == sorted(
         [
             "fixed-vs-continuous-variable-output-length",
             "fixed-vs-continuous-uniform-output-length",
@@ -42,17 +42,17 @@ def test_scheduler_suites_registry():
             "dense-vs-paged-block-size",
         ]
     )
-    suites = get_all_scheduler_suites()
+    suites = get_all_benchmark_suites("scheduler")
     assert len(suites) == 7
     for suite in suites:
         assert isinstance(suite, BenchmarkSuite)
         assert isinstance(suite.cases, tuple)
         assert len(suite) == len(suite.cases)
         assert list(suite) == list(suite.cases)
-        assert get_scheduler_suite(suite.name).name == suite.name
+        assert get_benchmark_suite("scheduler", suite.name).name == suite.name
 
     with pytest.raises(ValueError, match="未知 scheduler suite"):
-        get_scheduler_suite("non-existent")
+        get_benchmark_suite("scheduler", "non-existent")
 
 
 def test_load_scheduler_suite_rejects_other_engine(tmp_path):
@@ -63,12 +63,12 @@ def test_load_scheduler_suite_rejects_other_engine(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="engine 必须是 scheduler"):
-        load_scheduler_suite(path)
+        load_benchmark_suite(path, expected_engine="scheduler")
 
 
 @pytest.mark.parametrize("name", sorted(FIXED_VS_CONTINUOUS))
 def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
-    suite = get_scheduler_suite(name)
+    suite = get_benchmark_suite("scheduler", name)
     assert suite.interleave == (CaseDimension.BATCHING_METHOD,)
     assert suite.comparison is not None
     modes = suite.modes()
@@ -85,7 +85,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
 
 
 def test_variable_output_length_suite_specs():
-    suite = get_scheduler_suite("fixed-vs-continuous-variable-output-length")
+    suite = get_benchmark_suite("scheduler", "fixed-vs-continuous-variable-output-length")
     specs = suite.cases[0].profile.to_payload(vocab_size=1000)
     assert [len(s.token_ids) for s in specs] == [128] * 8
     assert [s.max_new_tokens for s in specs] == [8, 32] * 4
@@ -94,13 +94,13 @@ def test_variable_output_length_suite_specs():
 
 
 def test_staggered_arrivals_suite_specs():
-    suite = get_scheduler_suite("fixed-vs-continuous-staggered-arrivals")
+    suite = get_benchmark_suite("scheduler", "fixed-vs-continuous-staggered-arrivals")
     specs = suite.cases[0].profile.to_payload(vocab_size=1000)
     assert [s.arrival_ms for s in specs] == [i * 150.0 for i in range(8)]
 
 
 def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
-    suite = get_scheduler_suite("fixed-vs-continuous-prefill-interference")
+    suite = get_benchmark_suite("scheduler", "fixed-vs-continuous-prefill-interference")
     specs = suite.cases[0].profile.to_payload(vocab_size=1000)
     assert [len(s.token_ids) for s in specs] == [128, 128, 512]
     assert [s.max_new_tokens for s in specs] == [32, 32, 8]
@@ -117,11 +117,11 @@ def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="max_running_requests >= 3"):
-        load_scheduler_suite(path)
+        load_benchmark_suite(path, expected_engine="scheduler")
 
 
 def test_dense_vs_paged_long_short_stress_suite():
-    suite = get_scheduler_suite("dense-vs-paged-long-short-stress")
+    suite = get_benchmark_suite("scheduler", "dense-vs-paged-long-short-stress")
     assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.BLOCK_SIZE)
     assert suite.comparison is not None
     modes = suite.modes()
@@ -155,7 +155,7 @@ def test_dense_vs_paged_long_short_stress_suite():
 
 
 def test_dense_vs_paged_length_ratio_suite():
-    suite = get_scheduler_suite("dense-vs-paged-length-ratio")
+    suite = get_benchmark_suite("scheduler", "dense-vs-paged-length-ratio")
     cases = suite.cases
     assert [c.workload_id for c in cases] == [f"length_ratio_{n}" for n in (128, 512, 2048, 3072) for _ in range(2)]
     assert [c.mode.caching_method for c in cases] == [CachingMethod.DENSE, CachingMethod.PAGED] * 4
@@ -167,7 +167,7 @@ def test_dense_vs_paged_length_ratio_suite():
 
 
 def test_dense_vs_paged_block_size_suite():
-    cases = get_scheduler_suite("dense-vs-paged-block-size").cases
+    cases = get_benchmark_suite("scheduler", "dense-vs-paged-block-size").cases
     assert len(cases) == 5
     assert all(c.workload_id == "block_size_sweep" for c in cases)
     assert cases[0].mode.caching_method == CachingMethod.DENSE
@@ -178,7 +178,7 @@ def test_dense_vs_paged_block_size_suite():
 
 
 def test_comparison_spec_from_yaml_is_typed():
-    comparison = get_scheduler_suite("dense-vs-paged-block-size").comparison
+    comparison = get_benchmark_suite("scheduler", "dense-vs-paged-block-size").comparison
     assert isinstance(comparison, Comparison)
     assert comparison.group_by == (CaseDimension.WORKLOAD_ID,)
     assert comparison.baseline == {CaseDimension.CACHING_METHOD: CachingMethod.DENSE}

@@ -11,14 +11,14 @@ from mini_infra.bench.cases import (
     WorkloadProfile,
 )
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.lockstep.suites import (
-    get_all_lockstep_suites,
-    get_lockstep_suite,
-    list_lockstep_suite_names,
-    load_lockstep_suite,
-)
 from mini_infra.bench.spec.suite.loader import load_suite_spec
 from mini_infra.bench.suite import BenchmarkSuite
+from mini_infra.bench.suites import (
+    get_all_benchmark_suites,
+    get_benchmark_suite,
+    list_benchmark_suite_names,
+    load_benchmark_suite,
+)
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -26,7 +26,7 @@ from mini_infra.verification.smoke import build_tiny_model
 def _tiny_suite(tmp_path: Path, name: str, body: str) -> BenchmarkSuite:
     path = tmp_path / f"{name}.yaml"
     path.write_text(f"name: {name}\n{body}", encoding="utf-8")
-    return load_lockstep_suite(path)
+    return load_benchmark_suite(path, expected_engine="lockstep")
 
 
 def _run_cases(suite: BenchmarkSuite):
@@ -45,20 +45,20 @@ def _run_cases(suite: BenchmarkSuite):
 
 
 def test_lockstep_suites_registry():
-    assert list_lockstep_suite_names() == [
+    assert list_benchmark_suite_names("lockstep") == [
         "serial-vs-fixed-batch-throughput",
         "uniform-vs-variable-budget-slots",
         "uniform-vs-variable-prompt-padding",
     ]
-    for suite in get_all_lockstep_suites():
+    for suite in get_all_benchmark_suites("lockstep"):
         assert isinstance(suite, BenchmarkSuite)
         assert suite.engine == "lockstep"
         assert isinstance(suite.cases, tuple)
         assert len(suite) == len(suite.cases)
         assert list(suite) == list(suite.cases)
-        assert get_lockstep_suite(suite.name).name == suite.name
+        assert get_benchmark_suite("lockstep", suite.name).name == suite.name
     with pytest.raises(ValueError, match="未知 lockstep suite"):
-        get_lockstep_suite("nope")
+        get_benchmark_suite("lockstep", "nope")
 
 
 def test_load_lockstep_suite_rejects_other_engine(tmp_path):
@@ -69,11 +69,11 @@ def test_load_lockstep_suite_rejects_other_engine(tmp_path):
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="engine 必须是 lockstep"):
-        load_lockstep_suite(path)
+        load_benchmark_suite(path, expected_engine="lockstep")
 
 
 def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
-    suite = get_lockstep_suite("serial-vs-fixed-batch-throughput")
+    suite = get_benchmark_suite("lockstep", "serial-vs-fixed-batch-throughput")
     assert (suite.warmup, suite.repeats) == (1, 3)
     cases = suite.cases
     assert len(cases) == 5 * 2
@@ -94,7 +94,7 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
 
 
 def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
-    data = get_lockstep_suite("serial-vs-fixed-batch-throughput").to_dict()
+    data = get_benchmark_suite("lockstep", "serial-vs-fixed-batch-throughput").to_dict()
     assert data["name"] == "serial-vs-fixed-batch-throughput"
     assert data["engine"] == "lockstep"
     assert data["spec"]["sweep"]["workload"]["num_requests"] == [1, 2, 4, 8, 16]
@@ -102,7 +102,7 @@ def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
 
 
 def test_uniform_vs_variable_prompt_padding_cases():
-    cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases
+    cases = get_benchmark_suite("lockstep", "uniform-vs-variable-prompt-padding").cases
     assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (32, 32, 32, 32)),
         (4, (16, 32, 64, 128), (32, 32, 32, 32)),
@@ -111,7 +111,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
 
 
 def test_uniform_vs_variable_budget_slots_cases():
-    cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases
+    cases = get_benchmark_suite("lockstep", "uniform-vs-variable-budget-slots").cases
     assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),

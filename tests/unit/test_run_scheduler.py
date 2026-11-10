@@ -15,7 +15,7 @@ from mini_infra.bench.scheduler import (
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import load_scheduler_suite
+from mini_infra.bench.suites import load_benchmark_suite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
@@ -306,7 +306,7 @@ workload:
 """,
         encoding="utf-8",
     )
-    suite = load_scheduler_suite(spec_path)
+    suite = load_benchmark_suite(spec_path, expected_engine="scheduler")
 
     cases = run_suite(
         model=model,

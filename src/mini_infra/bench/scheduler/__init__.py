@@ -30,12 +30,6 @@ from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_dimension,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import (
-    get_all_scheduler_suites,
-    get_scheduler_suite,
-    list_scheduler_suite_names,
-    load_scheduler_suite,
-)
 from mini_infra.bench.scheduler.types import (
     ComparisonResult,
     DistributionStats,
@@ -69,10 +63,6 @@ __all__ = [
     "format_comparison",
     "format_scheduler_run_plan",
     "format_table",
-    "get_all_scheduler_suites",
-    "get_scheduler_suite",
-    "list_scheduler_suite_names",
-    "load_scheduler_suite",
     "parse_interleave_args",
     "parse_interleave_dimension",
     "run_case",

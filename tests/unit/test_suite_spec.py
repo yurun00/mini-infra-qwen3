@@ -9,8 +9,6 @@ import pydantic
 import pytest
 
 from mini_infra.bench.common import SPECS_DIR
-from mini_infra.bench.lockstep.suites import get_lockstep_suite
-from mini_infra.bench.scheduler.suites import get_scheduler_suite
 from mini_infra.bench.spec import (
     deep_merge,
     discover_suite_specs,
@@ -20,6 +18,7 @@ from mini_infra.bench.spec import (
     load_raw_spec,
     load_suite_spec,
 )
+from mini_infra.bench.suites import get_benchmark_suite
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod
 
@@ -32,7 +31,7 @@ def _digest(token_ids: tuple[int, ...]) -> str:
 
 
 def _scheduler_entry(name: str) -> dict[str, Any]:
-    suite = get_scheduler_suite(name)
+    suite = get_benchmark_suite("scheduler", name)
     cases = [
         {
             "workload_id": c.workload_id,
@@ -63,7 +62,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
 
 
 def _lockstep_entry(name: str) -> dict[str, Any]:
-    suite = get_lockstep_suite(name)
+    suite = get_benchmark_suite("lockstep", name)
     cases = []
     for cs in suite.case_specs:
         prof = cs.workload.to_profile()

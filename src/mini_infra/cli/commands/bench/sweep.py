@@ -12,10 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mini_infra.bench.common import add_common_args
-from mini_infra.bench.lockstep.suites import load_lockstep_suite
-from mini_infra.bench.scheduler.suites import load_scheduler_suite
 from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
 from mini_infra.bench.suite import BenchmarkSuite
+from mini_infra.bench.suites import load_benchmark_suite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli.commands.bench.lockstep import (
     execute_lockstep_suite,
@@ -88,8 +87,7 @@ def resolve_targets(args: argparse.Namespace) -> list[_Target]:
 
 def load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict[str, object]) -> list[BenchmarkSuite]:
     """加载全部目标（任何一个非法都在运行前暴露）；suite 名称必须唯一，否则结果文件会互相覆盖。"""
-    loader = load_scheduler_suite if engine == "scheduler" else load_lockstep_suite
-    suites = [loader(target.path, overrides) for target in targets]
+    suites = [load_benchmark_suite(target.path, overrides, expected_engine=engine) for target in targets]
     names = [suite.name for suite in suites]
     duplicated = sorted({n for n in names if names.count(n) > 1})
     if duplicated:

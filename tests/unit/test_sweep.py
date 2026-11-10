@@ -7,8 +7,6 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from mini_infra.bench.lockstep.suites import load_lockstep_suite
-from mini_infra.bench.scheduler.suites import get_scheduler_suite, load_scheduler_suite
 from mini_infra.bench.schema import validate_benchmark_record
 from mini_infra.bench.spec import (
     ReleaseSpec,
@@ -18,6 +16,7 @@ from mini_infra.bench.spec import (
     load_suite_spec,
     parse_set_args,
 )
+from mini_infra.bench.suites import get_benchmark_suite, load_benchmark_suite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli import main
 from mini_infra.cli.commands.bench.lockstep import LockstepRunEnv, execute_lockstep_suite
@@ -95,7 +94,9 @@ def test_invalid_override_is_rejected_at_load(tmp_path):
 
 
 def test_override_sweep_on_builtin_suite():
-    suite = get_scheduler_suite("dense-vs-paged-length-ratio", {"sweep.workload.long_prompt_len": [256, 512]})
+    suite = get_benchmark_suite(
+        "scheduler", "dense-vs-paged-length-ratio", {"sweep.workload.long_prompt_len": [256, 512]}
+    )
     assert [c.workload_id for c in suite.cases] == [f"length_ratio_{n}" for n in (256, 256, 512, 512)]
 
 
@@ -104,7 +105,9 @@ def test_override_sweep_on_builtin_suite():
 
 def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
     order: list[str] = []
-    targets = [load_scheduler_suite(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
+    targets = [
+        load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in ("aa", "bb")
+    ]
 
     def execute(suite):
         order.append(suite.name)
@@ -127,7 +130,9 @@ def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
 
 
 def test_run_sweep_stops_on_first_error(tmp_path):
-    targets = [load_scheduler_suite(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
+    targets = [
+        load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in ("aa", "bb")
+    ]
     seen: list[str] = []
 
     def execute(suite):
@@ -245,7 +250,8 @@ def _env(cls, model, modes):
 
 def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
     model = build_tiny_model()
-    suites = [load_scheduler_suite(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
+    targets = ("aa", "bb")
+    suites = [load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in targets]
     run_env = _env(SchedulerRunEnv, model, suites[0].modes())
 
     summaries = []
@@ -263,7 +269,7 @@ def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
 
 def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
     model = build_tiny_model()
-    suite = load_scheduler_suite(_write(tmp_path, "aa", _SCHEDULER_YAML))
+    suite = load_benchmark_suite(_write(tmp_path, "aa", _SCHEDULER_YAML), expected_engine="scheduler")
     run_env = _env(SchedulerRunEnv, model, suite.modes())
     first_mode = suite.modes()[0]
     run_env.correctness_cache[first_mode] = {"checked": True, "passed": False, "match_ratio": 0.5}
@@ -274,7 +280,7 @@ def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
 
 def test_execute_lockstep_suite_writes_valid_record(tmp_path):
     model = build_tiny_model()
-    suite = load_lockstep_suite(_write(tmp_path, "demo-lock", _LOCKSTEP_YAML))
+    suite = load_benchmark_suite(_write(tmp_path, "demo-lock", _LOCKSTEP_YAML), expected_engine="lockstep")
     run_env = _env(LockstepRunEnv, model, suite.modes())
     output = tmp_path / "out" / "demo-lock.json"
     summary = execute_lockstep_suite(run_env, _args(), suite, output)
@@ -288,7 +294,7 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
 
     model = build_tiny_model()
     spec = _write(tmp_path, "single-suite", _SCHEDULER_YAML)
-    suite = load_scheduler_suite(spec)
+    suite = load_benchmark_suite(spec, expected_engine="scheduler")
     run_env = _env(SchedulerRunEnv, model, suite.modes())
     monkeypatch.setattr(sweep_cmd, "prepare_scheduler_env", lambda args: run_env)
 
