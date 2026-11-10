@@ -217,7 +217,7 @@ mini-infra bench scheduler case \
 3. **`fixed-vs-continuous-staggered-arrivals`**：请求按时间阶梯陆续到达，考察连续批处理的即到即调度能力 vs 固定批处理的攒批排队延迟。
 4. **`fixed-vs-continuous-prefill-interference`**：运行中 Decode batch slot 受新入场请求 Prefill 插入时的 ITL 抖动与打断开销。
 
-**Dense vs Paged 对比套件（默认交替维度 `interleave=(caching_method, paged_cache_config)`）**：
+**Dense vs Paged 对比套件（默认交替维度 `interleave=(caching_method, block_size)`）**：
 5. **`dense-vs-paged-long-short-stress`**：长短 Prompt 混杂受控压力测试（long=2048），对比 Dense batch slot 与 Paged 物理块池的峰值显存、KV 读取数与调度延迟。
 6. **`dense-vs-paged-length-ratio`**：长短 Prompt 长度比扫描（长 Prompt 取 128 / 512 / 2048 / 3072），评估非均匀 Prompt 长度分布下 Paged KV Cache 的显存与吞吐收益变化趋势。
 7. **`dense-vs-paged-block-size`**：Paged 物理块大小扫描（8 / 16 / 32 / 64），对比不同 block size 下的显存开销与调度吞吐，共用同一 Dense 基线。
@@ -242,11 +242,11 @@ mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-block-size
 
-# 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, paged_cache_config）
+# 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, block_size, num_blocks）
 mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-block-size \
-  --interleave caching_method paged_cache_config
+  --interleave caching_method block_size
 
 # 5. 预览执行计划（无需 GPU，Dry-Run 模式毫秒级验证调度计划）
 mini-infra bench sweep --engine scheduler \

@@ -114,7 +114,7 @@ def test_cli_scheduler_paged_suite_dry_run(capsys):
             "2",
             "--interleave",
             "caching_method",
-            "paged_cache_config",
+            "block_size",
         ]
     )
     assert ret == 0

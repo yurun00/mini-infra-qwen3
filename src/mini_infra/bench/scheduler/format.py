@@ -37,7 +37,7 @@ def _abbreviate_mode(mode_str: str) -> str:
 def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     """渲染单个 Scheduler 用例的一行表格字段。"""
     slot_util = res.packing.slot_utilization.mean if res.packing is not None else 0.0
-    block_size_str = str(res.key.paged_cache_config.block_size) if res.key.paged_cache_config is not None else ""
+    block_size_str = str(res.key.block_size) if res.key.block_size is not None else ""
     return [
         _abbreviate_suite_name(suite_name),
         _abbreviate_workload_id(res.key.workload_id),
@@ -94,8 +94,8 @@ def _abbreviate_case_key(key: CaseKey) -> str:
         _abbreviate_mode(str(key.mode)),
         f"mrr={key.max_running_requests}",
     ]
-    if key.paged_cache_config is not None:
-        parts.append(f"blk-sz={key.paged_cache_config.block_size}")
+    if key.block_size is not None:
+        parts.append(f"blk-sz={key.block_size}")
     return " | ".join(parts)
 
 
@@ -124,8 +124,8 @@ def format_comparison(comp: ComparisonResult) -> str:
     """格式化单条基准对比摘要行。"""
     prefix = f"  [{_abbreviate_workload_id(comp.candidate_key.workload_id)}]"
     cand_info = _abbreviate_mode(str(comp.candidate_key.mode))
-    if comp.candidate_key.paged_cache_config is not None:
-        cand_info += f" (block={comp.candidate_key.paged_cache_config.block_size})"
+    if comp.candidate_key.block_size is not None:
+        cand_info += f" (block={comp.candidate_key.block_size})"
     return f"{prefix} {comp.metric_name} ({cand_info} vs baseline): {comp.formatted_value()}"
 
 

@@ -5,7 +5,7 @@ engine: scheduler
 execution:
   warmup: 1
   repeats: 3
-  interleave: [caching_method, paged_cache_config]
+  interleave: [caching_method, block_size]
 system:
   max_running_requests: 8
   batching_method: [continuous-batching]

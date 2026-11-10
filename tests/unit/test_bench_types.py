@@ -93,7 +93,7 @@ def test_lockstep_case_result_structure_and_dot_access():
         time_share_by_module={"layers": 0.9},
     )
 
-    key = CaseKey(workload_id="custom", mode=mode, max_running_requests=2)
+    key = CaseKey.from_mode(workload_id="custom", mode=mode, max_running_requests=2)
     case_result = LockstepCaseResult(
         key=key,
         workload=workload,

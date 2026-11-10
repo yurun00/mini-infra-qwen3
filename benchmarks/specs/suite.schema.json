@@ -21,14 +21,15 @@
       "type": "string"
     },
     "CaseDimension": {
-      "description": "用例身份键（CaseKey）的正交特征维度枚举。\n\n对齐工业级基准测试（如 MLPerf / Prometheus 维度标签）规范：\n每个特征维度相互正交、无状态重叠，支持全局多维投影切片。",
+      "description": "用例身份键（CaseKey）的正交特征维度枚举。\n\n对齐工业级基准测试（如 MLPerf / Prometheus 维度标签）规范：\n所有维度完全展平为一阶标量自变量，支持全局多维投影切片。",
       "enum": [
         "workload_id",
         "caching_method",
         "batching_method",
         "flags",
         "max_running_requests",
-        "paged_cache_config"
+        "block_size",
+        "num_blocks"
       ],
       "title": "CaseDimension",
       "type": "string"

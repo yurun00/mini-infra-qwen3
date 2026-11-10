@@ -32,9 +32,7 @@ def parse_interleave_dimension(name: str) -> CaseDimension:
         raise ValueError(f"未知的 interleave 特征维度: {name}，可选: {[d.value for d in CaseDimension]}") from err
 
 
-def parse_interleave_args(
-    raw: Sequence[str] | None, default: tuple[CaseDimension, ...]
-) -> tuple[CaseDimension, ...]:
+def parse_interleave_args(raw: Sequence[str] | None, default: tuple[CaseDimension, ...]) -> tuple[CaseDimension, ...]:
     """将 CLI 字符串参数解析为强类型 CaseDimension 元组。"""
     if raw is None:
         return default

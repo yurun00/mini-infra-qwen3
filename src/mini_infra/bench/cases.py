@@ -17,14 +17,14 @@ from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
 if TYPE_CHECKING:
     from mini_infra.bench.spec.suite.schema import ComparisonSpec
 
-CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | PagedCacheConfig | None
+CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | None
 
 
 class CaseDimension(str, Enum):
     """用例身份键（CaseKey）的正交特征维度枚举。
 
     对齐工业级基准测试（如 MLPerf / Prometheus 维度标签）规范：
-    每个特征维度相互正交、无状态重叠，支持全局多维投影切片。
+    所有维度完全展平为一阶标量自变量，支持全局多维投影切片。
     """
 
     WORKLOAD_ID = "workload_id"
@@ -32,56 +32,68 @@ class CaseDimension(str, Enum):
     BATCHING_METHOD = "batching_method"
     FLAGS = "flags"
     MAX_RUNNING_REQUESTS = "max_running_requests"
-    PAGED_CACHE_CONFIG = "paged_cache_config"
+    BLOCK_SIZE = "block_size"
+    NUM_BLOCKS = "num_blocks"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CaseKey:
-    """用例全局唯一身份键：由工作负载与系统配置正交维度完全确定。
+    """用例全局唯一身份键：所有正交维度完全展平为一阶标量。
 
     符合现代推理评测规范：
-    1. 不可变哈希（frozen=True）
-    2. 正交标量属性与派生属性解耦
+    1. 不可变哈希（frozen=True）且纯标量正交存储
+    2. 字段与 CaseDimension 1:1 严格同构反射
     3. 规范化机器标识（canonical_id）与人类展示（display_name）分离
     4. 动态维度投影（project）与字典映射（as_dimension_map）
     """
 
     workload_id: str
-    mode: Mode
+    caching_method: CachingMethod
+    batching_method: BatchingMethod
     max_running_requests: int
-    paged_cache_config: PagedCacheConfig | None = None
+    flags: frozenset[FeatureFlag] = frozenset()
+    block_size: int | None = None
+    num_blocks: int | None = None
 
     @property
-    def caching_method(self) -> CachingMethod:
-        return self.mode.caching_method
+    def mode(self) -> Mode:
+        """派生引擎运行所需的复合 Mode 对象。"""
+        return Mode(
+            caching_method=self.caching_method,
+            batching_method=self.batching_method,
+            flags=self.flags,
+        )
 
     @property
-    def batching_method(self) -> BatchingMethod:
-        return self.mode.batching_method
+    def paged_cache_config(self) -> PagedCacheConfig | None:
+        """派生 Paged Cache 物理显存块配置对象。"""
+        if self.caching_method is not CachingMethod.PAGED or self.block_size is None:
+            return None
+        return PagedCacheConfig(block_size=self.block_size, num_blocks=self.num_blocks)
 
-    @property
-    def flags(self) -> frozenset[FeatureFlag]:
-        return self.mode.flags
-
-    @property
-    def block_size(self) -> int | None:
-        return self.paged_cache_config.block_size if self.paged_cache_config is not None else None
+    @classmethod
+    def from_mode(
+        cls,
+        workload_id: str,
+        mode: Mode,
+        max_running_requests: int,
+        paged_cache_config: PagedCacheConfig | None = None,
+    ) -> CaseKey:
+        """便利构造器：从 Mode 与 PagedCacheConfig 构造完全展平的 CaseKey。"""
+        return cls(
+            workload_id=workload_id,
+            caching_method=mode.caching_method,
+            batching_method=mode.batching_method,
+            max_running_requests=max_running_requests,
+            flags=mode.flags,
+            block_size=paged_cache_config.block_size if paged_cache_config is not None else None,
+            num_blocks=paged_cache_config.num_blocks if paged_cache_config is not None else None,
+        )
 
     def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
+        """纯反射无分支提取正交维度标量值。"""
         d = dim if isinstance(dim, CaseDimension) else CaseDimension(dim)
-        if d is CaseDimension.WORKLOAD_ID:
-            return self.workload_id
-        if d is CaseDimension.CACHING_METHOD:
-            return self.caching_method
-        if d is CaseDimension.BATCHING_METHOD:
-            return self.batching_method
-        if d is CaseDimension.FLAGS:
-            return self.flags
-        if d is CaseDimension.MAX_RUNNING_REQUESTS:
-            return self.max_running_requests
-        if d is CaseDimension.PAGED_CACHE_CONFIG:
-            return self.paged_cache_config
-        raise ValueError(f"未知维度: {dim}")
+        return getattr(self, d.value)
 
     def project(self, dims: Iterable[CaseDimension | str]) -> tuple[CaseDimensionValue, ...]:
         return tuple(self.value(d) for d in dims)
@@ -104,31 +116,53 @@ class CaseKey:
             parts.append(f"flags={flags_str}")
         if self.block_size is not None:
             parts.append(f"block={self.block_size}")
+        if self.num_blocks is not None:
+            parts.append(f"num_blocks={self.num_blocks}")
         return "/".join(parts)
 
     @property
     def display_name(self) -> str:
         parts = [f"[{self.workload_id}]", str(self.mode), f"mrr={self.max_running_requests}"]
-        if self.paged_cache_config is not None:
-            parts.append(f"block={self.paged_cache_config.block_size}")
+        if self.block_size is not None:
+            blk_str = f"block={self.block_size}"
+            if self.num_blocks is not None:
+                blk_str += f"(n={self.num_blocks})"
+            parts.append(blk_str)
         return " | ".join(parts)
 
     def __str__(self) -> str:
         return self.display_name
 
     def to_dict(self) -> dict[str, Any]:
+        """导出全展平自变量字段字典。"""
         data: dict[str, Any] = {
             "workload_id": self.workload_id,
-            "mode": str(self.mode),
+            "caching_method": self.caching_method.value,
+            "batching_method": self.batching_method.value,
             "max_running_requests": self.max_running_requests,
             "canonical_id": self.canonical_id,
         }
-        if self.paged_cache_config is not None:
-            data["paged_cache_config"] = {
-                "block_size": self.paged_cache_config.block_size,
-                "num_blocks": self.paged_cache_config.num_blocks,
-            }
+        if self.flags:
+            data["flags"] = [f.value for f in self.flags]
+        if self.block_size is not None:
+            data["block_size"] = self.block_size
+        if self.num_blocks is not None:
+            data["num_blocks"] = self.num_blocks
         return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CaseKey:
+        """从字典反向重构完全展平的 CaseKey。"""
+        raw_flags = data.get("flags", ())
+        return cls(
+            workload_id=str(data["workload_id"]),
+            caching_method=CachingMethod.from_str(str(data["caching_method"])),
+            batching_method=BatchingMethod.from_str(str(data["batching_method"])),
+            max_running_requests=int(data["max_running_requests"]),
+            flags=frozenset(FeatureFlag(f) for f in raw_flags) if raw_flags else frozenset(),
+            block_size=int(data["block_size"]) if data.get("block_size") is not None else None,
+            num_blocks=int(data["num_blocks"]) if data.get("num_blocks") is not None else None,
+        )
 
 
 class MetricKind(str, Enum):
@@ -191,6 +225,14 @@ class Comparison:
             elif dim is CaseDimension.MAX_RUNNING_REQUESTS:
                 if not isinstance(raw, int):
                     raise ValueError("baseline.max_running_requests 必须是整数")
+                baseline[dim] = raw
+            elif dim is CaseDimension.BLOCK_SIZE:
+                if not isinstance(raw, int):
+                    raise ValueError("baseline.block_size 必须是整数")
+                baseline[dim] = raw
+            elif dim is CaseDimension.NUM_BLOCKS:
+                if not isinstance(raw, int) and raw is not None:
+                    raise ValueError("baseline.num_blocks 必须是整数或 null")
                 baseline[dim] = raw
             else:
                 raise ValueError(f"baseline 不支持维度 {dim.value}")
@@ -279,7 +321,7 @@ class SchedulerCase:
 
     @property
     def key(self) -> CaseKey:
-        return CaseKey(
+        return CaseKey.from_mode(
             workload_id=self.workload_id,
             mode=self.mode,
             max_running_requests=self.max_running_requests,
@@ -321,7 +363,7 @@ class LockstepCase:
 
     @property
     def key(self) -> CaseKey:
-        return CaseKey(
+        return CaseKey.from_mode(
             workload_id=self.workload_id,
             mode=self.mode,
             max_running_requests=self.profile.num_total_requests,

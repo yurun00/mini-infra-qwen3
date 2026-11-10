@@ -81,7 +81,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
     assert cases[0].workload_id == cases[1].workload_id
     assert cases[0].profile == cases[1].profile
     for case in cases:
-        assert case.key == CaseKey(case.workload_id, case.mode, case.max_running_requests)
+        assert case.key == CaseKey.from_mode(case.workload_id, case.mode, case.max_running_requests)
 
 
 def test_variable_output_length_suite_specs():
@@ -122,7 +122,7 @@ def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
 
 def test_dense_vs_paged_long_short_stress_suite():
     suite = get_scheduler_suite("dense-vs-paged-long-short-stress")
-    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
+    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.BLOCK_SIZE)
     assert suite.comparison is not None
     modes = suite.modes()
     assert [m.caching_method for m in modes] == [CachingMethod.DENSE, CachingMethod.PAGED]
@@ -151,7 +151,7 @@ def test_dense_vs_paged_long_short_stress_suite():
     json.dumps(data)
     assert data["name"] == "dense-vs-paged-long-short-stress"
     assert data["engine"] == "scheduler"
-    assert data["spec"]["execution"]["interleave"] == ["caching_method", "paged_cache_config"]
+    assert data["spec"]["execution"]["interleave"] == ["caching_method", "block_size"]
 
 
 def test_dense_vs_paged_length_ratio_suite():
@@ -230,7 +230,7 @@ def test_scheduler_suite_case_paged_validation():
     assert case_paged.workload_id == "workload_0"
     assert case_paged.paged_cache_config is not None
     assert case_paged.paged_cache_config.block_size == 16
-    assert case_paged.key == CaseKey(
+    assert case_paged.key == CaseKey.from_mode(
         workload_id="workload_0",
         mode=paged_mode,
         max_running_requests=2,
@@ -330,7 +330,7 @@ def test_compute_comparisons():
             itl_ms_max=dist(15.0),
         )
         paged_cfg = PagedCacheConfig(block_size=bs) if bs is not None else None
-        key = CaseKey(
+        key = CaseKey.from_mode(
             workload_id=wid,
             mode=mode,
             max_running_requests=mrr,
@@ -498,9 +498,9 @@ def test_format_table_abbreviations():
     assert _abbreviate_mode("") == ""
 
     dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    dense_key = CaseKey("variable_output_length", dense_mode, 16)
+    dense_key = CaseKey.from_mode("variable_output_length", dense_mode, 16)
     assert _abbreviate_case_key(dense_key) == "[var_out_len] | dkc+cb | mrr=16"
 
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    paged_key = CaseKey("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
+    paged_key = CaseKey.from_mode("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
     assert _abbreviate_case_key(paged_key) == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"

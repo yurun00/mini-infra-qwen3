@@ -440,7 +440,7 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
         max_running_requests: int = 2
         interleave: tuple[CaseDimension, ...] = (
             CaseDimension.CACHING_METHOD,
-            CaseDimension.PAGED_CACHE_CONFIG,
+            CaseDimension.BLOCK_SIZE,
         )
         comparison: Any = None
 

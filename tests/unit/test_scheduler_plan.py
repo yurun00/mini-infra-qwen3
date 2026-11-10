@@ -2,7 +2,12 @@
 
 import pytest
 
-from mini_infra.bench.cases import CaseDimension, SchedulerCase, WorkloadProfile
+from mini_infra.bench.cases import (
+    CaseDimension,
+    CaseKey,
+    SchedulerCase,
+    WorkloadProfile,
+)
 from mini_infra.bench.scheduler.plan import (
     RunPhase,
     build_scheduler_run_plan,
@@ -33,7 +38,8 @@ def make_dummy_case(
 def test_parse_interleave_dimension():
     assert parse_interleave_dimension("batching_method") == CaseDimension.BATCHING_METHOD
     assert parse_interleave_dimension("caching_method") == CaseDimension.CACHING_METHOD
-    assert parse_interleave_dimension("paged_cache_config") == CaseDimension.PAGED_CACHE_CONFIG
+    assert parse_interleave_dimension("block_size") == CaseDimension.BLOCK_SIZE
+    assert parse_interleave_dimension("num_blocks") == CaseDimension.NUM_BLOCKS
     assert parse_interleave_dimension("max_running_requests") == CaseDimension.MAX_RUNNING_REQUESTS
     assert parse_interleave_dimension("workload_id") == CaseDimension.WORKLOAD_ID
 
@@ -55,11 +61,33 @@ def test_case_key_dimension_value():
     assert case.key.value(CaseDimension.CACHING_METHOD) == CachingMethod.DENSE
     assert case.key.value(CaseDimension.WORKLOAD_ID) == "test_workload"
     assert case.key.value(CaseDimension.MAX_RUNNING_REQUESTS) == 2
-    assert case.key.value(CaseDimension.PAGED_CACHE_CONFIG) is None
+    assert case.key.value(CaseDimension.BLOCK_SIZE) is None
+    assert case.key.value(CaseDimension.NUM_BLOCKS) is None
     assert case.key.canonical_id == "workload=test_workload/cache=dense-kv-cache/batch=continuous-batching/mrr=2"
     dim_map = case.key.as_dimension_map()
     assert dim_map[CaseDimension.WORKLOAD_ID] == "test_workload"
     assert dim_map[CaseDimension.CACHING_METHOD] == CachingMethod.DENSE
+
+    # 验证 to_dict 与 from_dict 的对偶恢复
+    key_dict = case.key.to_dict()
+    restored_key = CaseKey.from_dict(key_dict)
+    assert restored_key == case.key
+    assert restored_key.canonical_id == case.key.canonical_id
+
+    # 验证带 block_size 与 num_blocks 时的 display_name 与恢复
+    from mini_infra.core.block_manager import PagedCacheConfig
+
+    paged_key = CaseKey.from_mode(
+        "custom_wl",
+        Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS),
+        16,
+        PagedCacheConfig(16, 64),
+    )
+    assert "block=16(n=64)" in paged_key.display_name
+    restored_paged = CaseKey.from_dict(paged_key.to_dict())
+    assert restored_paged == paged_key
+    assert restored_paged.block_size == 16
+    assert restored_paged.num_blocks == 64
 
     with pytest.raises(ValueError, match="is not a valid CaseDimension"):
         case.key.value("invalid_dimension")
@@ -231,7 +259,7 @@ def test_multi_workload_id_grouping_and_interleaving():
         cases,
         warmup=1,
         repeats=2,
-        interleave=(CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG),
+        interleave=(CaseDimension.CACHING_METHOD, CaseDimension.BLOCK_SIZE),
     )
 
     # 每个 workload 对应 1 个 Group：2 cases * 1 warmup + 2 cases * 2 repeats = 6 步，共 2 Groups = 12 步

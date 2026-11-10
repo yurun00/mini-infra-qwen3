@@ -240,6 +240,11 @@ class CaseKeyRecord(_DictAccessModel):
     mode: str
     max_running_requests: int
     paged_cache_config: PagedCacheConfigRecord | None = None
+    caching_method: str | None = None
+    batching_method: str | None = None
+    flags: list[str] = Field(default_factory=list)
+    block_size: int | None = None
+    num_blocks: int | None = None
     canonical_id: str | None = None
 
 

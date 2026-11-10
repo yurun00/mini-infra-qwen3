@@ -52,7 +52,7 @@ def _describe_case(engine: SuiteEngine, case_spec: CaseSpec) -> str:
     if engine == "scheduler":
         assert case_spec.max_running_requests is not None
         return str(
-            CaseKey(
+            CaseKey.from_mode(
                 case_spec.workload.workload_id,
                 case_spec.mode,
                 case_spec.max_running_requests,

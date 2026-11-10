@@ -61,12 +61,13 @@ def build_scheduler_run_plan(
     interleaved_dims: list[CaseDimension] = []
     for feat in interleave:
         if isinstance(feat, CaseDimension):
-            interleaved_dims.append(feat)
+            d = feat
         else:
             try:
-                interleaved_dims.append(CaseDimension(feat))
+                d = CaseDimension(feat)
             except ValueError as err:
                 raise TypeError(f"未知的 interleave 特征维度: {feat!r}，必须为 CaseDimension 类型") from err
+        interleaved_dims.append(d)
 
     # 1. 守门检查：确保不存在重复的用例全局唯一身份键（CaseKey）
     seen_keys: set[CaseKey] = set()
