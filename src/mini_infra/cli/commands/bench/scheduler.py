@@ -244,8 +244,7 @@ def execute_scheduler_suite(
     interleave_dims = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
 
     print(
-        f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.case_specs)} "
-        f"warmup={warmup} repeats={repeats} ...",
+        f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.cases)} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 

@@ -346,7 +346,7 @@ def test_benchmark_case_and_suite_unification(tmp_path):
     assert scheduler_case.max_running_requests == 2
     assert scheduler_case.engine == "scheduler"
 
-    # 3. BenchmarkSuite 实体容器直接实例化与解析
+    # 3. BenchmarkSuite 实体容器从 Spec 装配与纯内存直接实例化
     spec_path = tmp_path / "generic-suite.yaml"
     spec_path.write_text(
         """name: generic-suite
@@ -361,9 +361,23 @@ workload:
         encoding="utf-8",
     )
     loaded = load_suite_spec(spec_path)
-    suite = BenchmarkSuite(loaded=loaded)
+    suite = BenchmarkSuite.from_spec(loaded)
     assert suite.name == "generic-suite"
     assert suite.engine == "lockstep"
     assert len(suite) == 1
     assert isinstance(suite[0], BenchmarkCase)
     assert suite[0].max_running_requests == 3
+
+    # BenchmarkSuite 纯内存直接实例化（零 Spec 依赖）
+    pure_suite = BenchmarkSuite(
+        name="pure-suite",
+        engine="scheduler",
+        cases=(scheduler_case,),
+        warmup=1,
+        repeats=3,
+    )
+    assert pure_suite.name == "pure-suite"
+    assert pure_suite.engine == "scheduler"
+    assert len(pure_suite) == 1
+    assert pure_suite.warmup == 1
+    assert pure_suite.repeats == 3

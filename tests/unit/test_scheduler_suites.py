@@ -13,6 +13,7 @@ from mini_infra.bench.cases import (
     MetricKind,
     WorkloadProfile,
 )
+from mini_infra.bench.spec import get_suite_spec
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.suites import (
     get_all_benchmark_suites,
@@ -106,9 +107,10 @@ def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
     assert [s.max_new_tokens for s in specs] == [32, 32, 8]
     assert [s.arrival_ms for s in specs] == [0.0, 0.0, 250.0]
 
-    text = suite.loaded.path.read_text(encoding="utf-8")
+    spec = get_suite_spec("scheduler", "fixed-vs-continuous-prefill-interference")
+    text = spec.path.read_text(encoding="utf-8")
     assert "min_max_running_requests: 3" in text
-    base = suite.loaded.path.parent / "_bases" / "fixed_vs_continuous.yaml"
+    base = spec.path.parent / "_bases" / "fixed_vs_continuous.yaml"
     path = tmp_path / "demo.yaml"
     path.write_text(
         f"name: demo\nextends: {base}\nsystem: {{engine_mode: {{kind: scheduler, max_running_requests: 2}}}}\n"

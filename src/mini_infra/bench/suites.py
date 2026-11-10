@@ -19,7 +19,7 @@ from mini_infra.bench.suite import BenchmarkSuite
 
 def suite_from_loaded(loaded: LoadedSuiteSpec) -> BenchmarkSuite:
     """从已解析的 LoadedSuiteSpec 构造不可变 BenchmarkSuite 实体。"""
-    return BenchmarkSuite(loaded=loaded)
+    return BenchmarkSuite.from_spec(loaded)
 
 
 def load_benchmark_suite(

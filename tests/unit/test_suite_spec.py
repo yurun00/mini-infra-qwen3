@@ -18,7 +18,7 @@ from mini_infra.bench.spec import (
     load_raw_spec,
     load_suite_spec,
 )
-from mini_infra.bench.suites import get_benchmark_suite
+from mini_infra.bench.suites import get_benchmark_suite, suite_from_loaded
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod
 
@@ -31,7 +31,8 @@ def _digest(token_ids: tuple[int, ...]) -> str:
 
 
 def _scheduler_entry(name: str) -> dict[str, Any]:
-    suite = get_benchmark_suite("scheduler", name)
+    loaded = get_suite_spec("scheduler", name)
+    suite = suite_from_loaded(loaded)
     cases = [
         {
             "workload_id": c.workload_id,
@@ -53,7 +54,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
     return {
         "warmup": suite.warmup,
         "repeats": suite.repeats,
-        "max_running_requests": suite.loaded.spec.system.engine_mode.max_running_requests,
+        "max_running_requests": loaded.spec.system.engine_mode.max_running_requests,
         "interleave": [d.value for d in suite.interleave],
         "modes": [str(m) for m in suite.modes()],
         "comparison": suite.comparison.to_dict(),
@@ -64,14 +65,14 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
 def _lockstep_entry(name: str) -> dict[str, Any]:
     suite = get_benchmark_suite("lockstep", name)
     cases = []
-    for cs in suite.case_specs:
-        prof = cs.workload.to_profile()
+    for c in suite.cases:
+        prof = c.profile
         pl = collapse_uniform(prof.prompt_lens)
         mn = collapse_uniform(prof.output_budgets)
         cases.append(
             {
-                "mode": str(cs.mode),
-                "num_total_requests": cs.workload.num_total_requests,
+                "mode": str(c.mode),
+                "num_total_requests": prof.num_total_requests,
                 "prompt_len": list(pl) if isinstance(pl, tuple) else pl,
                 "max_new_tokens": list(mn) if isinstance(mn, tuple) else mn,
             }

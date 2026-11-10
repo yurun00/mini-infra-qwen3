@@ -1,7 +1,7 @@
 """评测套件通用容器（BenchmarkSuite）。"""
 
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 from mini_infra.bench.cases import (
@@ -10,40 +10,34 @@ from mini_infra.bench.cases import (
     Comparison,
 )
 from mini_infra.bench.spec.common.schema import SuiteEngine
-from mini_infra.bench.spec.suite.expand import CaseSpec
 from mini_infra.bench.spec.suite.loader import LoadedSuiteSpec
 from mini_infra.engine import Mode
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BenchmarkSuite:
-    """评测套件通用容器：持有已校验加载的 LoadedSuiteSpec 与不可变的用例元组。"""
+    """评测套件通用容器：持有自包含的执行期属性与不可变用例元组（阶段二 Execution Plane）。"""
 
-    loaded: LoadedSuiteSpec
-    cases: tuple[BenchmarkCase, ...] = field(init=False)
+    name: str
+    engine: SuiteEngine
+    cases: tuple[BenchmarkCase, ...]
+    warmup: int
+    repeats: int
+    interleave: tuple[CaseDimension, ...] = ()
+    comparison: Comparison | None = None
+    spec_info: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "cases", tuple(self._build_cases()))
-
-    def _build_cases(self) -> Sequence[BenchmarkCase]:
-        """由用例规格构建具体 BenchmarkCase 实体。"""
-        engine = self.engine
-        cases: list[BenchmarkCase] = []
-        for cs in self.case_specs:
-            mrr = cs.workload.num_total_requests if engine == "lockstep" else cs.max_running_requests
-            assert mrr is not None
-            paged_config = None if engine == "lockstep" else cs.paged_cache_config
-            cases.append(
-                BenchmarkCase(
-                    profile=cs.workload.to_profile(),
-                    mode=cs.mode,
-                    max_running_requests=mrr,
-                    paged_cache_config=paged_config,
-                    suite_name=self.name,
-                    engine=engine,
-                )
-            )
-        return tuple(cases)
+        if not self.name:
+            raise ValueError("suite name 不能为空")
+        if self.warmup < 0:
+            raise ValueError(f"warmup 必须 >= 0，实际为 {self.warmup}")
+        if self.repeats <= 0:
+            raise ValueError(f"repeats 必须 > 0，实际为 {self.repeats}")
+        if not isinstance(self.cases, tuple):
+            object.__setattr__(self, "cases", tuple(self.cases))
+        if not isinstance(self.interleave, tuple):
+            object.__setattr__(self, "interleave", tuple(self.interleave))
 
     def __len__(self) -> int:
         return len(self.cases)
@@ -54,42 +48,56 @@ class BenchmarkSuite:
     def __getitem__(self, index: int) -> BenchmarkCase:
         return self.cases[index]
 
-    @property
-    def name(self) -> str:
-        return self.loaded.spec.name
-
-    @property
-    def engine(self) -> SuiteEngine:
-        return self.loaded.spec.engine
-
-    @property
-    def warmup(self) -> int:
-        return self.loaded.spec.execution.warmup
-
-    @property
-    def repeats(self) -> int:
-        return self.loaded.spec.execution.repeats
-
-    @property
-    def interleave(self) -> tuple[CaseDimension, ...]:
-        return tuple(self.loaded.spec.execution.interleave)
-
-    @property
-    def comparison(self) -> Comparison | None:
-        spec = self.loaded.spec.comparison
-        return None if spec is None else Comparison.from_spec(spec)
-
-    @property
-    def case_specs(self) -> tuple[CaseSpec, ...]:
-        return self.loaded.cases
-
     def modes(self) -> list[Mode]:
-        """按展开顺序去重后的运行模式列表。"""
-        return list(dict.fromkeys(cs.mode for cs in self.case_specs))
+        """按用例展开顺序去重后的运行模式列表。"""
+        return list(dict.fromkeys(c.mode for c in self.cases))
 
     def to_dict(self) -> dict[str, Any]:
-        """写入结果 JSON `suite` 块：合并后的完整 YAML 声明及其内容哈希。"""
-        return self.loaded.info()
+        """写入结果 JSON `suite` 块：合并后的完整 YAML 声明及其内容哈希（或执行画像字典）。"""
+        if self.spec_info is not None:
+            return dict(self.spec_info)
+        info: dict[str, Any] = {
+            "name": self.name,
+            "engine": self.engine,
+            "warmup": self.warmup,
+            "repeats": self.repeats,
+        }
+        if self.interleave:
+            info["interleave"] = [d.value for d in self.interleave]
+        if self.comparison is not None:
+            info["comparison"] = self.comparison.to_dict()
+        return info
+
+    @classmethod
+    def from_spec(cls, loaded: LoadedSuiteSpec) -> "BenchmarkSuite":
+        """从已校验并展开的 LoadedSuiteSpec 降级构建不可变 BenchmarkSuite 实体。"""
+        engine = loaded.spec.engine
+        cases: list[BenchmarkCase] = []
+        for cs in loaded.cases:
+            mrr = cs.workload.num_total_requests if engine == "lockstep" else cs.max_running_requests
+            assert mrr is not None
+            paged_config = None if engine == "lockstep" else cs.paged_cache_config
+            cases.append(
+                BenchmarkCase(
+                    profile=cs.workload.to_profile(),
+                    mode=cs.mode,
+                    max_running_requests=mrr,
+                    paged_cache_config=paged_config,
+                    suite_name=loaded.spec.name,
+                    engine=engine,
+                )
+            )
+        comp = loaded.spec.comparison
+        return cls(
+            name=loaded.spec.name,
+            engine=engine,
+            cases=tuple(cases),
+            warmup=loaded.spec.execution.warmup,
+            repeats=loaded.spec.execution.repeats,
+            interleave=tuple(loaded.spec.execution.interleave),
+            comparison=None if comp is None else Comparison.from_spec(comp),
+            spec_info=loaded.info(),
+        )
 
 
 __all__ = [
