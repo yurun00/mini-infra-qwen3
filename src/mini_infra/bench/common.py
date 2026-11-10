@@ -56,7 +56,7 @@ SPECS_DIR = BENCH_ARTIFACTS_DIR / "specs"
 REPORTS_DIR = BENCH_ARTIFACTS_DIR / "reports"
 LOCKSTEP_REPORTS_DIR = REPORTS_DIR / "lockstep"
 SCHEDULER_REPORTS_DIR = REPORTS_DIR / "scheduler"
-GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "data" / "golden_output_tokens.json"
+GOLDEN_OUTPUT_PATH = BENCH_ARTIFACTS_DIR / "golden" / "golden_output_tokens.json"
 
 
 class _DictCompatibleMixin:

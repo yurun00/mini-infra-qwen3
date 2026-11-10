@@ -139,4 +139,4 @@ description: "评测系统（bench）四阶段生命周期、理想命名规范�
    - 带有命令行 `--set` 覆盖或使用 `--spec` 传入外部临时文件的实验性运行，统一写入由 `.gitignore` 保护的 `tmp/results/`，绝不污染受控资产。
 3. **可视化报告与黄金参考数据（Reports & Golden Reference）**：
    - `benchmarks/reports/<engine>/`：由绘图命令生成的 Markdown 总结与 PNG 图表。
-   - `benchmarks/data/reference.json` 与 `benchmarks/data/golden_output_tokens.json`：固定随机种子的黄金回归门禁基线。
+   - `benchmarks/golden/reference.json` 与 `benchmarks/golden/golden_output_tokens.json`：固定随机种子的黄金回归门禁基线。

@@ -295,7 +295,7 @@ mini-infra bench plot compare \
 
 ## 六、轻量性能回归守门 (`bench check-regression`)
 
-作为 CI 门禁与 Pre-push Hook 的核心守门工具，耗时约 1 分钟，现场运行轻量 Benchmark 并与 `benchmarks/data/reference.json` 比对。
+作为 CI 门禁与 Pre-push Hook 的核心守门工具，耗时约 1 分钟，现场运行轻量 Benchmark 并与 `benchmarks/golden/reference.json` 比对。
 
 ```bash
 # 1. 日常快速守护检查（TTFT 或 TPOT 劣化超过 5% 时报错退出）
@@ -304,7 +304,7 @@ mini-infra bench check-regression
 # 2. 严格硬件匹配（非同一型号 GPU 时直接报错拦截，用于云端 CI）
 mini-infra bench check-regression --strict-hardware
 
-# 3. 新特性发布时固化当前性能底线（更新 benchmarks/data/reference.json）
+# 3. 新特性发布时固化当前性能底线（更新 benchmarks/golden/reference.json）
 mini-infra bench check-regression --update-reference
 ```
 
@@ -389,7 +389,7 @@ mini-infra bench sweep --engine scheduler --tag dev --all --set execution.repeat
 
 ```text
 benchmarks/
-├── data/                          # 权威黄金数据（git 追踪：golden_output_tokens.json, reference.json）
+├── golden/                        # 权威黄金数据（git 追踪：golden_output_tokens.json, reference.json）
 ├── specs/                         # 声明式评测规范 YAML 根目录
 │   ├── lockstep/                  # 齐步测试套件 YAML 声明
 │   ├── scheduler/                 # 调度器测试套件 YAML 声明

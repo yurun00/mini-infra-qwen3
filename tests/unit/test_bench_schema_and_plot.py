@@ -136,7 +136,7 @@ def test_existing_benchmark_json_files_validate():
         assert isinstance(rec, SchedulerBenchmarkRecord)
         assert 1 <= len(rec.cases) <= 3
 
-    ref = load_benchmark_record(Path("benchmarks/data/reference.json"), require_single_case=True)
+    ref = load_benchmark_record(Path("benchmarks/golden/reference.json"), require_single_case=True)
     assert isinstance(ref, LockstepBenchmarkRecord | SchedulerBenchmarkRecord)
 
     eval_rec = load_benchmark_record(

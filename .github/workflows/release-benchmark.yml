@@ -75,4 +75,4 @@ jobs:
           path: |
             benchmarks/reports/
             benchmarks/results/history/
-            benchmarks/data/
+            benchmarks/golden/

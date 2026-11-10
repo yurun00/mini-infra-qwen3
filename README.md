@@ -121,7 +121,7 @@ mini-infra-qwen3/
 │   └── gpu/
 │       └── parity/                    # GPU 精度与等价性对齐测试（pytest tests/gpu/parity/）
 ├── benchmarks/
-│   ├── data/                          # golden_output_tokens.json、reference.json（需提交）
+│   ├── golden/                        # golden_output_tokens.json、reference.json（需提交）
 │   ├── specs/                         # 声明式 suite（YAML）：{lockstep,scheduler}/<name>.yaml、_bases/、release/（标准负载）与 suite.schema.json
 │   ├── results/                       # 评测输出与历史沉淀（{suites,history}/）
 │   │   ├── suites/                    # 预设多用例基准测试套件结果（{lockstep,scheduler}/<name>/）

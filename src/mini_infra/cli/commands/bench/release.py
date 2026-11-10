@@ -6,7 +6,7 @@
 1. 多规模历史记录：`benchmarks/results/history/{lockstep,scheduler}/<commit>_<tag>.json`（含 small/medium/large 三档）
 2. 演进报告与剖析大图：
    `benchmarks/reports/{lockstep,scheduler}/{SUMMARY.md, evolution_and_scaling.png, profiling_and_optimization.png}`
-3. 零退化回归参考基线：`benchmarks/data/reference.json`
+3. 零退化回归参考基线：`benchmarks/golden/reference.json`
 
 用法示例：
     # 生成 Scheduler 固定批处理基准线 (baseline: Fixed Batching，仅 Mode 不同，其余 Workload 完全一致)
@@ -280,7 +280,7 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument(
         "--skip-regression",
         action="store_true",
-        help="跳过更新 benchmarks/data/reference.json 回归基线",
+        help="跳过更新 benchmarks/golden/reference.json 回归基线",
     )
     p.add_argument(
         "--dry-run",
@@ -408,7 +408,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             ReleaseStep(
                 description="更新日常零退化守门基线 (reference.json)",
                 cmd=build_update_reference_cmd(),
-                artifacts=(REPO_ROOT / "benchmarks" / "data" / "reference.json",),
+                artifacts=(REPO_ROOT / "benchmarks" / "golden" / "reference.json",),
             )
         )
 

@@ -132,8 +132,8 @@ git push origin main --tags
 每次发布版本后，版本库中的以下文件将得到更新或沉淀：
 
 * **`benchmarks/results/history/{lockstep,scheduler}/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，按 `lockstep` 与 `scheduler` 分域持久化存储）。
-* **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
-* **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
+* **`benchmarks/golden/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
+* **`benchmarks/golden/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
 * **`benchmarks/reports/{lockstep,scheduler}/SUMMARY.md`**：分别记录齐步（Lockstep）与调度器（scheduler）各历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
 * **`benchmarks/reports/{lockstep,scheduler}/evolution_and_scaling.png`**：各域跨版本演化趋势大图（自动绘制延迟、吞吐、显存、排队分位数与 `slot_utilization` 演进曲线）。
 * **`benchmarks/reports/{lockstep,scheduler}/profiling_and_optimization.png`**：各域当前版本深度剖析与优化指引大图（涵盖 MBU/MFU、算子归因、迭代步轨迹、P50/P95 分位数与显存碎片剖析）。
