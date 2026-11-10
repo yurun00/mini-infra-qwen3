@@ -4,7 +4,7 @@
 
     benchmarks/specs/lockstep/<name>.yaml         # name 必须与文件名一致
 
-run_suite.py 不关心 suite 的内部细节，只按 `suite.cases()` 逐个执行并汇总结果：
+run_suite.py 不关心 suite 的内部细节，只按 `suite.cases` 逐个执行并汇总结果：
 
     mini-infra bench sweep --engine lockstep --tag dev --suite serial-vs-fixed-batch-throughput
 
@@ -36,7 +36,7 @@ from mini_infra.bench.suite import BenchmarkSuite
 class LockstepSuite(BenchmarkSuite[LockstepCase]):
     """一个已加载的 Lockstep 评测套件（YAML 声明 + 展开后的用例规格）。"""
 
-    def cases(self, vocab_size: int | None = None) -> list[LockstepCase]:
+    def _build_cases(self) -> Sequence[LockstepCase]:
         cases: list[LockstepCase] = []
         for cs in self.case_specs:
             cases.append(
@@ -46,7 +46,7 @@ class LockstepSuite(BenchmarkSuite[LockstepCase]):
                     suite_name=self.name,
                 )
             )
-        return cases
+        return tuple(cases)
 
 
 def suite_from_loaded(loaded: LoadedSuiteSpec) -> LockstepSuite:

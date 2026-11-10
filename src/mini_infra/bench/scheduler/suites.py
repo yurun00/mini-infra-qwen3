@@ -5,8 +5,7 @@
     benchmarks/specs/scheduler/<name>.yaml        # name 必须与文件名一致
     benchmarks/specs/scheduler/_bases/*.yaml      # 仅供 extends 复用，不可直接运行
 
-`SchedulerSuite` 持有已校验的 `LoadedSuiteSpec` 与展开后的 `CaseSpec`；
-`cases(vocab_size)` 把用例规格绑定到合成 token，得到 run_suite 消费的 `SchedulerCase` 列表。
+`SchedulerSuite` 持有已校验的 `LoadedSuiteSpec`，并在构造时将 `CaseSpec` 固化为 `tuple[SchedulerCase, ...]`。
 """
 
 from collections.abc import Mapping, Sequence
@@ -37,8 +36,7 @@ class SchedulerSuite(BenchmarkSuite[SchedulerCase]):
         spec = self.loaded.spec.comparison
         return None if spec is None else Comparison.from_spec(spec)
 
-    def cases(self, vocab_size: int | None = None) -> list[SchedulerCase]:
-        """展开用例规格列表，持有纯数值画像 profile。"""
+    def _build_cases(self) -> Sequence[SchedulerCase]:
         cases: list[SchedulerCase] = []
         for cs in self.case_specs:
             assert cs.max_running_requests is not None
@@ -51,7 +49,7 @@ class SchedulerSuite(BenchmarkSuite[SchedulerCase]):
                     suite_name=self.name,
                 )
             )
-        return cases
+        return tuple(cases)
 
 
 def _suite_from_loaded(loaded: LoadedSuiteSpec) -> SchedulerSuite:
