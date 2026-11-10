@@ -46,6 +46,9 @@ def test_scheduler_suites_registry():
     assert len(suites) == 7
     for suite in suites:
         assert isinstance(suite, SchedulerSuite)
+        assert isinstance(suite.cases, tuple)
+        assert len(suite) == len(suite.cases)
+        assert list(suite) == list(suite.cases)
         assert get_scheduler_suite(suite.name).name == suite.name
 
     with pytest.raises(ValueError, match="未知 scheduler suite"):
@@ -72,7 +75,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
     assert [m.batching_method for m in modes] == [BatchingMethod.FIXED, BatchingMethod.CONTINUOUS]
     assert all(m.use_kv_cache for m in modes)
 
-    cases = suite.cases(vocab_size=500)
+    cases = suite.cases
     assert len(cases) == 2
     assert all(isinstance(c, SchedulerCase) and c.suite_name == name for c in cases)
     assert cases[0].workload_id == cases[1].workload_id
@@ -83,7 +86,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
 
 def test_variable_output_length_suite_specs():
     suite = get_scheduler_suite("fixed-vs-continuous-variable-output-length")
-    specs = suite.cases()[0].profile.to_payload(vocab_size=1000)
+    specs = suite.cases[0].profile.to_payload(vocab_size=1000)
     assert [len(s.token_ids) for s in specs] == [128] * 8
     assert [s.max_new_tokens for s in specs] == [8, 32] * 4
     assert {s.arrival_ms for s in specs} == {0.0}
@@ -92,13 +95,13 @@ def test_variable_output_length_suite_specs():
 
 def test_staggered_arrivals_suite_specs():
     suite = get_scheduler_suite("fixed-vs-continuous-staggered-arrivals")
-    specs = suite.cases()[0].profile.to_payload(vocab_size=1000)
+    specs = suite.cases[0].profile.to_payload(vocab_size=1000)
     assert [s.arrival_ms for s in specs] == [i * 150.0 for i in range(8)]
 
 
 def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
     suite = get_scheduler_suite("fixed-vs-continuous-prefill-interference")
-    specs = suite.cases()[0].profile.to_payload(vocab_size=1000)
+    specs = suite.cases[0].profile.to_payload(vocab_size=1000)
     assert [len(s.token_ids) for s in specs] == [128, 128, 512]
     assert [s.max_new_tokens for s in specs] == [32, 32, 8]
     assert [s.arrival_ms for s in specs] == [0.0, 0.0, 250.0]
@@ -125,7 +128,7 @@ def test_dense_vs_paged_long_short_stress_suite():
     assert [m.caching_method for m in modes] == [CachingMethod.DENSE, CachingMethod.PAGED]
     assert all(m.batching_method == BatchingMethod.CONTINUOUS for m in modes)
 
-    cases = suite.cases(vocab_size=1000)
+    cases = suite.cases
     assert len(cases) == 2
     assert cases[0].profile.num_total_requests == 17  # 7 + 1 + 9
     assert cases[0].paged_cache_config is None
@@ -153,7 +156,7 @@ def test_dense_vs_paged_long_short_stress_suite():
 
 def test_dense_vs_paged_length_ratio_suite():
     suite = get_scheduler_suite("dense-vs-paged-length-ratio")
-    cases = suite.cases(vocab_size=1000)
+    cases = suite.cases
     assert [c.workload_id for c in cases] == [f"length_ratio_{n}" for n in (128, 512, 2048, 3072) for _ in range(2)]
     assert [c.mode.caching_method for c in cases] == [CachingMethod.DENSE, CachingMethod.PAGED] * 4
     for i, long_len in enumerate([128, 512, 2048, 3072]):
@@ -164,7 +167,7 @@ def test_dense_vs_paged_length_ratio_suite():
 
 
 def test_dense_vs_paged_block_size_suite():
-    cases = get_scheduler_suite("dense-vs-paged-block-size").cases(vocab_size=1000)
+    cases = get_scheduler_suite("dense-vs-paged-block-size").cases
     assert len(cases) == 5
     assert all(c.workload_id == "block_size_sweep" for c in cases)
     assert cases[0].mode.caching_method == CachingMethod.DENSE

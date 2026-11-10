@@ -36,7 +36,7 @@ def _run_cases(suite: LockstepSuite):
             warmup=suite.warmup,
             repeats=suite.repeats,
         )
-        for case in suite.cases(vocab_size=model.config.vocab_size)
+        for case in suite.cases
     ]
 
 
@@ -48,6 +48,9 @@ def test_lockstep_suites_registry():
     ]
     for suite in get_all_lockstep_suites():
         assert isinstance(suite, LockstepSuite)
+        assert isinstance(suite.cases, tuple)
+        assert len(suite) == len(suite.cases)
+        assert list(suite) == list(suite.cases)
         assert get_lockstep_suite(suite.name).name == suite.name
     with pytest.raises(ValueError, match="未知 lockstep suite"):
         get_lockstep_suite("nope")
@@ -67,7 +70,7 @@ def test_load_lockstep_suite_rejects_other_engine(tmp_path):
 def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     suite = get_lockstep_suite("serial-vs-fixed-batch-throughput")
     assert (suite.warmup, suite.repeats) == (1, 3)
-    cases = suite.cases(vocab_size=100)
+    cases = suite.cases
     assert len(cases) == 5 * 2
     assert [(c.profile.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
         (1, BatchingMethod.NONE),
@@ -94,7 +97,7 @@ def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
 
 
 def test_uniform_vs_variable_prompt_padding_cases():
-    cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases(vocab_size=100)
+    cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases
     assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (32, 32, 32, 32)),
         (4, (16, 32, 64, 128), (32, 32, 32, 32)),
@@ -103,7 +106,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
 
 
 def test_uniform_vs_variable_budget_slots_cases():
-    cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases(vocab_size=100)
+    cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases
     assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),
@@ -303,7 +306,6 @@ sweep:
         model,
         torch.device("cpu"),
         tiny,
-        model.config.vocab_size,
         on_case_progress=lambda _n, _total, case: seen.append(case),
     )
     assert [c.profile.num_total_requests for c in seen] == [1, 2]

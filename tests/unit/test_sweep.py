@@ -93,7 +93,7 @@ def test_invalid_override_is_rejected_at_load(tmp_path):
 
 def test_override_sweep_on_builtin_suite():
     suite = get_scheduler_suite("dense-vs-paged-length-ratio", {"sweep.workload.long_prompt_len": [256, 512]})
-    assert [c.workload_id for c in suite.cases(vocab_size=100)] == [f"length_ratio_{n}" for n in (256, 256, 512, 512)]
+    assert [c.workload_id for c in suite.cases] == [f"length_ratio_{n}" for n in (256, 256, 512, 512)]
 
 
 # --------------------------------------------------------------------------- run_sweep / 汇总
@@ -101,16 +101,16 @@ def test_override_sweep_on_builtin_suite():
 
 def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
     order: list[str] = []
-    targets = [load_suite_spec(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
+    targets = [load_scheduler_suite(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
 
-    def execute(loaded):
-        order.append(loaded.spec.name)
+    def execute(suite):
+        order.append(suite.name)
         return SuiteRunSummary(
-            name=loaded.spec.name,
+            name=suite.name,
             engine="scheduler",
             num_cases=2,
-            output=tmp_path / f"{loaded.spec.name}.json",
-            comparison_lines=(f"[{loaded.spec.name}] speedup 1.50x",) if loaded.spec.name == "bb" else (),
+            output=tmp_path / f"{suite.name}.json",
+            comparison_lines=(f"[{suite.name}] speedup 1.50x",) if suite.name == "bb" else (),
         )
 
     started: list[tuple[int, int]] = []
@@ -124,11 +124,11 @@ def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
 
 
 def test_run_sweep_stops_on_first_error(tmp_path):
-    targets = [load_suite_spec(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
+    targets = [load_scheduler_suite(_write(tmp_path, n, _SCHEDULER_YAML)) for n in ("aa", "bb")]
     seen: list[str] = []
 
-    def execute(loaded):
-        seen.append(loaded.spec.name)
+    def execute(suite):
+        seen.append(suite.name)
         raise RuntimeError("boom")
 
     with pytest.raises(RuntimeError, match="boom"):

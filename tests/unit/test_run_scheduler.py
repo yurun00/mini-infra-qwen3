@@ -1,5 +1,8 @@
 """bench.scheduler.run_case 与 run_suite 的单元测试（CPU 可运行，使用 tiny_model）。"""
 
+from dataclasses import dataclass
+from typing import Any
+
 import torch
 
 from mini_infra.bench.cases import CaseDimension, SchedulerCase, WorkloadProfile
@@ -428,21 +431,20 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
         ),
     ]
 
+    @dataclass
     class DummyMultiWorkloadSuite:
-        name = "multi-workload-suite"
-        warmup = 0
-        repeats = 2
-        max_running_requests = 2
-        interleave = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
-        comparison = None
+        cases: tuple[SchedulerCase, ...]
+        name: str = "multi-workload-suite"
+        warmup: int = 0
+        repeats: int = 2
+        max_running_requests: int = 2
+        interleave: tuple[CaseDimension, ...] = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
+        comparison: Any = None
 
         def modes(self):
             return [dense_mode, paged_mode]
 
-        def cases(self, vocab_size):
-            return cases
-
-    suite = DummyMultiWorkloadSuite()
+    suite = DummyMultiWorkloadSuite(cases=tuple(cases))
     results = run_suite(
         model=model,
         device=device,

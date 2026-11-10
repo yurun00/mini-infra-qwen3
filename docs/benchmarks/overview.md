@@ -59,7 +59,7 @@ flowchart TD
 
 1. **规格与执行严格解耦（Specification vs Execution）**
    - **规格声明层（Specification Plane）**：全部以 `*Spec` 命名（如 `SuiteSpec`、`CaseSpec`、`WorkloadSpec`、`ResolvedWorkloadSpec`、`ComparisonSpec`）。纯粹负责 YAML 反序列化、分布展开与参数合法性校验，零 Token 序列依赖，不触碰执行逻辑。
-   - **评测执行层（Execution Plane）**：套件由统一泛型基类 `BenchmarkSuite[CaseT]` 承载；通过 `ComparisonSpec.build()` 构建运行时对比对象 `Comparison`；用例实体 `SchedulerCase` 与 `LockstepCase` 对齐持有 `key: CaseKey` 与轻量数值画像 `profile: WorkloadProfile`；套件展开 `suite.cases()` 彻底与词表大小和设备解耦，具体 Token 序列仅在底层执行函数中按需局部材质化（Materialize on Demand）。
+   - **评测执行层（Execution Plane）**：套件由统一泛型基类 `BenchmarkSuite[CaseT]` 承载；通过 `ComparisonSpec.build()` 构建运行时对比对象 `Comparison`；用例实体 `SchedulerCase` 与 `LockstepCase` 对齐持有 `key: CaseKey` 与轻量数值画像 `profile: WorkloadProfile`；套件用例属性 `suite.cases` 彻底与词表大小和设备解耦，具体 Token 序列仅在底层执行函数中按需局部材质化（Materialize on Demand）。
 2. **流量画像单一真相源（SSOT）**
    - 彻底废除重复冗余的 `Workload` 类，全仓统一以 `ResolvedWorkloadSpec` 展开为 `WorkloadProfile` 作为唯一权威数值流量画像。
    - 显式字段 `num_total_requests: int` 与请求级列表（`prompt_lens`、`output_budgets`、`arrival_ms`）严格校验守恒；运行时仅在 `run_case` 执行入口按需材质化为局部 `RequestSpec`，彻底杜绝纯数字画像与具体 Token 载荷的混淆与内存常驻。
