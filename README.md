@@ -94,7 +94,7 @@ mini-infra-qwen3/
 │           ├── workloads.py           # 合成 Prompt 序列载荷生成工具
 │           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比
 │           ├── check_regression.py    # 性能回归质量门禁核心逻辑
-│           ├── cases.py               # CaseKey / CaseDimension / Comparison / RequestPayload / SchedulerCase / LockstepCase
+│           ├── cases.py               # CaseKey / CaseDimension / Comparison / WorkloadProfile / SchedulerCase / LockstepCase
 │           ├── spec/                  # 声明式评测规范系统（YAML）：common / suite / release 三域架构
 │           │   ├── common/            # 跨 spec 共享的基础模型、随机分布采样与底层 YAML 加载
 │           │   ├── suite/             # Suite 声明式配置、检查守卫、笛卡尔积展开与套件加载发现

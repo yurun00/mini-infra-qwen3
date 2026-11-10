@@ -12,7 +12,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import LockstepCase, RequestPayload
+from mini_infra.bench.cases import LockstepCase, WorkloadProfile
 from mini_infra.bench.common import (
     LOCKSTEP_RESULT_HISTORY_DIR,
     add_common_args,
@@ -35,8 +35,6 @@ from mini_infra.bench.lockstep.run_suite import run_suite
 from mini_infra.bench.lockstep.suites import LockstepSuite
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.sweep import SuiteRunSummary
-from mini_infra.bench.workloads import make_sequences
-from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -105,7 +103,6 @@ def handle_case(args: argparse.Namespace) -> int:
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
 
     caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
     mode = Mode(caching_method, batching_method=args.batching_method)
@@ -114,10 +111,15 @@ def handle_case(args: argparse.Namespace) -> int:
     budgets = (
         (resolved_max_new_tokens,) * target_bs if isinstance(resolved_max_new_tokens, int) else resolved_max_new_tokens
     )
-    specs = tuple(make_request_specs(make_sequences(plens, vocab), budgets, [0.0] * target_bs))
-    payload = RequestPayload(workload_id="custom", specs=specs)
+    profile = WorkloadProfile(
+        workload_id="custom",
+        num_total_requests=target_bs,
+        prompt_lens=plens,
+        output_budgets=budgets,
+        arrival_ms=(0.0,) * target_bs,
+    )
     case = LockstepCase(
-        payload=payload,
+        profile=profile,
         mode=mode,
         suite_name="custom",
     )
@@ -134,9 +136,9 @@ def handle_case(args: argparse.Namespace) -> int:
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-case] mode={case.mode} batch={case.payload.request_count} "
-        f"prompt={format_lengths(case.payload.prompt_lengths)} "
-        f"max_new_tokens={format_lengths(case.payload.output_budgets)} ...",
+        f"[bench-case] mode={case.mode} batch={case.profile.num_total_requests} "
+        f"prompt={format_lengths(case.profile.prompt_lens)} "
+        f"max_new_tokens={format_lengths(case.profile.output_budgets)} ...",
         flush=True,
     )
 
@@ -247,9 +249,9 @@ def execute_lockstep_suite(
 
     def on_progress(case_number: int, total_cases: int, case: LockstepCase) -> None:
         print(
-            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.payload.request_count} "
-            f"prompt={format_lengths(case.payload.prompt_lengths)} "
-            f"max_new_tokens={format_lengths(case.payload.output_budgets)} ...",
+            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.profile.num_total_requests} "
+            f"prompt={format_lengths(case.profile.prompt_lens)} "
+            f"max_new_tokens={format_lengths(case.profile.output_budgets)} ...",
             flush=True,
         )
 
@@ -293,4 +295,4 @@ def print_lockstep_dry_run(args: argparse.Namespace, suite: LockstepSuite) -> No
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
     print(f"=== [Dry Run] Suite: {suite.name} ===")
-    print(format_suite_plan(suite.name, suite.cases(vocab_size=100), warmup, repeats))
+    print(format_suite_plan(suite.name, suite.cases(), warmup, repeats))

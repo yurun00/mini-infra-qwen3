@@ -5,8 +5,8 @@ YAML suite 声明（bench.spec）与 Scheduler 执行层共同依赖本模块，
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -170,6 +170,8 @@ class WorkloadProfile:
     max_new_tokens: int | tuple[int, ...] | None = None
 
     def __post_init__(self) -> None:
+        if not self.workload_id:
+            raise ValueError("workload_id 不能为空")
         if self.num_total_requests <= 0:
             raise ValueError(f"num_total_requests 必须大于 0，实际为 {self.num_total_requests}")
         if len(self.prompt_lens) != self.num_total_requests:
@@ -190,69 +192,35 @@ class WorkloadProfile:
         if self.max_new_tokens is None:
             object.__setattr__(self, "max_new_tokens", collapse_uniform(self.output_budgets))
 
-
-@dataclass(frozen=True)
-class RequestPayload:
-    """已绑定具体 Token 序列的确定性执行载荷（Traffic Payload，纯 CPU，零 PyTorch 依赖）。"""
-
-    workload_id: str
-    specs: tuple[RequestSpec, ...]
-    profile: WorkloadProfile = field(default=None)  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if not self.workload_id:
-            raise ValueError("workload_id 不能为空")
-        if not self.specs:
-            raise ValueError("specs 不能为空")
-        if self.profile is None:
-            object.__setattr__(
-                self,
-                "profile",
-                WorkloadProfile(
-                    workload_id=self.workload_id,
-                    num_total_requests=self.request_count,
-                    prompt_lens=self.prompt_lengths,
-                    output_budgets=self.output_budgets,
-                    arrival_ms=self.arrival_times_ms,
-                ),
-            )
-
-    @property
-    def request_count(self) -> int:
-        return len(self.specs)
-
-    @property
-    def prompt_lengths(self) -> tuple[int, ...]:
-        return tuple(len(s.token_ids) for s in self.specs)
-
-    @property
-    def output_budgets(self) -> tuple[int, ...]:
-        return tuple(s.max_new_tokens for s in self.specs)
-
-    @property
-    def arrival_times_ms(self) -> tuple[float, ...]:
-        return tuple(s.arrival_ms for s in self.specs)
-
-    @classmethod
-    def from_profile(cls, profile: WorkloadProfile, vocab_size: int) -> RequestPayload:
-        """把 WorkloadProfile 数值画像装配为具体合成 Token 序列的 RequestPayload。"""
+    def to_payload(self, vocab_size: int) -> tuple[RequestSpec, ...]:
+        """把数值画像按需装配为具体合成 Token 序列的 RequestSpec 载荷元组（即用即弃，函数局部变量）。"""
         from mini_infra.bench.workloads import make_sequences
 
-        specs = tuple(
+        return tuple(
             make_request_specs(
-                make_sequences(profile.prompt_lens, vocab_size),
-                profile.output_budgets,
-                profile.arrival_ms,
+                make_sequences(self.prompt_lens, vocab_size),
+                self.output_budgets,
+                self.arrival_ms,
             )
         )
-        return cls(workload_id=profile.workload_id, specs=specs, profile=profile)
+
+    @classmethod
+    def from_specs(cls, workload_id: str, specs: Sequence[RequestSpec]) -> WorkloadProfile:
+        """从已有的 RequestSpec 序列反向提取 WorkloadProfile 数值画像。"""
+        return cls(
+            workload_id=workload_id,
+            num_total_requests=len(specs),
+            prompt_lens=tuple(s.prompt_len for s in specs),
+            output_budgets=tuple(s.max_new_tokens for s in specs),
+            arrival_ms=tuple(s.arrival_ms for s in specs),
+        )
 
 
 @dataclass(frozen=True)
 class SchedulerCase:
     """Scheduler 评测最小单用例配置：包含输入负载与 System 维度。"""
 
-    payload: RequestPayload
+    profile: WorkloadProfile
     mode: Mode
     max_running_requests: int
     paged_cache_config: PagedCacheConfig | None = None
@@ -266,11 +234,7 @@ class SchedulerCase:
 
     @property
     def workload_id(self) -> str:
-        return self.payload.workload_id
-
-    @property
-    def profile(self) -> WorkloadProfile:
-        return self.payload.profile
+        return self.profile.workload_id
 
     @property
     def key(self) -> CaseKey:
@@ -287,10 +251,10 @@ class SchedulerCase:
             "workload_id": self.workload_id,
             "mode": str(self.mode),
             "max_running_requests": self.max_running_requests,
-            "request_count": self.payload.request_count,
-            "prompt_lengths": list(self.payload.prompt_lengths),
-            "output_budgets": list(self.payload.output_budgets),
-            "arrival_times_ms": list(self.payload.arrival_times_ms),
+            "request_count": self.profile.num_total_requests,
+            "prompt_lengths": list(self.profile.prompt_lens),
+            "output_budgets": list(self.profile.output_budgets),
+            "arrival_times_ms": list(self.profile.arrival_ms),
         }
         if self.suite_name is not None:
             data["suite_name"] = self.suite_name
@@ -306,24 +270,20 @@ class SchedulerCase:
 class LockstepCase:
     """Lockstep 评测最小单用例配置：包含输入负载与静态批处理模式。"""
 
-    payload: RequestPayload
+    profile: WorkloadProfile
     mode: Mode
     suite_name: str | None = None
 
     @property
     def workload_id(self) -> str:
-        return self.payload.workload_id
-
-    @property
-    def profile(self) -> WorkloadProfile:
-        return self.payload.profile
+        return self.profile.workload_id
 
     @property
     def key(self) -> CaseKey:
         return CaseKey(
             workload_id=self.workload_id,
             mode=self.mode,
-            max_running_requests=self.payload.request_count,
+            max_running_requests=self.profile.num_total_requests,
             paged_cache_config=None,
         )
 
@@ -336,7 +296,6 @@ __all__ = [
     "ComparisonMetric",
     "LockstepCase",
     "MetricKind",
-    "RequestPayload",
     "SchedulerCase",
     "WorkloadProfile",
 ]

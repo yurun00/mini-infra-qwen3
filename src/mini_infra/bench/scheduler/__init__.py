@@ -7,7 +7,6 @@ from mini_infra.bench.cases import (
     Comparison,
     ComparisonMetric,
     MetricKind,
-    RequestPayload,
     SchedulerCase,
     WorkloadProfile,
 )
@@ -60,7 +59,6 @@ __all__ = [
     "MetricComparison",
     "MetricKind",
     "PlannedRun",
-    "RequestPayload",
     "RunPhase",
     "SchedulerCase",
     "SchedulerCaseResult",

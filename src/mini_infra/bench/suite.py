@@ -42,8 +42,8 @@ class BenchmarkSuite(ABC, Generic[CaseT]):
         return self.loaded.info()
 
     @abstractmethod
-    def cases(self, vocab_size: int) -> list[CaseT]:
-        """将用例规格绑定到指定 vocab_size 的合成 Token 载荷，返回可执行用例列表。"""
+    def cases(self, vocab_size: int | None = None) -> list[CaseT]:
+        """返回已展开的用例列表（纯元数据，不绑定具体 Token 序列载荷）。"""
         ...
 
 

@@ -42,7 +42,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
             ),
             "specs": [
                 [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
-                for s in c.payload.specs
+                for s in c.profile.to_payload(VOCAB)
             ],
         }
         for c in suite.cases(VOCAB)

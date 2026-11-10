@@ -58,6 +58,9 @@ def run_suite(
 
     cases = suite.cases(vocab_size)
 
+    # 局部材质化同一 workload 的 request_specs，保证 suite 内同 workload 严格使用同一份输入
+    specs_by_workload = {case.workload_id: case.profile.to_payload(vocab_size) for case in cases}
+
     # 生成执行计划
     plan = build_scheduler_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_dims)
 
@@ -67,7 +70,12 @@ def run_suite(
     for step_number, planned_run in enumerate(plan, 1):
         if on_step_progress is not None:
             on_step_progress(step_number, total_steps, planned_run)
-        res = run_case_once(model, device, planned_run.case)
+        res = run_case_once(
+            model,
+            device,
+            planned_run.case,
+            request_specs=specs_by_workload[planned_run.case.workload_id],
+        )
         if planned_run.phase == RunPhase.MEASURE:
             runs_by_case_key[planned_run.case.key].append(res)
 

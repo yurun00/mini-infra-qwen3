@@ -110,9 +110,9 @@ def format_suite_plan(suite_name: str, cases: "Sequence[LockstepCase]", warmup: 
     ]
     for i, case in enumerate(cases, 1):
         lines.append(
-            f"  [{i:02d}] mode={case.mode} batch={case.payload.request_count} "
-            f"prompt={format_lengths(case.payload.prompt_lengths)} "
-            f"max_new_tokens={format_lengths(case.payload.output_budgets)}"
+            f"  [{i:02d}] mode={case.mode} batch={case.profile.num_total_requests} "
+            f"prompt={format_lengths(case.profile.prompt_lens)} "
+            f"max_new_tokens={format_lengths(case.profile.output_budgets)}"
         )
     return "\n".join(lines)
 

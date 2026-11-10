@@ -85,10 +85,15 @@ def run_case_once(
     device: torch.device,
     case: LockstepCase,
     options: GenerationOptions | None = None,
+    prompts: Sequence[Sequence[int]] | None = None,
 ) -> GenerationResult:
     """执行单一 LockstepCase 的单次生成运行（原子操作）。"""
-    prompts = [list(s.token_ids) for s in case.payload.specs]
-    budgets = case.payload.output_budgets
+    if prompts is None:
+        specs = case.profile.to_payload(model.config.vocab_size)
+        resolved_prompts = [list(s.token_ids) for s in specs]
+    else:
+        resolved_prompts = prompts
+    budgets = case.profile.output_budgets
     max_new_tokens = budgets[0] if len(set(budgets)) == 1 else budgets
     opts = options or GenerationOptions(
         eos_token_id=-1,
@@ -98,7 +103,7 @@ def run_case_once(
     res = generate(
         case.mode,
         model,
-        prompts,
+        resolved_prompts,
         max_new_tokens,
         options=opts,
     )
@@ -122,14 +127,16 @@ def run_case(
     seed: int | None = None,
 ) -> LockstepCaseResult:
     """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
-    output_budgets = case.payload.output_budgets
-    batch_size = case.payload.request_count
+    output_budgets = case.profile.output_budgets
+    batch_size = case.profile.num_total_requests
 
     min_tokens = min(output_budgets)
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
 
-    workload = case.payload.profile
+    workload = case.profile
+    specs = case.profile.to_payload(model.config.vocab_size)
+    prompts = [list(s.token_ids) for s in specs]
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
@@ -137,7 +144,7 @@ def run_case(
         stop_on_eos=False,
     )
     for _ in range(warmup):
-        run_case_once(model, device, case, options=warmup_opts)
+        run_case_once(model, device, case, options=warmup_opts, prompts=prompts)
 
     is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
     run_opts = GenerationOptions(
@@ -147,7 +154,7 @@ def run_case(
         profile=is_full_profile,
         tensorboard_options=tensorboard_options if is_full_profile else None,
     )
-    runs = [run_case_once(model, device, case, options=run_opts) for _ in range(repeats)]
+    runs = [run_case_once(model, device, case, options=run_opts, prompts=prompts) for _ in range(repeats)]
 
     eff_prompt_vals = [r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None]
     pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]

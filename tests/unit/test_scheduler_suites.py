@@ -10,8 +10,8 @@ from mini_infra.bench.cases import (
     Comparison,
     ComparisonMetric,
     MetricKind,
-    RequestPayload,
     SchedulerCase,
+    WorkloadProfile,
 )
 from mini_infra.bench.scheduler.suites import (
     SchedulerSuite,
@@ -76,14 +76,14 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
     assert len(cases) == 2
     assert all(isinstance(c, SchedulerCase) and c.suite_name == name for c in cases)
     assert cases[0].workload_id == cases[1].workload_id
-    assert cases[0].payload.specs == cases[1].payload.specs
+    assert cases[0].profile == cases[1].profile
     for case in cases:
         assert case.key == CaseKey(case.workload_id, case.mode, case.max_running_requests)
 
 
 def test_variable_output_length_suite_specs():
     suite = get_scheduler_suite("fixed-vs-continuous-variable-output-length")
-    specs = suite.cases(vocab_size=1000)[0].payload.specs
+    specs = suite.cases()[0].profile.to_payload(vocab_size=1000)
     assert [len(s.token_ids) for s in specs] == [128] * 8
     assert [s.max_new_tokens for s in specs] == [8, 32] * 4
     assert {s.arrival_ms for s in specs} == {0.0}
@@ -91,13 +91,14 @@ def test_variable_output_length_suite_specs():
 
 
 def test_staggered_arrivals_suite_specs():
-    specs = get_scheduler_suite("fixed-vs-continuous-staggered-arrivals").cases(vocab_size=1000)[0].payload.specs
+    suite = get_scheduler_suite("fixed-vs-continuous-staggered-arrivals")
+    specs = suite.cases()[0].profile.to_payload(vocab_size=1000)
     assert [s.arrival_ms for s in specs] == [i * 150.0 for i in range(8)]
 
 
 def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
     suite = get_scheduler_suite("fixed-vs-continuous-prefill-interference")
-    specs = suite.cases(vocab_size=1000)[0].payload.specs
+    specs = suite.cases()[0].profile.to_payload(vocab_size=1000)
     assert [len(s.token_ids) for s in specs] == [128, 128, 512]
     assert [s.max_new_tokens for s in specs] == [32, 32, 8]
     assert [s.arrival_ms for s in specs] == [0.0, 0.0, 250.0]
@@ -126,17 +127,22 @@ def test_dense_vs_paged_long_short_stress_suite():
 
     cases = suite.cases(vocab_size=1000)
     assert len(cases) == 2
-    assert len(cases[0].payload.specs) == 17  # 7 + 1 + 9
+    assert cases[0].profile.num_total_requests == 17  # 7 + 1 + 9
     assert cases[0].paged_cache_config is None
     assert cases[1].paged_cache_config is not None
     assert cases[1].paged_cache_config.block_size == 16
 
-    short = cases[0].payload.specs[:7]
-    assert all(len(s.token_ids) == 128 and s.max_new_tokens == 96 and s.arrival_ms == 0.0 for s in short)
-    long_spec = cases[0].payload.specs[7]
-    assert (len(long_spec.token_ids), long_spec.max_new_tokens, long_spec.arrival_ms) == (2048, 8, 200.0)
-    followups = cases[0].payload.specs[8:]
-    assert all(len(s.token_ids) == 128 and s.max_new_tokens == 64 and s.arrival_ms == 201.0 for s in followups)
+    p = cases[0].profile
+    short_lens = p.prompt_lens[:7]
+    short_budgets = p.output_budgets[:7]
+    short_arrivals = p.arrival_ms[:7]
+    assert all(
+        plen == 128 and budget == 96 and arr == 0.0
+        for plen, budget, arr in zip(short_lens, short_budgets, short_arrivals)
+    )
+    assert (p.prompt_lens[7], p.output_budgets[7], p.arrival_ms[7]) == (2048, 8, 200.0)
+    followups = list(zip(p.prompt_lens[8:], p.output_budgets[8:], p.arrival_ms[8:]))
+    assert all(plen == 128 and budget == 64 and arr == 201.0 for plen, budget, arr in followups)
 
     data = suite.to_dict()
     json.dumps(data)
@@ -152,8 +158,8 @@ def test_dense_vs_paged_length_ratio_suite():
     assert [c.mode.caching_method for c in cases] == [CachingMethod.DENSE, CachingMethod.PAGED] * 4
     for i, long_len in enumerate([128, 512, 2048, 3072]):
         dense_case, paged_case = cases[2 * i], cases[2 * i + 1]
-        assert len(dense_case.payload.specs[7].token_ids) == long_len
-        assert len(paged_case.payload.specs[7].token_ids) == long_len
+        assert dense_case.profile.prompt_lens[7] == long_len
+        assert paged_case.profile.prompt_lens[7] == long_len
         assert paged_case.paged_cache_config is not None and paged_case.paged_cache_config.block_size == 16
 
 
@@ -189,7 +195,7 @@ def test_scheduler_suite_case_paged_validation():
     # 1. Paged 模式不传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
         SchedulerCase(
-            payload=RequestPayload(workload_id="test", specs=(spec,)),
+            profile=WorkloadProfile.from_specs("test", (spec,)),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=None,
@@ -199,7 +205,7 @@ def test_scheduler_suite_case_paged_validation():
     # 2. 非 Paged 模式传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
         SchedulerCase(
-            payload=RequestPayload(workload_id="test", specs=(spec,)),
+            profile=WorkloadProfile.from_specs("test", (spec,)),
             mode=dense_mode,
             max_running_requests=2,
             paged_cache_config=PagedCacheConfig(block_size=16),
@@ -208,14 +214,11 @@ def test_scheduler_suite_case_paged_validation():
 
     # 3. workload_id 为空报错
     with pytest.raises(ValueError, match="workload_id 不能为空"):
-        RequestPayload(
-            workload_id="",
-            specs=(spec,),
-        )
+        WorkloadProfile.from_specs("", (spec,))
 
     # 4. 正确传参合法构造
     case_paged = SchedulerCase(
-        payload=RequestPayload(workload_id="workload_0", specs=(spec,)),
+        profile=WorkloadProfile.from_specs("workload_0", (spec,)),
         mode=paged_mode,
         max_running_requests=2,
         paged_cache_config=PagedCacheConfig(block_size=16),

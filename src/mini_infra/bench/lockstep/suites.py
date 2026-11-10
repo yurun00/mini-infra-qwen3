@@ -22,10 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import LockstepCase, RequestPayload
+from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.spec import (
     LoadedSuiteSpec,
-    ResolvedWorkloadSpec,
     discover_suite_specs,
     get_suite_spec,
     load_suite_spec,
@@ -37,16 +36,12 @@ from mini_infra.bench.suite import BenchmarkSuite
 class LockstepSuite(BenchmarkSuite[LockstepCase]):
     """一个已加载的 Lockstep 评测套件（YAML 声明 + 展开后的用例规格）。"""
 
-    def cases(self, vocab_size: int) -> list[LockstepCase]:
-        payloads_by_spec: dict[ResolvedWorkloadSpec, RequestPayload] = {}
+    def cases(self, vocab_size: int | None = None) -> list[LockstepCase]:
         cases: list[LockstepCase] = []
         for cs in self.case_specs:
-            spec = cs.workload
-            if spec not in payloads_by_spec:
-                payloads_by_spec[spec] = RequestPayload.from_profile(spec.to_profile(), vocab_size)
             cases.append(
                 LockstepCase(
-                    payload=payloads_by_spec[spec],
+                    profile=cs.workload.to_profile(),
                     mode=cs.mode,
                     suite_name=self.name,
                 )

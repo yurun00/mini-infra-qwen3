@@ -13,8 +13,8 @@ from mini_infra.bench.cases import (
     CaseDimensionValue,
     CaseKey,
     SchedulerCase,
+    WorkloadProfile,
 )
-from mini_infra.core.request import RequestSpec
 
 
 class RunPhase(str, Enum):
@@ -75,14 +75,14 @@ def build_scheduler_run_plan(
             raise ValueError(f"存在重复的用例身份键（CaseKey）: {case.key}")
         seen_keys.add(case.key)
 
-    # 2. 守门检查：同一 workload_id 下的所有用例请求规格（specs）必须一致
-    request_specs_by_workload: dict[str, tuple[RequestSpec, ...]] = {}
+    # 2. 守门检查：同一 workload_id 下的所有用例请求规格画像（profile）必须一致
+    profiles_by_workload: dict[str, WorkloadProfile] = {}
     for case in cases:
-        if case.workload_id in request_specs_by_workload:
-            if case.payload.specs != request_specs_by_workload[case.workload_id]:
-                raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（specs）不一致")
+        if case.workload_id in profiles_by_workload:
+            if case.profile != profiles_by_workload[case.workload_id]:
+                raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（profile）不一致")
         else:
-            request_specs_by_workload[case.workload_id] = case.payload.specs
+            profiles_by_workload[case.workload_id] = case.profile
 
     # 3. 选中的特征与未选中的特征（作为外层分组键）
     interleaved_set = set(interleaved_dims)

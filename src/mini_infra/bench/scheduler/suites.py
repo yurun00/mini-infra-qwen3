@@ -14,10 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import CaseDimension, Comparison, RequestPayload, SchedulerCase
+from mini_infra.bench.cases import CaseDimension, Comparison, SchedulerCase
 from mini_infra.bench.spec import (
     LoadedSuiteSpec,
-    ResolvedWorkloadSpec,
     discover_suite_specs,
     get_suite_spec,
     load_suite_spec,
@@ -38,18 +37,14 @@ class SchedulerSuite(BenchmarkSuite[SchedulerCase]):
         spec = self.loaded.spec.comparison
         return None if spec is None else Comparison.from_spec(spec)
 
-    def cases(self, vocab_size: int) -> list[SchedulerCase]:
-        """把用例规格绑定到合成 token；同一 workload 下的各 case 共享同一份请求规格。"""
-        payloads_by_spec: dict[ResolvedWorkloadSpec, RequestPayload] = {}
+    def cases(self, vocab_size: int | None = None) -> list[SchedulerCase]:
+        """展开用例规格列表，持有纯数值画像 profile。"""
         cases: list[SchedulerCase] = []
         for cs in self.case_specs:
-            spec = cs.workload
-            if spec not in payloads_by_spec:
-                payloads_by_spec[spec] = RequestPayload.from_profile(spec.to_profile(), vocab_size)
             assert cs.max_running_requests is not None
             cases.append(
                 SchedulerCase(
-                    payload=payloads_by_spec[spec],
+                    profile=cs.workload.to_profile(),
                     mode=cs.mode,
                     max_running_requests=cs.max_running_requests,
                     paged_cache_config=cs.paged_cache_config,

@@ -32,11 +32,11 @@ flowchart TD
         CompSpec["ComparisonSpec (对比配置)"]
     end
 
-    subgraph S2["阶段二：评测执行 (Execution Plane) [*Suite, *Case, *Payload, *Plan, Comparison]"]
+    subgraph S2["阶段二：评测执行 (Execution Plane) [*Suite, *Case, *Plan, Comparison]"]
         BS["BenchmarkSuite[CaseT] (套件运行时容器)"] --> SC["SchedulerCase / LockstepCase"]
         CompSpec -->|build| Comp["Comparison (运行时对比配置)"]
-        RWS -->|synthesize_request_payload| RP["RequestPayload (Token 序列载荷)"]
-        RP -.-> SC
+        RWS -->|to_profile| WP["WorkloadProfile (数值画像)"]
+        WP -.-> SC
         PR["PlannedRun (执行排期步)"] -.-> SC
     end
 
@@ -59,12 +59,12 @@ flowchart TD
 
 1. **规格与执行严格解耦（Specification vs Execution）**
    - **规格声明层（Specification Plane）**：全部以 `*Spec` 命名（如 `SuiteSpec`、`CaseSpec`、`WorkloadSpec`、`ResolvedWorkloadSpec`、`ComparisonSpec`）。纯粹负责 YAML 反序列化、分布展开与参数合法性校验，零 Token 序列依赖，不触碰执行逻辑。
-   - **评测执行层（Execution Plane）**：套件由统一泛型基类 `BenchmarkSuite[CaseT]` 承载；通过 `ComparisonSpec.build()` 构建运行时对比对象 `Comparison`；在 `suite.cases(vocab_size)` 中提前分词并绑定生成 `RequestPayload`；用例实体 `SchedulerCase` 与 `LockstepCase` 对齐持有 `key: CaseKey` 与 `payload: RequestPayload`。
+   - **评测执行层（Execution Plane）**：套件由统一泛型基类 `BenchmarkSuite[CaseT]` 承载；通过 `ComparisonSpec.build()` 构建运行时对比对象 `Comparison`；用例实体 `SchedulerCase` 与 `LockstepCase` 对齐持有 `key: CaseKey` 与轻量数值画像 `profile: WorkloadProfile`；套件展开 `suite.cases()` 彻底与词表大小和设备解耦，具体 Token 序列仅在底层执行函数中按需局部材质化（Materialize on Demand）。
 2. **流量画像单一真相源（SSOT）**
-   - 彻底废除重复冗余的 `Workload` 类，全仓统一以 `ResolvedWorkloadSpec` 作为唯一权威数值流量画像。
-   - 显式字段 `num_total_requests: int` 与请求级列表（`prompt_lens`、`output_budgets`、`arrival_ms`）严格校验守恒；运行时通过 `synthesize_request_payload(spec, vocab_size)` 显式生成持有实际 Token 序列载荷的 `RequestPayload`，彻底杜绝纯数字画像与具体 Token 载荷的混淆。
+   - 彻底废除重复冗余的 `Workload` 类，全仓统一以 `ResolvedWorkloadSpec` 展开为 `WorkloadProfile` 作为唯一权威数值流量画像。
+   - 显式字段 `num_total_requests: int` 与请求级列表（`prompt_lens`、`output_budgets`、`arrival_ms`）严格校验守恒；运行时仅在 `run_case` 执行入口按需材质化为局部 `RequestSpec`，彻底杜绝纯数字画像与具体 Token 载荷的混淆与内存常驻。
 3. **两套引擎绝对结构对称（Two-Engine Symmetry）**
-   - `Lockstep` 与 `Scheduler` 在套件抽象（`BenchmarkSuite[CaseT]`）、载荷类型（`RequestPayload`）、执行分层（原子 `run_case_once` 与统计多轮 `run_case`）、以及结果身份凭证（`key: CaseKey`）上保持 100% 对齐。
+   - `Lockstep` 与 `Scheduler` 在套件抽象（`BenchmarkSuite[CaseT]`）、数值画像（`WorkloadProfile`）、执行分层（原子 `run_case_once` 与统计多轮 `run_case`）、以及结果身份凭证（`key: CaseKey`）上保持 100% 对齐。
    - 杜绝向后兼容包袱（严格遵循 YAGNI）：不保留兼容代理属性（如 `res.mode`），所有调用点直接访问规范路径 `res.key.mode`。
 
 ### 核心类型与生命周期映射表
@@ -72,7 +72,7 @@ flowchart TD
 | 生命周期阶段 | 核心类型 / 函数 | 命名规范 | 职责边界 |
 | :--- | :--- | :--- | :--- |
 | **阶段一：规格声明** | `SuiteSpec` / `CaseSpec` / `ResolvedWorkloadSpec` / `ComparisonSpec` | `*Spec` | YAML 声明解析、场景展开与参数校验，无状态与纯数值元数据 |
-| **阶段二：评测执行** | `BenchmarkSuite[CaseT]` / `SchedulerCase` / `LockstepCase` / `RequestPayload` / `Comparison` | `*Suite`, `*Case`, `RequestPayload`, `Comparison` | 运行时套件容器、Token 载荷绑定、对比策略与单步执行排期 |
+| **阶段二：评测执行** | `BenchmarkSuite[CaseT]` / `SchedulerCase` / `LockstepCase` / `Comparison` / `WorkloadProfile.to_payload` | `*Suite`, `*Case`, `Comparison`, `to_payload` | 运行时套件容器、轻量用例定义、对比策略、单步执行排期与按需局部载荷装配 |
 | **阶段三：实测结果** | `run_case_once` / `run_case` / `SchedulerCaseResult` / `LockstepCaseResult` / `MetricComparison` | `run_case*`, `*Result`, `MetricComparison` | 单次/多轮测量采样、时钟打点、指标聚合与统计中位数比对 |
 | **阶段四：落盘契约** | `LockstepBenchmarkRecord` / `SchedulerBenchmarkRecord` / `save_benchmark_record` | `*Record` | Pydantic v2 Schema 校验、JSON 序列化与历史基准归档 |
 

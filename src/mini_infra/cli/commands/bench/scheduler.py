@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import RequestPayload, SchedulerCase, WorkloadProfile
+from mini_infra.bench.cases import SchedulerCase, WorkloadProfile
 from mini_infra.bench.common import (
     CASE_DIR,
     add_common_args,
@@ -110,7 +110,6 @@ def handle_case(args: argparse.Namespace) -> int:
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
 
     caching = CachingMethod(args.caching_method)
     method = BatchingMethod(args.batching_method)
@@ -160,11 +159,10 @@ def handle_case(args: argparse.Namespace) -> int:
         output_budgets=output_budgets,
         arrival_ms=arrival_ms,
     )
-    resolved_payload = RequestPayload.from_profile(workload_profile, vocab)
     case_name = "custom"
 
     case = SchedulerCase(
-        payload=resolved_payload,
+        profile=workload_profile,
         mode=target_mode,
         max_running_requests=max_running,
         paged_cache_config=paged_cache_config,
@@ -174,14 +172,15 @@ def handle_case(args: argparse.Namespace) -> int:
     block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""
     print(
         f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} "
-        f"requests={resolved_payload.request_count} "
+        f"requests={workload_profile.num_total_requests} "
         f"max_running={max_running} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 
     def on_case_step(phase: str, step_number: int, total_steps: int) -> None:
+        count = workload_profile.num_total_requests
         print(
-            f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={resolved_payload.request_count} ...",
+            f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={count} ...",
             flush=True,
         )
 
@@ -350,7 +349,7 @@ def print_scheduler_dry_run(args: argparse.Namespace, suite: SchedulerSuite) -> 
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
     interleave_features = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
-    cases = suite.cases(vocab_size=100)
+    cases = suite.cases()
     plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
     print(f"=== [Dry Run] Suite: {suite.name} ===")
     print(format_scheduler_run_plan(plan))

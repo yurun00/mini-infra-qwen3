@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from mini_infra.bench.cases import LockstepCase, RequestPayload, WorkloadProfile
+from mini_infra.bench.cases import LockstepCase, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case, run_case_once
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import Mode
@@ -87,9 +87,8 @@ def test_run_case_on_cpu():
 
     # 1. 单用例标量执行
     spec1 = RequestSpec(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
-    payload_scalar = RequestPayload(workload_id="s1", specs=(spec1,))
     case_scalar = LockstepCase(
-        payload=payload_scalar,
+        profile=WorkloadProfile.from_specs("s1", (spec1,)),
         mode=mode,
     )
 
@@ -116,9 +115,8 @@ def test_run_case_on_cpu():
     # 2. 变长 prompt 执行
     s1 = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     s2 = RequestSpec(request_idx=1, token_ids=[3, 4, 5, 6], max_new_tokens=2, arrival_ms=0.0)
-    payload_var = RequestPayload(workload_id="v1", specs=(s1, s2))
     case_var = LockstepCase(
-        payload=payload_var,
+        profile=WorkloadProfile.from_specs("v1", (s1, s2)),
         mode=mode,
     )
     res_var = run_case(

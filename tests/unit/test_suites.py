@@ -69,16 +69,16 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     assert (suite.warmup, suite.repeats) == (1, 3)
     cases = suite.cases(vocab_size=100)
     assert len(cases) == 5 * 2
-    assert [(c.payload.request_count, c.mode.batching_method) for c in cases[:4]] == [
+    assert [(c.profile.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
         (1, BatchingMethod.NONE),
         (1, BatchingMethod.FIXED),
         (2, BatchingMethod.NONE),
         (2, BatchingMethod.FIXED),
     ]
-    assert [c.payload.request_count for c in cases[::2]] == [1, 2, 4, 8, 16]
+    assert [c.profile.num_total_requests for c in cases[::2]] == [1, 2, 4, 8, 16]
     assert all(
-        c.payload.prompt_lengths == (128,) * c.payload.request_count
-        and c.payload.output_budgets == (32,) * c.payload.request_count
+        c.profile.prompt_lens == (128,) * c.profile.num_total_requests
+        and c.profile.output_budgets == (32,) * c.profile.num_total_requests
         and c.mode.use_kv_cache
         for c in cases
     )
@@ -95,7 +95,7 @@ def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
 
 def test_uniform_vs_variable_prompt_padding_cases():
     cases = get_lockstep_suite("uniform-vs-variable-prompt-padding").cases(vocab_size=100)
-    assert [(c.payload.request_count, c.payload.prompt_lengths, c.payload.output_budgets) for c in cases] == [
+    assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (32, 32, 32, 32)),
         (4, (16, 32, 64, 128), (32, 32, 32, 32)),
     ]
@@ -104,7 +104,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
 
 def test_uniform_vs_variable_budget_slots_cases():
     cases = get_lockstep_suite("uniform-vs-variable-budget-slots").cases(vocab_size=100)
-    assert [(c.payload.request_count, c.payload.prompt_lengths, c.payload.output_budgets) for c in cases] == [
+    assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),
     ]
@@ -306,5 +306,5 @@ sweep:
         model.config.vocab_size,
         on_case_progress=lambda _n, _total, case: seen.append(case),
     )
-    assert [c.payload.request_count for c in seen] == [1, 2]
+    assert [c.profile.num_total_requests for c in seen] == [1, 2]
     assert [r.workload.num_total_requests for r in results] == [1, 2]
