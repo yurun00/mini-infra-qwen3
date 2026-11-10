@@ -438,7 +438,10 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
         warmup: int = 0
         repeats: int = 2
         max_running_requests: int = 2
-        interleave: tuple[CaseDimension, ...] = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
+        interleave: tuple[CaseDimension, ...] = (
+            CaseDimension.CACHING_METHOD,
+            CaseDimension.PAGED_CACHE_CONFIG,
+        )
         comparison: Any = None
 
         def modes(self):

@@ -56,6 +56,10 @@ def test_case_key_dimension_value():
     assert case.key.value(CaseDimension.WORKLOAD_ID) == "test_workload"
     assert case.key.value(CaseDimension.MAX_RUNNING_REQUESTS) == 2
     assert case.key.value(CaseDimension.PAGED_CACHE_CONFIG) is None
+    assert case.key.canonical_id == "workload=test_workload/cache=dense-kv-cache/batch=continuous-batching/mrr=2"
+    dim_map = case.key.as_dimension_map()
+    assert dim_map[CaseDimension.WORKLOAD_ID] == "test_workload"
+    assert dim_map[CaseDimension.CACHING_METHOD] == CachingMethod.DENSE
 
     with pytest.raises(ValueError, match="is not a valid CaseDimension"):
         case.key.value("invalid_dimension")
@@ -150,7 +154,10 @@ def test_interleave_all_features():
     c3 = make_dummy_case(BatchingMethod.FIXED, kv_cache=False)
 
     plan = build_scheduler_run_plan(
-        [c1, c2, c3], warmup=0, repeats=2, interleave=(CaseDimension.BATCHING_METHOD, CaseDimension.CACHING_METHOD)
+        [c1, c2, c3],
+        warmup=0,
+        repeats=2,
+        interleave=(CaseDimension.BATCHING_METHOD, CaseDimension.CACHING_METHOD),
     )
     assert len(plan) == 6
     assert all(p.group_id == 0 for p in plan)

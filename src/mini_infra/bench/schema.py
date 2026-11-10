@@ -240,6 +240,7 @@ class CaseKeyRecord(_DictAccessModel):
     mode: str
     max_running_requests: int
     paged_cache_config: PagedCacheConfigRecord | None = None
+    canonical_id: str | None = None
 
 
 class SchedulerCaseRecord(BaseCaseRecord):

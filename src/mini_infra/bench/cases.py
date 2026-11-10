@@ -21,7 +21,11 @@ CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFla
 
 
 class CaseDimension(str, Enum):
-    """用例身份键（CaseKey）的正交特征维度枚举。"""
+    """用例身份键（CaseKey）的正交特征维度枚举。
+
+    对齐工业级基准测试（如 MLPerf / Prometheus 维度标签）规范：
+    每个特征维度相互正交、无状态重叠，支持全局多维投影切片。
+    """
 
     WORKLOAD_ID = "workload_id"
     CACHING_METHOD = "caching_method"
@@ -33,23 +37,46 @@ class CaseDimension(str, Enum):
 
 @dataclass(frozen=True)
 class CaseKey:
-    """用例全局唯一身份键：由工作负载与系统配置正交维度完全确定。"""
+    """用例全局唯一身份键：由工作负载与系统配置正交维度完全确定。
+
+    符合现代推理评测规范：
+    1. 不可变哈希（frozen=True）
+    2. 正交标量属性与派生属性解耦
+    3. 规范化机器标识（canonical_id）与人类展示（display_name）分离
+    4. 动态维度投影（project）与字典映射（as_dimension_map）
+    """
 
     workload_id: str
     mode: Mode
     max_running_requests: int
     paged_cache_config: PagedCacheConfig | None = None
 
+    @property
+    def caching_method(self) -> CachingMethod:
+        return self.mode.caching_method
+
+    @property
+    def batching_method(self) -> BatchingMethod:
+        return self.mode.batching_method
+
+    @property
+    def flags(self) -> frozenset[FeatureFlag]:
+        return self.mode.flags
+
+    @property
+    def block_size(self) -> int | None:
+        return self.paged_cache_config.block_size if self.paged_cache_config is not None else None
+
     def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
         d = dim if isinstance(dim, CaseDimension) else CaseDimension(dim)
         if d is CaseDimension.WORKLOAD_ID:
             return self.workload_id
         if d is CaseDimension.CACHING_METHOD:
-            return self.mode.caching_method
+            return self.caching_method
         if d is CaseDimension.BATCHING_METHOD:
-            return self.mode.batching_method
+            return self.batching_method
         if d is CaseDimension.FLAGS:
-            return self.mode.flags
+            return self.flags
         if d is CaseDimension.MAX_RUNNING_REQUESTS:
             return self.max_running_requests
         if d is CaseDimension.PAGED_CACHE_CONFIG:
@@ -58,6 +85,26 @@ class CaseKey:
 
     def project(self, dims: Iterable[CaseDimension | str]) -> tuple[CaseDimensionValue, ...]:
         return tuple(self.value(d) for d in dims)
+
+    def as_dimension_map(self) -> dict[CaseDimension, CaseDimensionValue]:
+        """导出完整的正交特征标签映射（类似于指标系统的 Label-Set）。"""
+        return {dim: self.value(dim) for dim in CaseDimension}
+
+    @property
+    def canonical_id(self) -> str:
+        """机器友好的规范化唯一标识符（符合 MLPerf Slug 规范，无空格和特殊符号）。"""
+        parts = [
+            f"workload={self.workload_id}",
+            f"cache={self.caching_method.value}",
+            f"batch={self.batching_method.value}",
+            f"mrr={self.max_running_requests}",
+        ]
+        if self.flags:
+            flags_str = ",".join(sorted(f.value for f in self.flags))
+            parts.append(f"flags={flags_str}")
+        if self.block_size is not None:
+            parts.append(f"block={self.block_size}")
+        return "/".join(parts)
 
     @property
     def display_name(self) -> str:
@@ -74,6 +121,7 @@ class CaseKey:
             "workload_id": self.workload_id,
             "mode": str(self.mode),
             "max_running_requests": self.max_running_requests,
+            "canonical_id": self.canonical_id,
         }
         if self.paged_cache_config is not None:
             data["paged_cache_config"] = {
