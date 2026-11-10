@@ -19,7 +19,7 @@ description: "评测系统（bench）四阶段生命周期、命名规范、规�
 [阶段 1: 规格声明 Specification Plane] (*Spec)
    - 纯声明式意图（YAML / Pydantic 模型）。定义分布规则、系统配置与参数扫描空间。纯 CPU、零设备与 Token 依赖。
    ↓ build / from_spec / expand (跨阶段构建执行实体)
-[阶段 2: 评测执行 Execution Plane] (*Suite, *Case, *Plan, Comparison)
+[阶段 2: 评测执行 Execution Plane] (*Suite, *Case, *Plan, *Context, Comparison)
    - 载入内存的套件容器与用例实体。持有确定性数值画像，具备唯一身份键与执行步排期。
    ↓ run_case / run_suite / run_sweep
 [阶段 3: 测量结果 Measurement Plane] (*Result)
@@ -38,6 +38,7 @@ description: "评测系统（bench）四阶段生命周期、命名规范、规�
 | **Execution** | `BenchmarkCase` | 最小单用例执行实体；由正交身份键（`key: CaseKey`）与数值画像（`profile: WorkloadProfile`）唯一确定。 |
 | **Execution** | `WorkloadProfile` | 全仓唯一标准流量画像（SSOT）；纯数字元组，与 GPU / 词表解耦，专供 `*Case` 与 `*CaseResult` 共享。 |
 | **Execution** | `PlannedRun`, `Comparison` | 执行编排（原子排期步）与对比配置（分组维度、指标基线）。 |
+| **Execution** | `BenchmarkExecutionContext` | 评测执行现场上下文（Context Object）；持有已加载模型、Tokenizer、设备句柄、硬件基准规格与单次运行共享的正确性缓存。 |
 | **Result** | `*CaseResult`, `ComparisonResult` | 实测统计画像（`DistributionStats`）；保留原始 `key: CaseKey` 与 `workload: WorkloadProfile`。 |
 | **Record** | `*CaseRecord`, `*BenchmarkRecord`, `AnyBenchmarkRecord` | 持久化 JSON 信封模型；严格版本化与落盘校验。 |
 

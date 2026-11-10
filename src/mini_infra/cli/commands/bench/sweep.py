@@ -7,23 +7,22 @@
 
 import argparse
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from mini_infra.bench.common import add_common_args
+from mini_infra.bench.context import prepare_execution_context
 from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.suites import load_benchmark_suite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli.commands.bench.lockstep import (
     execute_lockstep_suite,
-    prepare_lockstep_env,
     print_lockstep_dry_run,
 )
 from mini_infra.cli.commands.bench.scheduler import (
     execute_scheduler_suite,
-    prepare_scheduler_env,
     print_scheduler_dry_run,
 )
 from mini_infra.cli.commands.bench.suite_source import add_set_arg, suite_output_path, use_suite_execution_defaults
@@ -114,22 +113,15 @@ def handle_sweep(args: argparse.Namespace) -> int:
 
     experimental_by_suite = {id(s): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)}
 
-    run_one: Callable[[BenchmarkSuite, Path], SuiteRunSummary]
-    if args.engine == "scheduler":
-        sched_env = prepare_scheduler_env(args)
-        commit = sched_env.git["commit"]
+    ctx = prepare_execution_context(args)
+    commit = ctx.commit
 
-        def run_one(suite: BenchmarkSuite, output: Path) -> SuiteRunSummary:
+    def run_one(suite: BenchmarkSuite, output: Path) -> SuiteRunSummary:
+        if args.engine == "scheduler":
             assert suite.engine == "scheduler"
-            return execute_scheduler_suite(sched_env, args, suite, output)
-
-    else:
-        lock_env = prepare_lockstep_env(args)
-        commit = lock_env.git["commit"]
-
-        def run_one(suite: BenchmarkSuite, output: Path) -> SuiteRunSummary:
-            assert suite.engine == "lockstep"
-            return execute_lockstep_suite(lock_env, args, suite, output)
+            return execute_scheduler_suite(ctx, args, suite, output)
+        assert suite.engine == "lockstep"
+        return execute_lockstep_suite(ctx, args, suite, output)
 
     def execute(suite: BenchmarkSuite) -> SuiteRunSummary:
         if args.output is not None:

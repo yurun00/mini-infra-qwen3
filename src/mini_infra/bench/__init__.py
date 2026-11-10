@@ -25,6 +25,10 @@ from mini_infra.bench.common import (
     save_benchmark_record,
     summarize_samples,
 )
+from mini_infra.bench.context import (
+    BenchmarkExecutionContext,
+    prepare_execution_context,
+)
 from mini_infra.bench.lockstep import (
     LockstepCaseResult,
     format_case_summary,
@@ -77,6 +81,7 @@ from mini_infra.bench.synthetic import (
 __all__ = [
     "AnyBenchmarkRecord",
     "BenchmarkCase",
+    "BenchmarkExecutionContext",
     "BenchmarkSuite",
     "CaseDimension",
     "CaseKey",
@@ -122,6 +127,7 @@ __all__ = [
     "make_sequence",
     "make_sequences",
     "model_cost",
+    "prepare_execution_context",
     "release_default_mode",
     "release_workloads",
     "require_cuda",

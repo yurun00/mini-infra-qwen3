@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from mini_infra.bench.context import BenchmarkExecutionContext
 from mini_infra.bench.schema import validate_benchmark_record
 from mini_infra.bench.spec import (
     ReleaseSpec,
@@ -19,8 +20,8 @@ from mini_infra.bench.spec import (
 from mini_infra.bench.suites import get_benchmark_suite, load_benchmark_suite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli import main
-from mini_infra.cli.commands.bench.lockstep import LockstepRunEnv, execute_lockstep_suite
-from mini_infra.cli.commands.bench.scheduler import SchedulerRunEnv, execute_scheduler_suite
+from mini_infra.cli.commands.bench.lockstep import execute_lockstep_suite
+from mini_infra.cli.commands.bench.scheduler import execute_scheduler_suite
 from mini_infra.verification.smoke import build_tiny_model
 
 _SCHEDULER_YAML = """
@@ -231,9 +232,9 @@ def _args(**kw):
     return SimpleNamespace(**{**base, **kw})
 
 
-def _env(cls, model, modes):
+def _context(model, modes):
     # 预填 correctness_cache：执行函数命中缓存时不会调用 tokenizer / check_correctness
-    return cls(
+    return BenchmarkExecutionContext(
         model=model,
         tokenizer=None,
         device=torch.device("cpu"),
@@ -252,38 +253,38 @@ def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
     model = build_tiny_model()
     targets = ("aa", "bb")
     suites = [load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in targets]
-    run_env = _env(SchedulerRunEnv, model, suites[0].modes())
+    ctx = _context(model, suites[0].modes())
 
     summaries = []
     for suite in suites:
         output = tmp_path / "out" / f"{suite.name}.json"
-        summary = execute_scheduler_suite(run_env, _args(), suite, output)
+        summary = execute_scheduler_suite(ctx, _args(), suite, output)
         assert summary.output == output and summary.num_cases == 2
         record = validate_benchmark_record(json.loads(output.read_text(encoding="utf-8")), source=output)
         assert record.suite is not None and record.suite["name"] == suite.name
         summaries.append(summary)
 
-    assert len(run_env.correctness_cache) == 2  # 两个 suite 共用同一份缓存，没有新增条目
+    assert len(ctx.correctness_cache) == 2  # 两个 suite 共用同一份缓存，没有新增条目
     assert "aa" in format_sweep_summary(summaries)
 
 
 def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
     model = build_tiny_model()
     suite = load_benchmark_suite(_write(tmp_path, "aa", _SCHEDULER_YAML), expected_engine="scheduler")
-    run_env = _env(SchedulerRunEnv, model, suite.modes())
+    ctx = _context(model, suite.modes())
     first_mode = suite.modes()[0]
-    run_env.correctness_cache[first_mode] = {"checked": True, "passed": False, "match_ratio": 0.5}
+    ctx.correctness_cache[first_mode] = {"checked": True, "passed": False, "match_ratio": 0.5}
     with pytest.raises(SystemExit, match="正确性检查失败"):
-        execute_scheduler_suite(run_env, _args(), suite, tmp_path / "x.json")
+        execute_scheduler_suite(ctx, _args(), suite, tmp_path / "x.json")
     assert not (tmp_path / "x.json").exists()
 
 
 def test_execute_lockstep_suite_writes_valid_record(tmp_path):
     model = build_tiny_model()
     suite = load_benchmark_suite(_write(tmp_path, "demo-lock", _LOCKSTEP_YAML), expected_engine="lockstep")
-    run_env = _env(LockstepRunEnv, model, suite.modes())
+    ctx = _context(model, suite.modes())
     output = tmp_path / "out" / "demo-lock.json"
-    summary = execute_lockstep_suite(run_env, _args(), suite, output)
+    summary = execute_lockstep_suite(ctx, _args(), suite, output)
     assert summary.engine == "lockstep" and summary.num_cases == 1 and summary.comparison_lines == ()
     record = validate_benchmark_record(json.loads(output.read_text(encoding="utf-8")), source=output)
     assert record.suite is not None and record.suite["engine"] == "lockstep"
@@ -295,8 +296,8 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
     model = build_tiny_model()
     spec = _write(tmp_path, "single-suite", _SCHEDULER_YAML)
     suite = load_benchmark_suite(spec, expected_engine="scheduler")
-    run_env = _env(SchedulerRunEnv, model, suite.modes())
-    monkeypatch.setattr(sweep_cmd, "prepare_scheduler_env", lambda args: run_env)
+    ctx = _context(model, suite.modes())
+    monkeypatch.setattr(sweep_cmd, "prepare_execution_context", lambda args: ctx)
 
     target_output = tmp_path / "custom" / "my_result.json"
     argv = [
