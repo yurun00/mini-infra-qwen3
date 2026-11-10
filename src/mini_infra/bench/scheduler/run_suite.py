@@ -1,6 +1,6 @@
 """套件基准测试（run_suite）：执行整套 Scheduler 评测套件的纯执行调度内核。
 
-根据 SchedulerSuite 与配置生成执行计划（支持按特征 interleave），
+根据 BenchmarkSuite 与配置生成执行计划（支持按特征 interleave），
 逐项调用 run_case 模块的原子 step 执行，返回用例结果列表 list[SchedulerCaseResult]。
 """
 
@@ -15,11 +15,11 @@ from mini_infra.bench.scheduler.plan import (
     build_scheduler_run_plan,
 )
 from mini_infra.bench.scheduler.run_case import run_case_once
-from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
     summarize_same_case_runs,
 )
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.engine import ScheduleResult
 
 
@@ -44,7 +44,7 @@ def parse_interleave_args(raw: Sequence[str] | None, default: tuple[CaseDimensio
 def run_suite(
     model: torch.nn.Module,
     device: torch.device,
-    suite: SchedulerSuite,
+    suite: BenchmarkSuite,
     vocab_size: int,
     warmup: int | None = None,
     repeats: int | None = None,

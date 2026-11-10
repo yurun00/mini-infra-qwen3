@@ -1,44 +1,66 @@
-"""评测套件通用抽象基类（BenchmarkSuite）。"""
+"""评测套件通用容器（BenchmarkSuite）。"""
 
-from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any
 
+from mini_infra.bench.cases import (
+    BenchmarkCase,
+    CaseDimension,
+    Comparison,
+)
+from mini_infra.bench.spec.common.schema import SuiteEngine
 from mini_infra.bench.spec.suite.expand import CaseSpec
 from mini_infra.bench.spec.suite.loader import LoadedSuiteSpec
 from mini_infra.engine import Mode
 
-CaseT = TypeVar("CaseT")
-
 
 @dataclass(frozen=True)
-class BenchmarkSuite(ABC, Generic[CaseT]):
-    """评测套件通用抽象基类：持有已校验加载的 LoadedSuiteSpec 与不可变的用例元组。"""
+class BenchmarkSuite:
+    """评测套件通用容器：持有已校验加载的 LoadedSuiteSpec 与不可变的用例元组。"""
 
     loaded: LoadedSuiteSpec
-    cases: tuple[CaseT, ...] = field(init=False)
+    cases: tuple[BenchmarkCase, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cases", tuple(self._build_cases()))
 
-    @abstractmethod
-    def _build_cases(self) -> Sequence[CaseT]:
-        """由子类实现用例规格到具体 Case 实体的映射。"""
-        ...
+    def _build_cases(self) -> Sequence[BenchmarkCase]:
+        """由用例规格构建具体 BenchmarkCase 实体。"""
+        engine = self.engine
+        cases: list[BenchmarkCase] = []
+        for cs in self.case_specs:
+            mrr = cs.workload.num_total_requests if engine == "lockstep" else cs.max_running_requests
+            assert mrr is not None
+            paged_config = None if engine == "lockstep" else cs.paged_cache_config
+            cases.append(
+                BenchmarkCase(
+                    profile=cs.workload.to_profile(),
+                    mode=cs.mode,
+                    max_running_requests=mrr,
+                    paged_cache_config=paged_config,
+                    suite_name=self.name,
+                    engine=engine,
+                )
+            )
+        return tuple(cases)
 
     def __len__(self) -> int:
         return len(self.cases)
 
-    def __iter__(self) -> Iterator[CaseT]:
+    def __iter__(self) -> Iterator[BenchmarkCase]:
         return iter(self.cases)
 
-    def __getitem__(self, index: int) -> CaseT:
+    def __getitem__(self, index: int) -> BenchmarkCase:
         return self.cases[index]
 
     @property
     def name(self) -> str:
         return self.loaded.spec.name
+
+    @property
+    def engine(self) -> SuiteEngine:
+        return self.loaded.spec.engine
 
     @property
     def warmup(self) -> int:
@@ -47,6 +69,15 @@ class BenchmarkSuite(ABC, Generic[CaseT]):
     @property
     def repeats(self) -> int:
         return self.loaded.spec.execution.repeats
+
+    @property
+    def interleave(self) -> tuple[CaseDimension, ...]:
+        return tuple(self.loaded.spec.execution.interleave)
+
+    @property
+    def comparison(self) -> Comparison | None:
+        spec = self.loaded.spec.comparison
+        return None if spec is None else Comparison.from_spec(spec)
 
     @property
     def case_specs(self) -> tuple[CaseSpec, ...]:
@@ -63,5 +94,4 @@ class BenchmarkSuite(ABC, Generic[CaseT]):
 
 __all__ = [
     "BenchmarkSuite",
-    "CaseT",
 ]

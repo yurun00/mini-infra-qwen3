@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.bench.cases import LockstepCase, WorkloadProfile
+from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.core.request import RequestSpec
@@ -210,9 +210,10 @@ def test_bench_run_profile_modes():
     device = torch.device("cpu")
 
     spec = RequestSpec(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
-    case = LockstepCase(
+    case = BenchmarkCase(
         profile=WorkloadProfile.from_specs("test", (spec,)),
         mode=mode,
+        engine="lockstep",
     )
 
     # Mode 1: profile_mode=None -> 无 op_latency_breakdown

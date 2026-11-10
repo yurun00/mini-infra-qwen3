@@ -1,4 +1,4 @@
-"""lockstep.suites（YAML 声明 → LockstepSuite → LockstepCase）与 run_suite 接入的单元测试（CPU 可运行）。"""
+"""lockstep 模式下 suites（YAML 声明 → BenchmarkSuite → BenchmarkCase）与 run_suite 接入的单元测试（CPU 可运行）。"""
 
 import json
 from pathlib import Path
@@ -6,26 +6,30 @@ from pathlib import Path
 import pytest
 import torch
 
-from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.cases import (
+    BenchmarkCase,
+    WorkloadProfile,
+)
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.bench.lockstep.suites import (
-    LockstepSuite,
     get_all_lockstep_suites,
     get_lockstep_suite,
     list_lockstep_suite_names,
     load_lockstep_suite,
 )
+from mini_infra.bench.spec.suite.loader import load_suite_spec
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
-def _tiny_suite(tmp_path: Path, name: str, body: str) -> LockstepSuite:
+def _tiny_suite(tmp_path: Path, name: str, body: str) -> BenchmarkSuite:
     path = tmp_path / f"{name}.yaml"
     path.write_text(f"name: {name}\n{body}", encoding="utf-8")
     return load_lockstep_suite(path)
 
 
-def _run_cases(suite: LockstepSuite):
+def _run_cases(suite: BenchmarkSuite):
     model = build_tiny_model()
     device = torch.device("cpu")
     return [
@@ -47,7 +51,8 @@ def test_lockstep_suites_registry():
         "uniform-vs-variable-prompt-padding",
     ]
     for suite in get_all_lockstep_suites():
-        assert isinstance(suite, LockstepSuite)
+        assert isinstance(suite, BenchmarkSuite)
+        assert suite.engine == "lockstep"
         assert isinstance(suite.cases, tuple)
         assert len(suite) == len(suite.cases)
         assert list(suite) == list(suite.cases)
@@ -307,7 +312,7 @@ sweep:
     num_requests: [1, 2]
 """,
     )
-    seen: list[LockstepCase] = []
+    seen: list[BenchmarkCase] = []
     model = build_tiny_model()
     results = run_suite(
         model,
@@ -317,3 +322,48 @@ sweep:
     )
     assert [c.profile.num_total_requests for c in seen] == [1, 2]
     assert [r.workload.num_total_requests for r in results] == [1, 2]
+
+
+def test_benchmark_case_and_suite_unification(tmp_path):
+    profile = WorkloadProfile(
+        workload_id="test_profile",
+        num_total_requests=3,
+        prompt_lens=(16, 16, 16),
+        output_budgets=(8, 8, 8),
+        arrival_ms=(0.0, 0.0, 0.0),
+    )
+    mode = Mode(caching_method=CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+
+    # 1. 缺省 max_running_requests 自动推导为 num_total_requests
+    case = BenchmarkCase(profile=profile, mode=mode, engine="lockstep")
+    assert case.max_running_requests == 3
+    assert case.key.max_running_requests == 3
+    assert case.workload_id == "test_profile"
+    assert case.engine == "lockstep"
+
+    # 2. 显式提供 max_running_requests
+    scheduler_case = BenchmarkCase(profile=profile, mode=mode, max_running_requests=2, engine="scheduler")
+    assert scheduler_case.max_running_requests == 2
+    assert scheduler_case.engine == "scheduler"
+
+    # 3. BenchmarkSuite 实体容器直接实例化与解析
+    spec_path = tmp_path / "generic-suite.yaml"
+    spec_path.write_text(
+        """name: generic-suite
+execution: {warmup: 1, repeats: 2}
+system: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}
+workload:
+  id: "w3"
+  count: 3
+  prompt_len: 16
+  output_len: 8
+""",
+        encoding="utf-8",
+    )
+    loaded = load_suite_spec(spec_path)
+    suite = BenchmarkSuite(loaded=loaded)
+    assert suite.name == "generic-suite"
+    assert suite.engine == "lockstep"
+    assert len(suite) == 1
+    assert isinstance(suite[0], BenchmarkCase)
+    assert suite[0].max_running_requests == 3

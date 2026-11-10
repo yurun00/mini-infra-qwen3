@@ -90,24 +90,24 @@ mini-infra-qwen3/
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
 │           ├── schema.py              # 统一 Pydantic v2 Schema 与多态信封（Lockstep & Scheduler）
-│           ├── suite.py               # BenchmarkSuite[CaseT] 评测套件泛型基类
+│           ├── suite.py               # BenchmarkSuite 评测套件统一容器实体
 │           ├── synthetic.py           # 合成 Prompt 序列载荷生成工具
 │           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比
 │           ├── check_regression.py    # 性能回归质量门禁核心逻辑
-│           ├── cases.py               # CaseKey / CaseDimension / Comparison / WorkloadProfile / SchedulerCase / LockstepCase
+│           ├── cases.py               # CaseKey / CaseDimension / Comparison / WorkloadProfile / BenchmarkCase
 │           ├── spec/                  # 声明式评测规范系统（YAML）：common / suite / release 三域架构
 │           │   ├── common/            # 跨 spec 共享的基础模型、随机分布采样与底层 YAML 加载
 │           │   ├── suite/             # Suite 声明式配置、检查守卫、笛卡尔积展开与套件加载发现
 │           │   └── release/           # Release 标准负载（small/medium/large）：YAML 声明与展开为 ResolvedWorkloadSpec
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
 │           │   ├── types.py           # LockstepCaseResult, DistributionStats 等领域模型
-│           │   ├── suites.py          # LockstepSuite：把 YAML 声明绑定为 LockstepCase
+│           │   ├── suites.py          # Lockstep 套件加载与发现（返回 BenchmarkSuite）
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── run_case.py        # run_case_once / run_case 单用例基准测试执行引擎
 │           │   └── run_suite.py       # 预设测试套件执行引擎
 │           ├── scheduler/             # 队列调度器（Scheduler：Fixed vs Continuous Batching）基准测试
 │           │   ├── types.py           # SchedulerCaseResult 等领域模型与多轮聚合
-│           │   ├── suites.py          # SchedulerSuite：把 YAML 声明绑定为 SchedulerCase
+│           │   ├── suites.py          # Scheduler 套件加载与发现（返回 BenchmarkSuite）
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── plan.py            # 特征多维展开与基于 Feature 的 Interleave 执行计划生成器
 │           │   ├── run_case.py        # run_case_once / run_case 单用例评测执行引擎

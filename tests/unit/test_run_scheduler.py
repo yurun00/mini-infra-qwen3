@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import CaseDimension, SchedulerCase, WorkloadProfile
+from mini_infra.bench.cases import BenchmarkCase, CaseDimension, WorkloadProfile
 from mini_infra.bench.scheduler import (
     build_benchmark_record,
     extract_workload_profile,
@@ -238,11 +238,12 @@ def test_run_scheduler_case_and_step_on_cpu():
     device = torch.device("cpu")
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    case = SchedulerCase(
+    case = BenchmarkCase(
         profile=WorkloadProfile.from_specs("test-cont-case", specs),
         mode=mode,
         max_running_requests=2,
         suite_name="test-cont-case",
+        engine="scheduler",
     )
 
     # 1. 验证原子 run_case_once 与 extract_workload_profile
@@ -361,12 +362,13 @@ def test_run_scheduler_paged_case_on_cpu():
     mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     paged_config = PagedCacheConfig(block_size=4)
 
-    case = SchedulerCase(
+    case = BenchmarkCase(
         profile=WorkloadProfile.from_specs("stress_case", specs),
         mode=mode,
         max_running_requests=2,
         paged_cache_config=paged_config,
         suite_name="test-paged-case",
+        engine="scheduler",
     )
 
     # 1. 单次执行
@@ -407,37 +409,41 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     paged_config = PagedCacheConfig(block_size=4)
 
     cases = [
-        SchedulerCase(
+        BenchmarkCase(
             profile=WorkloadProfile.from_specs("workload_0", spec_w0),
             mode=dense_mode,
             max_running_requests=2,
             suite_name="multi-workload-suite",
+            engine="scheduler",
         ),
-        SchedulerCase(
+        BenchmarkCase(
             profile=WorkloadProfile.from_specs("workload_0", spec_w0),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=paged_config,
             suite_name="multi-workload-suite",
+            engine="scheduler",
         ),
-        SchedulerCase(
+        BenchmarkCase(
             profile=WorkloadProfile.from_specs("workload_1", spec_w1),
             mode=dense_mode,
             max_running_requests=2,
             suite_name="multi-workload-suite",
+            engine="scheduler",
         ),
-        SchedulerCase(
+        BenchmarkCase(
             profile=WorkloadProfile.from_specs("workload_1", spec_w1),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=paged_config,
             suite_name="multi-workload-suite",
+            engine="scheduler",
         ),
     ]
 
     @dataclass
     class DummyMultiWorkloadSuite:
-        cases: tuple[SchedulerCase, ...]
+        cases: tuple[BenchmarkCase, ...]
         name: str = "multi-workload-suite"
         warmup: int = 0
         repeats: int = 2

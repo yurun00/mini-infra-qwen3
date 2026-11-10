@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.common import format_lengths
 from mini_infra.bench.lockstep.types import LockstepCaseResult
 from mini_infra.bench.schema import build_benchmark_record
@@ -102,7 +102,7 @@ def format_case_summary(result: LockstepCaseResult) -> str:
     return "\n".join(lines)
 
 
-def format_suite_plan(suite_name: str, cases: "Sequence[LockstepCase]", warmup: int, repeats: int) -> str:
+def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup: int, repeats: int) -> str:
     """格式化 Lockstep 套件的用例列表，用于 --dry-run 预览（用例顺序即执行顺序）。"""
     lines = [
         f"Lockstep 基准评测执行计划（suite={suite_name}，共 {len(cases)} 个用例，"

@@ -1,25 +1,25 @@
-"""bench.scheduler.suites（YAML 声明 → SchedulerSuite → SchedulerCase）与用例层类型的单元测试（CPU 可运行）。"""
+"""bench.scheduler.suites（YAML 声明 → BenchmarkSuite → BenchmarkCase）与用例层类型的单元测试（CPU 可运行）。"""
 
 import json
 
 import pytest
 
 from mini_infra.bench.cases import (
+    BenchmarkCase,
     CaseDimension,
     CaseKey,
     Comparison,
     ComparisonMetric,
     MetricKind,
-    SchedulerCase,
     WorkloadProfile,
 )
 from mini_infra.bench.scheduler.suites import (
-    SchedulerSuite,
     get_all_scheduler_suites,
     get_scheduler_suite,
     list_scheduler_suite_names,
     load_scheduler_suite,
 )
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 FIXED_VS_CONTINUOUS = [
@@ -45,7 +45,7 @@ def test_scheduler_suites_registry():
     suites = get_all_scheduler_suites()
     assert len(suites) == 7
     for suite in suites:
-        assert isinstance(suite, SchedulerSuite)
+        assert isinstance(suite, BenchmarkSuite)
         assert isinstance(suite.cases, tuple)
         assert len(suite) == len(suite.cases)
         assert list(suite) == list(suite.cases)
@@ -77,7 +77,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
 
     cases = suite.cases
     assert len(cases) == 2
-    assert all(isinstance(c, SchedulerCase) and c.suite_name == name for c in cases)
+    assert all(isinstance(c, BenchmarkCase) and c.suite_name == name for c in cases)
     assert cases[0].workload_id == cases[1].workload_id
     assert cases[0].profile == cases[1].profile
     for case in cases:
@@ -197,22 +197,24 @@ def test_scheduler_suite_case_paged_validation():
 
     # 1. Paged 模式不传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
-        SchedulerCase(
+        BenchmarkCase(
             profile=WorkloadProfile.from_specs("test", (spec,)),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=None,
             suite_name="test",
+            engine="scheduler",
         )
 
     # 2. 非 Paged 模式传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
-        SchedulerCase(
+        BenchmarkCase(
             profile=WorkloadProfile.from_specs("test", (spec,)),
             mode=dense_mode,
             max_running_requests=2,
             paged_cache_config=PagedCacheConfig(block_size=16),
             suite_name="test",
+            engine="scheduler",
         )
 
     # 3. workload_id 为空报错
@@ -220,12 +222,13 @@ def test_scheduler_suite_case_paged_validation():
         WorkloadProfile.from_specs("", (spec,))
 
     # 4. 正确传参合法构造
-    case_paged = SchedulerCase(
+    case_paged = BenchmarkCase(
         profile=WorkloadProfile.from_specs("workload_0", (spec,)),
         mode=paged_mode,
         max_running_requests=2,
         paged_cache_config=PagedCacheConfig(block_size=16),
         suite_name="test",
+        engine="scheduler",
     )
     assert case_paged.workload_id == "workload_0"
     assert case_paged.paged_cache_config is not None

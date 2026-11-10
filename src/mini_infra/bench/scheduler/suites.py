@@ -1,19 +1,15 @@
-"""Scheduler 评测套件：由 `benchmarks/specs/scheduler/*.yaml` 声明，这里只负责把声明绑定到具体请求。
+"""Scheduler 评测套件：由 `benchmarks/specs/scheduler/*.yaml` 声明。
 
 套件的全部配置（被测系统、请求负载、sweep、comparison）都在 YAML 中；新增 suite 只需新增一个 YAML 文件：
 
     benchmarks/specs/scheduler/<name>.yaml        # name 必须与文件名一致
     benchmarks/specs/scheduler/_bases/*.yaml      # 仅供 extends 复用，不可直接运行
-
-`SchedulerSuite` 持有已校验的 `LoadedSuiteSpec`，并在构造时将 `CaseSpec` 固化为 `tuple[SchedulerCase, ...]`。
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import CaseDimension, Comparison, SchedulerCase
 from mini_infra.bench.spec import (
     LoadedSuiteSpec,
     discover_suite_specs,
@@ -23,40 +19,11 @@ from mini_infra.bench.spec import (
 from mini_infra.bench.suite import BenchmarkSuite
 
 
-@dataclass(frozen=True)
-class SchedulerSuite(BenchmarkSuite[SchedulerCase]):
-    """一个已加载的 Scheduler 评测套件（YAML 声明 + 展开后的用例规格）。"""
-
-    @property
-    def interleave(self) -> tuple[CaseDimension, ...]:
-        return tuple(self.loaded.spec.execution.interleave)
-
-    @property
-    def comparison(self) -> Comparison | None:
-        spec = self.loaded.spec.comparison
-        return None if spec is None else Comparison.from_spec(spec)
-
-    def _build_cases(self) -> Sequence[SchedulerCase]:
-        cases: list[SchedulerCase] = []
-        for cs in self.case_specs:
-            assert cs.max_running_requests is not None
-            cases.append(
-                SchedulerCase(
-                    profile=cs.workload.to_profile(),
-                    mode=cs.mode,
-                    max_running_requests=cs.max_running_requests,
-                    paged_cache_config=cs.paged_cache_config,
-                    suite_name=self.name,
-                )
-            )
-        return tuple(cases)
+def _suite_from_loaded(loaded: LoadedSuiteSpec) -> BenchmarkSuite:
+    return BenchmarkSuite(loaded=loaded)
 
 
-def _suite_from_loaded(loaded: LoadedSuiteSpec) -> SchedulerSuite:
-    return SchedulerSuite(loaded=loaded)
-
-
-def load_scheduler_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> SchedulerSuite:
+def load_scheduler_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> BenchmarkSuite:
     """从任意 YAML 路径加载 Scheduler 套件。"""
     loaded = load_suite_spec(path, overrides)
     if loaded.spec.engine != "scheduler":
@@ -68,16 +35,15 @@ def list_scheduler_suite_names() -> list[str]:
     return sorted(discover_suite_specs("scheduler"))
 
 
-def get_scheduler_suite(name: str, overrides: Mapping[str, Any] | None = None) -> SchedulerSuite:
+def get_scheduler_suite(name: str, overrides: Mapping[str, Any] | None = None) -> BenchmarkSuite:
     return _suite_from_loaded(get_suite_spec("scheduler", name, overrides=overrides))
 
 
-def get_all_scheduler_suites() -> Sequence[SchedulerSuite]:
+def get_all_scheduler_suites() -> Sequence[BenchmarkSuite]:
     return [get_scheduler_suite(name) for name in list_scheduler_suite_names()]
 
 
 __all__ = [
-    "SchedulerSuite",
     "get_all_scheduler_suites",
     "get_scheduler_suite",
     "list_scheduler_suite_names",

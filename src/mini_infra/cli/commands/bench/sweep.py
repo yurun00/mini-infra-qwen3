@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mini_infra.bench.common import add_common_args
-from mini_infra.bench.lockstep.suites import LockstepSuite, load_lockstep_suite
-from mini_infra.bench.scheduler.suites import SchedulerSuite, load_scheduler_suite
+from mini_infra.bench.lockstep.suites import load_lockstep_suite
+from mini_infra.bench.scheduler.suites import load_scheduler_suite
 from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli.commands.bench.lockstep import (
     execute_lockstep_suite,
@@ -27,8 +28,6 @@ from mini_infra.cli.commands.bench.scheduler import (
     print_scheduler_dry_run,
 )
 from mini_infra.cli.commands.bench.suite_source import add_set_arg, suite_output_path, use_suite_execution_defaults
-
-AnySuite = SchedulerSuite | LockstepSuite
 
 
 @dataclass(frozen=True)
@@ -87,7 +86,7 @@ def resolve_targets(args: argparse.Namespace) -> list[_Target]:
     return [_Target(path, False) for path in args.spec]
 
 
-def load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict[str, object]) -> list[AnySuite]:
+def load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict[str, object]) -> list[BenchmarkSuite]:
     """加载全部目标（任何一个非法都在运行前暴露）；suite 名称必须唯一，否则结果文件会互相覆盖。"""
     loader = load_scheduler_suite if engine == "scheduler" else load_lockstep_suite
     suites = [loader(target.path, overrides) for target in targets]
@@ -109,7 +108,7 @@ def handle_sweep(args: argparse.Namespace) -> int:
 
     if args.dry_run:
         for suite in suites:
-            if isinstance(suite, SchedulerSuite):
+            if suite.engine == "scheduler":
                 print_scheduler_dry_run(args, suite)
             else:
                 print_lockstep_dry_run(args, suite)
@@ -117,24 +116,24 @@ def handle_sweep(args: argparse.Namespace) -> int:
 
     experimental_by_suite = {id(s): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)}
 
-    run_one: Callable[[AnySuite, Path], SuiteRunSummary]
+    run_one: Callable[[BenchmarkSuite, Path], SuiteRunSummary]
     if args.engine == "scheduler":
         sched_env = prepare_scheduler_env(args)
         commit = sched_env.git["commit"]
 
-        def run_one(suite: AnySuite, output: Path) -> SuiteRunSummary:
-            assert isinstance(suite, SchedulerSuite)
+        def run_one(suite: BenchmarkSuite, output: Path) -> SuiteRunSummary:
+            assert suite.engine == "scheduler"
             return execute_scheduler_suite(sched_env, args, suite, output)
 
     else:
         lock_env = prepare_lockstep_env(args)
         commit = lock_env.git["commit"]
 
-        def run_one(suite: AnySuite, output: Path) -> SuiteRunSummary:
-            assert isinstance(suite, LockstepSuite)
+        def run_one(suite: BenchmarkSuite, output: Path) -> SuiteRunSummary:
+            assert suite.engine == "lockstep"
             return execute_lockstep_suite(lock_env, args, suite, output)
 
-    def execute(suite: AnySuite) -> SuiteRunSummary:
+    def execute(suite: BenchmarkSuite) -> SuiteRunSummary:
         if args.output is not None:
             output = args.output
         elif args.output_dir is not None:
@@ -145,7 +144,7 @@ def handle_sweep(args: argparse.Namespace) -> int:
             )
         return run_one(suite, output)
 
-    def on_start(index: int, total: int, suite: AnySuite) -> None:
+    def on_start(index: int, total: int, suite: BenchmarkSuite) -> None:
         print(f"\n===== [sweep {index}/{total}] {suite.name} =====", flush=True)
 
     summaries = run_sweep(suites, execute, on_start=on_start)

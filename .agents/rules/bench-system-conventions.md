@@ -34,8 +34,8 @@ description: "评测系统（bench）四阶段生命周期、命名规范、规�
 | 阶段 | 规范后缀 / 核心类型 | 核心职责与不变量契约 |
 |---|---|---|
 | **Spec** | `SuiteSpec`, `CaseSpec`, `WorkloadSpec`, `ResolvedWorkloadSpec`, `ComparisonSpec` | 纯数据规格声明与边界校验；支持参数扫描展开与分布确定性抽样；严禁包含 Token 序列或设备状态。 |
-| **Execution** | `BenchmarkSuite[CaseT]` (`SchedulerSuite`, `LockstepSuite`) | 套件不可变容器；初始化即固化 `cases: tuple[CaseT, ...]`，实现原生容器协议（`len`, `iter`, `[]`）；批处理调度的一等公民。 |
-| **Execution** | `SchedulerCase`, `LockstepCase` | 最小单用例执行实体；由正交身份键（`key: CaseKey`）与数值画像（`profile: WorkloadProfile`）唯一确定。 |
+| **Execution** | `BenchmarkSuite` | 套件不可变容器；初始化即固化 `cases: tuple[BenchmarkCase, ...]`，实现原生容器协议（`len`, `iter`, `[]`）；批处理调度的一等公民。 |
+| **Execution** | `BenchmarkCase` | 最小单用例执行实体；由正交身份键（`key: CaseKey`）与数值画像（`profile: WorkloadProfile`）唯一确定。 |
 | **Execution** | `WorkloadProfile` | 全仓唯一标准流量画像（SSOT）；纯数字元组，与 GPU / 词表解耦，专供 `*Case` 与 `*CaseResult` 共享。 |
 | **Execution** | `PlannedRun`, `Comparison` | 执行编排（原子排期步）与对比配置（分组维度、指标基线）。 |
 | **Result** | `*CaseResult`, `ComparisonResult` | 实测统计画像（`DistributionStats`）；保留原始 `key: CaseKey` 与 `workload: WorkloadProfile`。 |
@@ -65,10 +65,10 @@ tuple[RequestSpec, ...] (函数栈局部变量，即用即弃，严禁堆常驻)
 ## 三、套件容器与不可变契约
 
 1. **自包含不可变容器**：
-   - 套件容器统一继承 `BenchmarkSuite[CaseT]`，构造时必须在 `__post_init__` 中将用例固化为不可变元组 `cases: tuple[CaseT, ...]`。
+   - 套件容器统一为 `BenchmarkSuite`，构造时必须在 `__post_init__` 中将用例固化为不可变元组 `cases: tuple[BenchmarkCase, ...]`。
    - 实现标准容器协议（`__len__`, `__iter__`, `__getitem__`），禁止运行时动态重生成或通过方法调用生成用例。
 2. **执行层统一第一公民**：
-   - 批处理驱动（`run_sweep`）以 `Sequence[BenchmarkSuite[Any]]` 为唯一目标输入，严禁绕过 Suite 穿透消费 `LoadedSuiteSpec` 或维护对象反查字典。
+   - 批处理驱动（`run_sweep`）以 `Sequence[BenchmarkSuite]` 为唯一目标输入，严禁绕过 Suite 穿透消费 `LoadedSuiteSpec` 或维护对象反查字典。
 
 ---
 

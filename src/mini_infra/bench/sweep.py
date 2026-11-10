@@ -8,11 +8,11 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from mini_infra.bench.suite import BenchmarkSuite
 
-SuiteT = TypeVar("SuiteT", bound=BenchmarkSuite[Any])
+SuiteT = TypeVar("SuiteT", bound=BenchmarkSuite)
 
 
 @dataclass(frozen=True)

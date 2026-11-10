@@ -8,25 +8,25 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.common import ProfileMode
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.lockstep.suites import LockstepSuite
 from mini_infra.bench.lockstep.types import LockstepCaseResult
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.profiling import TensorBoardOptions
 
 
 def run_suite(
     model: torch.nn.Module,
     device: torch.device,
-    suite: LockstepSuite,
+    suite: BenchmarkSuite,
     warmup: int | None = None,
     repeats: int | None = None,
     cost: dict[str, Any] | None = None,
     peaks: dict[str, float | None] | None = None,
     profile_mode: ProfileMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
-    on_case_progress: Callable[[int, int, LockstepCase], None] | None = None,
+    on_case_progress: Callable[[int, int, BenchmarkCase], None] | None = None,
     on_case_result: Callable[[LockstepCaseResult], None] | None = None,
 ) -> list[LockstepCaseResult]:
     """按序执行 Suite 中的所有用例，返回评测结果列表。"""

@@ -54,4 +54,3 @@ __all__ = [
     "make_sequence",
     "make_sequences",
 ]
-

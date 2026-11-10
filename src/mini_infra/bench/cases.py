@@ -8,7 +8,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec, make_request_specs
@@ -300,16 +300,22 @@ class WorkloadProfile:
 
 
 @dataclass(frozen=True)
-class SchedulerCase:
-    """Scheduler 评测最小单用例配置：包含输入负载与 System 维度。"""
+class BenchmarkCase:
+    """全仓统一的评测最小单用例执行实体：包含输入负载与系统执行维度（纯 CPU，解耦具体词表与 Tensor）。"""
 
     profile: WorkloadProfile
     mode: Mode
-    max_running_requests: int
+    max_running_requests: int | None = None
     paged_cache_config: PagedCacheConfig | None = None
     suite_name: str | None = None
+    engine: Literal["scheduler", "lockstep"] = "scheduler"
 
     def __post_init__(self) -> None:
+        if self.max_running_requests is None:
+            object.__setattr__(self, "max_running_requests", self.profile.num_total_requests)
+        elif self.max_running_requests <= 0:
+            raise ValueError(f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}")
+
         if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
             raise ValueError(f"Paged 模式 (mode={self.mode}) 必须提供 paged_cache_config")
         if self.mode.caching_method is not CachingMethod.PAGED and self.paged_cache_config is not None:
@@ -321,6 +327,7 @@ class SchedulerCase:
 
     @property
     def key(self) -> CaseKey:
+        assert self.max_running_requests is not None
         return CaseKey.from_mode(
             workload_id=self.workload_id,
             mode=self.mode,
@@ -349,36 +356,13 @@ class SchedulerCase:
         return data
 
 
-@dataclass(frozen=True)
-class LockstepCase:
-    """Lockstep 评测最小单用例配置：包含输入负载与静态批处理模式。"""
-
-    profile: WorkloadProfile
-    mode: Mode
-    suite_name: str | None = None
-
-    @property
-    def workload_id(self) -> str:
-        return self.profile.workload_id
-
-    @property
-    def key(self) -> CaseKey:
-        return CaseKey.from_mode(
-            workload_id=self.workload_id,
-            mode=self.mode,
-            max_running_requests=self.profile.num_total_requests,
-            paged_cache_config=None,
-        )
-
-
 __all__ = [
+    "BenchmarkCase",
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
     "Comparison",
     "ComparisonMetric",
-    "LockstepCase",
     "MetricKind",
-    "SchedulerCase",
     "WorkloadProfile",
 ]

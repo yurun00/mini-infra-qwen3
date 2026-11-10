@@ -12,7 +12,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import LockstepCase, WorkloadProfile
+from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.common import (
     LOCKSTEP_RESULT_HISTORY_DIR,
     add_common_args,
@@ -32,8 +32,8 @@ from mini_infra.bench.lockstep.format import (
 )
 from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
 from mini_infra.bench.lockstep.run_suite import run_suite
-from mini_infra.bench.lockstep.suites import LockstepSuite
 from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -118,10 +118,11 @@ def handle_case(args: argparse.Namespace) -> int:
         output_budgets=budgets,
         arrival_ms=(0.0,) * target_bs,
     )
-    case = LockstepCase(
+    case = BenchmarkCase(
         profile=profile,
         mode=mode,
         suite_name="custom",
+        engine="lockstep",
     )
 
     correctness = check_correctness(model, tokenizer, case.mode, device, args.update_golden)
@@ -222,7 +223,7 @@ def prepare_lockstep_env(args: argparse.Namespace) -> LockstepRunEnv:
 
 
 def execute_lockstep_suite(
-    run_env: LockstepRunEnv, args: argparse.Namespace, suite: LockstepSuite, output_path: Path
+    run_env: LockstepRunEnv, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 lockstep suite：正确性检查 → 执行 → 落盘 → 打印表格。"""
     modes = suite.modes()
@@ -247,7 +248,7 @@ def execute_lockstep_suite(
         flush=True,
     )
 
-    def on_progress(case_number: int, total_cases: int, case: LockstepCase) -> None:
+    def on_progress(case_number: int, total_cases: int, case: BenchmarkCase) -> None:
         print(
             f"[{case_number}/{total_cases}] mode={case.mode} batch={case.profile.num_total_requests} "
             f"prompt={format_lengths(case.profile.prompt_lens)} "
@@ -289,7 +290,7 @@ def execute_lockstep_suite(
     return SuiteRunSummary(name=suite.name, engine="lockstep", num_cases=len(results), output=output_path)
 
 
-def print_lockstep_dry_run(args: argparse.Namespace, suite: LockstepSuite) -> None:
+def print_lockstep_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> None:
     """展开并打印用例列表（不加载模型、不要求 CUDA）。"""
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats

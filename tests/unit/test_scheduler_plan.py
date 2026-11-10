@@ -3,9 +3,9 @@
 import pytest
 
 from mini_infra.bench.cases import (
+    BenchmarkCase,
     CaseDimension,
     CaseKey,
-    SchedulerCase,
     WorkloadProfile,
 )
 from mini_infra.bench.scheduler.plan import (
@@ -23,15 +23,16 @@ def make_dummy_case(
     kv_cache: bool,
     suite_name: str = "test-suite",
     workload_id: str = "test_workload",
-) -> SchedulerCase:
+) -> BenchmarkCase:
     caching_method = CachingMethod.DENSE if kv_cache else CachingMethod.NONE
     mode = Mode(caching_method, batching_method=batching_method)
     spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
-    return SchedulerCase(
+    return BenchmarkCase(
         profile=WorkloadProfile.from_specs(workload_id, (spec,)),
         mode=mode,
         max_running_requests=2,
         suite_name=suite_name,
+        engine="scheduler",
     )
 
 
@@ -227,31 +228,35 @@ def test_multi_workload_id_grouping_and_interleaving():
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
 
     # 两个不同的 workload，每个 workload 包含 dense 和 paged 两种 caching_method
-    w0_dense = SchedulerCase(
+    w0_dense = BenchmarkCase(
         profile=WorkloadProfile.from_specs("workload_0", (spec,)),
         mode=dense_mode,
         max_running_requests=2,
         suite_name="test-multi-workload",
+        engine="scheduler",
     )
-    w0_paged = SchedulerCase(
+    w0_paged = BenchmarkCase(
         profile=WorkloadProfile.from_specs("workload_0", (spec,)),
         mode=paged_mode,
         max_running_requests=2,
         paged_cache_config=PagedCacheConfig(block_size=16),
         suite_name="test-multi-workload",
+        engine="scheduler",
     )
-    w1_dense = SchedulerCase(
+    w1_dense = BenchmarkCase(
         profile=WorkloadProfile.from_specs("workload_1", (spec,)),
         mode=dense_mode,
         max_running_requests=2,
         suite_name="test-multi-workload",
+        engine="scheduler",
     )
-    w1_paged = SchedulerCase(
+    w1_paged = BenchmarkCase(
         profile=WorkloadProfile.from_specs("workload_1", (spec,)),
         mode=paged_mode,
         max_running_requests=2,
         paged_cache_config=PagedCacheConfig(block_size=16),
         suite_name="test-multi-workload",
+        engine="scheduler",
     )
 
     cases = [w0_dense, w0_paged, w1_dense, w1_paged]
@@ -347,17 +352,19 @@ def test_build_scheduler_run_plan_inconsistent_specs():
     spec2 = RequestSpec(request_idx=0, token_ids=[1, 2, 3], max_new_tokens=2, arrival_ms=0.0)
     mode1 = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
     mode2 = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    c1 = SchedulerCase(
+    c1 = BenchmarkCase(
         profile=WorkloadProfile.from_specs("w0", (spec1,)),
         mode=mode1,
         max_running_requests=2,
         suite_name="s",
+        engine="scheduler",
     )
-    c2 = SchedulerCase(
+    c2 = BenchmarkCase(
         profile=WorkloadProfile.from_specs("w0", (spec2,)),
         mode=mode2,
         max_running_requests=2,
         suite_name="s",
+        engine="scheduler",
     )
     with pytest.raises(ValueError, match="同一 workload_id 'w0' 下的用例请求规格（profile）不一致"):
         build_scheduler_run_plan([c1, c2], warmup=1, repeats=2)

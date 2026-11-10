@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import SchedulerCase, WorkloadProfile
+from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.common import (
     CASE_DIR,
     add_common_args,
@@ -34,10 +34,10 @@ from mini_infra.bench.scheduler.run_suite import (
     parse_interleave_args,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import SchedulerSuite
 from mini_infra.bench.scheduler.types import ComparisonResult, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.spec.common.lengths import make_arrival_times
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
@@ -161,12 +161,13 @@ def handle_case(args: argparse.Namespace) -> int:
     )
     case_name = "custom"
 
-    case = SchedulerCase(
+    case = BenchmarkCase(
         profile=workload_profile,
         mode=target_mode,
         max_running_requests=max_running,
         paged_cache_config=paged_cache_config,
         suite_name=case_name,
+        engine="scheduler",
     )
 
     block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""
@@ -261,7 +262,7 @@ def prepare_scheduler_env(args: argparse.Namespace) -> SchedulerRunEnv:
 
 
 def execute_scheduler_suite(
-    run_env: SchedulerRunEnv, args: argparse.Namespace, suite: SchedulerSuite, output_path: Path
+    run_env: SchedulerRunEnv, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 scheduler suite：正确性检查 → 执行 → 对比 → 落盘 → 打印表格。"""
     modes = suite.modes()
@@ -344,7 +345,7 @@ def execute_scheduler_suite(
     )
 
 
-def print_scheduler_dry_run(args: argparse.Namespace, suite: SchedulerSuite) -> None:
+def print_scheduler_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> None:
     """生成并打印执行计划（不加载模型、不要求 CUDA）。"""
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats

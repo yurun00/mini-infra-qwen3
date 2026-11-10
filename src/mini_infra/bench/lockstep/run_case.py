@@ -24,7 +24,7 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.cases import LockstepCase
+from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.common import DEFAULT_REPEATS, DEFAULT_WARMUP, ProfileMode, efficiency
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
@@ -83,11 +83,11 @@ def broadcast_case_lengths(
 def run_case_once(
     model: torch.nn.Module,
     device: torch.device,
-    case: LockstepCase,
+    case: BenchmarkCase,
     options: GenerationOptions | None = None,
     prompts: Sequence[Sequence[int]] | None = None,
 ) -> GenerationResult:
-    """执行单一 LockstepCase 的单次生成运行（原子操作）。"""
+    """执行单一 BenchmarkCase 的单次生成运行（原子操作）。"""
     if prompts is None:
         specs = case.profile.to_payload(model.config.vocab_size)
         resolved_prompts = [list(s.token_ids) for s in specs]
@@ -116,7 +116,7 @@ def run_case_once(
 def run_case(
     model: torch.nn.Module,
     device: torch.device,
-    case: LockstepCase,
+    case: BenchmarkCase,
     warmup: int = DEFAULT_WARMUP,
     repeats: int = DEFAULT_REPEATS,
     cost: dict | None = None,

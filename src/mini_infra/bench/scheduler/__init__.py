@@ -7,7 +7,6 @@ from mini_infra.bench.cases import (
     Comparison,
     ComparisonMetric,
     MetricKind,
-    SchedulerCase,
     WorkloadProfile,
 )
 from mini_infra.bench.scheduler.format import (
@@ -32,7 +31,6 @@ from mini_infra.bench.scheduler.run_suite import (
     run_suite,
 )
 from mini_infra.bench.scheduler.suites import (
-    SchedulerSuite,
     get_all_scheduler_suites,
     get_scheduler_suite,
     list_scheduler_suite_names,
@@ -60,9 +58,7 @@ __all__ = [
     "MetricKind",
     "PlannedRun",
     "RunPhase",
-    "SchedulerCase",
     "SchedulerCaseResult",
-    "SchedulerSuite",
     "WorkloadProfile",
     "build_benchmark_record",
     "build_scheduler_run_plan",

@@ -1,4 +1,4 @@
-"""Lockstep 评测套件：由 `benchmarks/specs/lockstep/*.yaml` 声明，这里只负责把声明绑定到 LockstepCase。
+"""Lockstep 评测套件：由 `benchmarks/specs/lockstep/*.yaml` 声明。
 
 套件的全部配置（被测系统、请求负载、sweep、检查）都在 YAML 中；新增 suite 只需新增一个 YAML 文件：
 
@@ -18,11 +18,9 @@ run_suite.py 不关心 suite 的内部细节，只按 `suite.cases` 逐个执行
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.cases import LockstepCase
 from mini_infra.bench.spec import (
     LoadedSuiteSpec,
     discover_suite_specs,
@@ -32,28 +30,11 @@ from mini_infra.bench.spec import (
 from mini_infra.bench.suite import BenchmarkSuite
 
 
-@dataclass(frozen=True)
-class LockstepSuite(BenchmarkSuite[LockstepCase]):
-    """一个已加载的 Lockstep 评测套件（YAML 声明 + 展开后的用例规格）。"""
-
-    def _build_cases(self) -> Sequence[LockstepCase]:
-        cases: list[LockstepCase] = []
-        for cs in self.case_specs:
-            cases.append(
-                LockstepCase(
-                    profile=cs.workload.to_profile(),
-                    mode=cs.mode,
-                    suite_name=self.name,
-                )
-            )
-        return tuple(cases)
+def suite_from_loaded(loaded: LoadedSuiteSpec) -> BenchmarkSuite:
+    return BenchmarkSuite(loaded=loaded)
 
 
-def suite_from_loaded(loaded: LoadedSuiteSpec) -> LockstepSuite:
-    return LockstepSuite(loaded=loaded)
-
-
-def load_lockstep_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> LockstepSuite:
+def load_lockstep_suite(path: Path, overrides: Mapping[str, Any] | None = None) -> BenchmarkSuite:
     """从任意 YAML 路径加载 Lockstep 套件。"""
     loaded = load_suite_spec(path, overrides)
     if loaded.spec.engine != "lockstep":
@@ -65,17 +46,15 @@ def list_lockstep_suite_names() -> list[str]:
     return sorted(discover_suite_specs("lockstep"))
 
 
-def get_lockstep_suite(name: str, overrides: Mapping[str, Any] | None = None) -> LockstepSuite:
+def get_lockstep_suite(name: str, overrides: Mapping[str, Any] | None = None) -> BenchmarkSuite:
     return suite_from_loaded(get_suite_spec("lockstep", name, overrides=overrides))
 
 
-def get_all_lockstep_suites() -> Sequence[LockstepSuite]:
+def get_all_lockstep_suites() -> Sequence[BenchmarkSuite]:
     return [get_lockstep_suite(name) for name in list_lockstep_suite_names()]
 
 
 __all__ = [
-    "LockstepCase",
-    "LockstepSuite",
     "get_all_lockstep_suites",
     "get_lockstep_suite",
     "list_lockstep_suite_names",

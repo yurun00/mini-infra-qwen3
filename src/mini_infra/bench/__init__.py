@@ -4,6 +4,7 @@
 统一承载固定批处理、动态批处理与无 Cache 场景下的吞吐与延迟基准对比。
 """
 
+from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.common import (
     DEFAULT_REPEATS,
     DEFAULT_WARMUP,
@@ -25,9 +26,7 @@ from mini_infra.bench.common import (
     summarize_samples,
 )
 from mini_infra.bench.lockstep import (
-    LockstepCase,
     LockstepCaseResult,
-    LockstepSuite,
     format_case_summary,
     format_table,
     get_all_lockstep_suites,
@@ -44,9 +43,7 @@ from mini_infra.bench.scheduler import (
     ComparisonMetric,
     ComparisonResult,
     MetricKind,
-    SchedulerCase,
     SchedulerCaseResult,
-    SchedulerSuite,
     WorkloadProfile,
     compute_comparisons,
     format_comparison,
@@ -82,6 +79,7 @@ from mini_infra.bench.synthetic import (
 
 __all__ = [
     "AnyBenchmarkRecord",
+    "BenchmarkCase",
     "BenchmarkSuite",
     "CaseDimension",
     "CaseKey",
@@ -95,9 +93,7 @@ __all__ = [
     "EfficiencyMetrics",
     "HardwarePeakSpecs",
     "LockstepBenchmarkRecord",
-    "LockstepCase",
     "LockstepCaseResult",
-    "LockstepSuite",
     "ComparisonResult",
     "ComparisonResultRecord",
     "MetricKind",
@@ -107,9 +103,7 @@ __all__ = [
     "ReleaseScale",
     "REPO_ROOT",
     "SchedulerBenchmarkRecord",
-    "SchedulerCase",
     "SchedulerCaseResult",
-    "SchedulerSuite",
     "WorkloadProfile",
     "add_common_args",
     "build_benchmark_record",
