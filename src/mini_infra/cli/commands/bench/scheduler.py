@@ -6,9 +6,8 @@
 import argparse
 import sys
 from dataclasses import replace
-from pathlib import Path
 
-from mini_infra.bench.cases import BenchmarkCase, CaseDimension, WorkloadProfile
+from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.common import (
     CASE_DIR,
     HardwarePeakSpecs,
@@ -20,20 +19,10 @@ from mini_infra.bench.common import (
     require_cuda,
     save_benchmark_record,
 )
-from mini_infra.bench.context import BenchmarkExecutionContext
-from mini_infra.bench.scheduler.format import (
-    format_table,
-)
-from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
+from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
-from mini_infra.bench.scheduler.run_suite import (
-    run_suite,
-)
-from mini_infra.bench.scheduler.types import ComparisonResult, compute_comparisons
 from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.spec.common.lengths import make_arrival_times
-from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -214,96 +203,3 @@ def handle_case(args: argparse.Namespace) -> int:
     print()
     print(format_table([result], suite_name=case_name))
     return 0
-
-
-def execute_scheduler_suite(
-    ctx: BenchmarkExecutionContext, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
-) -> SuiteRunSummary:
-    """在已准备好的环境中运行一个 scheduler suite：正确性检查 → 执行 → 对比 → 落盘 → 打印表格。"""
-    modes = suite.modes()
-    mode_label = ",".join(str(m) for m in modes)
-    for m in modes:
-        if m not in ctx.correctness_cache:
-            assert ctx.tokenizer is not None
-            ctx.correctness_cache[m] = check_correctness(ctx.model, ctx.tokenizer, m, ctx.device, update_golden=False)
-    correctness = {str(m): ctx.correctness_cache[m] for m in modes}
-    if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
-
-    warmup = args.warmup if args.warmup is not None else suite.warmup
-    repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_dims = CaseDimension.from_interleave_args(getattr(args, "interleave", None), suite.interleave)
-
-    print(
-        f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.cases)} warmup={warmup} repeats={repeats} ...",
-        flush=True,
-    )
-
-    def on_suite_step(step_number: int, total_steps: int, planned_run: PlannedRun) -> None:
-        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
-        case = planned_run.case
-        print(
-            f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | {case.key} ...",
-            flush=True,
-        )
-
-    results = run_suite(
-        model=ctx.model,
-        device=ctx.device,
-        suite=suite,
-        vocab_size=ctx.vocab,
-        warmup=warmup,
-        repeats=repeats,
-        interleave=interleave_dims,
-        on_step_progress=on_suite_step,
-    )
-
-    for res in results:
-        print(res.format_summary())
-
-    comparisons: list[ComparisonResult] = []
-    if suite.comparison is not None:
-        comparisons = compute_comparisons(results, suite.comparison)
-        if comparisons:
-            print(f"\n--- Comparisons (suite: {suite.name}) ---")
-            for comp in comparisons:
-                print(comp.format_summary())
-
-    record = build_benchmark_record(
-        args=args,
-        model=ctx.model,
-        mode_label=mode_label,
-        cases=results,
-        correctness=correctness,
-        env=ctx.env,
-        peaks=ctx.peaks,
-        cost=ctx.cost,
-        git=ctx.git,
-        warmup=warmup,
-        repeats=repeats,
-        suite_info=suite.to_dict(),
-        engine="scheduler",
-        comparisons=comparisons,
-    )
-    save_benchmark_record(output_path, record, dirty=ctx.dirty)
-
-    print()
-    print(format_table(results, suite_name=suite.name))
-    return SuiteRunSummary(
-        name=suite.name,
-        engine="scheduler",
-        num_cases=len(results),
-        output=output_path,
-        comparison_lines=tuple(c.format_summary() for c in comparisons),
-    )
-
-
-def print_scheduler_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> None:
-    """生成并打印执行计划（不加载模型、不要求 CUDA）。"""
-    warmup = args.warmup if args.warmup is not None else suite.warmup
-    repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_dims = CaseDimension.from_interleave_args(getattr(args, "interleave", None), suite.interleave)
-    cases = suite.cases
-    plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_dims)
-    print(f"=== [Dry Run] Suite: {suite.name} ===")
-    print(format_scheduler_run_plan(plan))

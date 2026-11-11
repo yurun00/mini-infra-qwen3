@@ -4,7 +4,12 @@
 统一承载固定批处理、动态批处理与无 Cache 场景下的吞吐与延迟基准对比。
 """
 
-from mini_infra.bench.cases import BenchmarkCase
+from mini_infra.bench.cases import (
+    BenchmarkCase,
+    CaseDimension,
+    CaseKey,
+    WorkloadProfile,
+)
 from mini_infra.bench.common import (
     DEFAULT_REPEATS,
     DEFAULT_WARMUP,
@@ -22,6 +27,13 @@ from mini_infra.bench.common import (
     require_cuda,
     save_benchmark_record,
 )
+from mini_infra.bench.comparison import (
+    Comparison,
+    ComparisonMetric,
+    ComparisonResult,
+    MetricKind,
+    compute_comparisons,
+)
 from mini_infra.bench.context import (
     BenchmarkExecutionContext,
 )
@@ -30,15 +42,7 @@ from mini_infra.bench.lockstep import (
     format_table,
 )
 from mini_infra.bench.scheduler import (
-    CaseDimension,
-    CaseKey,
-    Comparison,
-    ComparisonMetric,
-    ComparisonResult,
-    MetricKind,
     SchedulerCaseResult,
-    WorkloadProfile,
-    compute_comparisons,
 )
 from mini_infra.bench.schema import (
     AnyBenchmarkRecord,
@@ -57,8 +61,8 @@ from mini_infra.bench.spec.release import (
     ReleaseScale,
     release_workloads,
 )
-from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.suites import (
+from mini_infra.bench.suite import (
+    BenchmarkSuite,
     get_all_benchmark_suites,
     get_benchmark_suite,
     list_benchmark_suite_names,

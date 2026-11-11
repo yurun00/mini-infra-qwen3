@@ -12,8 +12,8 @@ from mini_infra.bench.cases import (
 )
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.bench.spec.suite.loader import load_suite_spec
-from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.suites import (
+from mini_infra.bench.suite import (
+    BenchmarkSuite,
     get_all_benchmark_suites,
     get_benchmark_suite,
     list_benchmark_suite_names,

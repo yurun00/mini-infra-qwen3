@@ -8,14 +8,18 @@ from mini_infra.bench.cases import (
     BenchmarkCase,
     CaseDimension,
     CaseKey,
-    Comparison,
-    ComparisonMetric,
-    MetricKind,
     WorkloadProfile,
 )
+from mini_infra.bench.comparison import (
+    Comparison,
+    ComparisonMetric,
+    ComparisonResult,
+    MetricKind,
+    compute_comparisons,
+)
 from mini_infra.bench.spec import get_suite_spec
-from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.suites import (
+from mini_infra.bench.suite import (
+    BenchmarkSuite,
     get_all_benchmark_suites,
     get_benchmark_suite,
     list_benchmark_suite_names,
@@ -184,7 +188,7 @@ def test_comparison_spec_from_yaml_is_typed():
     assert isinstance(comparison, Comparison)
     assert comparison.group_by == (CaseDimension.WORKLOAD_ID,)
     assert comparison.baseline == {CaseDimension.CACHING_METHOD: CachingMethod.DENSE}
-    assert [m.display_name for m in comparison.metrics] == ["makespan", "throughput", "KV-read", "pool"]
+    assert [m._display_name for m in comparison.metrics] == ["makespan", "throughput", "KV-read", "pool"]
     assert all(isinstance(m, ComparisonMetric) and isinstance(m.kind, MetricKind) for m in comparison.metrics)
 
 
@@ -250,9 +254,7 @@ def test_compute_comparisons():
         format_table,
     )
     from mini_infra.bench.scheduler.types import (
-        ComparisonResult,
         SchedulerCaseResult,
-        compute_comparisons,
     )
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.metrics import (
@@ -395,31 +397,31 @@ def test_compute_comparisons():
     assert c0.kind == MetricKind.SPEEDUP
     assert c0.baseline_value == 2000.0
     assert c0.candidate_value == 1600.0
-    assert c0.speedup == 1.25
+    assert c0._speedup == 1.25
     assert c0.ratio == 0.8
     assert c0.relative_delta == pytest.approx(-0.2)
-    assert c0.formatted_value() == "speedup 1.25x"
+    assert c0._formatted_value() == "speedup 1.25x"
 
     # 验证 paged_16 的 throughput gain
     c1 = comparisons[1]
     assert c1.metric_name == "throughput"
     assert c1.kind == MetricKind.GAIN
     assert c1.relative_delta == pytest.approx(0.25)
-    assert c1.formatted_value() == "throughput +25.0%"
+    assert c1._formatted_value() == "throughput +25.0%"
 
     # 验证 paged_16 的 KV-read reduction
     c2 = comparisons[2]
     assert c2.metric_name == "KV-read"
     assert c2.kind == MetricKind.REDUCTION
     assert c2.relative_delta == pytest.approx(-0.4)
-    assert c2.formatted_value() == "KV-read -40.0%"
+    assert c2._formatted_value() == "KV-read -40.0%"
 
     # 验证 paged_16 的 pool reduction
     c3 = comparisons[3]
     assert c3.metric_name == "pool"
     assert c3.kind == MetricKind.REDUCTION
     assert c3.relative_delta == pytest.approx(-0.5)
-    assert c3.formatted_value() == "pool -50.0%"
+    assert c3._formatted_value() == "pool -50.0%"
 
     # 验证 ComparisonResult.format_summary() 实例方法
     comp_line = c0.format_summary()
@@ -465,23 +467,27 @@ def test_compute_comparisons():
 
 def test_format_table_abbreviations():
     from mini_infra.bench.cases import CaseKey
-    from mini_infra.bench.scheduler.format import (
-        _abbreviate_mode,
-        _abbreviate_suite_name,
-        _abbreviate_workload_id,
-    )
+    from mini_infra.bench.scheduler.format import _abbreviate_suite_name
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 
-    assert _abbreviate_workload_id("variable_output_length") == "var_out_len"
-    assert _abbreviate_workload_id("uniform_output_length") == "uni_out_len"
-    assert _abbreviate_workload_id("staggered_arrivals") == "sta_arr"
-    assert _abbreviate_workload_id("prefill_interference") == "pre_int"
-    assert _abbreviate_workload_id("long_short_stress") == "lon_sho_str"
-    assert _abbreviate_workload_id("length_ratio_128") == "len_rat_128"
-    assert _abbreviate_workload_id("block_size_sweep") == "blo_siz_swe"
-    assert _abbreviate_workload_id("workload_A") == "wor_A"
-    assert _abbreviate_workload_id("") == ""
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+
+    def wid_abbr(wid: str) -> str:
+        return CaseKey.from_mode(wid, dense_mode, 16).abbreviated_workload_id
+
+    def mode_abbr(mode: Mode) -> str:
+        return CaseKey.from_mode("w", mode, 16).abbreviated_mode
+
+    assert wid_abbr("variable_output_length") == "var_out_len"
+    assert wid_abbr("uniform_output_length") == "uni_out_len"
+    assert wid_abbr("staggered_arrivals") == "sta_arr"
+    assert wid_abbr("prefill_interference") == "pre_int"
+    assert wid_abbr("long_short_stress") == "lon_sho_str"
+    assert wid_abbr("length_ratio_128") == "len_rat_128"
+    assert wid_abbr("block_size_sweep") == "blo_siz_swe"
+    assert wid_abbr("workload_A") == "wor_A"
+    assert wid_abbr("") == ""
 
     assert _abbreviate_suite_name("dense-vs-paged-long-short-stress") == "den-vs-pag-lon-sho-str"
     assert _abbreviate_suite_name("dense-vs-paged-throughput") == "den-vs-pag-thr"
@@ -489,13 +495,11 @@ def test_format_table_abbreviations():
     assert _abbreviate_suite_name("custom") == "cus"
     assert _abbreviate_suite_name("") == ""
 
-    assert _abbreviate_mode("dense-kv-cache+continuous-batching") == "dkc+cb"
-    assert _abbreviate_mode("dense-kv-cache+fixed-batching") == "dkc+fb"
-    assert _abbreviate_mode("paged-kv-cache+continuous-batching") == "pkc+cb"
-    assert _abbreviate_mode("no-cache") == "nc"
-    assert _abbreviate_mode("") == ""
+    assert mode_abbr(Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)) == "dkc+cb"
+    assert mode_abbr(Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)) == "dkc+fb"
+    assert mode_abbr(Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)) == "pkc+cb"
+    assert mode_abbr(Mode(CachingMethod.NONE)) == "nc"
 
-    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     dense_key = CaseKey.from_mode("variable_output_length", dense_mode, 16)
     assert dense_key.abbreviated_display_name == "[var_out_len] | dkc+cb | mrr=16"
 

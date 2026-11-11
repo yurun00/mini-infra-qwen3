@@ -18,10 +18,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from mini_infra.bench.cases import (
-    CaseDimension,
-    MetricKind,
-)
+from mini_infra.bench.cases import CaseDimension
+from mini_infra.bench.comparison import MetricKind
 from mini_infra.bench.spec.common.schema import (
     CheckSpec,
     ExecutionSpec,

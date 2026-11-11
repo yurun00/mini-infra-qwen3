@@ -18,8 +18,7 @@ from mini_infra.bench.spec import (
     load_raw_spec,
     load_suite_spec,
 )
-from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.suites import get_benchmark_suite
+from mini_infra.bench.suite import BenchmarkSuite, get_benchmark_suite
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod
 

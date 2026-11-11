@@ -292,7 +292,7 @@ def test_multi_workload_id_grouping_and_interleaving():
 
 
 def test_existing_suites_plan_golden_invariance():
-    from mini_infra.bench.suites import get_all_benchmark_suites
+    from mini_infra.bench.suite import get_all_benchmark_suites
 
     fixed_suites = [s for s in get_all_benchmark_suites("scheduler") if s.name.startswith("fixed-vs-continuous")]
     assert len(fixed_suites) == 4
@@ -307,7 +307,7 @@ def test_existing_suites_plan_golden_invariance():
 
 
 def test_dense_vs_paged_suites_plan():
-    from mini_infra.bench.suites import get_benchmark_suite
+    from mini_infra.bench.suite import get_benchmark_suite
 
     # 1. dense-vs-paged-long-short-stress: 1 workload, 2 cases (dense, paged)
     stress_suite = get_benchmark_suite("scheduler", "dense-vs-paged-long-short-stress")

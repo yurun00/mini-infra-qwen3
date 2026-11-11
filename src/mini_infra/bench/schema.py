@@ -46,8 +46,9 @@ from mini_infra.bench.common import (
 )
 
 if TYPE_CHECKING:
+    from mini_infra.bench.comparison import ComparisonResult
     from mini_infra.bench.lockstep.types import LockstepCaseResult
-    from mini_infra.bench.scheduler.types import ComparisonResult, SchedulerCaseResult
+    from mini_infra.bench.scheduler.types import SchedulerCaseResult
 
 
 # ============================================================================

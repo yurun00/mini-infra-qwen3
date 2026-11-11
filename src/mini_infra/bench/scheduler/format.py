@@ -5,14 +5,6 @@ from collections.abc import Sequence
 from mini_infra.bench.scheduler.types import SchedulerCaseResult
 
 
-def _abbreviate_workload_id(wid: str) -> str:
-    """提取 workload_id 各词前 3 个字符缩写，保留 '_' 分隔符（如 long_short_stress -> lon_sho_str）。"""
-    if not wid:
-        return ""
-    parts = [p for p in wid.replace("-", "_").split("_") if p]
-    return "_".join(p if p.isdigit() else p[:3] for p in parts)
-
-
 def _abbreviate_suite_name(name: str) -> str:
     """提取 suite name 各词前 3 个字符缩写，保留 '-' 分隔符（如 dense-vs-paged-throughput -> den-vs-pag-thr）。"""
     if not name:
@@ -21,25 +13,14 @@ def _abbreviate_suite_name(name: str) -> str:
     return "-".join(p if p.isdigit() else p[:3] for p in parts)
 
 
-def _abbreviate_mode(mode_str: str) -> str:
-    """提取 mode 各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。"""
-    if not mode_str:
-        return ""
-    abbr_parts: list[str] = []
-    for part in mode_str.split("+"):
-        words = [w for w in part.replace("_", "-").split("-") if w]
-        abbr_parts.append("".join(w[0] for w in words))
-    return "+".join(abbr_parts)
-
-
 def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     """渲染单个 Scheduler 用例的一行表格字段。"""
     slot_util = res.packing.slot_utilization.mean if res.packing is not None else 0.0
     block_size_str = str(res.key.block_size) if res.key.block_size is not None else ""
     return [
         _abbreviate_suite_name(suite_name),
-        _abbreviate_workload_id(res.key.workload_id),
-        _abbreviate_mode(str(res.key.mode)),
+        res.key.abbreviated_workload_id,
+        res.key.abbreviated_mode,
         str(res.key.max_running_requests),
         block_size_str,
         f"{res.schedule_metrics.makespan_ms.mean:.3f}",

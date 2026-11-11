@@ -1,16 +1,22 @@
-"""评测套件通用容器（BenchmarkSuite）。"""
+"""评测套件通用容器（BenchmarkSuite）与套件加载、发现及查询服务。"""
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from mini_infra.bench.cases import (
     BenchmarkCase,
     CaseDimension,
-    Comparison,
 )
+from mini_infra.bench.comparison import Comparison
 from mini_infra.bench.spec.common.schema import SuiteEngine
-from mini_infra.bench.spec.suite.loader import LoadedSuiteSpec
+from mini_infra.bench.spec.suite.loader import (
+    LoadedSuiteSpec,
+    discover_suite_specs,
+    get_suite_spec,
+    load_suite_spec,
+)
 from mini_infra.engine import Mode
 
 
@@ -100,6 +106,41 @@ class BenchmarkSuite:
         )
 
 
+def load_benchmark_suite(
+    path: Path,
+    overrides: Mapping[str, Any] | None = None,
+    expected_engine: SuiteEngine | None = None,
+) -> BenchmarkSuite:
+    """从任意 YAML 路径加载 BenchmarkSuite。若提供 expected_engine 则校验引擎一致性。"""
+    loaded = load_suite_spec(path, overrides)
+    if expected_engine is not None and loaded.spec.engine != expected_engine:
+        raise ValueError(f"{path}: engine 必须是 {expected_engine}，实际为 {loaded.spec.engine}")
+    return BenchmarkSuite.from_spec(loaded)
+
+
+def list_benchmark_suite_names(engine: SuiteEngine) -> list[str]:
+    """列出指定引擎内置的所有 suite 名称。"""
+    return sorted(discover_suite_specs(engine))
+
+
+def get_benchmark_suite(
+    engine: SuiteEngine,
+    name: str,
+    overrides: Mapping[str, Any] | None = None,
+) -> BenchmarkSuite:
+    """获取指定引擎内置的命名套件。"""
+    return BenchmarkSuite.from_spec(get_suite_spec(engine, name, overrides=overrides))
+
+
+def get_all_benchmark_suites(engine: SuiteEngine) -> Sequence[BenchmarkSuite]:
+    """获取指定引擎内置的全部套件。"""
+    return [get_benchmark_suite(engine, name) for name in list_benchmark_suite_names(engine)]
+
+
 __all__ = [
     "BenchmarkSuite",
+    "get_all_benchmark_suites",
+    "get_benchmark_suite",
+    "list_benchmark_suite_names",
+    "load_benchmark_suite",
 ]

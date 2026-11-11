@@ -14,15 +14,12 @@ from pathlib import Path
 from mini_infra.bench.common import add_common_args
 from mini_infra.bench.context import BenchmarkExecutionContext
 from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
-from mini_infra.bench.suite import BenchmarkSuite
-from mini_infra.bench.suites import load_benchmark_suite
+from mini_infra.bench.suite import BenchmarkSuite, load_benchmark_suite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
-from mini_infra.cli.commands.bench.lockstep import (
+from mini_infra.cli.commands.bench.suite_runner import (
     execute_lockstep_suite,
-    print_lockstep_dry_run,
-)
-from mini_infra.cli.commands.bench.scheduler import (
     execute_scheduler_suite,
+    print_lockstep_dry_run,
     print_scheduler_dry_run,
 )
 from mini_infra.cli.commands.bench.suite_source import add_set_arg, suite_output_path, use_suite_execution_defaults

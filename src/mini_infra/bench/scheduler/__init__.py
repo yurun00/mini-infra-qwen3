@@ -4,9 +4,6 @@ from mini_infra.bench.cases import (
     CaseDimension,
     CaseDimensionValue,
     CaseKey,
-    Comparison,
-    ComparisonMetric,
-    MetricKind,
     WorkloadProfile,
 )
 from mini_infra.bench.scheduler.format import (
@@ -26,11 +23,8 @@ from mini_infra.bench.scheduler.run_suite import (
     run_suite,
 )
 from mini_infra.bench.scheduler.types import (
-    ComparisonResult,
     DistributionStats,
     SchedulerCaseResult,
-    compute_comparisons,
-    extract_metric_by_path,
     extract_workload_profile,
 )
 
@@ -38,18 +32,12 @@ __all__ = [
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
-    "Comparison",
-    "ComparisonMetric",
-    "ComparisonResult",
     "DistributionStats",
-    "MetricKind",
     "PlannedRun",
     "RunPhase",
     "SchedulerCaseResult",
     "WorkloadProfile",
     "build_scheduler_run_plan",
-    "compute_comparisons",
-    "extract_metric_by_path",
     "extract_workload_profile",
     "format_scheduler_run_plan",
     "format_table",

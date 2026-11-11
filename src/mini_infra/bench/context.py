@@ -9,6 +9,7 @@ from typing import Any
 import torch
 
 from mini_infra.bench.common import (
+    CorrectnessReport,
     HardwarePeakSpecs,
     ModelCostProfile,
     git_info,
@@ -28,10 +29,10 @@ class BenchmarkExecutionContext:
     device: torch.device
     vocab: int
     env: dict[str, Any]
-    peaks: dict[str, float | None]
-    cost: dict[str, Any] | None
+    peaks: HardwarePeakSpecs | dict[str, float | None]
+    cost: ModelCostProfile | dict[str, Any] | None
     git: dict[str, Any]
-    correctness_cache: dict[Mode, dict[str, Any]] = field(default_factory=dict)
+    correctness_cache: dict[Mode, CorrectnessReport | dict[str, Any]] = field(default_factory=dict)
 
     @property
     def commit(self) -> str:

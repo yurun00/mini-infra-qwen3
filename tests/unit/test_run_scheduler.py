@@ -14,7 +14,7 @@ from mini_infra.bench.scheduler import (
     run_suite,
 )
 from mini_infra.bench.schema import build_benchmark_record
-from mini_infra.bench.suites import load_benchmark_suite
+from mini_infra.bench.suite import load_benchmark_suite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model

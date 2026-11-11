@@ -8,14 +8,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec, make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
-
-if TYPE_CHECKING:
-    from mini_infra.bench.spec.suite.schema import ComparisonSpec
 
 CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | None
 
@@ -153,13 +150,24 @@ class CaseKey:
         return " | ".join(parts)
 
     @property
+    def abbreviated_workload_id(self) -> str:
+        """提取 workload_id 各词前 3 个字符缩写，保留 '_' 分隔符（如 long_short_stress -> lon_sho_str）。"""
+        parts = [p for p in self.workload_id.replace("-", "_").split("_") if p]
+        return "_".join(p if p.isdigit() else p[:3] for p in parts)
+
+    @property
+    def abbreviated_mode(self) -> str:
+        """提取 mode 各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。"""
+        return "+".join(
+            "".join(w[0] for w in part.replace("_", "-").split("-") if w) for part in str(self.mode).split("+")
+        )
+
+    @property
     def abbreviated_display_name(self) -> str:
         """提取用例键的缩写显示名（如 [vol] | dkc+cb | mrr=16 或 [lss] | pkc+cb | mrr=16 | blk-sz=16）。"""
-        wid_abbr = "_".join(part[:3] for part in self.workload_id.split("_"))
-        mode_abbr = "+".join("".join(word[0] for word in dim.split("-")) for dim in str(self.mode).split("+"))
         parts = [
-            f"[{wid_abbr}]",
-            mode_abbr,
+            f"[{self.abbreviated_workload_id}]",
+            self.abbreviated_mode,
             f"mrr={self.max_running_requests}",
         ]
         if self.block_size is not None:
@@ -198,84 +206,6 @@ class CaseKey:
             flags=frozenset(FeatureFlag(f) for f in raw_flags) if raw_flags else frozenset(),
             block_size=int(data["block_size"]) if data.get("block_size") is not None else None,
             num_blocks=int(data["num_blocks"]) if data.get("num_blocks") is not None else None,
-        )
-
-
-class MetricKind(str, Enum):
-    """指标对比相对统计模式。"""
-
-    SPEEDUP = "speedup"  # baseline / candidate（如耗时/makespan 加速比，数值越小越好）
-    GAIN = "gain"  # (candidate - baseline) / baseline（如吞吐量增益，数值越大越好）
-    REDUCTION = "reduction"  # (baseline - candidate) / baseline（如显存/token 削减，数值越小越好）
-
-
-@dataclass(frozen=True)
-class ComparisonMetric:
-    """指定参与对比的指标点分路径与期望统计模式。"""
-
-    path: str
-    kind: MetricKind
-    name: str | None = None
-
-    @property
-    def display_name(self) -> str:
-        return self.name or self.path.rsplit(".", 1)[-1]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "path": self.path,
-            "kind": self.kind.value,
-            "name": self.display_name,
-        }
-
-
-@dataclass(frozen=True)
-class Comparison:
-    """Suite 级泛型对比配置（已解析为强类型，纯 CPU，零 PyTorch 依赖）。"""
-
-    metrics: tuple[ComparisonMetric, ...]
-    group_by: tuple[CaseDimension, ...]
-    baseline: Mapping[CaseDimension, CaseDimensionValue]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "metrics": [m.to_dict() for m in self.metrics],
-            "group_by": [d.value for d in self.group_by],
-            "baseline": {
-                d.value if isinstance(d, CaseDimension) else str(d): v.value if hasattr(v, "value") else str(v)
-                for d, v in self.baseline.items()
-            },
-        }
-
-    @classmethod
-    def from_spec(cls, spec: ComparisonSpec) -> Comparison:
-        """从 ComparisonSpec 声明模型装配强类型的运行时 Comparison 对比配置。"""
-        baseline: dict[CaseDimension, CaseDimensionValue] = {}
-        for dim, raw in spec.baseline.items():
-            if dim is CaseDimension.BATCHING_METHOD:
-                baseline[dim] = BatchingMethod.from_str(str(raw))
-            elif dim is CaseDimension.CACHING_METHOD:
-                baseline[dim] = CachingMethod.from_str(str(raw))
-            elif dim is CaseDimension.WORKLOAD_ID:
-                baseline[dim] = str(raw)
-            elif dim is CaseDimension.MAX_RUNNING_REQUESTS:
-                if not isinstance(raw, int):
-                    raise ValueError("baseline.max_running_requests 必须是整数")
-                baseline[dim] = raw
-            elif dim is CaseDimension.BLOCK_SIZE:
-                if not isinstance(raw, int):
-                    raise ValueError("baseline.block_size 必须是整数")
-                baseline[dim] = raw
-            elif dim is CaseDimension.NUM_BLOCKS:
-                if not isinstance(raw, int) and raw is not None:
-                    raise ValueError("baseline.num_blocks 必须是整数或 null")
-                baseline[dim] = raw
-            else:
-                raise ValueError(f"baseline 不支持维度 {dim.value}")
-        return cls(
-            metrics=tuple(ComparisonMetric(m.path, m.kind, m.name) for m in spec.metrics),
-            group_by=tuple(spec.group_by),
-            baseline=baseline,
         )
 
 
@@ -389,8 +319,5 @@ __all__ = [
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
-    "Comparison",
-    "ComparisonMetric",
-    "MetricKind",
     "WorkloadProfile",
 ]

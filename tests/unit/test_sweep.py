@@ -17,11 +17,13 @@ from mini_infra.bench.spec import (
     load_suite_spec,
     parse_set_args,
 )
-from mini_infra.bench.suites import get_benchmark_suite, load_benchmark_suite
+from mini_infra.bench.suite import get_benchmark_suite, load_benchmark_suite
 from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
 from mini_infra.cli import main
-from mini_infra.cli.commands.bench.lockstep import execute_lockstep_suite
-from mini_infra.cli.commands.bench.scheduler import execute_scheduler_suite
+from mini_infra.cli.commands.bench.suite_runner import (
+    execute_lockstep_suite,
+    execute_scheduler_suite,
+)
 from mini_infra.verification.smoke import build_tiny_model
 
 _SCHEDULER_YAML = """
