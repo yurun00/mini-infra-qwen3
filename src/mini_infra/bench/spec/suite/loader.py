@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.common import SPECS_DIR
+from mini_infra.bench.paths import SPECS_DIR
 from mini_infra.bench.spec.common.overrides import apply_overrides
 from mini_infra.bench.spec.common.raw import load_raw_spec, spec_sha256
 from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec

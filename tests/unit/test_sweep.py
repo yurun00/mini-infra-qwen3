@@ -8,7 +8,9 @@ import pytest
 import torch
 
 from mini_infra.bench.context import BenchmarkExecutionContext
-from mini_infra.bench.schema import validate_benchmark_record
+from mini_infra.bench.correctness import CorrectnessReport
+from mini_infra.bench.efficiency import HardwarePeakSpecs
+from mini_infra.bench.result import validate_benchmark_record
 from mini_infra.bench.spec import (
     ReleaseSpec,
     apply_overrides,
@@ -228,7 +230,7 @@ def _args(**kw):
         "warmup": None,
         "repeats": None,
         "interleave": None,
-        "profile_mode": None,
+        "profiling_mode": None,
         "tensorboard_dir": None,
     }
     return SimpleNamespace(**{**base, **kw})
@@ -242,11 +244,11 @@ def _context(model, modes):
         device=torch.device("cpu"),
         vocab=model.config.vocab_size,
         env={"gpu": "CPU"},
-        peaks={"bandwidth_gbs": None, "tflops": None},
+        peaks=HardwarePeakSpecs(bandwidth_gbs=None, tflops=None),
         cost=None,
         git={"commit": "abc", "dirty": False},
         correctness_cache={
-            m: {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": False} for m in modes
+            m: CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False) for m in modes
         },
     )
 
@@ -275,7 +277,9 @@ def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
     suite = load_benchmark_suite(_write(tmp_path, "aa", _SCHEDULER_YAML), expected_engine="scheduler")
     ctx = _context(model, suite.modes())
     first_mode = suite.modes()[0]
-    ctx.correctness_cache[first_mode] = {"checked": True, "passed": False, "match_ratio": 0.5}
+    ctx.correctness_cache[first_mode] = CorrectnessReport(
+        checked=True, passed=False, match_ratio=0.5, updated_golden=False
+    )
     with pytest.raises(SystemExit, match="正确性检查失败"):
         execute_scheduler_suite(ctx, _args(), suite, tmp_path / "x.json")
     assert not (tmp_path / "x.json").exists()

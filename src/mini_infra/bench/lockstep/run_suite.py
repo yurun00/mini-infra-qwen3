@@ -4,12 +4,11 @@
 """
 
 from collections.abc import Callable
-from typing import Any
 
 import torch
 
-from mini_infra.bench.cases import BenchmarkCase
-from mini_infra.bench.common import ProfileMode
+from mini_infra.bench.cases import BenchmarkCase, ProfilingMode
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.bench.lockstep.types import LockstepCaseResult
 from mini_infra.bench.suite import BenchmarkSuite
@@ -22,9 +21,9 @@ def run_suite(
     suite: BenchmarkSuite,
     warmup: int | None = None,
     repeats: int | None = None,
-    cost: dict[str, Any] | None = None,
-    peaks: dict[str, float | None] | None = None,
-    profile_mode: ProfileMode | None = None,
+    cost: ModelCostProfile | None = None,
+    peaks: HardwarePeakSpecs | None = None,
+    profiling_mode: ProfilingMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
     on_case_progress: Callable[[int, int, BenchmarkCase], None] | None = None,
     on_case_result: Callable[[LockstepCaseResult], None] | None = None,
@@ -48,7 +47,7 @@ def run_suite(
                 repeats=repeats_val,
                 cost=cost,
                 peaks=peaks,
-                profile_mode=profile_mode,
+                profiling_mode=profiling_mode,
                 tensorboard_options=tensorboard_options,
             )
         except torch.cuda.OutOfMemoryError:

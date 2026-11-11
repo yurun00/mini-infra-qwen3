@@ -130,7 +130,7 @@ def test_cli_plot_history_no_records(tmp_path, monkeypatch, capsys):
     from mini_infra.cli.commands.bench import plot
 
     monkeypatch.setattr(plot, "RESULT_HISTORY_DIR", tmp_path)
-    monkeypatch.setattr(plot, "load_results", lambda: [])
+    monkeypatch.setattr(plot, "load_results", lambda _dir=None: [])
 
     with pytest.raises(SystemExit) as exc_info:
         main(["bench", "plot", "history"])

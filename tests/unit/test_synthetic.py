@@ -2,7 +2,7 @@
 
 import torch
 
-from mini_infra.bench.common import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
+from mini_infra.bench.correctness import GOLDEN_MAX_OUTPUT_TOKENS, GOLDEN_PROMPT
 from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.bench.spec.release import RELEASE_SCALES, release_workloads
@@ -173,8 +173,8 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "[1/5] 开始执行: 运行 Lockstep 基准 [small]" in out_lockstep
     assert "[2/5] 开始执行: 运行 Lockstep 基准 [medium]" in out_lockstep
     assert "[3/5] 开始执行: 运行 Lockstep 基准 [large]" in out_lockstep
-    assert out_lockstep.count("--profile-mode extra-profile") == 1
-    assert "--scale small --seed 42 --profile-mode extra-profile" in out_lockstep
+    assert out_lockstep.count("--profiling-mode dedicated-pass") == 1
+    assert "--scale small --seed 42 --profiling-mode dedicated-pass" in out_lockstep
     assert "-> 目标产物: benchmarks/results/history/lockstep/<commit>_v0.3.0.json" in out_lockstep
 
     # Test scheduler dry-run

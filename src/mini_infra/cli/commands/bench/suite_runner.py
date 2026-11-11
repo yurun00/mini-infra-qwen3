@@ -4,17 +4,12 @@ import argparse
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 from mini_infra.bench.cases import BenchmarkCase, CaseDimension
-from mini_infra.bench.common import (
-    CorrectnessReport,
-    check_correctness,
-    format_lengths,
-    save_benchmark_record,
-)
 from mini_infra.bench.comparison import ComparisonResult, compute_comparisons
 from mini_infra.bench.context import BenchmarkExecutionContext
+from mini_infra.bench.correctness import CorrectnessReport, check_correctness
+from mini_infra.bench.format import format_lengths
 from mini_infra.bench.lockstep.format import (
     format_suite_plan,
 )
@@ -22,10 +17,10 @@ from mini_infra.bench.lockstep.format import (
     format_table as format_lockstep_table,
 )
 from mini_infra.bench.lockstep.run_suite import run_suite as run_lockstep_suite
+from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
 from mini_infra.bench.scheduler.format import format_table as format_scheduler_table
 from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
 from mini_infra.bench.scheduler.run_suite import run_suite as run_scheduler_suite
-from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.engine import Mode
@@ -36,14 +31,14 @@ def _ensure_suite_correctness(
     ctx: BenchmarkExecutionContext,
     modes: Sequence[Mode],
     allow_mismatch: bool,
-) -> dict[str, CorrectnessReport | dict[str, Any]]:
+) -> dict[str, CorrectnessReport]:
     """按需检查并缓存各运行模式的输出正确性；若存在不一致且未开启 allow_mismatch 则退出进程。"""
     for m in modes:
         if m not in ctx.correctness_cache:
             assert ctx.tokenizer is not None
             ctx.correctness_cache[m] = check_correctness(ctx.model, ctx.tokenizer, m, ctx.device, update_golden=False)
     correctness = {str(m): ctx.correctness_cache[m] for m in modes}
-    if any(c["passed"] is False for c in correctness.values()) and not allow_mismatch:
+    if any(c.passed is False for c in correctness.values()) and not allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
     return correctness
 
@@ -82,7 +77,7 @@ def execute_lockstep_suite(
         repeats=repeats,
         cost=ctx.cost,
         peaks=ctx.peaks,
-        profile_mode=args.profile_mode,
+        profiling_mode=args.profiling_mode,
         tensorboard_options=tb_options,
         on_case_progress=on_progress,
         on_case_result=lambda r: print(r.format_summary()),
@@ -102,7 +97,7 @@ def execute_lockstep_suite(
         repeats=repeats,
         suite_info=suite.to_dict(),
     )
-    save_benchmark_record(output_path, record, dirty=ctx.dirty)
+    save_benchmark_record(output_path, record, is_dirty=ctx.dirty)
     print()
     print(format_lockstep_table(results))
     return SuiteRunSummary(name=suite.name, engine="lockstep", num_cases=len(results), output=output_path)
@@ -179,7 +174,7 @@ def execute_scheduler_suite(
         engine="scheduler",
         comparisons=comparisons,
     )
-    save_benchmark_record(output_path, record, dirty=ctx.dirty)
+    save_benchmark_record(output_path, record, is_dirty=ctx.dirty)
 
     print()
     print(format_scheduler_table(results, suite_name=suite.name))

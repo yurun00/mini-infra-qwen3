@@ -10,9 +10,24 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal
 
+from mini_infra.bench.format import format_lengths
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.core.request import RequestSpec, make_request_specs
-from mini_infra.engine import BatchingMethod, CachingMethod, FeatureFlag, Mode
+from mini_infra.engine.mode import BatchingMethod, CachingMethod, FeatureFlag, Mode
+
+DEFAULT_WARMUP = 3
+DEFAULT_REPEATS = 10
+
+
+class ProfilingMode(str, Enum):
+    """Profiler 性能剖析执行模式。"""
+
+    DEDICATED_PASS = "dedicated-pass"
+    ALL_REPEATS = "all-repeats"
+
+    def __str__(self) -> str:
+        return self.value
+
 
 CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | None
 
@@ -305,8 +320,6 @@ class BenchmarkCase:
         """格式化单用例配置摘要（供 `bench suites show` 预览）。"""
         if self.engine == "scheduler":
             return str(self.key)
-        from mini_infra.bench.common import format_lengths
-
         return (
             f"[{self.workload_id}] | {self.mode} | batch={self.profile.num_total_requests} "
             f"prompt={format_lengths(self.profile.prompt_lens)} "
@@ -319,5 +332,8 @@ __all__ = [
     "CaseDimension",
     "CaseDimensionValue",
     "CaseKey",
+    "DEFAULT_REPEATS",
+    "DEFAULT_WARMUP",
+    "ProfilingMode",
     "WorkloadProfile",
 ]

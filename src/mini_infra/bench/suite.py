@@ -119,7 +119,7 @@ def load_benchmark_suite(
 
 
 def list_benchmark_suite_names(engine: SuiteEngine) -> list[str]:
-    """列出指定引擎内置的所有 suite 名称。"""
+    """列出指定引擎内置的所有 suite 名称。专供测试使用（Test-only）。"""
     return sorted(discover_suite_specs(engine))
 
 
@@ -128,12 +128,12 @@ def get_benchmark_suite(
     name: str,
     overrides: Mapping[str, Any] | None = None,
 ) -> BenchmarkSuite:
-    """获取指定引擎内置的命名套件。"""
+    """获取指定引擎内置的命名套件。专供测试使用（Test-only）。"""
     return BenchmarkSuite.from_spec(get_suite_spec(engine, name, overrides=overrides))
 
 
 def get_all_benchmark_suites(engine: SuiteEngine) -> Sequence[BenchmarkSuite]:
-    """获取指定引擎内置的全部套件。"""
+    """获取指定引擎内置的全部套件。专供测试使用（Test-only）。"""
     return [get_benchmark_suite(engine, name) for name in list_benchmark_suite_names(engine)]
 
 

@@ -12,10 +12,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from mini_infra.bench.cases import CaseKey, WorkloadProfile
-from mini_infra.bench.common import (
-    DistributionStats,
-    EfficiencyMetrics,
-)
+from mini_infra.bench.efficiency import EfficiencyMetrics, HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.stats import DistributionStats
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -129,8 +127,8 @@ class LockstepCaseResult:
         runs: Sequence[GenerationResult],
         *,
         warmup: int = 0,
-        cost: dict | None = None,
-        peaks: dict | None = None,
+        cost: ModelCostProfile | None = None,
+        peaks: HardwarePeakSpecs | None = None,
         op_breakdown: OpLatencyBreakdown | None = None,
         scale: str | None = None,
         seed: int | None = None,
@@ -165,7 +163,7 @@ class LockstepCaseResult:
         )
 
         mib = 1024**2
-        weights_mb = cost["weight_bytes"] / mib if cost else None
+        weights_mb = cost.weight_bytes / mib if cost else None
         case_memory = MemoryProfile(
             weights_mb=weights_mb,
             baseline_mb=max((r.memory.baseline_mb for r in runs), default=0.0),
@@ -213,6 +211,5 @@ class LockstepCaseResult:
 
 
 __all__ = [
-    "DistributionStats",
     "LockstepCaseResult",
 ]

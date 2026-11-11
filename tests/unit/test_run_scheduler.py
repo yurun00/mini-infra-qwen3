@@ -6,6 +6,9 @@ from typing import Any
 import torch
 
 from mini_infra.bench.cases import BenchmarkCase, CaseDimension, WorkloadProfile
+from mini_infra.bench.correctness import CorrectnessReport
+from mini_infra.bench.efficiency import HardwarePeakSpecs
+from mini_infra.bench.result import build_benchmark_record
 from mini_infra.bench.scheduler import (
     extract_workload_profile,
     format_table,
@@ -13,7 +16,6 @@ from mini_infra.bench.scheduler import (
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.suite import load_benchmark_suite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
@@ -113,7 +115,7 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     """验证 handle_case 在 paged-kv-cache 模式下透传 PagedCacheConfig 并落盘。"""
     import json
 
-    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.bench.correctness import CorrectnessReport
     from mini_infra.cli import build_parser
     from mini_infra.cli.commands.bench import scheduler as sched_cmd
     from mini_infra.core.block_manager import PagedCacheConfig
@@ -179,7 +181,7 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
 
 def test_handle_scheduler_case_default_output_to_case_dir(tmp_path, monkeypatch):
     """验证 handle_case 未指定 --output 时默认写入 CASE_DIR (benchmarks/case)。"""
-    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.bench.correctness import CorrectnessReport
     from mini_infra.cli import build_parser
     from mini_infra.cli.commands.bench import scheduler as sched_cmd
 
@@ -335,9 +337,9 @@ workload:
         model=model,
         mode_label="suite(kv-cache+fixed-batching,kv-cache+continuous-batching)",
         cases=cases,
-        correctness={"check": True},
+        correctness=CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
         env={"gpu": "CPU"},
-        peaks={"bandwidth_gbs": None, "tflops": None},
+        peaks=HardwarePeakSpecs(bandwidth_gbs=None, tflops=None),
         cost=None,
         git={"commit": "abc", "dirty": False},
         warmup=0,
@@ -345,10 +347,11 @@ workload:
         suite_info=suite.to_dict(),
         engine="scheduler",
     )
-    assert record["engine"] == "scheduler"
-    assert record["suite"]["name"] == "tiny-fixed-vs-continuous"
-    assert record["suite"]["spec"]["workload"]["count"] == 2
-    assert len(record["cases"]) == 2
+    assert record.engine == "scheduler"
+    assert record.suite is not None
+    assert record.suite["name"] == "tiny-fixed-vs-continuous"
+    assert record.suite["spec"]["workload"]["count"] == 2
+    assert len(record.cases) == 2
 
 
 def test_run_scheduler_paged_case_on_cpu():

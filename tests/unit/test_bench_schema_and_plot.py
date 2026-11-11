@@ -1,4 +1,4 @@
-"""bench.schema 与 bench.plotting (Pydantic + Pandas + Seaborn) 单元测试。"""
+"""bench.result 与 bench.plotting (Pydantic + Pandas + Seaborn) 单元测试。"""
 
 import json
 from pathlib import Path
@@ -10,11 +10,13 @@ from mini_infra.bench.plotting.compare import (
     plot_mode_comparison,
 )
 from mini_infra.bench.plotting.history import (
-    generate_optimization_guidance,
     load_results,
-    markdown_table,
     plot_evolution_and_scaling,
     plot_profiling_and_optimization,
+)
+from mini_infra.bench.plotting.report import (
+    generate_optimization_guidance,
+    markdown_table,
 )
 from mini_infra.bench.plotting.tidy import (
     LOCKSTEP_ONLY_PLOT_SPECS,
@@ -25,7 +27,7 @@ from mini_infra.bench.plotting.tidy import (
     resolve_record_label,
     wide_to_tidy_df,
 )
-from mini_infra.bench.schema import (
+from mini_infra.bench.result import (
     LockstepBenchmarkRecord,
     SchedulerBenchmarkRecord,
     load_benchmark_record,
@@ -331,7 +333,7 @@ def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPat
 
     import torch
 
-    from mini_infra.bench.common import gpu_info
+    from mini_infra.bench.env import gpu_info
 
     monkeypatch.setattr(
         torch.cuda,

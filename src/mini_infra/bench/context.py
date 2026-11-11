@@ -8,14 +8,9 @@ from typing import Any
 
 import torch
 
-from mini_infra.bench.common import (
-    CorrectnessReport,
-    HardwarePeakSpecs,
-    ModelCostProfile,
-    git_info,
-    gpu_info,
-    require_cuda,
-)
+from mini_infra.bench.correctness import CorrectnessReport
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.env import git_info, gpu_info, require_cuda
 from mini_infra.engine import Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 
@@ -29,10 +24,10 @@ class BenchmarkExecutionContext:
     device: torch.device
     vocab: int
     env: dict[str, Any]
-    peaks: HardwarePeakSpecs | dict[str, float | None]
-    cost: ModelCostProfile | dict[str, Any] | None
+    peaks: HardwarePeakSpecs
+    cost: ModelCostProfile | None
     git: dict[str, Any]
-    correctness_cache: dict[Mode, CorrectnessReport | dict[str, Any]] = field(default_factory=dict)
+    correctness_cache: dict[Mode, CorrectnessReport] = field(default_factory=dict)
 
     @property
     def commit(self) -> str:
@@ -51,7 +46,7 @@ class BenchmarkExecutionContext:
         model = load_model(model_dir, device)
         env = gpu_info(device)
         peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-        if None in peaks.values():
+        if peaks.bandwidth_gbs is None or peaks.tflops is None:
             print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
         return cls(
             model=model,

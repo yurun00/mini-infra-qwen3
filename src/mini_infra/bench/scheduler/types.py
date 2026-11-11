@@ -8,10 +8,8 @@ from mini_infra.bench.cases import (
     CaseKey,
     WorkloadProfile,
 )
-from mini_infra.bench.common import (
-    DistributionStats,
-    EfficiencyMetrics,
-)
+from mini_infra.bench.efficiency import EfficiencyMetrics
+from mini_infra.bench.stats import DistributionStats
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -53,11 +51,6 @@ class SchedulerCaseResult:
     @property
     def workload_id(self) -> str:
         return self.key.workload_id
-
-    @property
-    def step_agg_metrics(self) -> StepAggregatedMetrics[DistributionStats]:
-        """与 ScheduleResult.step_agg_metrics 保持一致的别名。"""
-        return self.metrics
 
     def format_summary(self) -> str:
         """格式化单用例的延迟/吞吐/槽位利用率摘要行（与 lockstep 对齐）。"""
@@ -285,7 +278,6 @@ def extract_workload_profile(res: ScheduleResult, workload_id: str | None = None
 
 
 __all__ = [
-    "DistributionStats",
     "SchedulerCaseResult",
     "extract_workload_profile",
 ]

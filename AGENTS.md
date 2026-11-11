@@ -23,7 +23,7 @@
 
 4. **结果指标变更的端到端联动守恒**
    - **增删改任何结果指标**（延迟、吞吐、显存统计、调度事件字段等）必须同步下游：
-     1. **Schema 与 JSON 数据**：Pydantic 模型（`bench/schema.py`）、基准数据文件（`benchmarks/results/history/`、`benchmarks/golden/`）。
+     1. **Schema 与 JSON 数据**：Pydantic 模型（`bench/result/schema.py`）、基准数据文件（`benchmarks/results/history/`、`benchmarks/golden/`）。
      2. **绘图脚本**：`src/mini_infra/bench/plotting/`，防止指标增删改名导致 KeyError、字段取空或图表损坏。
 
 5. **增量守门，存量债务显式标记**

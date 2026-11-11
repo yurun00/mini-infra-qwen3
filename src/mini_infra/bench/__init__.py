@@ -5,27 +5,13 @@
 """
 
 from mini_infra.bench.cases import (
+    DEFAULT_REPEATS,
+    DEFAULT_WARMUP,
     BenchmarkCase,
     CaseDimension,
     CaseKey,
+    ProfilingMode,
     WorkloadProfile,
-)
-from mini_infra.bench.common import (
-    DEFAULT_REPEATS,
-    DEFAULT_WARMUP,
-    REPO_ROOT,
-    CorrectnessReport,
-    DistributionStats,
-    EfficiencyMetrics,
-    HardwarePeakSpecs,
-    ModelCostProfile,
-    add_common_args,
-    check_correctness,
-    format_lengths,
-    git_info,
-    gpu_info,
-    require_cuda,
-    save_benchmark_record,
 )
 from mini_infra.bench.comparison import (
     Comparison,
@@ -37,14 +23,28 @@ from mini_infra.bench.comparison import (
 from mini_infra.bench.context import (
     BenchmarkExecutionContext,
 )
+from mini_infra.bench.correctness import (
+    CorrectnessReport,
+    check_correctness,
+)
+from mini_infra.bench.efficiency import (
+    EfficiencyMetrics,
+    HardwarePeakSpecs,
+    ModelCostProfile,
+)
+from mini_infra.bench.env import (
+    git_info,
+    gpu_info,
+    require_cuda,
+)
+from mini_infra.bench.format import format_lengths
 from mini_infra.bench.lockstep import (
     LockstepCaseResult,
     format_table,
 )
-from mini_infra.bench.scheduler import (
-    SchedulerCaseResult,
-)
-from mini_infra.bench.schema import (
+from mini_infra.bench.paths import REPO_ROOT
+from mini_infra.bench.result import (
+    SCHEMA_VERSION,
     AnyBenchmarkRecord,
     CaseKeyRecord,
     ComparisonResultRecord,
@@ -53,7 +53,11 @@ from mini_infra.bench.schema import (
     SchedulerBenchmarkRecord,
     build_benchmark_record,
     load_benchmark_record,
+    save_benchmark_record,
     validate_benchmark_record,
+)
+from mini_infra.bench.scheduler import (
+    SchedulerCaseResult,
 )
 from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.bench.spec.release import (
@@ -61,6 +65,7 @@ from mini_infra.bench.spec.release import (
     ReleaseScale,
     release_workloads,
 )
+from mini_infra.bench.stats import DistributionStats
 from mini_infra.bench.suite import (
     BenchmarkSuite,
     get_all_benchmark_suites,
@@ -96,13 +101,14 @@ __all__ = [
     "MetricKind",
     "ModelCostProfile",
     "PagedCacheConfigRecord",
+    "ProfilingMode",
     "RELEASE_SCALES",
     "REPO_ROOT",
     "ReleaseScale",
+    "SCHEMA_VERSION",
     "SchedulerBenchmarkRecord",
     "SchedulerCaseResult",
     "WorkloadProfile",
-    "add_common_args",
     "build_benchmark_record",
     "check_correctness",
     "compute_comparisons",

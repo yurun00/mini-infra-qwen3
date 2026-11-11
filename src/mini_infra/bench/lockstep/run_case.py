@@ -24,12 +24,13 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.cases import BenchmarkCase
-from mini_infra.bench.common import (
+from mini_infra.bench.cases import (
     DEFAULT_REPEATS,
     DEFAULT_WARMUP,
-    ProfileMode,
+    BenchmarkCase,
+    ProfilingMode,
 )
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.lockstep.types import (
     LockstepCaseResult,
 )
@@ -115,9 +116,9 @@ def run_case(
     case: BenchmarkCase,
     warmup: int = DEFAULT_WARMUP,
     repeats: int = DEFAULT_REPEATS,
-    cost: dict | None = None,
-    peaks: dict | None = None,
-    profile_mode: ProfileMode | None = None,
+    cost: ModelCostProfile | None = None,
+    peaks: HardwarePeakSpecs | None = None,
+    profiling_mode: ProfilingMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
     scale: str | None = None,
     seed: int | None = None,
@@ -141,21 +142,21 @@ def run_case(
     for _ in range(warmup):
         run_case_once(model, device, case, options=warmup_opts, prompts=prompts)
 
-    is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
+    is_all_repeats_profile = profiling_mode == ProfilingMode.ALL_REPEATS
     run_opts = GenerationOptions(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
-        profile=is_full_profile,
-        tensorboard_options=tensorboard_options if is_full_profile else None,
+        profile=is_all_repeats_profile,
+        tensorboard_options=tensorboard_options if is_all_repeats_profile else None,
     )
     runs = [run_case_once(model, device, case, options=run_opts, prompts=prompts) for _ in range(repeats)]
 
     op_breakdown = None
-    if is_full_profile and runs:
+    if is_all_repeats_profile and runs:
         breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
         op_breakdown = merge_op_latency_breakdowns(breakdowns)
-    elif profile_mode == ProfileMode.EXTRA_PROFILE:
+    elif profiling_mode == ProfilingMode.DEDICATED_PASS:
         prof_opts = GenerationOptions(
             eos_token_id=-1,
             device=device,

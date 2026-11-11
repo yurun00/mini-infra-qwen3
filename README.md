@@ -89,7 +89,7 @@ mini-infra-qwen3/
 │       │       └── compare_scheduler_batch.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── common.py              # 共享基准基础设施、指标计算与目录常量
-│           ├── schema.py              # 统一 Pydantic v2 Schema 与多态信封（Lockstep & Scheduler）
+│           ├── result/                # 评测结果域：统一 Pydantic v2 Schema（schema.py）与结果构建读写（io.py）
 │           ├── suite.py               # BenchmarkSuite 评测套件统一容器实体
 │           ├── synthetic.py           # 合成 Prompt 序列载荷生成工具
 │           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比

@@ -38,7 +38,7 @@
     "revision": null,
     "dtype": "torch.bfloat16",
     "tokenizer_included": false,
-    "profile_mode": null
+    "profiling_mode": null
   },
   "correctness": {
     "checked": true,

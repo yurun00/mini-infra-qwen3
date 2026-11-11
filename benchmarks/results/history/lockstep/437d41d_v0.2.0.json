@@ -38,7 +38,7 @@
     "revision": null,
     "dtype": "torch.bfloat16",
     "tokenizer_included": false,
-    "profile_mode": "extra-profile"
+    "profiling_mode": "dedicated-pass"
   },
   "correctness": {
     "checked": true,

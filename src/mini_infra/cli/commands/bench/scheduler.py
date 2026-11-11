@@ -8,21 +8,15 @@ import sys
 from dataclasses import replace
 
 from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
-from mini_infra.bench.common import (
-    CASE_DIR,
-    HardwarePeakSpecs,
-    ModelCostProfile,
-    add_common_args,
-    check_correctness,
-    git_info,
-    gpu_info,
-    require_cuda,
-    save_benchmark_record,
-)
+from mini_infra.bench.correctness import check_correctness
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.env import git_info, gpu_info, require_cuda
+from mini_infra.bench.paths import CASE_DIR
+from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
 from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
-from mini_infra.bench.schema import build_benchmark_record
 from mini_infra.bench.spec.common.lengths import make_arrival_times
+from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -106,7 +100,7 @@ def handle_case(args: argparse.Namespace) -> int:
         update_golden=False,
         paged_cache_config=paged_cache_config,
     )
-    if correctness["passed"] is False and not args.allow_mismatch:
+    if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     req_count = len(args.prompt_lens) if args.prompt_lens is not None else args.request_count
@@ -198,7 +192,7 @@ def handle_case(args: argparse.Namespace) -> int:
         engine="scheduler",
     )
     output = args.output or CASE_DIR / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
+    save_benchmark_record(output, record, is_dirty=bool(git["dirty"]))
 
     print()
     print(format_table([result], suite_name=case_name))

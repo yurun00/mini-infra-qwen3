@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from mini_infra.bench.cases import BenchmarkCase
-from mini_infra.bench.common import format_lengths
+from mini_infra.bench.format import format_lengths
 from mini_infra.bench.lockstep.types import LockstepCaseResult
 
 

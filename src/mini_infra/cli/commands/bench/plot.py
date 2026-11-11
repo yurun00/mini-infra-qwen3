@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.common import (
+from mini_infra.bench.paths import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
     RESULT_HISTORY_DIR,
@@ -21,14 +21,16 @@ from mini_infra.bench.plotting.compare import (
     plot_mode_comparison,
 )
 from mini_infra.bench.plotting.history import (
-    generate_optimization_guidance,
     load_results,
-    markdown_table,
     plot_evolution_and_scaling,
     plot_profiling_and_optimization,
 )
+from mini_infra.bench.plotting.report import (
+    generate_optimization_guidance,
+    markdown_table,
+)
 from mini_infra.bench.plotting.tidy import resolve_record_label
-from mini_infra.bench.schema import load_benchmark_record
+from mini_infra.bench.result import load_benchmark_record
 
 
 def add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -100,13 +102,6 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     return plot_parser
 
 
-def _load_domain_results(hist_dir: Path) -> list[Any]:
-    try:
-        return load_results(hist_dir)
-    except TypeError:
-        return load_results()
-
-
 def _render_single_history_report(
     records: list[Any],
     domain_title: str,
@@ -116,8 +111,8 @@ def _render_single_history_report(
     baseline_tag: str | None = None,
     target_tag: str | None = None,
 ) -> None:
-    base = next((r for r in records if r["tag"] == baseline_tag), records[0]) if baseline_tag else records[0]
-    target = next((r for r in records if r["tag"] == target_tag), records[-1]) if target_tag else records[-1]
+    base = next((r for r in records if r.tag == baseline_tag), records[0]) if baseline_tag else records[0]
+    target = next((r for r in records if r.tag == target_tag), records[-1]) if target_tag else records[-1]
 
     table = markdown_table(records, base)
     guidance = generate_optimization_guidance(target)
@@ -171,7 +166,7 @@ def handle_history(args: argparse.Namespace) -> int:
 
     rendered_any = False
     for domain_key, domain_title, hist_dir, rep_dir in targets:
-        records = _load_domain_results(hist_dir)
+        records = load_results(hist_dir)
         if not records:
             if engine != "all":
                 print(f"{hist_dir} 中没有结果，请先运行 mini-infra bench {domain_key} case")
@@ -224,11 +219,6 @@ def handle_compare(args: argparse.Namespace) -> int:
 
 
 __all__ = [
-    "LOCKSTEP_REPORTS_DIR",
-    "LOCKSTEP_RESULT_HISTORY_DIR",
-    "RESULT_HISTORY_DIR",
-    "SCHEDULER_REPORTS_DIR",
-    "SCHEDULER_RESULT_HISTORY_DIR",
     "add_compare_args",
     "add_history_args",
     "handle_compare",

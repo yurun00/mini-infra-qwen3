@@ -5,8 +5,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import pytest
 import torch
 
-from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
-from mini_infra.bench.common import ProfileMode
+from mini_infra.bench.cases import BenchmarkCase, ProfilingMode, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, GenerationOptions, Mode, generate
@@ -175,30 +174,30 @@ def test_profile_with_tensorboard_option(tmp_path):
     assert res_no_profile.op_breakdown is None
 
 
-def test_profile_mode_enum():
-    assert ProfileMode.EXTRA_PROFILE == "extra-profile"
-    assert ProfileMode.FULL_PROFILE == "full-profile"
-    assert str(ProfileMode.EXTRA_PROFILE) == "extra-profile"
-    assert str(ProfileMode.FULL_PROFILE) == "full-profile"
-    assert ProfileMode("extra-profile") == ProfileMode.EXTRA_PROFILE
-    assert ProfileMode("full-profile") == ProfileMode.FULL_PROFILE
+def test_profiling_mode_enum():
+    assert ProfilingMode.DEDICATED_PASS == "dedicated-pass"
+    assert ProfilingMode.ALL_REPEATS == "all-repeats"
+    assert str(ProfilingMode.DEDICATED_PASS) == "dedicated-pass"
+    assert str(ProfilingMode.ALL_REPEATS) == "all-repeats"
+    assert ProfilingMode("dedicated-pass") == ProfilingMode.DEDICATED_PASS
+    assert ProfilingMode("all-repeats") == ProfilingMode.ALL_REPEATS
     with pytest.raises(ValueError):
-        ProfileMode("invalid-mode")
+        ProfilingMode("invalid-mode")
 
 
-def test_bench_run_profile_modes():
+def test_bench_run_profiling_modes():
     # 1. 验证命令行参数解析
     from mini_infra.cli import build_parser
 
     parser = build_parser()
-    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profile-mode", "extra-profile"])
-    assert args.profile_mode == ProfileMode.EXTRA_PROFILE
+    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profiling-mode", "dedicated-pass"])
+    assert args.profiling_mode == ProfilingMode.DEDICATED_PASS
 
-    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profile-mode", "full-profile"])
-    assert args.profile_mode == ProfileMode.FULL_PROFILE
+    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profiling-mode", "all-repeats"])
+    assert args.profiling_mode == ProfilingMode.ALL_REPEATS
 
     args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test"])
-    assert args.profile_mode is None
+    assert args.profiling_mode is None
 
     # 验证历史参数不被支持（报错退出）
     with pytest.raises(SystemExit):
@@ -216,7 +215,7 @@ def test_bench_run_profile_modes():
         engine="lockstep",
     )
 
-    # Mode 1: profile_mode=None -> 无 op_latency_breakdown
+    # Mode 1: profiling_mode=None -> 无 op_latency_breakdown
     res_none = run_case(
         model=model,
         device=device,
@@ -227,27 +226,27 @@ def test_bench_run_profile_modes():
     assert res_none.op_breakdown is None
     assert "op_latency_breakdown" not in res_none.to_record_dict()
 
-    # Mode 2: profile_mode=EXTRA_PROFILE -> 有 op_latency_breakdown
+    # Mode 2: profiling_mode=DEDICATED_PASS -> 有 op_latency_breakdown
     res_extra = run_case(
         model=model,
         device=device,
         case=case,
         warmup=0,
         repeats=1,
-        profile_mode=ProfileMode.EXTRA_PROFILE,
+        profiling_mode=ProfilingMode.DEDICATED_PASS,
     )
     assert res_extra.op_breakdown is not None
     assert res_extra.op_breakdown.total_ms > 0
     assert "op_latency_breakdown" in res_extra.to_record_dict()
 
-    # Mode 3: profile_mode=FULL_PROFILE -> 每次 repeat 均 profile，直接从 runs 中提取 op_latency_breakdown
+    # Mode 3: profiling_mode=ALL_REPEATS -> 每次 repeat 均 profile，直接从 runs 中提取 op_latency_breakdown
     res_full = run_case(
         model=model,
         device=device,
         case=case,
         warmup=0,
         repeats=2,
-        profile_mode=ProfileMode.FULL_PROFILE,
+        profiling_mode=ProfilingMode.ALL_REPEATS,
     )
     assert res_full.op_breakdown is not None
     assert res_full.op_breakdown.total_ms > 0

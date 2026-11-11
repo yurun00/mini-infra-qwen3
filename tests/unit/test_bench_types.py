@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from mini_infra.bench.cases import CaseKey, WorkloadProfile
-from mini_infra.bench.common import EfficiencyMetrics
+from mini_infra.bench.efficiency import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,

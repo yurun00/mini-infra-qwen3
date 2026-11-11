@@ -1,15 +1,15 @@
-"""Benchmark 评测结果统一 Pydantic v2 Schema 与多态信封（Lockstep & Scheduler 共享）。
+"""Benchmark 评测结果统一 Pydantic v2 Schema 与多态信封（Lockstep & Scheduler 共享，纯 CPU 零 PyTorch 依赖）。
 
 核心架构设计：**三层结构 + 判别式联合（Discriminated Union）**
 
 ```
 pydantic.BaseModel
- └── _DictAccessModel                      # 基础能力基类：强类型属性访问 + 只读字典下标兼容 (rec["k"])
+ └── _RecordModel                      # 基础能力基类：强类型属性访问 + 只读字典下标兼容 (rec["k"])
       ├── 第一层：叶子统计与画像组件 (Leaf Value Records，与运行时领域 Dataclass 一一映射)
-      │    ├── DistributionStatsRecord     <-> bench.common.DistributionStats
+      │    ├── DistributionStatsRecord     <-> bench.stats.DistributionStats
       │    ├── MemoryProfileRecord         <-> engine.metrics.MemoryProfile
       │    ├── PackingInfoRecord           <-> engine.metrics.BatchScheduleInfo[DistributionStats]
-      │    ├── EfficiencyMetricsRecord     <-> bench.common.EfficiencyMetrics
+      │    ├── EfficiencyMetricsRecord     <-> bench.efficiency.EfficiencyMetrics
       │    └── ScheduleMetricsRecord       <-> engine.metrics.ScheduleMetrics[DistributionStats]
       │
       ├── 第二层：单用例记录层 (Case Level)
@@ -30,69 +30,25 @@ pydantic.BaseModel
 反序列化任意评测 JSON 时可根据 `engine` 自动分发校验为对应的强类型子类。
 """
 
-import time
-from collections.abc import Sequence
-from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 
-import torch
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 
-from mini_infra.bench.common import (
-    SCHEMA_VERSION,
-    CorrectnessReport,
-    HardwarePeakSpecs,
-    ModelCostProfile,
-)
-
-if TYPE_CHECKING:
-    from mini_infra.bench.comparison import ComparisonResult
-    from mini_infra.bench.lockstep.types import LockstepCaseResult
-    from mini_infra.bench.scheduler.types import SchedulerCaseResult
+SCHEMA_VERSION = 1
 
 
 # ============================================================================
-# 基础能力基类：属性访问 + 只读字典协议兼容
+# 基础能力基类
 # ============================================================================
 
 
-class _DictAccessModel(BaseModel):
-    """提供属性访问与只读字典下标兼容 (`rec['key']`, `rec.get('key')`) 的 Pydantic 基类。"""
+class _RecordModel(BaseModel):
+    """Benchmark 记录 Pydantic 公共基类（支持序列化导出为字典）。"""
 
     model_config = ConfigDict(extra="allow")
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)
-
-    def __getitem__(self, key: str) -> Any:
-        if hasattr(self, key):
-            return getattr(self, key)
-        if self.__pydantic_extra__ and key in self.__pydantic_extra__:
-            return self.__pydantic_extra__[key]
-        raise KeyError(key)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        try:
-            val = self[key]
-            return default if val is None and key not in self.model_fields_set else val
-        except KeyError:
-            return default
-
-    def __contains__(self, key: object) -> bool:
-        if not isinstance(key, str):
-            return False
-        if hasattr(self, key):
-            return getattr(self, key) is not None or key in self.model_fields_set
-        return bool(self.__pydantic_extra__ and key in self.__pydantic_extra__)
-
-    def keys(self):
-        return self.to_dict().keys()
-
-    def values(self):
-        return self.to_dict().values()
-
-    def items(self):
-        return self.to_dict().items()
 
 
 # ============================================================================
@@ -100,8 +56,8 @@ class _DictAccessModel(BaseModel):
 # ============================================================================
 
 
-class DistributionStatsRecord(_DictAccessModel):
-    """测量样本统计分布 Schema（对应 `bench.common.DistributionStats`）。"""
+class DistributionStatsRecord(_RecordModel):
+    """测量样本统计分布 Schema（对应 `bench.stats.DistributionStats`）。"""
 
     median: float
     mean: float = 0.0
@@ -113,7 +69,7 @@ class DistributionStatsRecord(_DictAccessModel):
     max: float = 0.0
 
 
-class PagedCacheProfileRecord(_DictAccessModel):
+class PagedCacheProfileRecord(_RecordModel):
     """Paged KV Cache 专属块池画像 Schema（对应 `engine.metrics.PagedCacheProfile.to_dict()`）。"""
 
     block_size: int = 0
@@ -125,7 +81,7 @@ class PagedCacheProfileRecord(_DictAccessModel):
     block_release_count: int = 0
 
 
-class KVCacheProfileRecord(_DictAccessModel):
+class KVCacheProfileRecord(_RecordModel):
     """KV Cache 画像 Schema（对应 `engine.metrics.KVCacheProfile.to_dict()`）。"""
 
     peak_live_kv_cache_mb: float = 0.0
@@ -135,7 +91,7 @@ class KVCacheProfileRecord(_DictAccessModel):
     paged_cache: PagedCacheProfileRecord | None = None
 
 
-class MemoryProfileRecord(_DictAccessModel):
+class MemoryProfileRecord(_RecordModel):
     """显存监控剖析 Schema，单位 MiB（对应 `engine.metrics.MemoryProfile.to_dict()`）。"""
 
     weights_mb: float | None = None
@@ -148,7 +104,7 @@ class MemoryProfileRecord(_DictAccessModel):
     kv_cache: KVCacheProfileRecord = Field(default_factory=KVCacheProfileRecord)
 
 
-class PackingInfoRecord(_DictAccessModel):
+class PackingInfoRecord(_RecordModel):
     """批处理打包（Padding 效率）与槽位利用率 Schema（对应 `engine.metrics.BatchScheduleInfo[DistributionStats]`）。"""
 
     padding_efficiency: DistributionStatsRecord
@@ -156,15 +112,15 @@ class PackingInfoRecord(_DictAccessModel):
     running_capacity_utilization: DistributionStatsRecord | None = None
 
 
-class EfficiencyMetricsRecord(_DictAccessModel):
-    """算力利用率 (MFU) 与显存带宽利用率 (MBU) Schema（对应 `bench.common.EfficiencyMetrics`）。"""
+class EfficiencyMetricsRecord(_RecordModel):
+    """算力利用率 (MFU) 与显存带宽利用率 (MBU) Schema（对应 `bench.efficiency.EfficiencyMetrics`）。"""
 
     prefill_mfu: float | None = None
     decode_mfu: float | None = None
     decode_mbu: float | None = None
 
 
-class ScheduleMetricsRecord(_DictAccessModel):
+class ScheduleMetricsRecord(_RecordModel):
     """Scheduler 专属队列与步进调度统计 Schema（对应 `engine.metrics.ScheduleMetrics[DistributionStats]`）。"""
 
     request_count: int
@@ -189,7 +145,7 @@ class ScheduleMetricsRecord(_DictAccessModel):
 # ============================================================================
 
 
-class BaseCaseRecord(_DictAccessModel):
+class BaseCaseRecord(_RecordModel):
     """Lockstep 与 Scheduler 共享的单 Case 核心记录基类。
 
     聚合了：
@@ -227,14 +183,14 @@ class LockstepCaseRecord(BaseCaseRecord):
     op_latency_breakdown: dict[str, Any] | None = None
 
 
-class PagedCacheConfigRecord(_DictAccessModel):
+class PagedCacheConfigRecord(_RecordModel):
     """Paged KV Cache 配置记录。"""
 
     block_size: int = 16
     num_blocks: int | None = None
 
 
-class CaseKeyRecord(_DictAccessModel):
+class CaseKeyRecord(_RecordModel):
     """用例身份键记录。"""
 
     workload_id: str
@@ -261,7 +217,7 @@ class SchedulerCaseRecord(BaseCaseRecord):
     paged_cache_config: PagedCacheConfigRecord | None = None
 
 
-class ComparisonResultRecord(_DictAccessModel):
+class ComparisonResultRecord(_RecordModel):
     """通用基准指标相对对比统计。"""
 
     baseline_key: CaseKeyRecord
@@ -284,7 +240,7 @@ class ComparisonResultRecord(_DictAccessModel):
 # ============================================================================
 
 
-class BenchmarkEnvelopeBase(_DictAccessModel):
+class BenchmarkEnvelopeBase(_RecordModel):
     """统一顶层 Benchmark 信封基类（Lockstep 与 Scheduler 共享全部顶层元数据）。"""
 
     schema_version: int = SCHEMA_VERSION
@@ -321,142 +277,6 @@ AnyBenchmarkRecord = Annotated[
     Field(discriminator="engine"),
 ]
 
-_BENCHMARK_RECORD_ADAPTER: TypeAdapter[LockstepBenchmarkRecord | SchedulerBenchmarkRecord] = TypeAdapter(
-    AnyBenchmarkRecord
-)
-
-
-def build_benchmark_record(
-    args: Any,
-    model: torch.nn.Module,
-    mode_label: str,
-    cases: Sequence["LockstepCaseResult | SchedulerCaseResult"],
-    correctness: CorrectnessReport | dict[str, Any],
-    env: dict[str, Any],
-    peaks: HardwarePeakSpecs | dict[str, float | None],
-    cost: ModelCostProfile | dict[str, Any] | None,
-    git: dict[str, Any],
-    warmup: int,
-    repeats: int,
-    suite_info: dict[str, Any] | None = None,
-    engine: Literal["lockstep", "scheduler"] | None = None,
-    comparisons: Sequence["ComparisonResult"] | None = None,
-) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
-    """统一构建 Lockstep 或 Scheduler 标准评测结果信封（由 Pydantic 校验并返回模型）。"""
-    if engine is None:
-        if cases and hasattr(cases[0], "schedule_metrics"):
-            engine = "scheduler"
-        else:
-            engine = "lockstep"
-
-    record_cases = [c.to_record_dict() for c in cases]
-    peaks_dict = peaks.to_dict() if hasattr(peaks, "to_dict") else peaks
-    cost_dict = cost.to_dict() if cost is not None and hasattr(cost, "to_dict") else cost
-
-    if isinstance(correctness, dict):
-        correctness_dict = {k: v.to_dict() if hasattr(v, "to_dict") else v for k, v in correctness.items()}
-    elif hasattr(correctness, "to_dict"):
-        correctness_dict = correctness.to_dict()
-    else:
-        correctness_dict = correctness
-
-    try:
-        dtype_str = str(next(model.parameters()).dtype)
-    except StopIteration:
-        dtype_str = "unknown"
-
-    payload: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "engine": engine,
-        "tag": args.tag,
-        "release_feature": getattr(args, "release_feature", None),
-        "mode": mode_label,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "git": git,
-        "env": env,
-        "peak_specs": peaks_dict,
-        "model_cost": cost_dict,
-        "config": {
-            "warmup": warmup,
-            "repeats": repeats,
-            "model": getattr(args, "model", None),
-            "revision": getattr(args, "revision", None),
-            "dtype": dtype_str,
-            "tokenizer_included": False,
-            "profile_mode": str(args.profile_mode) if getattr(args, "profile_mode", None) else None,
-        },
-        "correctness": correctness_dict,
-        "cases": record_cases,
-    }
-    if suite_info is not None:
-        payload["suite"] = suite_info
-
-    if engine == "scheduler":
-        if comparisons is not None:
-            comp_list = [c.to_dict() for c in comparisons]
-        else:
-            comp_list = []
-        payload["comparisons"] = comp_list
-
-    return _BENCHMARK_RECORD_ADAPTER.validate_python(payload)
-
-
-def _check_single_case_constraint(
-    rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord,
-    source: str | Path,
-) -> None:
-    """校验 results/history 约束：单 Case，或同版本同模式下按 small/medium/large 各存 1 个 Case。"""
-    if not rec.cases:
-        raise ValueError(f"基准记录 {source} 不包含任何 case (single-case 约束)。")
-    if len(rec.cases) == 1:
-        return
-    scales = [c.scale for c in rec.cases]
-    modes = {c.mode for c in rec.cases}
-    if (
-        rec.suite is None
-        and len(modes) == 1
-        and all(s in ("small", "medium", "large") for s in scales)
-        and len(set(scales)) == len(scales)
-    ):
-        return
-    raise ValueError(
-        f"基准记录 {source} 必须只包含 1 个 case（或同模式下按 small/medium/large 各 1 个 case，single-case 约束），"
-        f"实际包含 {len(rec.cases)} 个 cases。"
-    )
-
-
-def validate_benchmark_record(
-    data: Any,
-    *,
-    require_single_case: bool = False,
-    source: str | Path = "<memory>",
-) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
-    """将 dict 或已解析对象校验为强类型 BenchmarkRecord，可选强制检查单 Case 约束。"""
-    if isinstance(data, LockstepBenchmarkRecord | SchedulerBenchmarkRecord):
-        rec = data
-    else:
-        rec = _BENCHMARK_RECORD_ADAPTER.validate_python(data)
-
-    if require_single_case:
-        _check_single_case_constraint(rec, source)
-    return rec
-
-
-def load_benchmark_record(
-    path: Path,
-    *,
-    require_single_case: bool = False,
-) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
-    """从 JSON 文件加载并校验 BenchmarkRecord，可选强制检查单 Case 约束。"""
-    if not path.exists():
-        raise FileNotFoundError(f"文件不存在: {path}")
-    raw_text = path.read_text(encoding="utf-8")
-    rec = _BENCHMARK_RECORD_ADAPTER.validate_json(raw_text)
-    if require_single_case:
-        _check_single_case_constraint(rec, path)
-    return rec
-
-
 __all__ = [
     "AnyBenchmarkRecord",
     "BaseCaseRecord",
@@ -472,10 +292,8 @@ __all__ = [
     "PackingInfoRecord",
     "PagedCacheConfigRecord",
     "PagedCacheProfileRecord",
+    "SCHEMA_VERSION",
     "ScheduleMetricsRecord",
     "SchedulerBenchmarkRecord",
     "SchedulerCaseRecord",
-    "build_benchmark_record",
-    "load_benchmark_record",
-    "validate_benchmark_record",
 ]

@@ -46,13 +46,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mini_infra.bench.cases import WorkloadProfile
-from mini_infra.bench.common import (
+from mini_infra.bench.env import git_info
+from mini_infra.bench.paths import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
     REPO_ROOT,
     SCHEDULER_REPORTS_DIR,
     SCHEDULER_RESULT_HISTORY_DIR,
-    git_info,
 )
 from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, get_release_spec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
@@ -76,7 +76,7 @@ def build_lockstep_case_cmd(
     repeats: int = 5,
     scale: str | None = None,
     seed: int | None = None,
-    profile_mode: str | None = "extra-profile",
+    profiling_mode: str | None = "dedicated-pass",
 ) -> list[str]:
     """将 WorkloadProfile 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
     prompt_args = [str(x) for x in workload.prompt_lens]
@@ -111,8 +111,8 @@ def build_lockstep_case_cmd(
         cmd.extend(["--scale", str(scale)])
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
-    if profile_mode and profile_mode != "none":
-        cmd.extend(["--profile-mode", profile_mode])
+    if profiling_mode and profiling_mode != "none":
+        cmd.extend(["--profiling-mode", profiling_mode])
     return cmd
 
 
@@ -258,10 +258,10 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="Paged KV Cache 的 physical block 大小（默认: 16，仅 paged-kv-cache 时生效）",
     )
     p.add_argument(
-        "--profile-mode",
-        choices=["extra-profile", "full-profile", "none"],
+        "--profiling-mode",
+        choices=["dedicated-pass", "all-repeats", "none"],
         default=None,
-        help="Profiler 模式（lockstep 默认仅在 small 规模启用 extra-profile，scheduler 默认 none）",
+        help="Profiler 模式（lockstep 默认仅在 small 规模启用 dedicated-pass，scheduler 默认 none）",
     )
     p.add_argument(
         "--skip-regression",
@@ -310,7 +310,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         default_bm = loaded.default_mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         mode = Mode(caching_method, batching_method=bm)
-        prof = args.profile_mode if args.profile_mode is not None else "extra-profile"
+        prof = args.profiling_mode if args.profiling_mode is not None else "dedicated-pass"
 
         scales_spec = loaded.resolve(custom_seed)
         for sc in scales:
@@ -328,7 +328,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
                         repeats=loaded.spec.execution.repeats,
                         scale=sc,
                         seed=res_scale.seed,
-                        profile_mode=scale_prof,
+                        profiling_mode=scale_prof,
                     ),
                     artifacts=(LOCKSTEP_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
                 )

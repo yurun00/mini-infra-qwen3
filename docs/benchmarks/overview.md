@@ -114,7 +114,7 @@ mini-infra bench lockstep case \
 # 5. 开启硬件级 Profiling（采集 MBU、MFU 及 CUDA 算子耗时归因）
 mini-infra bench lockstep case \
   --tag profile \
-  --profile-mode extra-profile \
+  --profiling-mode dedicated-pass \
   --output tmp/profile.json
 ```
 

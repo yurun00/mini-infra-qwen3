@@ -122,7 +122,7 @@ git push origin main --tags
 #### CI 自动化机制
 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [.github/workflows/release-benchmark.yml](.github/workflows/release-benchmark.yml)：
 * **特性透传与解析**：工作流会自动提取并向 `--release-feature` 透传特性描述（按优先级自动获取：① 手动 `workflow_dispatch` 传参 $\rightarrow$ ② 匹配已有同 Tag 的历史 JSON 归档 $\rightarrow$ ③ 从 Git Annotated Tag 注释中解析，如 `Release v0.4.0: Continuous batching`）；
-* **参数对齐与客观守门**：CI 同样启用 `--profile-mode extra-profile` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为基准，独立校验云端推理正确性；
+* **参数对齐与客观守门**：CI 同样启用 `--profiling-mode dedicated-pass` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为基准，独立校验云端推理正确性；
 * **云端产物归档**：在云端具备 GPU Runner 时，会自动在 GitHub Actions 归档带有当前 Commit 签名的全矩阵评测数据、Markdown 诊断报告与时间线大图 Artifact。
 
 ---

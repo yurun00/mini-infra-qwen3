@@ -9,21 +9,15 @@ import sys
 from dataclasses import replace
 
 from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
-from mini_infra.bench.common import (
-    LOCKSTEP_RESULT_HISTORY_DIR,
-    HardwarePeakSpecs,
-    ModelCostProfile,
-    add_common_args,
-    check_correctness,
-    format_lengths,
-    git_info,
-    gpu_info,
-    require_cuda,
-    save_benchmark_record,
-)
+from mini_infra.bench.correctness import check_correctness
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.env import git_info, gpu_info, require_cuda
+from mini_infra.bench.format import format_lengths
 from mini_infra.bench.lockstep.format import format_table
 from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
-from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.bench.paths import LOCKSTEP_RESULT_HISTORY_DIR
+from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
+from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -109,13 +103,13 @@ def handle_case(args: argparse.Namespace) -> int:
     )
 
     correctness = check_correctness(model, tokenizer, case.mode, device, args.update_golden)
-    if correctness["passed"] is False and not args.allow_mismatch:
+    if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     env = gpu_info()
     peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
     cost = ModelCostProfile.from_model(model)
-    if None in peaks.values():
+    if peaks.bandwidth_gbs is None or peaks.tflops is None:
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
@@ -134,7 +128,7 @@ def handle_case(args: argparse.Namespace) -> int:
         repeats=args.repeats,
         cost=cost,
         peaks=peaks,
-        profile_mode=args.profile_mode,
+        profiling_mode=args.profiling_mode,
         tensorboard_options=tb_options,
     )
     if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
@@ -162,7 +156,7 @@ def handle_case(args: argparse.Namespace) -> int:
     )
 
     output = args.output or LOCKSTEP_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
+    save_benchmark_record(output, record, is_dirty=bool(git["dirty"]))
     print()
     print(format_table([result]))
     return 0

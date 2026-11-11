@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mini_infra.bench.common import SPECS_DIR
+from mini_infra.bench.paths import SPECS_DIR
 from mini_infra.bench.spec.common.raw import load_raw_spec, spec_sha256
 from mini_infra.bench.spec.common.schema import SuiteEngine
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec

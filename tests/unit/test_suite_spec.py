@@ -8,7 +8,7 @@ from typing import Any
 import pydantic
 import pytest
 
-from mini_infra.bench.common import SPECS_DIR
+from mini_infra.bench.paths import SPECS_DIR
 from mini_infra.bench.spec import (
     deep_merge,
     discover_suite_specs,

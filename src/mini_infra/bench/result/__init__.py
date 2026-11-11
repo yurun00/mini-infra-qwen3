@@ -1,0 +1,53 @@
+"""Benchmark 评测结果域（Result）：统一 Pydantic v2 Schema、结果信封构建与 JSON 读写。"""
+
+from mini_infra.bench.result.io import (
+    build_benchmark_record,
+    load_benchmark_record,
+    save_benchmark_record,
+    validate_benchmark_record,
+)
+from mini_infra.bench.result.schema import (
+    SCHEMA_VERSION,
+    AnyBenchmarkRecord,
+    BaseCaseRecord,
+    BenchmarkEnvelopeBase,
+    CaseKeyRecord,
+    ComparisonResultRecord,
+    DistributionStatsRecord,
+    EfficiencyMetricsRecord,
+    KVCacheProfileRecord,
+    LockstepBenchmarkRecord,
+    LockstepCaseRecord,
+    MemoryProfileRecord,
+    PackingInfoRecord,
+    PagedCacheConfigRecord,
+    PagedCacheProfileRecord,
+    ScheduleMetricsRecord,
+    SchedulerBenchmarkRecord,
+    SchedulerCaseRecord,
+)
+
+__all__ = [
+    "AnyBenchmarkRecord",
+    "BaseCaseRecord",
+    "BenchmarkEnvelopeBase",
+    "CaseKeyRecord",
+    "ComparisonResultRecord",
+    "DistributionStatsRecord",
+    "EfficiencyMetricsRecord",
+    "KVCacheProfileRecord",
+    "LockstepBenchmarkRecord",
+    "LockstepCaseRecord",
+    "MemoryProfileRecord",
+    "PackingInfoRecord",
+    "PagedCacheConfigRecord",
+    "PagedCacheProfileRecord",
+    "SCHEMA_VERSION",
+    "ScheduleMetricsRecord",
+    "SchedulerBenchmarkRecord",
+    "SchedulerCaseRecord",
+    "build_benchmark_record",
+    "load_benchmark_record",
+    "save_benchmark_record",
+    "validate_benchmark_record",
+]

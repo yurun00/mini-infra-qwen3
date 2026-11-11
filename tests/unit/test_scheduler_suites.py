@@ -249,13 +249,13 @@ def test_scheduler_suite_case_paged_validation():
 
 def test_compute_comparisons():
     from mini_infra.bench.cases import WorkloadProfile
-    from mini_infra.bench.common import DistributionStats
     from mini_infra.bench.scheduler.format import (
         format_table,
     )
     from mini_infra.bench.scheduler.types import (
         SchedulerCaseResult,
     )
+    from mini_infra.bench.stats import DistributionStats
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.metrics import (
         KVCacheProfile,

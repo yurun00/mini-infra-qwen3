@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from mini_infra.bench.common import BENCH_ARTIFACTS_DIR, REPO_ROOT, SUITES_DIR
+from mini_infra.bench.paths import BENCH_ARTIFACTS_DIR, REPO_ROOT, SUITES_DIR
 from mini_infra.bench.spec import suite_json_schema
 from mini_infra.cli import main
-from mini_infra.cli.commands.bench.suite_source import suite_output_path
+from mini_infra.cli.commands.bench.sweep import suite_output_path
 
 _SCHEDULER_YAML = """
 name: demo-spec
