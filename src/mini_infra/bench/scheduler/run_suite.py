@@ -17,28 +17,9 @@ from mini_infra.bench.scheduler.plan import (
 from mini_infra.bench.scheduler.run_case import run_case_once
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
-    summarize_same_case_runs,
 )
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.engine import ScheduleResult
-
-
-def parse_interleave_dimension(name: str) -> CaseDimension:
-    """将 CLI 字符串参数解析为强类型 CaseDimension。"""
-    cleaned = name.strip()
-    try:
-        return CaseDimension(cleaned)
-    except ValueError as err:
-        raise ValueError(f"未知的 interleave 特征维度: {name}，可选: {[d.value for d in CaseDimension]}") from err
-
-
-def parse_interleave_args(raw: Sequence[str] | None, default: tuple[CaseDimension, ...]) -> tuple[CaseDimension, ...]:
-    """将 CLI 字符串参数解析为强类型 CaseDimension 元组。"""
-    if raw is None:
-        return default
-    if not raw or "none" in raw:
-        return ()
-    return tuple(parse_interleave_dimension(f) for f in raw)
 
 
 def run_suite(
@@ -81,7 +62,7 @@ def run_suite(
 
     results: list[SchedulerCaseResult] = []
     for case in cases:
-        res = summarize_same_case_runs(
+        res = SchedulerCaseResult.from_runs(
             case.key,
             runs_by_case_key[case.key],
             warmup=warmup_val,
@@ -91,7 +72,5 @@ def run_suite(
 
 
 __all__ = [
-    "parse_interleave_args",
-    "parse_interleave_dimension",
     "run_suite",
 ]

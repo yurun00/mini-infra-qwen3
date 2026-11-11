@@ -8,7 +8,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
+from mini_infra.bench.cases import BenchmarkCase, CaseDimension, WorkloadProfile
 from mini_infra.bench.common import (
     CASE_DIR,
     HardwarePeakSpecs,
@@ -27,7 +27,6 @@ from mini_infra.bench.scheduler.format import (
 from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
 from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.scheduler.run_suite import (
-    parse_interleave_args,
     run_suite,
 )
 from mini_infra.bench.scheduler.types import ComparisonResult, compute_comparisons
@@ -233,7 +232,7 @@ def execute_scheduler_suite(
 
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_dims = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
+    interleave_dims = CaseDimension.from_interleave_args(getattr(args, "interleave", None), suite.interleave)
 
     print(
         f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.cases)} warmup={warmup} repeats={repeats} ...",
@@ -303,7 +302,7 @@ def print_scheduler_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> 
     """生成并打印执行计划（不加载模型、不要求 CUDA）。"""
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_dims = parse_interleave_args(getattr(args, "interleave", None), suite.interleave)
+    interleave_dims = CaseDimension.from_interleave_args(getattr(args, "interleave", None), suite.interleave)
     cases = suite.cases
     plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_dims)
     print(f"=== [Dry Run] Suite: {suite.name} ===")

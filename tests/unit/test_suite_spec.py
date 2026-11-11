@@ -18,7 +18,8 @@ from mini_infra.bench.spec import (
     load_raw_spec,
     load_suite_spec,
 )
-from mini_infra.bench.suites import get_benchmark_suite, suite_from_loaded
+from mini_infra.bench.suite import BenchmarkSuite
+from mini_infra.bench.suites import get_benchmark_suite
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod
 
@@ -32,7 +33,7 @@ def _digest(token_ids: tuple[int, ...]) -> str:
 
 def _scheduler_entry(name: str) -> dict[str, Any]:
     loaded = get_suite_spec("scheduler", name)
-    suite = suite_from_loaded(loaded)
+    suite = BenchmarkSuite.from_spec(loaded)
     cases = [
         {
             "workload_id": c.workload_id,

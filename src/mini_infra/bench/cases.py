@@ -35,6 +35,28 @@ class CaseDimension(str, Enum):
     BLOCK_SIZE = "block_size"
     NUM_BLOCKS = "num_blocks"
 
+    @classmethod
+    def from_str(cls, name: str) -> CaseDimension:
+        """将字符串解析为强类型 CaseDimension。"""
+        cleaned = name.strip()
+        try:
+            return cls(cleaned)
+        except ValueError as err:
+            raise ValueError(f"未知的 interleave 特征维度: {name}，可选: {[d.value for d in cls]}") from err
+
+    @classmethod
+    def from_interleave_args(
+        cls,
+        raw: Sequence[str] | None,
+        default: tuple[CaseDimension, ...],
+    ) -> tuple[CaseDimension, ...]:
+        """将 CLI 字符串参数解析为强类型 CaseDimension 元组。"""
+        if raw is None:
+            return default
+        if not raw or "none" in raw:
+            return ()
+        return tuple(cls.from_str(f) for f in raw)
+
 
 @dataclass(frozen=True, slots=True)
 class CaseKey:

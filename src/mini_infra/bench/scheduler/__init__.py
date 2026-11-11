@@ -24,8 +24,6 @@ from mini_infra.bench.scheduler.run_case import (
     run_case_once,
 )
 from mini_infra.bench.scheduler.run_suite import (
-    parse_interleave_args,
-    parse_interleave_dimension,
     run_suite,
 )
 from mini_infra.bench.scheduler.types import (
@@ -35,7 +33,6 @@ from mini_infra.bench.scheduler.types import (
     compute_comparisons,
     extract_metric_by_path,
     extract_workload_profile,
-    summarize_same_case_runs,
 )
 
 __all__ = [
@@ -58,10 +55,7 @@ __all__ = [
     "extract_workload_profile",
     "format_scheduler_run_plan",
     "format_table",
-    "parse_interleave_args",
-    "parse_interleave_dimension",
     "run_case",
     "run_case_once",
     "run_suite",
-    "summarize_same_case_runs",
 ]

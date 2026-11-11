@@ -7,6 +7,7 @@
 3. 诊断与明细层：OpLatencyBreakdown
 """
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -16,7 +17,13 @@ from mini_infra.bench.common import (
     EfficiencyMetrics,
 )
 from mini_infra.core.types import collapse_uniform
-from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine.metrics import (
+    BatchScheduleInfo,
+    MemoryProfile,
+    StepAggregatedMetrics,
+    summarize_repeated_kv_cache_profiles,
+)
+from mini_infra.engine.results import GenerationResult
 from mini_infra.profiling import OpLatencyBreakdown
 
 
@@ -113,6 +120,96 @@ class LockstepCaseResult:
                 )
             )
         return "\n".join(lines)
+
+    @classmethod
+    def from_runs(
+        cls,
+        case_key: CaseKey,
+        workload: WorkloadProfile,
+        runs: Sequence[GenerationResult],
+        *,
+        warmup: int = 0,
+        cost: dict | None = None,
+        peaks: dict | None = None,
+        op_breakdown: OpLatencyBreakdown | None = None,
+        scale: str | None = None,
+        seed: int | None = None,
+    ) -> "LockstepCaseResult":
+        """将具有相同 CaseKey 与负载规格的多轮 GenerationResult 聚合为 LockstepCaseResult。"""
+        if not runs:
+            raise ValueError("runs 不能为空")
+
+        eff_prompt_vals = [
+            r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None
+        ]
+        pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
+        gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
+        gpu_ratio_stat = (
+            DistributionStats.from_samples([v for v in gpu_ratios if v is not None])
+            if all(v is not None for v in gpu_ratios)
+            else None
+        )
+
+        metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
+            ttft_ms=DistributionStats.from_samples([r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]),
+            mean_tpot_ms=DistributionStats.from_samples(
+                [r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]
+            ),
+            e2e_wall_ms=DistributionStats.from_samples([r.metrics.e2e_wall_ms for r in runs]),
+            e2e_model_ms=DistributionStats.from_samples([r.metrics.e2e_model_ms for r in runs]),
+            throughput_tok_s=DistributionStats.from_samples([r.metrics.throughput_tok_s for r in runs]),
+            throughput_req_s=DistributionStats.from_samples([r.metrics.throughput_req_s for r in runs]),
+            gpu_time_ratio=gpu_ratio_stat,
+            effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals) if eff_prompt_vals else None,
+            padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals) if pad_prompt_vals else None,
+        )
+
+        mib = 1024**2
+        weights_mb = cost["weight_bytes"] / mib if cost else None
+        case_memory = MemoryProfile(
+            weights_mb=weights_mb,
+            baseline_mb=max((r.memory.baseline_mb for r in runs), default=0.0),
+            prefill_mb=max((r.memory.prefill_mb or 0.0 for r in runs), default=0.0),
+            peak_allocated_mb=max((r.memory.peak_allocated_mb for r in runs), default=0.0),
+            peak_reserved_mb=max((r.memory.peak_reserved_mb for r in runs), default=0.0),
+            kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
+        )
+
+        batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
+        packing: BatchScheduleInfo[DistributionStats] | None = None
+        if batch_infos:
+            packing = BatchScheduleInfo(
+                padding_efficiency=DistributionStats.from_samples([b.padding_efficiency for b in batch_infos]),
+                slot_utilization=DistributionStats.from_samples([b.slot_utilization for b in batch_infos]),
+            )
+
+        eff = (
+            EfficiencyMetrics.compute(
+                cost,
+                peaks,
+                workload.num_total_requests,
+                workload.prompt_lens,
+                workload.output_budgets,
+                metrics.ttft_ms.median if metrics.ttft_ms is not None else 0.0,
+                metrics.mean_tpot_ms.median if metrics.mean_tpot_ms is not None else 0.0,
+            )
+            if cost and peaks
+            else None
+        )
+
+        return cls(
+            key=case_key,
+            workload=workload,
+            metrics=metrics,
+            memory=case_memory,
+            repeats=len(runs),
+            warmup=warmup,
+            packing=packing,
+            efficiency=eff,
+            op_breakdown=op_breakdown,
+            scale=scale,
+            seed=seed,
+        )
 
 
 __all__ = [

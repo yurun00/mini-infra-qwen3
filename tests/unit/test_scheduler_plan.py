@@ -13,7 +13,6 @@ from mini_infra.bench.scheduler.plan import (
     build_scheduler_run_plan,
     format_scheduler_run_plan,
 )
-from mini_infra.bench.scheduler.run_suite import parse_interleave_dimension
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
@@ -37,23 +36,23 @@ def make_dummy_case(
 
 
 def test_parse_interleave_dimension():
-    assert parse_interleave_dimension("batching_method") == CaseDimension.BATCHING_METHOD
-    assert parse_interleave_dimension("caching_method") == CaseDimension.CACHING_METHOD
-    assert parse_interleave_dimension("block_size") == CaseDimension.BLOCK_SIZE
-    assert parse_interleave_dimension("num_blocks") == CaseDimension.NUM_BLOCKS
-    assert parse_interleave_dimension("max_running_requests") == CaseDimension.MAX_RUNNING_REQUESTS
-    assert parse_interleave_dimension("workload_id") == CaseDimension.WORKLOAD_ID
+    assert CaseDimension.from_str("batching_method") == CaseDimension.BATCHING_METHOD
+    assert CaseDimension.from_str("caching_method") == CaseDimension.CACHING_METHOD
+    assert CaseDimension.from_str("block_size") == CaseDimension.BLOCK_SIZE
+    assert CaseDimension.from_str("num_blocks") == CaseDimension.NUM_BLOCKS
+    assert CaseDimension.from_str("max_running_requests") == CaseDimension.MAX_RUNNING_REQUESTS
+    assert CaseDimension.from_str("workload_id") == CaseDimension.WORKLOAD_ID
 
     with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
-        parse_interleave_dimension("batch_method")
+        CaseDimension.from_str("batch_method")
     with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
-        parse_interleave_dimension("batching-method")
+        CaseDimension.from_str("batching-method")
     with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
-        parse_interleave_dimension("kv-cache")
+        CaseDimension.from_str("kv-cache")
     with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
-        parse_interleave_dimension("none")
+        CaseDimension.from_str("none")
     with pytest.raises(ValueError, match="未知的 interleave 特征维度"):
-        parse_interleave_dimension("unsupported_dimension")
+        CaseDimension.from_str("unsupported_dimension")
 
 
 def test_case_key_dimension_value():

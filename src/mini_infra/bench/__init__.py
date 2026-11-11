@@ -39,7 +39,6 @@ from mini_infra.bench.scheduler import (
     SchedulerCaseResult,
     WorkloadProfile,
     compute_comparisons,
-    summarize_same_case_runs,
 )
 from mini_infra.bench.schema import (
     AnyBenchmarkRecord,
@@ -65,7 +64,6 @@ from mini_infra.bench.suites import (
     get_benchmark_suite,
     list_benchmark_suite_names,
     load_benchmark_suite,
-    suite_from_loaded,
 )
 from mini_infra.bench.synthetic import (
     make_sequence,
@@ -121,7 +119,5 @@ __all__ = [
     "release_workloads",
     "require_cuda",
     "save_benchmark_record",
-    "suite_from_loaded",
-    "summarize_same_case_runs",
     "validate_benchmark_record",
 ]

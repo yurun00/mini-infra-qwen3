@@ -11,7 +11,6 @@ import torch
 from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.scheduler.types import (
     SchedulerCaseResult,
-    summarize_same_case_runs,
 )
 from mini_infra.core.request import RequestSpec
 from mini_infra.engine import ScheduleResult, run_scheduler
@@ -63,7 +62,7 @@ def run_case(
         if on_step_progress is not None:
             on_step_progress("measure", i, repeats)
         runs.append(run_case_once(model, device, case, request_specs=specs))
-    return summarize_same_case_runs(case.key, runs, warmup=warmup)
+    return SchedulerCaseResult.from_runs(case.key, runs, warmup=warmup)
 
 
 __all__ = [

@@ -8,18 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from mini_infra.bench.spec import (
-    LoadedSuiteSpec,
     SuiteEngine,
     discover_suite_specs,
     get_suite_spec,
     load_suite_spec,
 )
 from mini_infra.bench.suite import BenchmarkSuite
-
-
-def suite_from_loaded(loaded: LoadedSuiteSpec) -> BenchmarkSuite:
-    """从已解析的 LoadedSuiteSpec 构造不可变 BenchmarkSuite 实体。"""
-    return BenchmarkSuite.from_spec(loaded)
 
 
 def load_benchmark_suite(
@@ -31,7 +25,7 @@ def load_benchmark_suite(
     loaded = load_suite_spec(path, overrides)
     if expected_engine is not None and loaded.spec.engine != expected_engine:
         raise ValueError(f"{path}: engine 必须是 {expected_engine}，实际为 {loaded.spec.engine}")
-    return suite_from_loaded(loaded)
+    return BenchmarkSuite.from_spec(loaded)
 
 
 def list_benchmark_suite_names(engine: SuiteEngine) -> list[str]:
@@ -45,7 +39,7 @@ def get_benchmark_suite(
     overrides: Mapping[str, Any] | None = None,
 ) -> BenchmarkSuite:
     """获取指定引擎内置的命名套件。"""
-    return suite_from_loaded(get_suite_spec(engine, name, overrides=overrides))
+    return BenchmarkSuite.from_spec(get_suite_spec(engine, name, overrides=overrides))
 
 
 def get_all_benchmark_suites(engine: SuiteEngine) -> Sequence[BenchmarkSuite]:
@@ -58,5 +52,4 @@ __all__ = [
     "get_benchmark_suite",
     "list_benchmark_suite_names",
     "load_benchmark_suite",
-    "suite_from_loaded",
 ]
