@@ -45,7 +45,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from mini_infra.bench import release_default_mode
 from mini_infra.bench.cases import WorkloadProfile
 from mini_infra.bench.common import (
     LOCKSTEP_REPORTS_DIR,
@@ -307,12 +306,12 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
     custom_seed: int | None = getattr(args, "seed", None)
 
     if args.engine == "lockstep":
-        default_bm = release_default_mode("lockstep").batching_method
+        loaded = get_release_spec("lockstep")
+        default_bm = loaded.default_mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         mode = Mode(caching_method, batching_method=bm)
         prof = args.profile_mode if args.profile_mode is not None else "extra-profile"
 
-        loaded = get_release_spec("lockstep")
         scales_spec = loaded.resolve(custom_seed)
         for sc in scales:
             scale_prof = prof if sc == "small" else None
@@ -347,14 +346,14 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             )
         )
     else:
-        default_bm = release_default_mode("scheduler").batching_method
+        loaded = get_release_spec("scheduler")
+        default_bm = loaded.default_mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         target_mode = Mode(caching_method, batching_method=bm)
         block_size = getattr(args, "block_size", None)
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
 
-        loaded = get_release_spec("scheduler")
         scales_spec = loaded.resolve(custom_seed)
         for sc in scales:
             res_scale = scales_spec[sc]

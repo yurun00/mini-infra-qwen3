@@ -10,10 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from mini_infra.bench.cases import CaseKey
-from mini_infra.bench.common import format_lengths
 from mini_infra.bench.spec import (
-    CaseSpec,
     LoadedSuiteSpec,
     SuiteEngine,
     discover_suite_specs,
@@ -46,24 +43,6 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     schema_parser.add_argument("--output", type=Path, default=None, help="写入文件（默认打印到标准输出）")
     schema_parser.set_defaults(func=handle_schema)
     return suites_parser
-
-
-def _describe_case(engine: SuiteEngine, case_spec: CaseSpec) -> str:
-    if engine == "scheduler":
-        assert case_spec.max_running_requests is not None
-        return str(
-            CaseKey.from_mode(
-                case_spec.workload.workload_id,
-                case_spec.mode,
-                case_spec.max_running_requests,
-                case_spec.paged_cache_config,
-            )
-        )
-    return (
-        f"[{case_spec.workload.workload_id}] | {case_spec.mode} | batch={case_spec.workload.num_total_requests} "
-        f"prompt={format_lengths(case_spec.workload.prompt_lens)} "
-        f"max_new_tokens={format_lengths(case_spec.workload.output_budgets)}"
-    )
 
 
 def _resolve_target(target: str, engine: SuiteEngine | None) -> LoadedSuiteSpec:
@@ -111,7 +90,7 @@ def handle_show(args: argparse.Namespace) -> int:
     cases = loaded.cases
     print(f"\n# 展开后的用例（共 {len(cases)} 个，顺序即执行顺序）")
     for i, case_spec in enumerate(cases, 1):
-        print(f"  [{i:02d}] {_describe_case(engine, case_spec)}")
+        print(f"  [{i:02d}] {case_spec.format_summary(engine)}")
     return 0
 
 

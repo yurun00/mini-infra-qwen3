@@ -21,7 +21,7 @@ from mini_infra.bench.spec.common.schema import (
     SystemSpec,
     _Strict,
 )
-from mini_infra.engine import CachingMethod
+from mini_infra.engine import CachingMethod, Mode
 
 ReleaseScale = Literal["small", "medium", "large"]
 RELEASE_SCALES: tuple[ReleaseScale, ...] = ("small", "medium", "large")
@@ -44,6 +44,11 @@ class ReleaseSpec(_Strict):
     @property
     def engine(self) -> SuiteEngine:
         return self.system.engine_mode.kind
+
+    @property
+    def default_mode(self) -> Mode:
+        """Release YAML 声明的默认运行模式。"""
+        return self.system.default_mode
 
     @field_validator("scales")
     @classmethod

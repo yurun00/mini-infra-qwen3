@@ -11,7 +11,6 @@ from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.bench.spec.release.expand import (
     ResolvedReleaseScale,
     expand_release_scales,
-    release_spec_default_mode,
     resolve_release_spec,
 )
 from mini_infra.bench.spec.release.schema import ReleaseScale, ReleaseSpec
@@ -27,6 +26,11 @@ class LoadedReleaseSpec:
     raw: dict[str, Any]
     sha256: str
     scales: dict[ReleaseScale, ResolvedReleaseScale]
+
+    @property
+    def default_mode(self) -> Mode:
+        """release YAML 声明的默认运行模式（`bench release` 可通过命令行覆盖）。"""
+        return self.spec.default_mode
 
     def resolve(self, seed: int | None = None) -> dict[ReleaseScale, ResolvedReleaseScale]:
         """以指定 seed 重新展开三档负载（seed 缺省即 `scales`，取 default_seed）。"""
@@ -56,11 +60,6 @@ def get_release_spec(engine: SuiteEngine, specs_dir: Path | None = None) -> Load
     return load_release_spec(path)
 
 
-def release_default_mode(engine: SuiteEngine, specs_dir: Path | None = None) -> Mode:
-    """release YAML 声明的默认运行模式（`bench release` 可通过命令行覆盖）。"""
-    return release_spec_default_mode(get_release_spec(engine, specs_dir=specs_dir).spec)
-
-
 def release_workloads(
     engine: SuiteEngine,
     *,
@@ -76,6 +75,5 @@ __all__ = [
     "LoadedReleaseSpec",
     "get_release_spec",
     "load_release_spec",
-    "release_default_mode",
     "release_workloads",
 ]

@@ -55,7 +55,6 @@ from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.bench.spec.release import (
     RELEASE_SCALES,
     ReleaseScale,
-    release_default_mode,
     release_workloads,
 )
 from mini_infra.bench.suite import BenchmarkSuite
@@ -115,7 +114,6 @@ __all__ = [
     "make_arrival_times",
     "make_sequence",
     "make_sequences",
-    "release_default_mode",
     "release_workloads",
     "require_cuda",
     "save_benchmark_record",

@@ -9,7 +9,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from mini_infra.bench.spec.common.schema import PagedCacheSpec, SchedulerEngineSpec
+from mini_infra.bench.cases import CaseKey
+from mini_infra.bench.common import format_lengths
+from mini_infra.bench.spec.common.schema import PagedCacheSpec, SchedulerEngineSpec, SuiteEngine
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.checks import run_check
 from mini_infra.bench.spec.suite.schema import SuiteSpec
@@ -25,6 +27,24 @@ class CaseSpec:
     mode: Mode
     max_running_requests: int | None
     paged_cache_config: PagedCacheConfig | None
+
+    def format_summary(self, engine: SuiteEngine) -> str:
+        """格式化展开后的单用例规格摘要（供 `bench suites show` 预览）。"""
+        if engine == "scheduler":
+            assert self.max_running_requests is not None
+            return str(
+                CaseKey.from_mode(
+                    self.workload.workload_id,
+                    self.mode,
+                    self.max_running_requests,
+                    self.paged_cache_config,
+                )
+            )
+        return (
+            f"[{self.workload.workload_id}] | {self.mode} | batch={self.workload.num_total_requests} "
+            f"prompt={format_lengths(self.workload.prompt_lens)} "
+            f"max_new_tokens={format_lengths(self.workload.output_budgets)}"
+        )
 
 
 def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:

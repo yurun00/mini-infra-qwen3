@@ -6,7 +6,6 @@ from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.schema import SchedulerEngineSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
-from mini_infra.engine import Mode
 
 
 @dataclass(frozen=True)
@@ -52,11 +51,6 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
     return resolved
 
 
-def release_spec_default_mode(spec: ReleaseSpec) -> Mode:
-    """Release YAML 声明的默认运行模式。"""
-    return Mode(spec.system.caching_method.method, batching_method=spec.system.batching_method)
-
-
 def expand_release_scales(spec: ReleaseSpec, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
     """把 ReleaseSpec 转换为三档运行时规格 ResolvedWorkloadSpec；seed 缺省取 default_seed。"""
     scales = resolve_release_spec(spec, seed=seed)
@@ -66,6 +60,5 @@ def expand_release_scales(spec: ReleaseSpec, *, seed: int | None = None) -> dict
 __all__ = [
     "ResolvedReleaseScale",
     "expand_release_scales",
-    "release_spec_default_mode",
     "resolve_release_spec",
 ]

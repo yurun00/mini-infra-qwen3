@@ -9,7 +9,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 
 from mini_infra.bench.cases import CaseDimension
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 SuiteEngine = Literal["scheduler", "lockstep"]
 
@@ -309,6 +309,11 @@ class SystemSpec(_Strict):
     engine_mode: EngineModeSpec
     batching_method: BatchingMethod
     caching_method: CachingSpec = DenseCacheSpec()
+
+    @property
+    def default_mode(self) -> Mode:
+        """系统配置声明的默认运行模式。"""
+        return Mode(self.caching_method.method, batching_method=self.batching_method)
 
 
 # --------------------------------------------------------------------------- 语义检查守卫
