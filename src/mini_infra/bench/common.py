@@ -1,5 +1,7 @@
 """基准测试共享基础设施模块：环境探测、算力利用率计算、正确性门禁、CLI公共参数与结果落盘。"""
 
+from __future__ import annotations
+
 import argparse
 import functools
 import json
@@ -83,6 +85,18 @@ class _DictCompatibleMixin:
         return self.to_dict().items()
 
 
+GPU_PEAK_SPECS = {
+    "L4": (300.0, 121.0),
+    "T4": (320.0, 65.0),
+    "A10": (600.0, 125.0),
+    "A100": (1555.0, 312.0),
+    "H100": (3350.0, 989.0),
+    "L40S": (864.0, 362.0),
+    "4090": (1008.0, 165.0),
+    "3090": (936.0, 71.0),
+}
+
+
 @dataclass(frozen=True)
 class HardwarePeakSpecs(_DictCompatibleMixin):
     """GPU 峰值显存带宽 (GB/s) 与 FP16 峰值算力 (TFLOPS)。"""
@@ -99,6 +113,27 @@ class HardwarePeakSpecs(_DictCompatibleMixin):
         if isinstance(other, HardwarePeakSpecs):
             return (self.bandwidth_gbs, self.tflops) == (other.bandwidth_gbs, other.tflops)
         return False
+
+    @staticmethod
+    def _match_name(gpu_name: str) -> tuple[float | None, float | None]:
+        """按词边界匹配 GPU 型号，优先最长 key：避免 `A10` 命中 `A100`、`L4` 命中 `L40S`。"""
+        best_key: str | None = None
+        for key in GPU_PEAK_SPECS:
+            if re.search(rf"(?<![0-9A-Za-z]){re.escape(key)}(?![0-9])", gpu_name):
+                if best_key is None or len(key) > len(best_key):
+                    best_key = key
+        return GPU_PEAK_SPECS[best_key] if best_key else (None, None)
+
+    @classmethod
+    def lookup(
+        cls,
+        gpu_name: str,
+        bandwidth_gbs: float | None = None,
+        tflops: float | None = None,
+    ) -> HardwarePeakSpecs:
+        """推断或覆盖 GPU 峰值显存带宽 (GB/s) 与 FP16 峰值算力 (TFLOPS)。"""
+        spec = cls._match_name(gpu_name)
+        return cls(bandwidth_gbs=bandwidth_gbs or spec[0], tflops=tflops or spec[1])
 
 
 @dataclass(frozen=True)
@@ -130,6 +165,24 @@ class ModelCostProfile(_DictCompatibleMixin):
             )
         return False
 
+    @classmethod
+    def from_model(cls, model: torch.nn.Module) -> ModelCostProfile:
+        """理想工作量模型（与引擎实现无关）：用于计算 MBU/MFU。
+
+        weight_bytes：每个 decode step 至少读取一遍全部权重（tied embedding 只算一份，lm_head 会读它）。
+        flops_per_token：2 * 参数量（线性层）；注意力部分另按上下文长度计算。
+        """
+        cfg = model.config
+        params = list(model.parameters())
+        elem = params[0].element_size()
+        n_params = sum(p.numel() for p in params)
+        return cls(
+            n_params=n_params,
+            weight_bytes=n_params * elem,
+            kv_bytes_per_token=2 * cfg.num_hidden_layers * cfg.num_key_value_heads * cfg.head_dim * elem,
+            attn_flop_coeff=cfg.num_hidden_layers * cfg.num_attention_heads * cfg.head_dim,
+        )
+
 
 @dataclass(frozen=True)
 class EfficiencyMetrics(_DictCompatibleMixin):
@@ -156,6 +209,56 @@ class EfficiencyMetrics(_DictCompatibleMixin):
                 other.decode_mbu,
             )
         return False
+
+    @classmethod
+    def compute(
+        cls,
+        cost: ModelCostProfile | dict[str, Any],
+        peaks: HardwarePeakSpecs | dict[str, float | None],
+        batch: int,
+        prompt_len: int | Sequence[int],
+        max_new_tokens: int | Sequence[int],
+        ttft_ms: float,
+        tpot_ms: float,
+    ) -> EfficiencyMetrics:
+        """基于理想工作量与实测延迟，计算 prefill/decode 的 MFU 与 decode 的 MBU（带宽利用率）。"""
+        avg_out_len = (
+            sum(max_new_tokens) / len(max_new_tokens)
+            if isinstance(max_new_tokens, Sequence) and not isinstance(max_new_tokens, str)
+            else max_new_tokens
+        )
+
+        n_params = cost.n_params if isinstance(cost, ModelCostProfile) else cost["n_params"]
+        attn_flop_coeff = cost.attn_flop_coeff if isinstance(cost, ModelCostProfile) else cost["attn_flop_coeff"]
+        weight_bytes = cost.weight_bytes if isinstance(cost, ModelCostProfile) else cost["weight_bytes"]
+        kv_bytes_per_token = (
+            cost.kv_bytes_per_token if isinstance(cost, ModelCostProfile) else cost["kv_bytes_per_token"]
+        )
+
+        tflops = peaks.tflops if isinstance(peaks, HardwarePeakSpecs) else peaks["tflops"]
+        bandwidth_gbs = peaks.bandwidth_gbs if isinstance(peaks, HardwarePeakSpecs) else peaks["bandwidth_gbs"]
+
+        if isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str):
+            avg_prompt_len = sum(prompt_len) / len(prompt_len)
+            ctx = avg_prompt_len + avg_out_len / 2
+            sum_prefill_flops = sum(2 * n_params * pl + 2 * attn_flop_coeff * pl**2 for pl in prompt_len)
+        else:
+            ctx = prompt_len + avg_out_len / 2
+            sum_prefill_flops = batch * (2 * n_params * prompt_len + 2 * attn_flop_coeff * prompt_len**2)
+
+        prefill_mfu = None
+        decode_mfu = None
+        decode_mbu = None
+
+        if tflops:
+            peak_flops = tflops * 1e12
+            prefill_mfu = sum_prefill_flops / (ttft_ms / 1000) / peak_flops if ttft_ms else None
+            dec = batch * (2 * n_params + 4 * attn_flop_coeff * ctx)
+            decode_mfu = dec / (tpot_ms / 1000) / peak_flops if tpot_ms else None
+        if bandwidth_gbs and tpot_ms:
+            moved = weight_bytes + batch * ctx * kv_bytes_per_token
+            decode_mbu = moved / (tpot_ms / 1000) / (bandwidth_gbs * 1e9)
+        return cls(prefill_mfu=prefill_mfu, decode_mfu=decode_mfu, decode_mbu=decode_mbu)
 
 
 @dataclass(frozen=True)
@@ -214,67 +317,35 @@ class DistributionStats:
             "max": self.max,
         }
 
-
-def summarize_samples(values: Sequence[float]) -> DistributionStats:
-    """计算样本序列的分位数与均值方差指标，返回 DistributionStats 结构体。"""
-    if not values:
-        return DistributionStats(
-            median=0.0,
-            mean=0.0,
-            std=0.0,
-            min=0.0,
-            p90=0.0,
-            p95=0.0,
-            p99=0.0,
-            max=0.0,
+    @classmethod
+    def from_samples(cls, values: Sequence[float]) -> DistributionStats:
+        """计算样本序列的分位数与均值方差指标，返回 DistributionStats 结构体。"""
+        if not values:
+            return cls(
+                median=0.0,
+                mean=0.0,
+                std=0.0,
+                min=0.0,
+                p90=0.0,
+                p95=0.0,
+                p99=0.0,
+                max=0.0,
+            )
+        return cls(
+            median=statistics.median(values),
+            mean=statistics.fmean(values),
+            std=statistics.pstdev(values) if len(values) > 1 else 0.0,
+            min=min(values),
+            p90=percentile(values, 90),
+            p95=percentile(values, 95),
+            p99=percentile(values, 99),
+            max=max(values),
         )
-    return DistributionStats(
-        median=statistics.median(values),
-        mean=statistics.fmean(values),
-        std=statistics.pstdev(values) if len(values) > 1 else 0.0,
-        min=min(values),
-        p90=percentile(values, 90),
-        p95=percentile(values, 95),
-        p99=percentile(values, 99),
-        max=max(values),
-    )
 
 
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
 GOLDEN_MAX_OUTPUT_TOKENS = 32
 SCHEMA_VERSION = 1
-
-
-GPU_PEAK_SPECS = {
-    "L4": (300.0, 121.0),
-    "T4": (320.0, 65.0),
-    "A10": (600.0, 125.0),
-    "A100": (1555.0, 312.0),
-    "H100": (3350.0, 989.0),
-    "L40S": (864.0, 362.0),
-    "4090": (1008.0, 165.0),
-    "3090": (936.0, 71.0),
-}
-
-
-def _match_gpu_spec(gpu_name: str) -> tuple[float | None, float | None]:
-    """按词边界匹配 GPU 型号，优先最长 key：避免 `A10` 命中 `A100`、`L4` 命中 `L40S`。"""
-    best_key: str | None = None
-    for key in GPU_PEAK_SPECS:
-        if re.search(rf"(?<![0-9A-Za-z]){re.escape(key)}(?![0-9])", gpu_name):
-            if best_key is None or len(key) > len(best_key):
-                best_key = key
-    return GPU_PEAK_SPECS[best_key] if best_key else (None, None)
-
-
-def lookup_gpu_peak_specs(
-    gpu_name: str,
-    bandwidth_gbs: float | None = None,
-    tflops: float | None = None,
-) -> HardwarePeakSpecs:
-    """推断或覆盖 GPU 峰值显存带宽 (GB/s) 与 FP16 峰值算力 (TFLOPS)。"""
-    spec = _match_gpu_spec(gpu_name)
-    return HardwarePeakSpecs(bandwidth_gbs=bandwidth_gbs or spec[0], tflops=tflops or spec[1])
 
 
 def require_cuda() -> torch.device:
@@ -297,71 +368,6 @@ def format_lengths(value: int | Sequence[int]) -> str:
             return f"{min(items)}..{max(items)}(μ={round(sum(items) / n)})"
         return "/".join(map(str, items))
     return str(value)
-
-
-def model_cost(model: torch.nn.Module) -> ModelCostProfile:
-    """理想工作量模型（与引擎实现无关）：用于计算 MBU/MFU。
-
-    weight_bytes：每个 decode step 至少读取一遍全部权重（tied embedding 只算一份，lm_head 会读它）。
-    flops_per_token：2 * 参数量（线性层）；注意力部分另按上下文长度计算。
-    """
-    cfg = model.config
-    params = list(model.parameters())
-    elem = params[0].element_size()
-    n_params = sum(p.numel() for p in params)
-    return ModelCostProfile(
-        n_params=n_params,
-        weight_bytes=n_params * elem,
-        kv_bytes_per_token=2 * cfg.num_hidden_layers * cfg.num_key_value_heads * cfg.head_dim * elem,
-        attn_flop_coeff=cfg.num_hidden_layers * cfg.num_attention_heads * cfg.head_dim,
-    )
-
-
-def efficiency(
-    cost: ModelCostProfile | dict[str, Any],
-    peaks: HardwarePeakSpecs | dict[str, float | None],
-    batch: int,
-    prompt_len: int | Sequence[int],
-    max_new_tokens: int | Sequence[int],
-    ttft_ms: float,
-    tpot_ms: float,
-) -> EfficiencyMetrics:
-    """基于理想工作量与实测延迟，计算 prefill/decode 的 MFU 与 decode 的 MBU（带宽利用率）。"""
-    avg_out_len = (
-        sum(max_new_tokens) / len(max_new_tokens)
-        if isinstance(max_new_tokens, Sequence) and not isinstance(max_new_tokens, str)
-        else max_new_tokens
-    )
-
-    n_params = cost.n_params if isinstance(cost, ModelCostProfile) else cost["n_params"]
-    attn_flop_coeff = cost.attn_flop_coeff if isinstance(cost, ModelCostProfile) else cost["attn_flop_coeff"]
-    weight_bytes = cost.weight_bytes if isinstance(cost, ModelCostProfile) else cost["weight_bytes"]
-    kv_bytes_per_token = cost.kv_bytes_per_token if isinstance(cost, ModelCostProfile) else cost["kv_bytes_per_token"]
-
-    tflops = peaks.tflops if isinstance(peaks, HardwarePeakSpecs) else peaks["tflops"]
-    bandwidth_gbs = peaks.bandwidth_gbs if isinstance(peaks, HardwarePeakSpecs) else peaks["bandwidth_gbs"]
-
-    if isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str):
-        avg_prompt_len = sum(prompt_len) / len(prompt_len)
-        ctx = avg_prompt_len + avg_out_len / 2
-        sum_prefill_flops = sum(2 * n_params * pl + 2 * attn_flop_coeff * pl**2 for pl in prompt_len)
-    else:
-        ctx = prompt_len + avg_out_len / 2
-        sum_prefill_flops = batch * (2 * n_params * prompt_len + 2 * attn_flop_coeff * prompt_len**2)
-
-    prefill_mfu = None
-    decode_mfu = None
-    decode_mbu = None
-
-    if tflops:
-        peak_flops = tflops * 1e12
-        prefill_mfu = sum_prefill_flops / (ttft_ms / 1000) / peak_flops if ttft_ms else None
-        dec = batch * (2 * n_params + 4 * attn_flop_coeff * ctx)
-        decode_mfu = dec / (tpot_ms / 1000) / peak_flops if tpot_ms else None
-    if bandwidth_gbs and tpot_ms:
-        moved = weight_bytes + batch * ctx * kv_bytes_per_token
-        decode_mbu = moved / (tpot_ms / 1000) / (bandwidth_gbs * 1e9)
-    return EfficiencyMetrics(prefill_mfu=prefill_mfu, decode_mfu=decode_mfu, decode_mbu=decode_mbu)
 
 
 @functools.cache
@@ -588,13 +594,9 @@ __all__ = [
     "SUITES_DIR",
     "add_common_args",
     "check_correctness",
-    "efficiency",
     "format_lengths",
     "git_info",
     "gpu_info",
-    "model_cost",
     "require_cuda",
-    "lookup_gpu_peak_specs",
     "save_benchmark_record",
-    "summarize_samples",
 ]

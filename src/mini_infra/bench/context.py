@@ -9,10 +9,10 @@ from typing import Any
 import torch
 
 from mini_infra.bench.common import (
+    HardwarePeakSpecs,
+    ModelCostProfile,
     git_info,
     gpu_info,
-    lookup_gpu_peak_specs,
-    model_cost,
     require_cuda,
 )
 from mini_infra.engine import Mode, Qwen3Tokenizer
@@ -49,7 +49,7 @@ class BenchmarkExecutionContext:
         tokenizer = Qwen3Tokenizer(model_dir)
         model = load_model(model_dir, device)
         env = gpu_info(device)
-        peaks = lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+        peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
         if None in peaks.values():
             print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
         return cls(
@@ -59,17 +59,11 @@ class BenchmarkExecutionContext:
             vocab=model.config.vocab_size,
             env=env,
             peaks=peaks,
-            cost=model_cost(model),
+            cost=ModelCostProfile.from_model(model),
             git=git_info(),
         )
 
 
-def prepare_execution_context(args: argparse.Namespace) -> BenchmarkExecutionContext:
-    """从 CLI 参数准备评测执行上下文（便捷工厂函数）。"""
-    return BenchmarkExecutionContext.from_args(args)
-
-
 __all__ = [
     "BenchmarkExecutionContext",
-    "prepare_execution_context",
 ]

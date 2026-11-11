@@ -297,7 +297,7 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
     spec = _write(tmp_path, "single-suite", _SCHEDULER_YAML)
     suite = load_benchmark_suite(spec, expected_engine="scheduler")
     ctx = _context(model, suite.modes())
-    monkeypatch.setattr(sweep_cmd, "prepare_execution_context", lambda args: ctx)
+    monkeypatch.setattr(sweep_cmd.BenchmarkExecutionContext, "from_args", lambda args: ctx)
 
     target_output = tmp_path / "custom" / "my_result.json"
     argv = [

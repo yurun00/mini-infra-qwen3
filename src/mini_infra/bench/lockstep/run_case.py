@@ -25,11 +25,15 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.bench.cases import BenchmarkCase
-from mini_infra.bench.common import DEFAULT_REPEATS, DEFAULT_WARMUP, ProfileMode, efficiency
-from mini_infra.bench.lockstep.types import (
+from mini_infra.bench.common import (
+    DEFAULT_REPEATS,
+    DEFAULT_WARMUP,
     DistributionStats,
+    EfficiencyMetrics,
+    ProfileMode,
+)
+from mini_infra.bench.lockstep.types import (
     LockstepCaseResult,
-    summarize_samples,
 )
 from mini_infra.engine import GenerationOptions, GenerationResult, generate
 from mini_infra.engine.metrics import (
@@ -160,19 +164,23 @@ def run_case(
     pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
     gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
     gpu_ratio_stat = (
-        summarize_samples([v for v in gpu_ratios if v is not None]) if all(v is not None for v in gpu_ratios) else None
+        DistributionStats.from_samples([v for v in gpu_ratios if v is not None])
+        if all(v is not None for v in gpu_ratios)
+        else None
     )
 
     metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-        ttft_ms=summarize_samples([r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]),
-        mean_tpot_ms=summarize_samples([r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]),
-        e2e_wall_ms=summarize_samples([r.metrics.e2e_wall_ms for r in runs]),
-        e2e_model_ms=summarize_samples([r.metrics.e2e_model_ms for r in runs]),
-        throughput_tok_s=summarize_samples([r.metrics.throughput_tok_s for r in runs]),
-        throughput_req_s=summarize_samples([r.metrics.throughput_req_s for r in runs]),
+        ttft_ms=DistributionStats.from_samples([r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]),
+        mean_tpot_ms=DistributionStats.from_samples(
+            [r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]
+        ),
+        e2e_wall_ms=DistributionStats.from_samples([r.metrics.e2e_wall_ms for r in runs]),
+        e2e_model_ms=DistributionStats.from_samples([r.metrics.e2e_model_ms for r in runs]),
+        throughput_tok_s=DistributionStats.from_samples([r.metrics.throughput_tok_s for r in runs]),
+        throughput_req_s=DistributionStats.from_samples([r.metrics.throughput_req_s for r in runs]),
         gpu_time_ratio=gpu_ratio_stat,
-        effective_prompt_tok_s=summarize_samples(eff_prompt_vals) if eff_prompt_vals else None,
-        padded_prompt_tok_s=summarize_samples(pad_prompt_vals) if pad_prompt_vals else None,
+        effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals) if eff_prompt_vals else None,
+        padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals) if pad_prompt_vals else None,
     )
 
     mib = 1024**2
@@ -190,12 +198,12 @@ def run_case(
     packing: BatchScheduleInfo[DistributionStats] | None = None
     if batch_infos:
         packing = BatchScheduleInfo(
-            padding_efficiency=summarize_samples([b.padding_efficiency for b in batch_infos]),
-            slot_utilization=summarize_samples([b.slot_utilization for b in batch_infos]),
+            padding_efficiency=DistributionStats.from_samples([b.padding_efficiency for b in batch_infos]),
+            slot_utilization=DistributionStats.from_samples([b.slot_utilization for b in batch_infos]),
         )
 
     eff = (
-        efficiency(
+        EfficiencyMetrics.compute(
             cost,
             peaks,
             batch_size,

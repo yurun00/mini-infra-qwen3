@@ -2,7 +2,7 @@
 
 import pytest
 
-from mini_infra.bench.common import format_lengths, lookup_gpu_peak_specs
+from mini_infra.bench.common import HardwarePeakSpecs, format_lengths
 from mini_infra.utils import percentile
 
 
@@ -20,13 +20,13 @@ from mini_infra.utils import percentile
     ],
 )
 def test_lookup_gpu_peak_specs_matches_exact_model(gpu_name, expected_bandwidth, expected_tflops):
-    peaks = lookup_gpu_peak_specs(gpu_name)
+    peaks = HardwarePeakSpecs.lookup(gpu_name)
     assert peaks == {"bandwidth_gbs": expected_bandwidth, "tflops": expected_tflops}
 
 
 def test_lookup_gpu_peak_specs_unknown_gpu_and_overrides():
-    assert lookup_gpu_peak_specs("Unknown GPU") == {"bandwidth_gbs": None, "tflops": None}
-    assert lookup_gpu_peak_specs("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == {
+    assert HardwarePeakSpecs.lookup("Unknown GPU") == {"bandwidth_gbs": None, "tflops": None}
+    assert HardwarePeakSpecs.lookup("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == {
         "bandwidth_gbs": 100.0,
         "tflops": 10.0,
     }
@@ -129,8 +129,8 @@ def test_dataclasses_attributes_and_dict_compatibility():
 def test_common_strictly_decoupled_from_lockstep():
     import mini_infra.bench.common as bench_common
     from mini_infra.bench.lockstep import (
+        LockstepCaseResult,
         build_benchmark_record,
-        format_case_summary,
         format_table,
     )
 
@@ -143,7 +143,7 @@ def test_common_strictly_decoupled_from_lockstep():
     assert not hasattr(bench_common, "build_benchmark_record")
     assert not hasattr(bench_common, "_format_case_row")
 
-    # 3. 批处理展示与记录构建函数在 batch 域完整导出且可用
+    # 3. 批处理展示与记录构建在 batch 域完整导出且可用，用例结果持有 format_summary 方法
     assert callable(format_table)
-    assert callable(format_case_summary)
+    assert callable(getattr(LockstepCaseResult, "format_summary", None))
     assert callable(build_benchmark_record)

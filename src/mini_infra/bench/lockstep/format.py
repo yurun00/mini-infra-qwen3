@@ -69,39 +69,6 @@ def format_table(case_results: Sequence[LockstepCaseResult]) -> str:
     return "\n".join(lines)
 
 
-def format_case_summary(result: LockstepCaseResult) -> str:
-    """格式化单用例的延迟/吞吐/显存摘要与 MBU/MFU 行。"""
-    ttft = result.metrics.ttft_ms
-    tpot = result.metrics.mean_tpot_ms
-    lines = [
-        "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
-        % (
-            ttft.median if ttft else 0.0,
-            tpot.median if tpot else 0.0,
-            tpot.std if tpot else 0.0,
-            result.metrics.throughput_tok_s.median,
-            result.metrics.throughput_req_s.median,
-            result.memory.peak_allocated_mb,
-        )
-    ]
-    if result.efficiency and result.efficiency.decode_mbu is not None:
-        gpu_busy_str = (
-            "%.0f%%" % (100 * result.metrics.gpu_time_ratio.median)
-            if result.metrics.gpu_time_ratio is not None
-            else "N/A"
-        )
-        lines.append(
-            "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
-            % (
-                100 * result.efficiency.decode_mbu,
-                100 * (result.efficiency.decode_mfu or 0),
-                100 * (result.efficiency.prefill_mfu or 0),
-                gpu_busy_str,
-            )
-        )
-    return "\n".join(lines)
-
-
 def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup: int, repeats: int) -> str:
     """格式化 Lockstep 套件的用例列表，用于 --dry-run 预览（用例顺序即执行顺序）。"""
     lines = [
@@ -120,7 +87,6 @@ def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup:
 __all__ = [
     "_format_case_row",
     "build_benchmark_record",
-    "format_case_summary",
     "format_suite_plan",
     "format_table",
 ]

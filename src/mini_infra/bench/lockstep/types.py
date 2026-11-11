@@ -14,7 +14,6 @@ from mini_infra.bench.cases import CaseKey, WorkloadProfile
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
-    summarize_samples,
 )
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import BatchScheduleInfo, MemoryProfile, StepAggregatedMetrics
@@ -83,9 +82,40 @@ class LockstepCaseResult:
             rec["op_latency_breakdown"] = asdict(self.op_breakdown)
         return rec
 
+    def format_summary(self) -> str:
+        """格式化单用例的延迟/吞吐/显存摘要与 MBU/MFU 行。"""
+        ttft = self.metrics.ttft_ms
+        tpot = self.metrics.mean_tpot_ms
+        lines = [
+            "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
+            % (
+                ttft.median if ttft else 0.0,
+                tpot.median if tpot else 0.0,
+                tpot.std if tpot else 0.0,
+                self.metrics.throughput_tok_s.median,
+                self.metrics.throughput_req_s.median,
+                self.memory.peak_allocated_mb,
+            )
+        ]
+        if self.efficiency and self.efficiency.decode_mbu is not None:
+            gpu_busy_str = (
+                "%.0f%%" % (100 * self.metrics.gpu_time_ratio.median)
+                if self.metrics.gpu_time_ratio is not None
+                else "N/A"
+            )
+            lines.append(
+                "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
+                % (
+                    100 * self.efficiency.decode_mbu,
+                    100 * (self.efficiency.decode_mfu or 0),
+                    100 * (self.efficiency.prefill_mfu or 0),
+                    gpu_busy_str,
+                )
+            )
+        return "\n".join(lines)
+
 
 __all__ = [
     "DistributionStats",
     "LockstepCaseResult",
-    "summarize_samples",
 ]

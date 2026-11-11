@@ -11,8 +11,6 @@ from mini_infra.bench.cases import (
 )
 from mini_infra.bench.scheduler.format import (
     build_benchmark_record,
-    format_case_summary,
-    format_comparison,
     format_table,
 )
 from mini_infra.bench.scheduler.plan import (
@@ -38,7 +36,6 @@ from mini_infra.bench.scheduler.types import (
     extract_metric_by_path,
     extract_workload_profile,
     summarize_same_case_runs,
-    summarize_samples,
 )
 
 __all__ = [
@@ -59,8 +56,6 @@ __all__ = [
     "compute_comparisons",
     "extract_metric_by_path",
     "extract_workload_profile",
-    "format_case_summary",
-    "format_comparison",
     "format_scheduler_run_plan",
     "format_table",
     "parse_interleave_args",
@@ -69,5 +64,4 @@ __all__ = [
     "run_case_once",
     "run_suite",
     "summarize_same_case_runs",
-    "summarize_samples",
 ]

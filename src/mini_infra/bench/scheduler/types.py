@@ -14,7 +14,6 @@ from mini_infra.bench.cases import (
 from mini_infra.bench.common import (
     DistributionStats,
     EfficiencyMetrics,
-    summarize_samples,
 )
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import (
@@ -68,6 +67,17 @@ class ComparisonResult:
             sign = "-" if self.reduction >= 0 else "+"
             return f"{self.metric_name} {sign}{abs(self.reduction) * 100:.1f}%"
         return f"{self.ratio:.4f}"
+
+    def format_summary(self) -> str:
+        """格式化单条基准对比摘要行。"""
+        wid = self.candidate_key.workload_id
+        wid_abbr = "_".join(part[:3] for part in wid.split("_"))
+        mode_str = str(self.candidate_key.mode)
+        mode_abbr = "+".join("".join(word[0] for word in dim.split("-")) for dim in mode_str.split("+"))
+        cand_info = mode_abbr
+        if self.candidate_key.block_size is not None:
+            cand_info += f" (block={self.candidate_key.block_size})"
+        return f"  [{wid_abbr}] {self.metric_name} ({cand_info} vs baseline): {self.formatted_value()}"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -188,6 +198,26 @@ class SchedulerCaseResult:
     def step_agg_metrics(self) -> StepAggregatedMetrics[DistributionStats]:
         """与 ScheduleResult.step_agg_metrics 保持一致的别名。"""
         return self.metrics
+
+    def format_summary(self) -> str:
+        """格式化单用例的延迟/吞吐/槽位利用率摘要行（与 lockstep 对齐）。"""
+        cache_frac = self.schedule_metrics.cache_management_fraction.mean
+        cache_info = f" | cache {cache_frac * 100:.1f}%" if cache_frac > 0 else ""
+        slot_util = self.packing.slot_utilization.mean if self.packing is not None else 0.0
+        pool_info = (
+            f" | pool {self.memory.kv_cache.peak_kv_cache_pool_mb:.1f} MB"
+            if self.memory.kv_cache.peak_kv_cache_pool_mb > 0
+            else ""
+        )
+        return (
+            f"  {self.key.abbreviated_display_name:<32}: makespan {self.schedule_metrics.makespan_ms.mean:.2f} ms | "
+            f"{self.metrics.throughput_tok_s.mean:.1f} tok/s | "
+            f"{self.metrics.throughput_req_s.mean:.2f} req/s | "
+            f"slot_util {slot_util * 100:.1f}% | "
+            f"ttft_p95 {self.schedule_metrics.ttft_ms_p95.mean:.2f} ms | "
+            f"itl_p95 {self.schedule_metrics.itl_ms_p95.mean:.2f} ms"
+            f"{cache_info}{pool_info}"
+        )
 
     def to_record_dict(self) -> dict[str, Any]:
         """导出为与 BaseCaseRecord / SchedulerCaseRecord 完全对齐的标准字典结构。"""
@@ -316,7 +346,9 @@ def summarize_same_case_runs(
 
     gpu_ratios = [r.step_agg_metrics.gpu_time_ratio for r in runs]
     gpu_ratio_stat = (
-        summarize_samples([v for v in gpu_ratios if v is not None]) if all(v is not None for v in gpu_ratios) else None
+        DistributionStats.from_samples([v for v in gpu_ratios if v is not None])
+        if all(v is not None for v in gpu_ratios)
+        else None
     )
     eff_prompt_vals = [
         r.step_agg_metrics.effective_prompt_tok_s for r in runs if r.step_agg_metrics.effective_prompt_tok_s is not None
@@ -326,13 +358,13 @@ def summarize_same_case_runs(
     ]
 
     step_agg_dist: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-        e2e_wall_ms=summarize_samples([r.step_agg_metrics.e2e_wall_ms for r in runs]),
-        e2e_model_ms=summarize_samples([r.step_agg_metrics.e2e_model_ms for r in runs]),
-        throughput_tok_s=summarize_samples([r.step_agg_metrics.throughput_tok_s for r in runs]),
-        throughput_req_s=summarize_samples([r.step_agg_metrics.throughput_req_s for r in runs]),
+        e2e_wall_ms=DistributionStats.from_samples([r.step_agg_metrics.e2e_wall_ms for r in runs]),
+        e2e_model_ms=DistributionStats.from_samples([r.step_agg_metrics.e2e_model_ms for r in runs]),
+        throughput_tok_s=DistributionStats.from_samples([r.step_agg_metrics.throughput_tok_s for r in runs]),
+        throughput_req_s=DistributionStats.from_samples([r.step_agg_metrics.throughput_req_s for r in runs]),
         gpu_time_ratio=gpu_ratio_stat,
-        effective_prompt_tok_s=summarize_samples(eff_prompt_vals) if eff_prompt_vals else None,
-        padded_prompt_tok_s=summarize_samples(pad_prompt_vals) if pad_prompt_vals else None,
+        effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals) if eff_prompt_vals else None,
+        padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals) if pad_prompt_vals else None,
         ttft_ms=None,
         mean_tpot_ms=None,
         p50_tpot_ms=None,
@@ -342,19 +374,21 @@ def summarize_same_case_runs(
     sched_dist: ScheduleMetrics[DistributionStats] = ScheduleMetrics(
         request_count=first_run.schedule_metrics.request_count,
         max_running_requests=first_run.schedule_metrics.max_running_requests,
-        makespan_ms=summarize_samples([r.schedule_metrics.makespan_ms for r in runs]),
-        busy_ms=summarize_samples([r.schedule_metrics.busy_ms for r in runs]),
-        cache_management_ms=summarize_samples([r.schedule_metrics.cache_management_ms for r in runs]),
-        cache_management_fraction=summarize_samples([r.schedule_metrics.cache_management_fraction for r in runs]),
-        queue_ms_p50=summarize_samples([r.schedule_metrics.queue_ms_p50 for r in runs]),
-        queue_ms_p95=summarize_samples([r.schedule_metrics.queue_ms_p95 for r in runs]),
-        ttft_ms_p50=summarize_samples([r.schedule_metrics.ttft_ms_p50 for r in runs]),
-        ttft_ms_p95=summarize_samples([r.schedule_metrics.ttft_ms_p95 for r in runs]),
-        end_to_end_ms_p50=summarize_samples([r.schedule_metrics.end_to_end_ms_p50 for r in runs]),
-        end_to_end_ms_p95=summarize_samples([r.schedule_metrics.end_to_end_ms_p95 for r in runs]),
-        itl_ms_p50=summarize_samples([r.schedule_metrics.itl_ms_p50 for r in runs]),
-        itl_ms_p95=summarize_samples([r.schedule_metrics.itl_ms_p95 for r in runs]),
-        itl_ms_max=summarize_samples([r.schedule_metrics.itl_ms_max for r in runs]),
+        makespan_ms=DistributionStats.from_samples([r.schedule_metrics.makespan_ms for r in runs]),
+        busy_ms=DistributionStats.from_samples([r.schedule_metrics.busy_ms for r in runs]),
+        cache_management_ms=DistributionStats.from_samples([r.schedule_metrics.cache_management_ms for r in runs]),
+        cache_management_fraction=DistributionStats.from_samples(
+            [r.schedule_metrics.cache_management_fraction for r in runs]
+        ),
+        queue_ms_p50=DistributionStats.from_samples([r.schedule_metrics.queue_ms_p50 for r in runs]),
+        queue_ms_p95=DistributionStats.from_samples([r.schedule_metrics.queue_ms_p95 for r in runs]),
+        ttft_ms_p50=DistributionStats.from_samples([r.schedule_metrics.ttft_ms_p50 for r in runs]),
+        ttft_ms_p95=DistributionStats.from_samples([r.schedule_metrics.ttft_ms_p95 for r in runs]),
+        end_to_end_ms_p50=DistributionStats.from_samples([r.schedule_metrics.end_to_end_ms_p50 for r in runs]),
+        end_to_end_ms_p95=DistributionStats.from_samples([r.schedule_metrics.end_to_end_ms_p95 for r in runs]),
+        itl_ms_p50=DistributionStats.from_samples([r.schedule_metrics.itl_ms_p50 for r in runs]),
+        itl_ms_p95=DistributionStats.from_samples([r.schedule_metrics.itl_ms_p95 for r in runs]),
+        itl_ms_max=DistributionStats.from_samples([r.schedule_metrics.itl_ms_max for r in runs]),
     )
 
     batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
@@ -362,9 +396,9 @@ def summarize_same_case_runs(
     if batch_infos:
         cap_vals = [b.running_capacity_utilization for b in batch_infos if b.running_capacity_utilization is not None]
         packing = BatchScheduleInfo(
-            padding_efficiency=summarize_samples([b.padding_efficiency for b in batch_infos]),
-            slot_utilization=summarize_samples([b.slot_utilization for b in batch_infos]),
-            running_capacity_utilization=summarize_samples(cap_vals) if cap_vals else None,
+            padding_efficiency=DistributionStats.from_samples([b.padding_efficiency for b in batch_infos]),
+            slot_utilization=DistributionStats.from_samples([b.slot_utilization for b in batch_infos]),
+            running_capacity_utilization=DistributionStats.from_samples(cap_vals) if cap_vals else None,
         )
 
     return SchedulerCaseResult(
@@ -388,8 +422,7 @@ __all__ = [
     "DistributionStats",
     "SchedulerCaseResult",
     "compute_comparisons",
-    "extract_workload_profile",
     "extract_metric_by_path",
+    "extract_workload_profile",
     "summarize_same_case_runs",
-    "summarize_samples",
 ]

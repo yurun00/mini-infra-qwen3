@@ -2,8 +2,7 @@
 
 from collections.abc import Sequence
 
-from mini_infra.bench.cases import CaseKey
-from mini_infra.bench.scheduler.types import ComparisonResult, SchedulerCaseResult
+from mini_infra.bench.scheduler.types import SchedulerCaseResult
 from mini_infra.bench.schema import build_benchmark_record
 
 
@@ -87,56 +86,11 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
     return "\n".join([header_line, sep_line, *data_lines])
 
 
-def _abbreviate_case_key(key: CaseKey) -> str:
-    """提取用例键的缩写显示名（如 [vol] | dkc+cb | mrr=16 或 [lss] | pkc+cb | mrr=16 | blk-sz=16）。"""
-    parts = [
-        f"[{_abbreviate_workload_id(key.workload_id)}]",
-        _abbreviate_mode(str(key.mode)),
-        f"mrr={key.max_running_requests}",
-    ]
-    if key.block_size is not None:
-        parts.append(f"blk-sz={key.block_size}")
-    return " | ".join(parts)
-
-
-def format_case_summary(result: SchedulerCaseResult) -> str:
-    """格式化单用例的延迟/吞吐/槽位利用率摘要行（与 lockstep.format.format_case_summary 对齐）。"""
-    cache_frac = result.schedule_metrics.cache_management_fraction.mean
-    cache_info = f" | cache {cache_frac * 100:.1f}%" if cache_frac > 0 else ""
-    slot_util = result.packing.slot_utilization.mean if result.packing is not None else 0.0
-    pool_info = (
-        f" | pool {result.memory.kv_cache.peak_kv_cache_pool_mb:.1f} MB"
-        if result.memory.kv_cache.peak_kv_cache_pool_mb > 0
-        else ""
-    )
-    return (
-        f"  {_abbreviate_case_key(result.key):<32}: makespan {result.schedule_metrics.makespan_ms.mean:.2f} ms | "
-        f"{result.metrics.throughput_tok_s.mean:.1f} tok/s | "
-        f"{result.metrics.throughput_req_s.mean:.2f} req/s | "
-        f"slot_util {slot_util * 100:.1f}% | "
-        f"ttft_p95 {result.schedule_metrics.ttft_ms_p95.mean:.2f} ms | "
-        f"itl_p95 {result.schedule_metrics.itl_ms_p95.mean:.2f} ms"
-        f"{cache_info}{pool_info}"
-    )
-
-
-def format_comparison(comp: ComparisonResult) -> str:
-    """格式化单条基准对比摘要行。"""
-    prefix = f"  [{_abbreviate_workload_id(comp.candidate_key.workload_id)}]"
-    cand_info = _abbreviate_mode(str(comp.candidate_key.mode))
-    if comp.candidate_key.block_size is not None:
-        cand_info += f" (block={comp.candidate_key.block_size})"
-    return f"{prefix} {comp.metric_name} ({cand_info} vs baseline): {comp.formatted_value()}"
-
-
 __all__ = [
-    "_abbreviate_case_key",
     "_abbreviate_mode",
     "_abbreviate_suite_name",
     "_abbreviate_workload_id",
     "_format_case_row",
     "build_benchmark_record",
-    "format_case_summary",
-    "format_comparison",
     "format_table",
 ]

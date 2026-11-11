@@ -9,7 +9,6 @@ from mini_infra.bench.common import EfficiencyMetrics
 from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
-    summarize_samples,
 )
 from mini_infra.engine import CachingMethod, Mode
 from mini_infra.engine.metrics import BatchScheduleInfo, KVCacheProfile, MemoryProfile, StepAggregatedMetrics
@@ -20,7 +19,7 @@ def test_distribution_stats_computation_and_immutability():
     """验证 DistributionStats 的统计计算、导出与不可变性。"""
     # 1. 正常样本计算
     samples = [10.0, 20.0, 30.0, 40.0, 50.0]
-    stats = summarize_samples(samples)
+    stats = DistributionStats.from_samples(samples)
 
     assert stats.median == 30.0
     assert stats.mean == 30.0
@@ -40,7 +39,7 @@ def test_distribution_stats_computation_and_immutability():
         stats.median = 99.0  # type: ignore[misc]
 
     # 4. 空样本边界防护
-    empty_stats = summarize_samples([])
+    empty_stats = DistributionStats.from_samples([])
     assert empty_stats.median == 0.0
     assert empty_stats.mean == 0.0
     assert empty_stats.max == 0.0
@@ -75,8 +74,8 @@ def test_lockstep_case_result_structure_and_dot_access():
         peak_reserved_mb=800.0,
         kv_cache=KVCacheProfile(peak_live_kv_cache_mb=12.0),
     )
-    pad_stat = summarize_samples([0.85, 0.85])
-    slot_stat = summarize_samples([0.90, 0.90])
+    pad_stat = DistributionStats.from_samples([0.85, 0.85])
+    slot_stat = DistributionStats.from_samples([0.90, 0.90])
     packing: BatchScheduleInfo[DistributionStats] = BatchScheduleInfo(
         padding_efficiency=pad_stat,
         slot_utilization=slot_stat,
@@ -144,3 +143,9 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert rec["packing"]["slot_utilization"]["median"] == 0.90
     assert rec["efficiency"]["decode_mbu"] == 0.45
     assert rec["op_latency_breakdown"]["total_ms"] == 100.0
+
+    # 5. 验证 format_summary 实例方法
+    summary = case_result.format_summary()
+    assert "TTFT 10.00 ms" in summary
+    assert "TPOT 10.00±0.50 ms" in summary
+    assert "MBU 45.0%" in summary

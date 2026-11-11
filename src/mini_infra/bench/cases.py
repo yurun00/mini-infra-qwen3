@@ -130,6 +130,20 @@ class CaseKey:
             parts.append(blk_str)
         return " | ".join(parts)
 
+    @property
+    def abbreviated_display_name(self) -> str:
+        """提取用例键的缩写显示名（如 [vol] | dkc+cb | mrr=16 或 [lss] | pkc+cb | mrr=16 | blk-sz=16）。"""
+        wid_abbr = "_".join(part[:3] for part in self.workload_id.split("_"))
+        mode_abbr = "+".join("".join(word[0] for word in dim.split("-")) for dim in str(self.mode).split("+"))
+        parts = [
+            f"[{wid_abbr}]",
+            mode_abbr,
+            f"mrr={self.max_running_requests}",
+        ]
+        if self.block_size is not None:
+            parts.append(f"blk-sz={self.block_size}")
+        return " | ".join(parts)
+
     def __str__(self) -> str:
         return self.display_name
 

@@ -11,19 +11,17 @@ from pathlib import Path
 from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.common import (
     CASE_DIR,
+    HardwarePeakSpecs,
+    ModelCostProfile,
     add_common_args,
     check_correctness,
     git_info,
     gpu_info,
-    lookup_gpu_peak_specs,
-    model_cost,
     require_cuda,
     save_benchmark_record,
 )
 from mini_infra.bench.context import BenchmarkExecutionContext
 from mini_infra.bench.scheduler.format import (
-    format_case_summary,
-    format_comparison,
     format_table,
 )
 from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
@@ -191,11 +189,11 @@ def handle_case(args: argparse.Namespace) -> int:
             scale=getattr(args, "scale", None),
             seed=getattr(args, "seed", None),
         )
-    print(format_case_summary(result))
+    print(result.format_summary())
 
     env = gpu_info(device)
-    peaks = lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
+    peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    cost = ModelCostProfile.from_model(model)
     git = git_info()
     record = build_benchmark_record(
         args=args,
@@ -262,7 +260,7 @@ def execute_scheduler_suite(
     )
 
     for res in results:
-        print(format_case_summary(res))
+        print(res.format_summary())
 
     comparisons: list[ComparisonResult] = []
     if suite.comparison is not None:
@@ -270,7 +268,7 @@ def execute_scheduler_suite(
         if comparisons:
             print(f"\n--- Comparisons (suite: {suite.name}) ---")
             for comp in comparisons:
-                print(format_comparison(comp))
+                print(comp.format_summary())
 
     record = build_benchmark_record(
         args=args,
@@ -297,7 +295,7 @@ def execute_scheduler_suite(
         engine="scheduler",
         num_cases=len(results),
         output=output_path,
-        comparison_lines=tuple(format_comparison(c) for c in comparisons),
+        comparison_lines=tuple(c.format_summary() for c in comparisons),
     )
 
 

@@ -19,19 +19,14 @@ from mini_infra.bench.common import (
     format_lengths,
     git_info,
     gpu_info,
-    lookup_gpu_peak_specs,
-    model_cost,
     require_cuda,
     save_benchmark_record,
-    summarize_samples,
 )
 from mini_infra.bench.context import (
     BenchmarkExecutionContext,
-    prepare_execution_context,
 )
 from mini_infra.bench.lockstep import (
     LockstepCaseResult,
-    format_case_summary,
     format_table,
 )
 from mini_infra.bench.scheduler import (
@@ -44,7 +39,6 @@ from mini_infra.bench.scheduler import (
     SchedulerCaseResult,
     WorkloadProfile,
     compute_comparisons,
-    format_comparison,
     summarize_same_case_runs,
 )
 from mini_infra.bench.schema import (
@@ -111,8 +105,6 @@ __all__ = [
     "build_benchmark_record",
     "check_correctness",
     "compute_comparisons",
-    "format_case_summary",
-    "format_comparison",
     "format_lengths",
     "format_table",
     "get_all_benchmark_suites",
@@ -122,18 +114,14 @@ __all__ = [
     "list_benchmark_suite_names",
     "load_benchmark_record",
     "load_benchmark_suite",
-    "lookup_gpu_peak_specs",
     "make_arrival_times",
     "make_sequence",
     "make_sequences",
-    "model_cost",
-    "prepare_execution_context",
     "release_default_mode",
     "release_workloads",
     "require_cuda",
     "save_benchmark_record",
     "suite_from_loaded",
     "summarize_same_case_runs",
-    "summarize_samples",
     "validate_benchmark_record",
 ]

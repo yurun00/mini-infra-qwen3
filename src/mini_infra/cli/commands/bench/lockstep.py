@@ -12,19 +12,18 @@ from pathlib import Path
 from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.common import (
     LOCKSTEP_RESULT_HISTORY_DIR,
+    HardwarePeakSpecs,
+    ModelCostProfile,
     add_common_args,
     check_correctness,
     format_lengths,
     git_info,
     gpu_info,
-    lookup_gpu_peak_specs,
-    model_cost,
     require_cuda,
     save_benchmark_record,
 )
 from mini_infra.bench.context import BenchmarkExecutionContext
 from mini_infra.bench.lockstep.format import (
-    format_case_summary,
     format_suite_plan,
     format_table,
 )
@@ -122,8 +121,8 @@ def handle_case(args: argparse.Namespace) -> int:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     env = gpu_info()
-    peaks = lookup_gpu_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
+    peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    cost = ModelCostProfile.from_model(model)
     if None in peaks.values():
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
@@ -153,7 +152,7 @@ def handle_case(args: argparse.Namespace) -> int:
             seed=getattr(args, "seed", None),
         )
 
-    print(format_case_summary(result))
+    print(result.format_summary())
 
     git = git_info()
     record = build_benchmark_record(
@@ -221,7 +220,7 @@ def execute_lockstep_suite(
         profile_mode=args.profile_mode,
         tensorboard_options=tb_options,
         on_case_progress=on_progress,
-        on_case_result=lambda r: print(format_case_summary(r)),
+        on_case_result=lambda r: print(r.format_summary()),
     )
 
     record = build_benchmark_record(

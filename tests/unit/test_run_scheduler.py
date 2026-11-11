@@ -9,7 +9,6 @@ from mini_infra.bench.cases import BenchmarkCase, CaseDimension, WorkloadProfile
 from mini_infra.bench.scheduler import (
     build_benchmark_record,
     extract_workload_profile,
-    format_case_summary,
     format_table,
     run_case,
     run_case_once,
@@ -277,7 +276,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     assert case_res.packing.running_capacity_utilization is not None
     assert case_res.packing.running_capacity_utilization.mean > 0
     assert len(case_res.sample_events) > 0
-    print(format_case_summary(case_res))
+    print(case_res.format_summary())
 
 
 def test_run_scheduler_suite_on_cpu(tmp_path):

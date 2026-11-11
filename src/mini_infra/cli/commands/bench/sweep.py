@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mini_infra.bench.common import add_common_args
-from mini_infra.bench.context import prepare_execution_context
+from mini_infra.bench.context import BenchmarkExecutionContext
 from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.suites import load_benchmark_suite
@@ -113,7 +113,7 @@ def handle_sweep(args: argparse.Namespace) -> int:
 
     experimental_by_suite = {id(s): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)}
 
-    ctx = prepare_execution_context(args)
+    ctx = BenchmarkExecutionContext.from_args(args)
     commit = ctx.commit
 
     def run_one(suite: BenchmarkSuite, output: Path) -> SuiteRunSummary:

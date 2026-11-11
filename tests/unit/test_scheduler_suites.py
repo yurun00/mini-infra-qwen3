@@ -247,8 +247,6 @@ def test_compute_comparisons():
     from mini_infra.bench.cases import WorkloadProfile
     from mini_infra.bench.common import DistributionStats
     from mini_infra.bench.scheduler.format import (
-        format_case_summary,
-        format_comparison,
         format_table,
     )
     from mini_infra.bench.scheduler.types import (
@@ -423,8 +421,8 @@ def test_compute_comparisons():
     assert c3.relative_delta == pytest.approx(-0.5)
     assert c3.formatted_value() == "pool -50.0%"
 
-    # 验证 format_comparison
-    comp_line = format_comparison(c0)
+    # 验证 ComparisonResult.format_summary() 实例方法
+    comp_line = c0.format_summary()
     assert "[wor_A]" in comp_line
     assert "pkc+cb" in comp_line
     assert "speedup 1.25x" in comp_line
@@ -451,8 +449,8 @@ def test_compute_comparisons():
     with pytest.raises(ValueError, match="找到多个符合 baseline 约束"):
         compute_comparisons([dense_case, dup_dense, paged_16], comparison)
 
-    # 验证 format_case_summary 与 format_table
-    summary_str = format_case_summary(paged_16)
+    # 验证 SchedulerCaseResult.format_summary() 与 format_table
+    summary_str = paged_16.format_summary()
     assert "[wor_A]" in summary_str
     assert "pkc+cb" in summary_str
     assert "pool 1000.0 MB" in summary_str
@@ -468,7 +466,6 @@ def test_compute_comparisons():
 def test_format_table_abbreviations():
     from mini_infra.bench.cases import CaseKey
     from mini_infra.bench.scheduler.format import (
-        _abbreviate_case_key,
         _abbreviate_mode,
         _abbreviate_suite_name,
         _abbreviate_workload_id,
@@ -500,8 +497,8 @@ def test_format_table_abbreviations():
 
     dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     dense_key = CaseKey.from_mode("variable_output_length", dense_mode, 16)
-    assert _abbreviate_case_key(dense_key) == "[var_out_len] | dkc+cb | mrr=16"
+    assert dense_key.abbreviated_display_name == "[var_out_len] | dkc+cb | mrr=16"
 
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     paged_key = CaseKey.from_mode("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
-    assert _abbreviate_case_key(paged_key) == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
+    assert paged_key.abbreviated_display_name == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
