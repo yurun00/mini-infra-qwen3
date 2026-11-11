@@ -310,9 +310,12 @@ mini-infra bench check-regression --update-reference
 
 ---
 
-## 七、声明式 Suite（YAML）：新增与检视
+## 七、声明式 Suite（YAML）：新增、检视与批量运行
 
-所有 suite 均由 [`benchmarks/specs/{lockstep,scheduler}/<name>.yaml`](../../benchmarks/specs/) 声明；**新增 suite = 新增一个 YAML 文件，无需改 Python**。`name` 必须与文件名一致，`_bases/` 下的文件仅供 `extends` 复用、不可直接运行。
+所有评测套件与发版标准负载均由 [`benchmarks/specs/`](../../benchmarks/specs/) 下的 YAML 声明；**新增 suite = 新增一个 YAML 文件，无需修改 Python 代码**。
+
+> [!IMPORTANT]
+> **完整形式化语法（EBNF）与字段手册**：关于 `SuiteSpec` / `ReleaseSpec` 的 **Extended Backus-Naur Form (EBNF) 语法定义**、长度与到达分布规约、确定性随机种子抽样协议以及跨字段语义约束，请查阅 **[声明式评测规范：Suite & Release YAML Schema (spec-schema.md)](./spec-schema.md)**。
 
 ```yaml
 # benchmarks/specs/scheduler/fixed-vs-continuous-staggered-arrivals.yaml
@@ -327,25 +330,7 @@ workload:
   arrival_ms: {interval: 150}
 ```
 
-| 配置块 | 作用 |
-| :--- | :--- |
-| `execution` | `warmup` / `repeats` / `interleave`（scheduler 交替维度，取值为 `CaseDimension`） |
-| `system` | 被测系统：`engine_mode`（`lockstep` 或 `scheduler`，含 `max_running_requests`）× `batching_method[]` × `caching_method[]`（含 `block_size`） |
-| `workload` | `id`、`vars`，以及 `groups`（或单组简写 `count / prompt_len / output_len / arrival_ms`）；值中可用 `${var}`；随机分布需要 `seed`（可选 `seed_salt`） |
-| `sweep` | `workload`：dict-of-lists 为笛卡尔积，list-of-dicts 为显式场景；`system`：`block_size` / `max_running_requests` |
-| `comparison` | scheduler 专用：`group_by` / `baseline` / `metrics`（`speedup` \| `gain` \| `reduction`） |
-| `checks` | 具名语义守卫：`free_batch_slot_at_t0`、`min_max_running_requests: N`、`min_output_len: N` |
-
-**长度与到达分布**：`prompt_len` / `output_len` 取标量（constant；lockstep 中保持标量广播语义）、列表（逐请求 explicit，须等于 `count`）、`{alternating: [a, b]}`、`{ladder: {max: M, floor: F}}`（`count` 必须为 4，取 `[M//8, M//4, M//2, M]` 并以 `F` 为下限）；`arrival_ms` 取标量、列表或 `{interval: ms}`。
-
-**随机分布（确定性伪随机）**：`prompt_len` / `output_len` 还支持 `{log_uniform: {min, max}}`（分层对数均匀 + 打乱，模拟短/中请求居多的长尾分布），`arrival_ms` 还支持 `{poisson: {initial_burst, mean_interval_ms}}`（前 `initial_burst` 个同时到达，其后为指数间隔，夹在 [5, 3×均值] ms）。使用它们必须提供 `workload.seed`：所有随机分布共用 `random.Random(seed * 1000 + seed_salt)`，按「组顺序 → 每组 prompt_len → output_len → arrival_ms」依次抽样，因此结果完全由种子决定。
-
-**展开顺序**即执行顺序：`sweep.workload`（外层）→ `max_running_requests` → `batching_method` → `caching_method` → `block_size`（仅 paged 模式展开，dense 只出现一次）。
-
-### Release 标准负载（YAML）
-版本发布使用的 small / medium / large 三档标准负载声明在 [`benchmarks/specs/release/{lockstep,scheduler}.yaml`](../../benchmarks/specs/release/)，由 `mini-infra bench release` 经 `spec.release` 加载与展开：每档含 `seed_salt`、`workload`（以及 scheduler 的 `max_running_requests`），文件顶层含 `default_seed`、`system`、`execution`。`bench release --seed N` 只覆盖 seed。修改这些文件会改变所有历史版本归档的可比性，仅在受控基准更新流程中变更（见 [RELEASE.md](../../RELEASE.md)）；`tests/unit/test_release_workloads.py` 以快照固化了标准种子下三档负载的逐请求取值。
-
-### 检视与临时实验
+### 1. 检视与临时实验 (`bench suites`)
 ```bash
 mini-infra bench suites list                          # 列出全部内置 suite 与用例数
 mini-infra bench suites show dense-vs-paged-block-size   # 合并后的 YAML + 展开后的用例列表
@@ -359,7 +344,7 @@ mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-lengt
   --set 'sweep.workload.long_prompt_len=[256, 1024]' --set execution.repeats=5
 ```
 
-### 批量运行 (`bench sweep`)
+### 2. 批量运行 (`bench sweep`)
 一次调用顺序运行多个 suite：共享同一次模型加载、正确性检查（按 Mode 缓存）与环境信息，结尾汇总各 suite 的产物路径、耗时与对比结论。配置层面的扫描由 YAML 的 `sweep:` 声明，`bench sweep` 负责「跨 suite 批量运行」与 `--set` 覆盖：
 
 ```bash

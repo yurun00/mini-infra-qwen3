@@ -11,6 +11,8 @@ YAML 是外部输入边界：这里一次性完成全部校验，下游（expand
     sweep:      workload（dict-of-lists 笛卡尔积，或 list-of-dicts 显式场景）/ system
     comparison: metrics / group_by / baseline
     checks:     具名语义守卫
+
+完整 EBNF 形式化语法与字段语义规范见 `docs/benchmarks/spec-schema.md`。
 """
 
 import re

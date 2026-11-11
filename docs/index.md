@@ -21,4 +21,5 @@
 ### 3. 基准测试与性能评测 (Benchmarks)
 面向服务化评测、吞吐/延迟测量与质量守门。
 * [基准测试与性能评测全景指南 (Benchmarking Overview)](benchmarks/overview.md)：系统汇总 Lockstep 齐步测试、scheduler 动态调度评测、历史演进趋势图绘制与 CI 零性能回归守护。
+* [声明式评测规范 (Suite & Release YAML Schema)](benchmarks/spec-schema.md)：完整定义 Suite 与 Release YAML 的 EBNF 形式化语法、长度/到达分布规约、确定性随机抽样与跨字段语义约束。
 
