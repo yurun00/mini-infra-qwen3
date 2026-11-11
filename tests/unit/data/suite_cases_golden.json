@@ -1,0 +1,2754 @@
+{
+ "lockstep": {
+  "serial-vs-fixed-batch-throughput": {
+   "cases": [
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache",
+     "num_total_requests": 1,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 1,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache",
+     "num_total_requests": 2,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 2,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache",
+     "num_total_requests": 4,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 4,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache",
+     "num_total_requests": 8,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 8,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache",
+     "num_total_requests": 16,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 16,
+     "prompt_len": 128
+    }
+   ],
+   "modes": [
+    "dense-kv-cache",
+    "dense-kv-cache+fixed-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "uniform-vs-variable-budget-slots": {
+   "cases": [
+    {
+     "max_new_tokens": 64,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 4,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": [
+      8,
+      16,
+      32,
+      64
+     ],
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 4,
+     "prompt_len": 128
+    }
+   ],
+   "modes": [
+    "dense-kv-cache+fixed-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "uniform-vs-variable-prompt-padding": {
+   "cases": [
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 4,
+     "prompt_len": 128
+    },
+    {
+     "max_new_tokens": 32,
+     "mode": "dense-kv-cache+fixed-batching",
+     "num_total_requests": 4,
+     "prompt_len": [
+      16,
+      32,
+      64,
+      128
+     ]
+    }
+   ],
+   "modes": [
+    "dense-kv-cache+fixed-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  }
+ },
+ "scheduler": {
+  "dense-vs-paged-block-size": {
+   "cases": [
+    {
+     "max_running_requests": 8,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "block_size_sweep"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 8,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "block_size_sweep"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "block_size_sweep"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 32,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "block_size_sweep"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 64,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "block_size_sweep"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "caching_method": "dense-kv-cache"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "KV-read",
+      "path": "memory.kv_cache.accessed_kv_cache_tokens"
+     },
+     {
+      "kind": "reduction",
+      "name": "pool",
+      "path": "memory.kv_cache.peak_kv_cache_pool_mb"
+     }
+    ]
+   },
+   "interleave": [
+    "caching_method",
+    "block_size"
+   ],
+   "max_running_requests": 8,
+   "modes": [
+    "dense-kv-cache+continuous-batching",
+    "paged-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "dense-vs-paged-length-ratio": {
+   "cases": [
+    {
+     "max_running_requests": 8,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_128"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_128"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "2b3cfa3a0cfcddb4",
+       512,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_512"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "2b3cfa3a0cfcddb4",
+       512,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_512"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_2048"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_2048"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "2f3e8c377bdc7ca4",
+       3072,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_3072"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "2f3e8c377bdc7ca4",
+       3072,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "length_ratio_3072"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "caching_method": "dense-kv-cache"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "KV-read",
+      "path": "memory.kv_cache.accessed_kv_cache_tokens"
+     },
+     {
+      "kind": "reduction",
+      "name": "pool",
+      "path": "memory.kv_cache.peak_kv_cache_pool_mb"
+     }
+    ]
+   },
+   "interleave": [
+    "caching_method",
+    "block_size"
+   ],
+   "max_running_requests": 8,
+   "modes": [
+    "dense-kv-cache+continuous-batching",
+    "paged-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "dense-vs-paged-long-short-stress": {
+   "cases": [
+    {
+     "max_running_requests": 8,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "long_short_stress"
+    },
+    {
+     "max_running_requests": 8,
+     "mode": "paged-kv-cache+continuous-batching",
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       96,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       96,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       96,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       96,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       96,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       96,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       96,
+       0.0
+      ],
+      [
+       7,
+       "50f77ffd0cfa129e",
+       2048,
+       8,
+       200.0
+      ],
+      [
+       8,
+       "e43b431612254cdf",
+       128,
+       64,
+       201.0
+      ],
+      [
+       9,
+       "27acdfe664fe5164",
+       128,
+       64,
+       201.0
+      ],
+      [
+       10,
+       "bf525fafd92bef10",
+       128,
+       64,
+       201.0
+      ],
+      [
+       11,
+       "36fabd52420a5fac",
+       128,
+       64,
+       201.0
+      ],
+      [
+       12,
+       "aae71c8c806dc78c",
+       128,
+       64,
+       201.0
+      ],
+      [
+       13,
+       "6b69692119544f3b",
+       128,
+       64,
+       201.0
+      ],
+      [
+       14,
+       "f45fa6616465987d",
+       128,
+       64,
+       201.0
+      ],
+      [
+       15,
+       "4b0de98200d53fcb",
+       128,
+       64,
+       201.0
+      ],
+      [
+       16,
+       "d13b6f06e0271f1c",
+       128,
+       64,
+       201.0
+      ]
+     ],
+     "workload_id": "long_short_stress"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "caching_method": "dense-kv-cache"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "KV-read",
+      "path": "memory.kv_cache.accessed_kv_cache_tokens"
+     },
+     {
+      "kind": "reduction",
+      "name": "pool",
+      "path": "memory.kv_cache.peak_kv_cache_pool_mb"
+     }
+    ]
+   },
+   "interleave": [
+    "caching_method",
+    "block_size"
+   ],
+   "max_running_requests": 8,
+   "modes": [
+    "dense-kv-cache+continuous-batching",
+    "paged-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "fixed-vs-continuous-prefill-interference": {
+   "cases": [
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+fixed-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       32,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       32,
+       0.0
+      ],
+      [
+       2,
+       "a1910378745310a4",
+       512,
+       8,
+       250.0
+      ]
+     ],
+     "workload_id": "prefill_interference"
+    },
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       32,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       32,
+       0.0
+      ],
+      [
+       2,
+       "a1910378745310a4",
+       512,
+       8,
+       250.0
+      ]
+     ],
+     "workload_id": "prefill_interference"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_method": "fixed-batching"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     }
+    ]
+   },
+   "interleave": [
+    "batching_method"
+   ],
+   "max_running_requests": 4,
+   "modes": [
+    "dense-kv-cache+fixed-batching",
+    "dense-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "fixed-vs-continuous-staggered-arrivals": {
+   "cases": [
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+fixed-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       8,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       32,
+       150.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       8,
+       300.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       32,
+       450.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       8,
+       600.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       32,
+       750.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       8,
+       900.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       32,
+       1050.0
+      ]
+     ],
+     "workload_id": "staggered_arrivals"
+    },
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       8,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       32,
+       150.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       8,
+       300.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       32,
+       450.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       8,
+       600.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       32,
+       750.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       8,
+       900.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       32,
+       1050.0
+      ]
+     ],
+     "workload_id": "staggered_arrivals"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_method": "fixed-batching"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     }
+    ]
+   },
+   "interleave": [
+    "batching_method"
+   ],
+   "max_running_requests": 4,
+   "modes": [
+    "dense-kv-cache+fixed-batching",
+    "dense-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "fixed-vs-continuous-uniform-output-length": {
+   "cases": [
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+fixed-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       20,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       20,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       20,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       20,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       20,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       20,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       20,
+       0.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       20,
+       0.0
+      ]
+     ],
+     "workload_id": "uniform_output_length"
+    },
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       20,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       20,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       20,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       20,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       20,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       20,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       20,
+       0.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       20,
+       0.0
+      ]
+     ],
+     "workload_id": "uniform_output_length"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_method": "fixed-batching"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     }
+    ]
+   },
+   "interleave": [
+    "batching_method"
+   ],
+   "max_running_requests": 4,
+   "modes": [
+    "dense-kv-cache+fixed-batching",
+    "dense-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  },
+  "fixed-vs-continuous-variable-output-length": {
+   "cases": [
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+fixed-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       8,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       32,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       8,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       32,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       8,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       32,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       8,
+       0.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       32,
+       0.0
+      ]
+     ],
+     "workload_id": "variable_output_length"
+    },
+    {
+     "max_running_requests": 4,
+     "mode": "dense-kv-cache+continuous-batching",
+     "paged_cache_config": null,
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       8,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       32,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       8,
+       0.0
+      ],
+      [
+       3,
+       "f020681b828afe5b",
+       128,
+       32,
+       0.0
+      ],
+      [
+       4,
+       "2e8b769925d804ca",
+       128,
+       8,
+       0.0
+      ],
+      [
+       5,
+       "872496a079fba990",
+       128,
+       32,
+       0.0
+      ],
+      [
+       6,
+       "5290c37516fe8234",
+       128,
+       8,
+       0.0
+      ],
+      [
+       7,
+       "7bf65eeb8b7db728",
+       128,
+       32,
+       0.0
+      ]
+     ],
+     "workload_id": "variable_output_length"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_method": "fixed-batching"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "speedup",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     }
+    ]
+   },
+   "interleave": [
+    "batching_method"
+   ],
+   "max_running_requests": 4,
+   "modes": [
+    "dense-kv-cache+fixed-batching",
+    "dense-kv-cache+continuous-batching"
+   ],
+   "repeats": 3,
+   "warmup": 1
+  }
+ },
+ "vocab_size": 1000
+}

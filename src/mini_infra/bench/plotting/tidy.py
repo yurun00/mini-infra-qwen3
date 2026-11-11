@@ -6,8 +6,8 @@ from typing import Any, Literal
 
 import pandas as pd
 
-from mini_infra.bench.common import format_lengths
-from mini_infra.bench.schema import (
+from mini_infra.bench.format import format_lengths
+from mini_infra.bench.result import (
     LockstepBenchmarkRecord,
     SchedulerBenchmarkRecord,
     validate_benchmark_record,
@@ -72,10 +72,11 @@ def resolve_record_label(
     """提取对齐显示的模式/版本标签。"""
     if custom:
         return custom
-    tag = rec.get("tag") or ""
-    feat = rec.get("release_feature")
-    mode = rec.get("mode") or ""
-    dirty = "*" if (rec.get("git") or {}).get("dirty") else ""
+    validated = validate_benchmark_record(rec)
+    tag = validated.tag or ""
+    feat = validated.release_feature
+    mode = validated.mode or ""
+    dirty = "*" if validated.git.get("dirty") else ""
     if feat:
         return f"{tag} ({feat}){dirty}"
     if mode and tag and mode != tag:
@@ -283,11 +284,23 @@ def wide_to_tidy_df(
     return tidy.dropna(subset=["median"]).reset_index(drop=True)
 
 
+def extract_primary_case_dict(rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord) -> dict[str, Any]:
+    """优先选取包含 op_latency_breakdown 的 case（如 small），否则优先选取 medium 规模作为代表性单点剖析对象。"""
+    for c in rec.cases:
+        if getattr(c, "op_latency_breakdown", None) is not None:
+            return c.to_dict()
+    for c in rec.cases:
+        if c.scale == "medium":
+            return c.to_dict()
+    return rec.cases[len(rec.cases) // 2].to_dict()
+
+
 __all__ = [
     "LOCKSTEP_ONLY_PLOT_SPECS",
     "MetricPlotSpec",
     "SCHEDULER_ONLY_PLOT_SPECS",
     "SHARED_PLOT_SPECS",
+    "extract_primary_case_dict",
     "records_to_wide_df",
     "resolve_plot_specs",
     "resolve_record_label",

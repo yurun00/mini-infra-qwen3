@@ -1,319 +1,195 @@
-"""bench.scheduler.suites 配置与规格构建的单元测试（CPU 可运行）。"""
+"""bench.scheduler.suites（YAML 声明 → BenchmarkSuite → BenchmarkCase）与用例层类型的单元测试（CPU 可运行）。"""
 
 import json
 
 import pytest
 
-from mini_infra.bench.scheduler.suites import (
-    SCHEDULER_SUITES,
+from mini_infra.bench.cases import (
+    BenchmarkCase,
     CaseDimension,
     CaseKey,
-    ComparisonMetric,
-    ComparisonSpec,
-    DenseVsPagedBlockSizeSuite,
-    DenseVsPagedLengthRatioSuite,
-    DenseVsPagedLongShortStressSuite,
-    FixedVsContinuousPrefillInterferenceSuite,
-    FixedVsContinuousStaggeredArrivalsSuite,
-    FixedVsContinuousUniformOutputLengthSuite,
-    FixedVsContinuousVariableOutputLengthSuite,
-    MetricKind,
-    SchedulerSuiteCase,
-    get_all_scheduler_suites,
-    get_scheduler_suite,
+    WorkloadProfile,
 )
-from mini_infra.bench.workloads import make_long_short_specs
+from mini_infra.bench.comparison import (
+    Comparison,
+    ComparisonMetric,
+    ComparisonResult,
+    MetricKind,
+    compute_comparisons,
+)
+from mini_infra.bench.spec import get_suite_spec
+from mini_infra.bench.suite import (
+    BenchmarkSuite,
+    get_all_benchmark_suites,
+    get_benchmark_suite,
+    list_benchmark_suite_names,
+    load_benchmark_suite,
+)
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+
+FIXED_VS_CONTINUOUS = [
+    "fixed-vs-continuous-prefill-interference",
+    "fixed-vs-continuous-staggered-arrivals",
+    "fixed-vs-continuous-uniform-output-length",
+    "fixed-vs-continuous-variable-output-length",
+]
 
 
 def test_scheduler_suites_registry():
-    assert set(SCHEDULER_SUITES.keys()) == {
-        "fixed-vs-continuous-variable-output-length",
-        "fixed-vs-continuous-uniform-output-length",
-        "fixed-vs-continuous-staggered-arrivals",
-        "fixed-vs-continuous-prefill-interference",
-        "dense-vs-paged-long-short-stress",
-        "dense-vs-paged-length-ratio",
-        "dense-vs-paged-block-size",
-    }
-    assert len(get_all_scheduler_suites()) == 7
-    for name in SCHEDULER_SUITES:
-        assert get_scheduler_suite(name).name == name
+    assert list_benchmark_suite_names("scheduler") == sorted(
+        [
+            "fixed-vs-continuous-variable-output-length",
+            "fixed-vs-continuous-uniform-output-length",
+            "fixed-vs-continuous-staggered-arrivals",
+            "fixed-vs-continuous-prefill-interference",
+            "dense-vs-paged-long-short-stress",
+            "dense-vs-paged-length-ratio",
+            "dense-vs-paged-block-size",
+        ]
+    )
+    suites = get_all_benchmark_suites("scheduler")
+    assert len(suites) == 7
+    for suite in suites:
+        assert isinstance(suite, BenchmarkSuite)
+        assert isinstance(suite.cases, tuple)
+        assert len(suite) == len(suite.cases)
+        assert list(suite) == list(suite.cases)
+        assert get_benchmark_suite("scheduler", suite.name).name == suite.name
 
     with pytest.raises(ValueError, match="未知 scheduler suite"):
-        get_scheduler_suite("non-existent")
+        get_benchmark_suite("scheduler", "non-existent")
 
 
-def test_variable_output_length_suite():
-    suite = FixedVsContinuousVariableOutputLengthSuite(request_count=4, prompt_length=16, short_output=2, long_output=6)
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 4
-    assert [len(s.token_ids) for s in specs] == [16, 16, 16, 16]
-    assert [s.max_new_tokens for s in specs] == [2, 6, 2, 6]
-    assert [s.arrival_ms for s in specs] == [0.0, 0.0, 0.0, 0.0]
-    json.dumps(suite.to_dict())
-
-    with pytest.raises(ValueError):
-        FixedVsContinuousVariableOutputLengthSuite(request_count=0)
-    with pytest.raises(ValueError):
-        FixedVsContinuousVariableOutputLengthSuite(short_output=0)
-    with pytest.raises(ValueError):
-        FixedVsContinuousVariableOutputLengthSuite(batching_methods=())
-
-
-def test_uniform_output_length_suite():
-    suite = FixedVsContinuousUniformOutputLengthSuite(request_count=3, prompt_length=10, output_budget=5)
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 3
-    assert [len(s.token_ids) for s in specs] == [10, 10, 10]
-    assert [s.max_new_tokens for s in specs] == [5, 5, 5]
-    assert [s.arrival_ms for s in specs] == [0.0, 0.0, 0.0]
-    json.dumps(suite.to_dict())
-
-    with pytest.raises(ValueError):
-        FixedVsContinuousUniformOutputLengthSuite(output_budget=0)
-    with pytest.raises(ValueError):
-        FixedVsContinuousUniformOutputLengthSuite(batching_methods=())
-
-
-def test_staggered_arrivals_suite():
-    suite = FixedVsContinuousStaggeredArrivalsSuite(
-        request_count=3, prompt_length=8, short_output=2, long_output=4, arrival_interval_ms=50.0
+def test_load_scheduler_suite_rejects_other_engine(tmp_path):
+    path = tmp_path / "demo.yaml"
+    path.write_text(
+        "name: demo\nsystem: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
+        "workload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
+        encoding="utf-8",
     )
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 3
-    assert [s.arrival_ms for s in specs] == [0.0, 50.0, 100.0]
-    assert [s.max_new_tokens for s in specs] == [2, 4, 2]
+    with pytest.raises(ValueError, match="engine 必须是 scheduler"):
+        load_benchmark_suite(path, expected_engine="scheduler")
+
+
+@pytest.mark.parametrize("name", sorted(FIXED_VS_CONTINUOUS))
+def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
+    suite = get_benchmark_suite("scheduler", name)
+    assert suite.interleave == (CaseDimension.BATCHING_METHOD,)
+    assert suite.comparison is not None
+    modes = suite.modes()
+    assert [m.batching_method for m in modes] == [BatchingMethod.FIXED, BatchingMethod.CONTINUOUS]
+    assert all(m.use_kv_cache for m in modes)
+
+    cases = suite.cases
+    assert len(cases) == 2
+    assert all(isinstance(c, BenchmarkCase) and c.suite_name == name for c in cases)
+    assert cases[0].workload_id == cases[1].workload_id
+    assert cases[0].profile == cases[1].profile
+    for case in cases:
+        assert case.key == CaseKey.from_mode(case.workload_id, case.mode, case.max_running_requests)
+
+
+def test_variable_output_length_suite_specs():
+    suite = get_benchmark_suite("scheduler", "fixed-vs-continuous-variable-output-length")
+    specs = suite.cases[0].profile.to_payload(vocab_size=1000)
+    assert [len(s.token_ids) for s in specs] == [128] * 8
+    assert [s.max_new_tokens for s in specs] == [8, 32] * 4
+    assert {s.arrival_ms for s in specs} == {0.0}
     json.dumps(suite.to_dict())
 
-    with pytest.raises(ValueError):
-        FixedVsContinuousStaggeredArrivalsSuite(arrival_interval_ms=-1.0)
-    with pytest.raises(ValueError):
-        FixedVsContinuousStaggeredArrivalsSuite(batching_methods=())
+
+def test_staggered_arrivals_suite_specs():
+    suite = get_benchmark_suite("scheduler", "fixed-vs-continuous-staggered-arrivals")
+    specs = suite.cases[0].profile.to_payload(vocab_size=1000)
+    assert [s.arrival_ms for s in specs] == [i * 150.0 for i in range(8)]
 
 
-def test_prefill_interference_suite():
-    suite = FixedVsContinuousPrefillInterferenceSuite(
-        prompt_length=10,
-        interference_prompt_length=30,
-        short_output=2,
-        long_output=6,
-        interference_arrival_ms=100.0,
+def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
+    suite = get_benchmark_suite("scheduler", "fixed-vs-continuous-prefill-interference")
+    specs = suite.cases[0].profile.to_payload(vocab_size=1000)
+    assert [len(s.token_ids) for s in specs] == [128, 128, 512]
+    assert [s.max_new_tokens for s in specs] == [32, 32, 8]
+    assert [s.arrival_ms for s in specs] == [0.0, 0.0, 250.0]
+
+    spec = get_suite_spec("scheduler", "fixed-vs-continuous-prefill-interference")
+    text = spec.path.read_text(encoding="utf-8")
+    assert "min_max_running_requests: 3" in text
+    base = spec.path.parent / "_bases" / "fixed_vs_continuous.yaml"
+    path = tmp_path / "demo.yaml"
+    path.write_text(
+        f"name: demo\nextends: {base}\nsystem: {{engine_mode: {{kind: scheduler, max_running_requests: 2}}}}\n"
+        "workload: {id: w, groups: [{count: 1, prompt_len: 8, output_len: 4}]}\n"
+        "checks: [{min_max_running_requests: 3}]\n",
+        encoding="utf-8",
     )
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 3
-    assert [len(s.token_ids) for s in specs] == [10, 10, 30]
-    assert [s.max_new_tokens for s in specs] == [6, 6, 2]
-    assert [s.arrival_ms for s in specs] == [0.0, 0.0, 100.0]
-    json.dumps(suite.to_dict())
-
-    with pytest.raises(ValueError):
-        FixedVsContinuousPrefillInterferenceSuite(max_running_requests=2)  # 至少 3
-    with pytest.raises(ValueError):
-        FixedVsContinuousPrefillInterferenceSuite(interference_arrival_ms=-10.0)
-    with pytest.raises(ValueError):
-        FixedVsContinuousPrefillInterferenceSuite(batching_methods=())
-    with pytest.raises(ValueError):
-        FixedVsContinuousPrefillInterferenceSuite(cache_methods=())
-
-
-def test_suite_cases_expansion():
-    fixed_suites = [s for s in get_all_scheduler_suites() if s.name.startswith("fixed-vs-continuous")]
-    assert len(fixed_suites) == 4
-    for suite in fixed_suites:
-        assert suite.interleave == (CaseDimension.BATCHING_METHOD,)
-        assert suite.comparison is not None
-        modes = suite.modes()
-        assert len(modes) == 2
-        assert all(isinstance(m, Mode) for m in modes)
-        assert all(m.use_kv_cache for m in modes)
-
-        cases = suite.cases(vocab_size=500)
-        assert len(cases) == 2
-        assert all(isinstance(c, SchedulerSuiteCase) for c in cases)
-        assert all(isinstance(c.mode, Mode) for c in cases)
-
-        methods = {c.mode.batching_method for c in cases}
-        assert methods == {BatchingMethod.FIXED, BatchingMethod.CONTINUOUS}
-        assert cases[0].mode.batching_method == BatchingMethod.FIXED
-        assert cases[1].mode.batching_method == BatchingMethod.CONTINUOUS
-        assert cases[0].workload_id == cases[1].workload_id
-        assert len(cases[0].workload_id) > 0
-        assert cases[0].key == CaseKey(
-            workload_id=cases[0].workload_id,
-            mode=cases[0].mode,
-            max_running_requests=cases[0].max_running_requests,
-        )
-        assert cases[1].key == CaseKey(
-            workload_id=cases[1].workload_id,
-            mode=cases[1].mode,
-            max_running_requests=cases[1].max_running_requests,
-        )
-        assert len(cases[0].specs) == len(cases[1].specs)
-        assert cases[0].suite_name == suite.name
-
-
-def test_make_long_short_specs():
-    specs = make_long_short_specs(vocab_size=1000)
-    assert len(specs) == 17  # 7 + 1 + 9
-    assert [s.request_idx for s in specs] == list(range(17))
-
-    # 初始 7 个短请求
-    for s in specs[:7]:
-        assert len(s.token_ids) == 128
-        assert s.max_new_tokens == 96
-        assert s.arrival_ms == 0.0
-
-    # 中途 1 个长请求
-    long_s = specs[7]
-    assert len(long_s.token_ids) == 2048
-    assert long_s.max_new_tokens == 8
-    assert long_s.arrival_ms == 200.0
-
-    # 后续 9 个短请求
-    for s in specs[8:]:
-        assert len(s.token_ids) == 128
-        assert s.max_new_tokens == 64
-        assert s.arrival_ms == 201.0
-
-    # 异常校验
-    with pytest.raises(ValueError, match="vocab_size 必须大于 0"):
-        make_long_short_specs(vocab_size=0)
-    with pytest.raises(ValueError, match="prompt_length 必须大于 0"):
-        make_long_short_specs(vocab_size=1000, short_prompt_length=0)
-    with pytest.raises(ValueError, match="prompt_length 必须大于 0"):
-        make_long_short_specs(vocab_size=1000, long_prompt_length=0)
-    with pytest.raises(ValueError, match="请求数量必须大于 0"):
-        make_long_short_specs(vocab_size=1000, initial_short_requests=0)
-    with pytest.raises(ValueError, match="请求数量必须大于 0"):
-        make_long_short_specs(vocab_size=1000, followup_short_requests=0)
-    with pytest.raises(ValueError, match="max_running_requests 必须大于 0"):
-        make_long_short_specs(vocab_size=1000, max_running_requests=0)
-    with pytest.raises(ValueError, match="必须小于 max_running_requests"):
-        make_long_short_specs(vocab_size=1000, initial_short_requests=8, max_running_requests=8)
-    with pytest.raises(ValueError, match="输出预算必须大于 0"):
-        make_long_short_specs(vocab_size=1000, short_output=0)
-    with pytest.raises(ValueError, match="输出预算必须大于 0"):
-        make_long_short_specs(vocab_size=1000, long_output=0)
-    with pytest.raises(ValueError, match="输出预算必须大于 0"):
-        make_long_short_specs(vocab_size=1000, followup_output=0)
-    with pytest.raises(ValueError, match="long_arrival_ms 不能小于 0"):
-        make_long_short_specs(vocab_size=1000, long_arrival_ms=-1.0)
-    with pytest.raises(ValueError, match="不能小于 long_arrival_ms"):
-        make_long_short_specs(vocab_size=1000, long_arrival_ms=300.0, followup_arrival_ms=200.0)
+    with pytest.raises(ValueError, match="max_running_requests >= 3"):
+        load_benchmark_suite(path, expected_engine="scheduler")
 
 
 def test_dense_vs_paged_long_short_stress_suite():
-    suite = DenseVsPagedLongShortStressSuite()
-    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
+    suite = get_benchmark_suite("scheduler", "dense-vs-paged-long-short-stress")
+    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.BLOCK_SIZE)
     assert suite.comparison is not None
     modes = suite.modes()
-    assert len(modes) == 2
     assert [m.caching_method for m in modes] == [CachingMethod.DENSE, CachingMethod.PAGED]
     assert all(m.batching_method == BatchingMethod.CONTINUOUS for m in modes)
 
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 17
-
-    cases = suite.cases(vocab_size=1000)
+    cases = suite.cases
     assert len(cases) == 2
-    assert cases[0].mode.caching_method == CachingMethod.DENSE
+    assert cases[0].profile.num_total_requests == 17  # 7 + 1 + 9
     assert cases[0].paged_cache_config is None
-    assert cases[1].mode.caching_method == CachingMethod.PAGED
     assert cases[1].paged_cache_config is not None
     assert cases[1].paged_cache_config.block_size == 16
-    assert cases[0].key.mode.caching_method == CachingMethod.DENSE
-    assert cases[1].key.mode.caching_method == CachingMethod.PAGED
+
+    p = cases[0].profile
+    short_lens = p.prompt_lens[:7]
+    short_budgets = p.output_budgets[:7]
+    short_arrivals = p.arrival_ms[:7]
+    assert all(
+        plen == 128 and budget == 96 and arr == 0.0
+        for plen, budget, arr in zip(short_lens, short_budgets, short_arrivals)
+    )
+    assert (p.prompt_lens[7], p.output_budgets[7], p.arrival_ms[7]) == (2048, 8, 200.0)
+    followups = list(zip(p.prompt_lens[8:], p.output_budgets[8:], p.arrival_ms[8:]))
+    assert all(plen == 128 and budget == 64 and arr == 201.0 for plen, budget, arr in followups)
 
     data = suite.to_dict()
     json.dumps(data)
     assert data["name"] == "dense-vs-paged-long-short-stress"
-    assert data["block_size"] == 16
-    assert data["interleave"] == ["caching_method", "paged_cache_config"]
-    assert data["comparison"] is not None
-
-    with pytest.raises(ValueError):
-        DenseVsPagedLongShortStressSuite(max_running_requests=0)
-    with pytest.raises(ValueError):
-        DenseVsPagedLongShortStressSuite(initial_short_requests=8, max_running_requests=8)
-    with pytest.raises(ValueError):
-        DenseVsPagedLongShortStressSuite(block_size=0)
-    with pytest.raises(ValueError):
-        DenseVsPagedLongShortStressSuite(cache_methods=())
+    assert data["engine"] == "scheduler"
+    assert data["spec"]["execution"]["interleave"] == ["caching_method", "block_size"]
 
 
 def test_dense_vs_paged_length_ratio_suite():
-    suite = DenseVsPagedLengthRatioSuite()
-    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
-    assert suite.comparison is not None
-    assert suite.long_prompt_lengths == (128, 512, 2048, 3072)
-
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 17
-
-    cases = suite.cases(vocab_size=1000)
-    # 4 个 workload，每个 2 cases -> 共 8 个 cases
-    assert len(cases) == 8
-    expected_workload_ids = [
-        "length_ratio_128",
-        "length_ratio_128",
-        "length_ratio_512",
-        "length_ratio_512",
-        "length_ratio_2048",
-        "length_ratio_2048",
-        "length_ratio_3072",
-        "length_ratio_3072",
-    ]
-    assert [c.workload_id for c in cases] == expected_workload_ids
+    suite = get_benchmark_suite("scheduler", "dense-vs-paged-length-ratio")
+    cases = suite.cases
+    assert [c.workload_id for c in cases] == [f"length_ratio_{n}" for n in (128, 512, 2048, 3072) for _ in range(2)]
     assert [c.mode.caching_method for c in cases] == [CachingMethod.DENSE, CachingMethod.PAGED] * 4
-
-    # 验证各 workload 下长请求长度
     for i, long_len in enumerate([128, 512, 2048, 3072]):
-        dense_case = cases[2 * i]
-        paged_case = cases[2 * i + 1]
-        assert len(dense_case.specs[7].token_ids) == long_len
-        assert len(paged_case.specs[7].token_ids) == long_len
-        assert paged_case.paged_cache_config.block_size == 16
-
-    data = suite.to_dict()
-    json.dumps(data)
-    assert data["long_prompt_lengths"] == [128, 512, 2048, 3072]
-
-    with pytest.raises(ValueError):
-        DenseVsPagedLengthRatioSuite(long_prompt_lengths=())
-    with pytest.raises(ValueError):
-        DenseVsPagedLengthRatioSuite(long_prompt_lengths=(128, 0))
+        dense_case, paged_case = cases[2 * i], cases[2 * i + 1]
+        assert dense_case.profile.prompt_lens[7] == long_len
+        assert paged_case.profile.prompt_lens[7] == long_len
+        assert paged_case.paged_cache_config is not None and paged_case.paged_cache_config.block_size == 16
 
 
 def test_dense_vs_paged_block_size_suite():
-    suite = DenseVsPagedBlockSizeSuite()
-    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
-    assert suite.comparison is not None
-    assert suite.block_sizes == (8, 16, 32, 64)
-
-    specs = suite.build_specs(vocab_size=1000)
-    assert len(specs) == 17
-
-    cases = suite.cases(vocab_size=1000)
-    # 1 个 dense + 4 个 paged -> 共 5 个 cases
+    cases = get_benchmark_suite("scheduler", "dense-vs-paged-block-size").cases
     assert len(cases) == 5
     assert all(c.workload_id == "block_size_sweep" for c in cases)
     assert cases[0].mode.caching_method == CachingMethod.DENSE
     assert cases[0].paged_cache_config is None
+    for case, bs in zip(cases[1:], [8, 16, 32, 64]):
+        assert case.mode.caching_method == CachingMethod.PAGED
+        assert case.paged_cache_config is not None and case.paged_cache_config.block_size == bs
 
-    for i, bs in enumerate([8, 16, 32, 64]):
-        paged_case = cases[1 + i]
-        assert paged_case.mode.caching_method == CachingMethod.PAGED
-        assert paged_case.paged_cache_config.block_size == bs
 
-    data = suite.to_dict()
-    json.dumps(data)
-    assert data["block_sizes"] == [8, 16, 32, 64]
-
-    with pytest.raises(ValueError):
-        DenseVsPagedBlockSizeSuite(block_sizes=())
-    with pytest.raises(ValueError):
-        DenseVsPagedBlockSizeSuite(block_sizes=(8, 0))
+def test_comparison_spec_from_yaml_is_typed():
+    comparison = get_benchmark_suite("scheduler", "dense-vs-paged-block-size").comparison
+    assert isinstance(comparison, Comparison)
+    assert comparison.group_by == (CaseDimension.WORKLOAD_ID,)
+    assert comparison.baseline == {CaseDimension.CACHING_METHOD: CachingMethod.DENSE}
+    assert [m._display_name for m in comparison.metrics] == ["makespan", "throughput", "KV-read", "pool"]
+    assert all(isinstance(m, ComparisonMetric) and isinstance(m.kind, MetricKind) for m in comparison.metrics)
 
 
 def test_scheduler_suite_case_paged_validation():
@@ -327,73 +203,59 @@ def test_scheduler_suite_case_paged_validation():
 
     # 1. Paged 模式不传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
-        SchedulerSuiteCase(
-            workload_id="test",
-            suite_name="test",
+        BenchmarkCase(
+            profile=WorkloadProfile.from_specs("test", (spec,)),
             mode=paged_mode,
             max_running_requests=2,
-            specs=(spec,),
             paged_cache_config=None,
+            suite_name="test",
+            engine="scheduler",
         )
 
     # 2. 非 Paged 模式传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
-        SchedulerSuiteCase(
-            workload_id="test",
-            suite_name="test",
+        BenchmarkCase(
+            profile=WorkloadProfile.from_specs("test", (spec,)),
             mode=dense_mode,
             max_running_requests=2,
-            specs=(spec,),
             paged_cache_config=PagedCacheConfig(block_size=16),
+            suite_name="test",
+            engine="scheduler",
         )
 
     # 3. workload_id 为空报错
     with pytest.raises(ValueError, match="workload_id 不能为空"):
-        SchedulerSuiteCase(
-            workload_id="",
-            suite_name="test",
-            mode=dense_mode,
-            max_running_requests=2,
-            specs=(spec,),
-        )
+        WorkloadProfile.from_specs("", (spec,))
 
     # 4. 正确传参合法构造
-    case_paged = SchedulerSuiteCase(
-        workload_id="workload_0",
-        suite_name="test",
+    case_paged = BenchmarkCase(
+        profile=WorkloadProfile.from_specs("workload_0", (spec,)),
         mode=paged_mode,
         max_running_requests=2,
-        specs=(spec,),
         paged_cache_config=PagedCacheConfig(block_size=16),
+        suite_name="test",
+        engine="scheduler",
     )
     assert case_paged.workload_id == "workload_0"
     assert case_paged.paged_cache_config is not None
     assert case_paged.paged_cache_config.block_size == 16
-    assert case_paged.key == CaseKey(
+    assert case_paged.key == CaseKey.from_mode(
         workload_id="workload_0",
         mode=paged_mode,
         max_running_requests=2,
         paged_cache_config=PagedCacheConfig(block_size=16),
     )
 
-    spec_dict = case_paged.to_spec_dict()
-    assert spec_dict["workload_id"] == "workload_0"
-    assert spec_dict["paged_cache_config"]["block_size"] == 16
-
 
 def test_compute_comparisons():
-    from mini_infra.bench.common import DistributionStats
+    from mini_infra.bench.cases import WorkloadProfile
     from mini_infra.bench.scheduler.format import (
-        format_case_summary,
-        format_comparison,
         format_table,
     )
     from mini_infra.bench.scheduler.types import (
-        MetricComparison,
         SchedulerCaseResult,
-        WorkloadSpec,
-        compute_comparisons,
     )
+    from mini_infra.bench.stats import DistributionStats
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.metrics import (
         KVCacheProfile,
@@ -417,7 +279,13 @@ def test_compute_comparisons():
         mrr: int = 8,
     ) -> SchedulerCaseResult:
         mode = Mode(cm, batching_method=BatchingMethod.CONTINUOUS)
-        workload = WorkloadSpec(mode=mode, num_total_requests=8, prompt_len=128, max_new_tokens=64)
+        workload = WorkloadProfile(
+            workload_id=wid,
+            num_total_requests=8,
+            prompt_lens=(128,) * 8,
+            output_budgets=(64,) * 8,
+            arrival_ms=(0.0,) * 8,
+        )
         paged_prof = (
             PagedCacheProfile(
                 block_size=bs,
@@ -463,7 +331,7 @@ def test_compute_comparisons():
             itl_ms_max=dist(15.0),
         )
         paged_cfg = PagedCacheConfig(block_size=bs) if bs is not None else None
-        key = CaseKey(
+        key = CaseKey.from_mode(
             workload_id=wid,
             mode=mode,
             max_running_requests=mrr,
@@ -504,7 +372,7 @@ def test_compute_comparisons():
         bs=32,
     )
 
-    spec = ComparisonSpec(
+    comparison = Comparison(
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: CachingMethod.DENSE},
         metrics=(
@@ -516,56 +384,56 @@ def test_compute_comparisons():
     )
 
     cases = [dense_case, paged_16, paged_32]
-    comparisons = compute_comparisons(cases, spec)
+    comparisons = compute_comparisons(cases, comparison)
     # 2 candidate cases * 4 metrics = 8 comparisons
     assert len(comparisons) == 8
 
     # 验证 paged_16 的 makespan speedup
     c0 = comparisons[0]
-    assert isinstance(c0, MetricComparison)
+    assert isinstance(c0, ComparisonResult)
     assert c0.candidate_key == paged_16.key
     assert c0.baseline_key == dense_case.key
     assert c0.metric_name == "makespan"
     assert c0.kind == MetricKind.SPEEDUP
     assert c0.baseline_value == 2000.0
     assert c0.candidate_value == 1600.0
-    assert c0.speedup == 1.25
+    assert c0._speedup == 1.25
     assert c0.ratio == 0.8
     assert c0.relative_delta == pytest.approx(-0.2)
-    assert c0.formatted_value() == "speedup 1.25x"
+    assert c0._formatted_value() == "speedup 1.25x"
 
     # 验证 paged_16 的 throughput gain
     c1 = comparisons[1]
     assert c1.metric_name == "throughput"
     assert c1.kind == MetricKind.GAIN
     assert c1.relative_delta == pytest.approx(0.25)
-    assert c1.formatted_value() == "throughput +25.0%"
+    assert c1._formatted_value() == "throughput +25.0%"
 
     # 验证 paged_16 的 KV-read reduction
     c2 = comparisons[2]
     assert c2.metric_name == "KV-read"
     assert c2.kind == MetricKind.REDUCTION
     assert c2.relative_delta == pytest.approx(-0.4)
-    assert c2.formatted_value() == "KV-read -40.0%"
+    assert c2._formatted_value() == "KV-read -40.0%"
 
     # 验证 paged_16 的 pool reduction
     c3 = comparisons[3]
     assert c3.metric_name == "pool"
     assert c3.kind == MetricKind.REDUCTION
     assert c3.relative_delta == pytest.approx(-0.5)
-    assert c3.formatted_value() == "pool -50.0%"
+    assert c3._formatted_value() == "pool -50.0%"
 
-    # 验证 format_comparison
-    comp_line = format_comparison(c0)
+    # 验证 ComparisonResult.format_summary() 实例方法
+    comp_line = c0.format_summary()
     assert "[wor_A]" in comp_line
     assert "pkc+cb" in comp_line
     assert "speedup 1.25x" in comp_line
 
     # 验证 baseline 找不到时报错
-    bad_spec_no_baseline = ComparisonSpec(
+    bad_spec_no_baseline = Comparison(
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: CachingMethod.NONE},
-        metrics=spec.metrics,
+        metrics=comparison.metrics,
     )
     with pytest.raises(ValueError, match="未找到符合 baseline 约束"):
         compute_comparisons(cases, bad_spec_no_baseline)
@@ -581,10 +449,10 @@ def test_compute_comparisons():
         mrr=16,
     )
     with pytest.raises(ValueError, match="找到多个符合 baseline 约束"):
-        compute_comparisons([dense_case, dup_dense, paged_16], spec)
+        compute_comparisons([dense_case, dup_dense, paged_16], comparison)
 
-    # 验证 format_case_summary 与 format_table
-    summary_str = format_case_summary(paged_16)
+    # 验证 SchedulerCaseResult.format_summary() 与 format_table
+    summary_str = paged_16.format_summary()
     assert "[wor_A]" in summary_str
     assert "pkc+cb" in summary_str
     assert "pool 1000.0 MB" in summary_str
@@ -598,25 +466,28 @@ def test_compute_comparisons():
 
 
 def test_format_table_abbreviations():
-    from mini_infra.bench.scheduler.format import (
-        _abbreviate_case_key,
-        _abbreviate_mode,
-        _abbreviate_suite_name,
-        _abbreviate_workload_id,
-    )
-    from mini_infra.bench.scheduler.suites import CaseKey
+    from mini_infra.bench.cases import CaseKey
+    from mini_infra.bench.scheduler.format import _abbreviate_suite_name
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 
-    assert _abbreviate_workload_id("variable_output_length") == "var_out_len"
-    assert _abbreviate_workload_id("uniform_output_length") == "uni_out_len"
-    assert _abbreviate_workload_id("staggered_arrivals") == "sta_arr"
-    assert _abbreviate_workload_id("prefill_interference") == "pre_int"
-    assert _abbreviate_workload_id("long_short_stress") == "lon_sho_str"
-    assert _abbreviate_workload_id("length_ratio_128") == "len_rat_128"
-    assert _abbreviate_workload_id("block_size_sweep") == "blo_siz_swe"
-    assert _abbreviate_workload_id("workload_A") == "wor_A"
-    assert _abbreviate_workload_id("") == ""
+    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+
+    def wid_abbr(wid: str) -> str:
+        return CaseKey.from_mode(wid, dense_mode, 16).abbreviated_workload_id
+
+    def mode_abbr(mode: Mode) -> str:
+        return CaseKey.from_mode("w", mode, 16).abbreviated_mode
+
+    assert wid_abbr("variable_output_length") == "var_out_len"
+    assert wid_abbr("uniform_output_length") == "uni_out_len"
+    assert wid_abbr("staggered_arrivals") == "sta_arr"
+    assert wid_abbr("prefill_interference") == "pre_int"
+    assert wid_abbr("long_short_stress") == "lon_sho_str"
+    assert wid_abbr("length_ratio_128") == "len_rat_128"
+    assert wid_abbr("block_size_sweep") == "blo_siz_swe"
+    assert wid_abbr("workload_A") == "wor_A"
+    assert wid_abbr("") == ""
 
     assert _abbreviate_suite_name("dense-vs-paged-long-short-stress") == "den-vs-pag-lon-sho-str"
     assert _abbreviate_suite_name("dense-vs-paged-throughput") == "den-vs-pag-thr"
@@ -624,16 +495,14 @@ def test_format_table_abbreviations():
     assert _abbreviate_suite_name("custom") == "cus"
     assert _abbreviate_suite_name("") == ""
 
-    assert _abbreviate_mode("dense-kv-cache+continuous-batching") == "dkc+cb"
-    assert _abbreviate_mode("dense-kv-cache+fixed-batching") == "dkc+fb"
-    assert _abbreviate_mode("paged-kv-cache+continuous-batching") == "pkc+cb"
-    assert _abbreviate_mode("no-cache") == "nc"
-    assert _abbreviate_mode("") == ""
+    assert mode_abbr(Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)) == "dkc+cb"
+    assert mode_abbr(Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)) == "dkc+fb"
+    assert mode_abbr(Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)) == "pkc+cb"
+    assert mode_abbr(Mode(CachingMethod.NONE)) == "nc"
 
-    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    dense_key = CaseKey("variable_output_length", dense_mode, 16)
-    assert _abbreviate_case_key(dense_key) == "[var_out_len] | dkc+cb | mrr=16"
+    dense_key = CaseKey.from_mode("variable_output_length", dense_mode, 16)
+    assert dense_key.abbreviated_display_name == "[var_out_len] | dkc+cb | mrr=16"
 
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    paged_key = CaseKey("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
-    assert _abbreviate_case_key(paged_key) == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
+    paged_key = CaseKey.from_mode("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
+    assert paged_key.abbreviated_display_name == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"

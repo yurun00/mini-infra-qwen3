@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: uniform-vs-variable-budget-slots
+description: >-
+  固定 batch=4 与 Prompt 长度，对比等长输出预算（64×4，batch slot 利用率 100%）
+  与阶梯不等长预算（8/16/32/64，batch slot 利用率 46.88%）。
+execution:
+  warmup: 1
+  repeats: 3
+system:
+  engine_mode: lockstep
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
+workload:
+  vars:
+    scenario: uniform
+    output_len: [64, 64, 64, 64]
+  id: "${scenario}"
+  count: 4
+  prompt_len: [128, 128, 128, 128]
+  output_len: "${output_len}"
+sweep:
+  workload:
+    - {scenario: uniform, output_len: [64, 64, 64, 64]}
+    - {scenario: variable, output_len: {ladder: {max: 64, floor: 2}}}
+checks:
+  - min_output_len: 2

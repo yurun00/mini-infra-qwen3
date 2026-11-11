@@ -1,4 +1,4 @@
-"""bench.schema 与 bench.plotting (Pydantic + Pandas + Seaborn) 单元测试。"""
+"""bench.result 与 bench.plotting (Pydantic + Pandas + Seaborn) 单元测试。"""
 
 import json
 from pathlib import Path
@@ -7,16 +7,16 @@ import pytest
 
 from mini_infra.bench.plotting.compare import (
     generate_comparison_table,
-    load_record,
     plot_mode_comparison,
-    resolve_label,
 )
 from mini_infra.bench.plotting.history import (
-    generate_optimization_guidance,
     load_results,
-    markdown_table,
     plot_evolution_and_scaling,
     plot_profiling_and_optimization,
+)
+from mini_infra.bench.plotting.report import (
+    generate_optimization_guidance,
+    markdown_table,
 )
 from mini_infra.bench.plotting.tidy import (
     LOCKSTEP_ONLY_PLOT_SPECS,
@@ -24,9 +24,10 @@ from mini_infra.bench.plotting.tidy import (
     SHARED_PLOT_SPECS,
     records_to_wide_df,
     resolve_plot_specs,
+    resolve_record_label,
     wide_to_tidy_df,
 )
-from mini_infra.bench.schema import (
+from mini_infra.bench.result import (
     LockstepBenchmarkRecord,
     SchedulerBenchmarkRecord,
     load_benchmark_record,
@@ -121,8 +122,8 @@ def _make_single_case_scheduler_dict(
 
 
 def test_existing_benchmark_json_files_validate():
-    """验证仓库内所有基准 JSON 文件均通过 Pydantic Schema 校验，且 result-history 满足单 Case 约束。"""
-    lockstep_history_dir = Path("benchmarks/result-history/lockstep")
+    """验证仓库内所有基准 JSON 文件均通过 Pydantic Schema 校验，且 history 满足单 Case 约束。"""
+    lockstep_history_dir = Path("benchmarks/results/history/lockstep")
     lockstep_files = sorted(lockstep_history_dir.glob("*.json"))
     assert len(lockstep_files) >= 4
     for p in lockstep_files:
@@ -130,21 +131,23 @@ def test_existing_benchmark_json_files_validate():
         assert isinstance(rec, LockstepBenchmarkRecord)
         assert 1 <= len(rec.cases) <= 3
 
-    scheduler_history_dir = Path("benchmarks/result-history/scheduler")
+    scheduler_history_dir = Path("benchmarks/results/history/scheduler")
     for p in sorted(scheduler_history_dir.glob("*.json")):
         rec = load_benchmark_record(p, require_single_case=True)
         assert isinstance(rec, SchedulerBenchmarkRecord)
         assert 1 <= len(rec.cases) <= 3
 
-    ref = load_benchmark_record(Path("benchmarks/data/reference.json"), require_single_case=True)
+    ref = load_benchmark_record(Path("benchmarks/golden/reference.json"), require_single_case=True)
     assert isinstance(ref, LockstepBenchmarkRecord | SchedulerBenchmarkRecord)
 
-    eval_rec = load_benchmark_record(Path("benchmarks/suites/serial-vs-fixed-batch-throughput/eval.json"))
+    eval_rec = load_benchmark_record(
+        Path("benchmarks/results/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json")
+    )
     assert isinstance(eval_rec, LockstepBenchmarkRecord)
     assert len(eval_rec.cases) > 1
     with pytest.raises(ValueError, match="single-case"):
         load_benchmark_record(
-            Path("benchmarks/suites/serial-vs-fixed-batch-throughput/eval.json"),
+            Path("benchmarks/results/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json"),
             require_single_case=True,
         )
 
@@ -152,7 +155,7 @@ def test_existing_benchmark_json_files_validate():
 def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     """验证 resolve_plot_specs 在纯 Lockstep、纯 Scheduler 与跨越边界时的动态图表规格解析与字段对齐。"""
     lockstep_rec = load_benchmark_record(
-        Path("benchmarks/result-history/lockstep/1c21386_v0.3.0.json"), require_single_case=True
+        Path("benchmarks/results/history/lockstep/1c21386_v0.3.0.json"), require_single_case=True
     )
     sched_rec_1 = validate_benchmark_record(
         _make_single_case_scheduler_dict("v0.4.0", "kv-cache+fixed-batching", 2800.0, 46.0, workload_id="fixed"),
@@ -222,10 +225,10 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     )
 
     # 1. 纯 Scheduler 双文件单 Case 对比
-    rec_fixed = load_record(sched_fixed_path)
-    rec_cont = load_record(sched_cont_path)
-    lbl_fixed = resolve_label(rec_fixed)
-    lbl_cont = resolve_label(rec_cont)
+    rec_fixed = load_benchmark_record(sched_fixed_path, require_single_case=True)
+    rec_cont = load_benchmark_record(sched_cont_path, require_single_case=True)
+    lbl_fixed = resolve_record_label(rec_fixed)
+    lbl_cont = resolve_record_label(rec_cont)
     md_text = generate_comparison_table(rec_fixed, rec_cont, lbl_fixed, lbl_cont)
     assert "ITL P95 Latency (ms/token)" in md_text
     assert "Schedule Makespan (ms)" in md_text
@@ -234,9 +237,9 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     assert out_compare_png.exists()
 
     # 2. 跨边界 (Lockstep vs Scheduler) 双文件单 Case 对比
-    lockstep_path = Path("benchmarks/result-history/lockstep/1c21386_v0.3.0.json")
-    rec_lock = load_record(lockstep_path)
-    lbl_lock = resolve_label(rec_lock)
+    lockstep_path = Path("benchmarks/results/history/lockstep/1c21386_v0.3.0.json")
+    rec_lock = load_benchmark_record(lockstep_path, require_single_case=True)
+    lbl_lock = resolve_record_label(rec_lock)
     cross_md = generate_comparison_table(rec_lock, rec_cont, lbl_lock, lbl_cont)
     assert "TTFT / Prefill Latency (ms)" in cross_md
     assert "TPOT / ITL P50 Latency (ms/token)" in cross_md
@@ -248,7 +251,7 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     # 3. History 跨边界演进图与表格
     hist_dir = tmp_path / "history_input"
     hist_dir.mkdir()
-    for p in sorted(Path("benchmarks/result-history/lockstep").glob("*.json")):
+    for p in sorted(Path("benchmarks/results/history/lockstep").glob("*.json")):
         (hist_dir / p.name).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
     (hist_dir / "zzzz_v0.4.0-cont.json").write_text(sched_cont_path.read_text(encoding="utf-8"), encoding="utf-8")
 
@@ -330,7 +333,7 @@ def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPat
 
     import torch
 
-    from mini_infra.bench.common import gpu_info
+    from mini_infra.bench.env import gpu_info
 
     monkeypatch.setattr(
         torch.cuda,

@@ -52,7 +52,7 @@ mini-infra verify scheduler-batch
 ---
 
 ### 步骤 3：全量基准测量与演进图表生成
-在固定的 GPU 测试机（如 GCP L4 实例）上通过 [`src/mini_infra/cli/commands/bench/release.py`](src/mini_infra/cli/commands/bench/release.py)（即 `mini-infra bench release`）执行，该子命令读取 [`workloads.py`](src/mini_infra/bench/workloads.py) 中基于固定随机种子（`seed=42`）预定义的多规模真实伪随机 Traffic 负载（`BENCH_LOCKSTEP_WORKLOAD` 与 `BENCH_SCHEDULER_WORKLOAD`，涵盖 `small`、`medium`、`large` 三档），一键完成多规模基准测量、演进报告生成与回归基线更新：
+在固定的 GPU 测试机（如 GCP L4 实例）上通过 [`src/mini_infra/cli/commands/bench/release.py`](src/mini_infra/cli/commands/bench/release.py)（即 `mini-infra bench release`）执行，该子命令读取 [`benchmarks/specs/release/`](benchmarks/specs/release/) 中基于固定随机种子（`default_seed: 42`）声明的多规模真实伪随机 Traffic 负载（`lockstep.yaml` 与 `scheduler.yaml`，涵盖 `small`、`medium`、`large` 三档；由 [`bench.spec.release`](src/mini_infra/bench/spec/release/) 加载与展开），一键完成多规模基准测量、演进报告生成与回归基线更新：
 
 ```bash
 # 安装绘图与基准依赖
@@ -66,7 +66,7 @@ mini-infra bench release \
   --batching-method fixed-batching
 
 # 方式 B：若为队列调度器特性（如 v0.4.0 Continuous Batching）：
-# 1) 若 benchmarks/result-history/scheduler/ 尚无 baseline，先用同构 WorkloadSpec（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
+# 1) 若 benchmarks/results/history/scheduler/ 尚无 baseline，先用同构 Workload（仅 Mode 为 fixed-batching）生成 baseline 的 small/medium/large 基准：
 mini-infra bench release \
   --engine scheduler \
   --tag "baseline" \
@@ -91,8 +91,8 @@ mini-infra bench release \
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。
 
 > ⚠️ **数据流与绘图约定**：
-> * **`benchmarks/result-history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`BENCH_LOCKSTEP_WORKLOAD` / `BENCH_SCHEDULER_WORKLOAD`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/suites/` 下。
-> * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `result-history/lockstep/` 与 `result-history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--engine lockstep` 或 `--engine scheduler` 单独生成）；
+> * **`benchmarks/results/history/{lockstep,scheduler}/*.json` 按版本与 Scale 归档**：每个版本归档文件记录该版本在 `small`、`medium`、`large` 三档标准伪随机负载（`benchmarks/specs/release/{lockstep,scheduler}.yaml`）下的评测结果，由统一 Pydantic Schema（`LockstepBenchmarkRecord | SchedulerBenchmarkRecord`）校验；多模式对照套件评测结果统一存放在 `benchmarks/results/suites/` 下。
+> * **`mini-infra bench plot history` 按域独立生成报告**：自动分别读取 `results/history/lockstep/` 与 `results/history/scheduler/`，将对应的 `SUMMARY.md`、`evolution_and_scaling.png` 与 `profiling_and_optimization.png` 输出至 `benchmarks/reports/lockstep/` 与 `benchmarks/reports/scheduler/`（亦可通过 `--engine lockstep` 或 `--engine scheduler` 单独生成）；
 > * **`mini-infra bench check-regression` 仅用于 CI 拦截守门**：其生成的 `candidate.local.json` 为临时比对文件，不进入版本库亦不参与画图。
 
 > 🏷️ **版本号与特性（Feature）标注约定**：
@@ -122,7 +122,7 @@ git push origin main --tags
 #### CI 自动化机制
 推送 `v*` 格式的 Tag 会在 GitHub Actions 上自动触发 [.github/workflows/release-benchmark.yml](.github/workflows/release-benchmark.yml)：
 * **特性透传与解析**：工作流会自动提取并向 `--release-feature` 透传特性描述（按优先级自动获取：① 手动 `workflow_dispatch` 传参 $\rightarrow$ ② 匹配已有同 Tag 的历史 JSON 归档 $\rightarrow$ ③ 从 Git Annotated Tag 注释中解析，如 `Release v0.4.0: Continuous batching`）；
-* **参数对齐与客观守门**：CI 同样启用 `--profile-mode extra-profile` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为基准，独立校验云端推理正确性；
+* **参数对齐与客观守门**：CI 同样启用 `--profiling-mode dedicated-pass` 获取完整的硬件剖析指标；但 CI **不带** `--update-golden`，而是严格以版本库中正式提交的 `golden_output_tokens.json` 为基准，独立校验云端推理正确性；
 * **云端产物归档**：在云端具备 GPU Runner 时，会自动在 GitHub Actions 归档带有当前 Commit 签名的全矩阵评测数据、Markdown 诊断报告与时间线大图 Artifact。
 
 ---
@@ -131,9 +131,9 @@ git push origin main --tags
 
 每次发布版本后，版本库中的以下文件将得到更新或沉淀：
 
-* **`benchmarks/result-history/{lockstep,scheduler}/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，按 `lockstep` 与 `scheduler` 分域持久化存储）。
-* **`benchmarks/data/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
-* **`benchmarks/data/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
+* **`benchmarks/results/history/{lockstep,scheduler}/<commit>_<tag>.json`**：该版本单标杆用例的标准评测记录（遵循 `require_single_case=True` 与统一 Pydantic Schema，按 `lockstep` 与 `scheduler` 分域持久化存储）。
+* **`benchmarks/golden/reference.json`**：当前特性的轻量基准参考数据（作为日常 pre-push 零退化守门底线）。
+* **`benchmarks/golden/golden_output_tokens.json`**：固定 Prompt 下的 Golden 输出 Token 序列（用于版本发布与日常的正确性 0/1 门禁校验）。
 * **`benchmarks/reports/{lockstep,scheduler}/SUMMARY.md`**：分别记录齐步（Lockstep）与调度器（scheduler）各历史版本的详细数据、相对 Baseline 加速比以及深度 Profiling 诊断报告。
 * **`benchmarks/reports/{lockstep,scheduler}/evolution_and_scaling.png`**：各域跨版本演化趋势大图（自动绘制延迟、吞吐、显存、排队分位数与 `slot_utilization` 演进曲线）。
 * **`benchmarks/reports/{lockstep,scheduler}/profiling_and_optimization.png`**：各域当前版本深度剖析与优化指引大图（涵盖 MBU/MFU、算子归因、迭代步轨迹、P50/P95 分位数与显存碎片剖析）。

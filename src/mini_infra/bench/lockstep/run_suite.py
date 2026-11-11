@@ -4,33 +4,32 @@
 """
 
 from collections.abc import Callable
-from typing import Any
 
 import torch
 
-from mini_infra.bench.common import ProfileMode
+from mini_infra.bench.cases import BenchmarkCase, ProfilingMode
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.lockstep.suites import Suite, SuiteCase
 from mini_infra.bench.lockstep.types import LockstepCaseResult
+from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.profiling import TensorBoardOptions
 
 
 def run_suite(
     model: torch.nn.Module,
     device: torch.device,
-    suite: Suite,
-    vocab: int,
+    suite: BenchmarkSuite,
     warmup: int | None = None,
     repeats: int | None = None,
-    cost: dict[str, Any] | None = None,
-    peaks: dict[str, float | None] | None = None,
-    profile_mode: ProfileMode | None = None,
+    cost: ModelCostProfile | None = None,
+    peaks: HardwarePeakSpecs | None = None,
+    profiling_mode: ProfilingMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
-    on_case_progress: Callable[[int, int, SuiteCase], None] | None = None,
+    on_case_progress: Callable[[int, int, BenchmarkCase], None] | None = None,
     on_case_result: Callable[[LockstepCaseResult], None] | None = None,
 ) -> list[LockstepCaseResult]:
     """按序执行 Suite 中的所有用例，返回评测结果列表。"""
-    cases = suite.cases()
+    cases = suite.cases
     warmup_val = warmup if warmup is not None else suite.warmup
     repeats_val = repeats if repeats is not None else suite.repeats
 
@@ -42,19 +41,13 @@ def run_suite(
         try:
             case_result = run_case(
                 model=model,
-                mode=case.mode,
-                prompt_len=list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
-                max_new_tokens=(
-                    list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens
-                ),
-                batch_size=case.num_total_requests,
+                device=device,
+                case=case,
                 warmup=warmup_val,
                 repeats=repeats_val,
-                vocab=vocab,
-                device=device,
                 cost=cost,
                 peaks=peaks,
-                profile_mode=profile_mode,
+                profiling_mode=profiling_mode,
                 tensorboard_options=tensorboard_options,
             )
         except torch.cuda.OutOfMemoryError:

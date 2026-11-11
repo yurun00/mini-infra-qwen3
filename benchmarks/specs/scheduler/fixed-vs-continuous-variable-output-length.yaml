@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: fixed-vs-continuous-variable-output-length
+extends: _bases/fixed_vs_continuous.yaml
+description: 相同长度 prompt、交替长短输出预算、同时到达；观察动态退出与 batch slot 利用率提升。
+workload:
+  id: variable_output_length
+  count: 8
+  prompt_len: 128
+  output_len: {alternating: [8, 32]}

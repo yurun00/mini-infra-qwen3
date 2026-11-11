@@ -1,0 +1,680 @@
+{
+  "$defs": {
+    "BatchingMethod": {
+      "description": "互斥的批处理策略。",
+      "enum": [
+        "none",
+        "fixed-batching",
+        "continuous-batching"
+      ],
+      "title": "BatchingMethod",
+      "type": "string"
+    },
+    "CaseDimension": {
+      "description": "用例身份键（CaseKey）的正交特征维度枚举。\n\n对齐工业级基准测试（如 MLPerf / Prometheus 维度标签）规范：\n所有维度完全展平为一阶标量自变量，支持全局多维投影切片。",
+      "enum": [
+        "workload_id",
+        "caching_method",
+        "batching_method",
+        "flags",
+        "max_running_requests",
+        "block_size",
+        "num_blocks"
+      ],
+      "title": "CaseDimension",
+      "type": "string"
+    },
+    "DenseCacheSpec": {
+      "additionalProperties": false,
+      "description": "Dense KV Cache（预分配连续槽位）。",
+      "properties": {
+        "kind": {
+          "const": "dense-kv-cache",
+          "default": "dense-kv-cache",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "DenseCacheSpec",
+      "type": "object"
+    },
+    "ExecutionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "warmup": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Warmup",
+          "type": "integer"
+        },
+        "repeats": {
+          "default": 3,
+          "exclusiveMinimum": 0,
+          "title": "Repeats",
+          "type": "integer"
+        },
+        "interleave": {
+          "items": {
+            "$ref": "#/$defs/CaseDimension"
+          },
+          "title": "Interleave",
+          "type": "array"
+        }
+      },
+      "title": "ExecutionSpec",
+      "type": "object"
+    },
+    "LockstepEngineSpec": {
+      "additionalProperties": false,
+      "description": "Lockstep 离线执行引擎（全批次同步推进，无调度队列与动态到达）。",
+      "properties": {
+        "kind": {
+          "const": "lockstep",
+          "default": "lockstep",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "LockstepEngineSpec",
+      "type": "object"
+    },
+    "MinMaxRunningRequestsCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "min_max_running_requests": {
+          "exclusiveMinimum": 0,
+          "title": "Min Max Running Requests",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min_max_running_requests"
+      ],
+      "title": "MinMaxRunningRequestsCheck",
+      "type": "object"
+    },
+    "MinOutputLenCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "min_output_len": {
+          "exclusiveMinimum": 0,
+          "title": "Min Output Len",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min_output_len"
+      ],
+      "title": "MinOutputLenCheck",
+      "type": "object"
+    },
+    "NoCacheSpec": {
+      "additionalProperties": false,
+      "description": "不启用 KV Cache。",
+      "properties": {
+        "kind": {
+          "const": "none",
+          "default": "none",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "NoCacheSpec",
+      "type": "object"
+    },
+    "PagedCacheSpec": {
+      "additionalProperties": false,
+      "description": "Paged KV Cache（物理显存块池，按需动态分配）。",
+      "properties": {
+        "kind": {
+          "const": "paged-kv-cache",
+          "default": "paged-kv-cache",
+          "title": "Kind",
+          "type": "string"
+        },
+        "block_size": {
+          "default": 16,
+          "exclusiveMinimum": 0,
+          "title": "Block Size",
+          "type": "integer"
+        },
+        "num_blocks": {
+          "anyOf": [
+            {
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Num Blocks"
+        }
+      },
+      "title": "PagedCacheSpec",
+      "type": "object"
+    },
+    "ScaleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "seed_salt": {
+          "title": "Seed Salt",
+          "type": "integer"
+        },
+        "max_running_requests": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Running Requests"
+        },
+        "workload": {
+          "type": "object",
+          "description": "单组简写（count / prompt_len / output_len / arrival_ms）或 groups；字段含义见 $defs.GroupSpec",
+          "properties": {
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "seed_salt",
+        "workload"
+      ],
+      "title": "ScaleSpec",
+      "type": "object"
+    },
+    "SchedulerEngineSpec": {
+      "additionalProperties": false,
+      "description": "Scheduler 离散事件调度引擎（支持到达队列、Running 并发容量管理）。",
+      "properties": {
+        "kind": {
+          "const": "scheduler",
+          "default": "scheduler",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_running_requests": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Running Requests"
+        }
+      },
+      "title": "SchedulerEngineSpec",
+      "type": "object"
+    },
+    "SystemSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "engine_mode": {
+          "discriminator": {
+            "mapping": {
+              "lockstep": "#/$defs/LockstepEngineSpec",
+              "scheduler": "#/$defs/SchedulerEngineSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LockstepEngineSpec"
+            },
+            {
+              "$ref": "#/$defs/SchedulerEngineSpec"
+            }
+          ],
+          "title": "Engine Mode"
+        },
+        "batching_method": {
+          "$ref": "#/$defs/BatchingMethod"
+        },
+        "caching_method": {
+          "default": {
+            "kind": "dense-kv-cache"
+          },
+          "discriminator": {
+            "mapping": {
+              "dense-kv-cache": "#/$defs/DenseCacheSpec",
+              "none": "#/$defs/NoCacheSpec",
+              "paged-kv-cache": "#/$defs/PagedCacheSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/NoCacheSpec"
+            },
+            {
+              "$ref": "#/$defs/DenseCacheSpec"
+            },
+            {
+              "$ref": "#/$defs/PagedCacheSpec"
+            }
+          ],
+          "title": "Caching Method"
+        }
+      },
+      "required": [
+        "engine_mode",
+        "batching_method"
+      ],
+      "title": "SystemSpec",
+      "type": "object"
+    },
+    "AlternatingLength": {
+      "additionalProperties": false,
+      "description": "第 0、2、4… 个请求取 values[0]，第 1、3、5… 个请求取 values[1]。",
+      "properties": {
+        "kind": {
+          "const": "alternating",
+          "default": "alternating",
+          "title": "Kind",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "AlternatingLength",
+      "type": "object"
+    },
+    "ConstantArrival": {
+      "additionalProperties": false,
+      "description": "组内所有请求在同一逻辑时刻到达（默认 0 ms，即同时到达）。",
+      "properties": {
+        "kind": {
+          "const": "constant",
+          "default": "constant",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "title": "ConstantArrival",
+      "type": "object"
+    },
+    "ConstantLength": {
+      "additionalProperties": false,
+      "description": "所有请求相同长度；lockstep 中保持标量（广播）语义。",
+      "properties": {
+        "kind": {
+          "const": "constant",
+          "default": "constant",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "exclusiveMinimum": 0,
+          "title": "Value",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "ConstantLength",
+      "type": "object"
+    },
+    "ExplicitArrival": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "explicit",
+          "default": "explicit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "ExplicitArrival",
+      "type": "object"
+    },
+    "ExplicitLength": {
+      "additionalProperties": false,
+      "description": "逐请求显式长度列表；长度必须等于组内 count。",
+      "properties": {
+        "kind": {
+          "const": "explicit",
+          "default": "explicit",
+          "title": "Kind",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "title": "ExplicitLength",
+      "type": "object"
+    },
+    "IntervalArrival": {
+      "additionalProperties": false,
+      "description": "等间隔到达：第 i 个请求在 i * interval_ms。",
+      "properties": {
+        "kind": {
+          "const": "interval",
+          "default": "interval",
+          "title": "Kind",
+          "type": "string"
+        },
+        "interval_ms": {
+          "minimum": 0.0,
+          "title": "Interval Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "interval_ms"
+      ],
+      "title": "IntervalArrival",
+      "type": "object"
+    },
+    "LadderLength": {
+      "additionalProperties": false,
+      "description": "阶梯稀疏分布 [max(floor, m//8), max(floor, m//4), max(floor, m//2), m]；要求组内 count == 4。",
+      "properties": {
+        "kind": {
+          "const": "ladder",
+          "default": "ladder",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max": {
+          "exclusiveMinimum": 0,
+          "title": "Max",
+          "type": "integer"
+        },
+        "floor": {
+          "default": 1,
+          "exclusiveMinimum": 0,
+          "title": "Floor",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max"
+      ],
+      "title": "LadderLength",
+      "type": "object"
+    },
+    "LogUniformLength": {
+      "additionalProperties": false,
+      "description": "分层对数均匀分布（Stratified Log-Uniform）+ 随机打乱：短/中请求居多、长尾并存的偏态长度；需要 workload.seed。",
+      "properties": {
+        "kind": {
+          "const": "log_uniform",
+          "default": "log_uniform",
+          "title": "Kind",
+          "type": "string"
+        },
+        "min": {
+          "exclusiveMinimum": 0,
+          "title": "Min",
+          "type": "integer"
+        },
+        "max": {
+          "exclusiveMinimum": 0,
+          "title": "Max",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "LogUniformLength",
+      "type": "object"
+    },
+    "PoissonArrival": {
+      "additionalProperties": false,
+      "description": "带初始突发的泊松过程：前 initial_burst 个请求在 0 ms，其后为指数间隔（夹在 [5, 3×均值] ms）；需要 seed。",
+      "properties": {
+        "kind": {
+          "const": "poisson",
+          "default": "poisson",
+          "title": "Kind",
+          "type": "string"
+        },
+        "initial_burst": {
+          "exclusiveMinimum": 0,
+          "title": "Initial Burst",
+          "type": "integer"
+        },
+        "mean_interval_ms": {
+          "exclusiveMinimum": 0.0,
+          "title": "Mean Interval Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "initial_burst",
+        "mean_interval_ms"
+      ],
+      "title": "PoissonArrival",
+      "type": "object"
+    },
+    "GroupSpec": {
+      "additionalProperties": false,
+      "description": "一组同构请求；多个组按声明顺序拼接成整体请求序列（request_idx 连续编号）。",
+      "properties": {
+        "count": {
+          "exclusiveMinimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "prompt_len": {
+          "discriminator": {
+            "mapping": {
+              "alternating": "#/$defs/AlternatingLength",
+              "constant": "#/$defs/ConstantLength",
+              "explicit": "#/$defs/ExplicitLength",
+              "ladder": "#/$defs/LadderLength",
+              "log_uniform": "#/$defs/LogUniformLength"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConstantLength"
+            },
+            {
+              "$ref": "#/$defs/ExplicitLength"
+            },
+            {
+              "$ref": "#/$defs/AlternatingLength"
+            },
+            {
+              "$ref": "#/$defs/LadderLength"
+            },
+            {
+              "$ref": "#/$defs/LogUniformLength"
+            }
+          ],
+          "title": "Prompt Len"
+        },
+        "output_len": {
+          "discriminator": {
+            "mapping": {
+              "alternating": "#/$defs/AlternatingLength",
+              "constant": "#/$defs/ConstantLength",
+              "explicit": "#/$defs/ExplicitLength",
+              "ladder": "#/$defs/LadderLength",
+              "log_uniform": "#/$defs/LogUniformLength"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConstantLength"
+            },
+            {
+              "$ref": "#/$defs/ExplicitLength"
+            },
+            {
+              "$ref": "#/$defs/AlternatingLength"
+            },
+            {
+              "$ref": "#/$defs/LadderLength"
+            },
+            {
+              "$ref": "#/$defs/LogUniformLength"
+            }
+          ],
+          "title": "Output Len"
+        },
+        "arrival_ms": {
+          "default": {
+            "kind": "constant",
+            "value": 0.0
+          },
+          "discriminator": {
+            "mapping": {
+              "constant": "#/$defs/ConstantArrival",
+              "explicit": "#/$defs/ExplicitArrival",
+              "interval": "#/$defs/IntervalArrival",
+              "poisson": "#/$defs/PoissonArrival"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ConstantArrival"
+            },
+            {
+              "$ref": "#/$defs/ExplicitArrival"
+            },
+            {
+              "$ref": "#/$defs/IntervalArrival"
+            },
+            {
+              "$ref": "#/$defs/PoissonArrival"
+            }
+          ],
+          "title": "Arrival Ms"
+        }
+      },
+      "required": [
+        "count",
+        "prompt_len",
+        "output_len"
+      ],
+      "title": "GroupSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "default_seed": {
+      "title": "Default Seed",
+      "type": "integer"
+    },
+    "system": {
+      "$ref": "#/$defs/SystemSpec"
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionSpec",
+      "default": {
+        "warmup": 1,
+        "repeats": 3,
+        "interleave": []
+      }
+    },
+    "scales": {
+      "type": "object",
+      "properties": {
+        "small": {
+          "$ref": "#/$defs/ScaleSpec"
+        },
+        "medium": {
+          "$ref": "#/$defs/ScaleSpec"
+        },
+        "large": {
+          "$ref": "#/$defs/ScaleSpec"
+        }
+      },
+      "additionalProperties": false,
+      "description": "三档标准负载，必须恰好包含 small / medium / large"
+    },
+    "checks": {
+      "items": {
+        "anyOf": [
+          {
+            "const": "free_batch_slot_at_t0",
+            "type": "string"
+          },
+          {
+            "$ref": "#/$defs/MinMaxRunningRequestsCheck"
+          },
+          {
+            "$ref": "#/$defs/MinOutputLenCheck"
+          }
+        ]
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "extends": {
+      "type": "string",
+      "description": "相对当前文件的基底 YAML 路径（映射深合并，列表整体替换）"
+    }
+  },
+  "title": "mini-infra release workload",
+  "type": "object"
+}

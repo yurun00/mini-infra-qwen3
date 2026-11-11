@@ -1,34 +1,37 @@
 """bench.scheduler.run_case 与 run_suite 的单元测试（CPU 可运行，使用 tiny_model）。"""
 
+from dataclasses import dataclass
+from typing import Any
+
 import torch
 
+from mini_infra.bench.cases import BenchmarkCase, CaseDimension, WorkloadProfile
+from mini_infra.bench.correctness import CorrectnessReport
+from mini_infra.bench.efficiency import HardwarePeakSpecs
+from mini_infra.bench.result import build_benchmark_record
 from mini_infra.bench.scheduler import (
-    build_benchmark_record,
-    format_case_summary,
+    extract_workload_profile,
     format_table,
     run_case,
     run_case_once,
     run_suite,
 )
-from mini_infra.bench.scheduler.suites import (
-    CaseDimension,
-    FixedVsContinuousVariableOutputLengthSuite,
-    SchedulerSuiteCase,
-)
+from mini_infra.bench.suite import load_benchmark_suite
 from mini_infra.core.request import make_request_specs
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
 
-def test_parse_args_scheduler_suite():
+def test_parse_args_scheduler_sweep():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
     args = parser.parse_args(
         [
             "bench",
+            "sweep",
+            "--engine",
             "scheduler",
-            "suite",
             "--tag",
             "dev",
             "--suite",
@@ -41,25 +44,22 @@ def test_parse_args_scheduler_suite():
         ]
     )
     assert args.tag == "dev"
-    assert args.suite == "fixed-vs-continuous-variable-output-length"
+    assert args.engine == "scheduler"
+    assert args.suite == ["fixed-vs-continuous-variable-output-length"]
     assert args.repeats == 2
     assert args.interleave == ["batching_method"]
     assert args.dry_run is True
 
 
-def test_parse_args_scheduler_suite_validation():
+def test_scheduler_suite_subcommand_removed():
     import pytest
 
     from mini_infra.cli import build_parser
 
     parser = build_parser()
-    # 1. 验证 --suite 为必填项
+    # 验证旧的 bench scheduler suite 子命令已被彻底移除（由 bench sweep 统一接管）
     with pytest.raises(SystemExit):
         parser.parse_args(["bench", "scheduler", "suite", "--tag", "dev"])
-
-    # 2. 验证已不再支持 'all'，一次只跑一个 suite
-    with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "scheduler", "suite", "--tag", "dev", "--suite", "all"])
 
 
 def test_parse_args_scheduler_case():
@@ -115,7 +115,7 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     """验证 handle_case 在 paged-kv-cache 模式下透传 PagedCacheConfig 并落盘。"""
     import json
 
-    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.bench.correctness import CorrectnessReport
     from mini_infra.cli import build_parser
     from mini_infra.cli.commands.bench import scheduler as sched_cmd
     from mini_infra.core.block_manager import PagedCacheConfig
@@ -181,7 +181,7 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
 
 def test_handle_scheduler_case_default_output_to_case_dir(tmp_path, monkeypatch):
     """验证 handle_case 未指定 --output 时默认写入 CASE_DIR (benchmarks/case)。"""
-    from mini_infra.bench.common import CorrectnessReport
+    from mini_infra.bench.correctness import CorrectnessReport
     from mini_infra.cli import build_parser
     from mini_infra.cli.commands.bench import scheduler as sched_cmd
 
@@ -239,22 +239,22 @@ def test_run_scheduler_case_and_step_on_cpu():
     device = torch.device("cpu")
     specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    case = SchedulerSuiteCase(
-        workload_id="test-cont-case",
-        suite_name="test-cont-case",
+    case = BenchmarkCase(
+        profile=WorkloadProfile.from_specs("test-cont-case", specs),
         mode=mode,
         max_running_requests=2,
-        specs=specs,
+        suite_name="test-cont-case",
+        engine="scheduler",
     )
 
-    # 1. 验证原子 run_case_once 与 ScheduleResult.workload 属性
+    # 1. 验证原子 run_case_once 与 extract_workload_profile
     single_res = run_case_once(model, device, case)
     assert single_res.step_agg_metrics.e2e_wall_ms > 0
     assert len(single_res.sequences) == 2
-    assert single_res.workload.repeats == 1
-    assert single_res.workload.warmup == 0
+    sw = extract_workload_profile(single_res, workload_id=case.workload_id)
+    assert sw.num_total_requests == 2
 
-    # 2. 验证多轮 run_case（WorkloadSpec 相等比较忽略 repeats 与 warmup）
+    # 2. 验证多轮 run_case
     case_res = run_case(
         model=model,
         device=device,
@@ -265,9 +265,10 @@ def test_run_scheduler_case_and_step_on_cpu():
 
     assert case_res.key.mode == mode
     assert case_res.key.workload_id == "test-cont-case"
-    assert case_res.workload.mode == mode
-    assert case_res.workload.repeats == 2
-    assert single_res.workload == case_res.workload
+    assert case_res.mode == mode
+    assert case_res.repeats == 2
+    assert case_res.warmup == 1
+    assert case_res.workload == sw
     assert case_res.metrics.e2e_wall_ms.mean > 0
     assert case_res.metrics.throughput_req_s.mean > 0
     assert case_res.schedule_metrics.ttft_ms_p95.mean > 0
@@ -277,21 +278,36 @@ def test_run_scheduler_case_and_step_on_cpu():
     assert case_res.packing.running_capacity_utilization is not None
     assert case_res.packing.running_capacity_utilization.mean > 0
     assert len(case_res.sample_events) > 0
-    print(format_case_summary(case_res))
+    print(case_res.format_summary())
 
 
-def test_run_scheduler_suite_on_cpu():
+def test_run_scheduler_suite_on_cpu(tmp_path):
     """验证套件执行器 run_suite 支持 plan 驱动并导出统一 SchedulerBenchmarkRecord。"""
     model = build_tiny_model()
     device = torch.device("cpu")
-    suite = FixedVsContinuousVariableOutputLengthSuite(
-        request_count=2,
-        prompt_length=4,
-        short_output=2,
-        long_output=3,
-        warmup=0,
-        repeats=2,
+    spec_path = tmp_path / "tiny-fixed-vs-continuous.yaml"
+    spec_path.write_text(
+        """
+name: tiny-fixed-vs-continuous
+execution: {warmup: 0, repeats: 2, interleave: [batching_method]}
+system:
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
+sweep:
+  system:
+    batching_method: [fixed-batching, continuous-batching]
+workload:
+  id: variable_output_length
+  count: 2
+  prompt_len: 4
+  output_len: {alternating: [2, 3]}
+""",
+        encoding="utf-8",
     )
+    suite = load_benchmark_suite(spec_path, expected_engine="scheduler")
 
     cases = run_suite(
         model=model,
@@ -321,9 +337,9 @@ def test_run_scheduler_suite_on_cpu():
         model=model,
         mode_label="suite(kv-cache+fixed-batching,kv-cache+continuous-batching)",
         cases=cases,
-        correctness={"check": True},
+        correctness=CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
         env={"gpu": "CPU"},
-        peaks={"bandwidth_gbs": None, "tflops": None},
+        peaks=HardwarePeakSpecs(bandwidth_gbs=None, tflops=None),
         cost=None,
         git={"commit": "abc", "dirty": False},
         warmup=0,
@@ -331,9 +347,11 @@ def test_run_scheduler_suite_on_cpu():
         suite_info=suite.to_dict(),
         engine="scheduler",
     )
-    assert record["engine"] == "scheduler"
-    assert record["suite"]["request_count"] == 2
-    assert len(record["cases"]) == 2
+    assert record.engine == "scheduler"
+    assert record.suite is not None
+    assert record.suite["name"] == "tiny-fixed-vs-continuous"
+    assert record.suite["spec"]["workload"]["count"] == 2
+    assert len(record.cases) == 2
 
 
 def test_run_scheduler_paged_case_on_cpu():
@@ -346,13 +364,13 @@ def test_run_scheduler_paged_case_on_cpu():
     mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     paged_config = PagedCacheConfig(block_size=4)
 
-    case = SchedulerSuiteCase(
-        workload_id="stress_case",
-        suite_name="test-paged-case",
+    case = BenchmarkCase(
+        profile=WorkloadProfile.from_specs("stress_case", specs),
         mode=mode,
         max_running_requests=2,
-        specs=specs,
         paged_cache_config=paged_config,
+        suite_name="test-paged-case",
+        engine="scheduler",
     )
 
     # 1. 单次执行
@@ -373,7 +391,7 @@ def test_run_scheduler_paged_case_on_cpu():
     )
     assert case_res.key.mode == mode
     assert case_res.key.workload_id == "stress_case"
-    assert case_res.workload.mode == mode
+    assert case_res.mode == mode
     assert case_res.memory.kv_cache.paged_cache is not None
     assert case_res.memory.kv_cache.paged_cache.block_size == 4
     assert case_res.memory.kv_cache.paged_cache.block_cold_allocation_count > 0
@@ -393,53 +411,55 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     paged_config = PagedCacheConfig(block_size=4)
 
     cases = [
-        SchedulerSuiteCase(
-            workload_id="workload_0",
-            suite_name="multi-workload-suite",
+        BenchmarkCase(
+            profile=WorkloadProfile.from_specs("workload_0", spec_w0),
             mode=dense_mode,
             max_running_requests=2,
-            specs=spec_w0,
-        ),
-        SchedulerSuiteCase(
-            workload_id="workload_0",
             suite_name="multi-workload-suite",
+            engine="scheduler",
+        ),
+        BenchmarkCase(
+            profile=WorkloadProfile.from_specs("workload_0", spec_w0),
             mode=paged_mode,
             max_running_requests=2,
-            specs=spec_w0,
             paged_cache_config=paged_config,
-        ),
-        SchedulerSuiteCase(
-            workload_id="workload_1",
             suite_name="multi-workload-suite",
+            engine="scheduler",
+        ),
+        BenchmarkCase(
+            profile=WorkloadProfile.from_specs("workload_1", spec_w1),
             mode=dense_mode,
             max_running_requests=2,
-            specs=spec_w1,
-        ),
-        SchedulerSuiteCase(
-            workload_id="workload_1",
             suite_name="multi-workload-suite",
+            engine="scheduler",
+        ),
+        BenchmarkCase(
+            profile=WorkloadProfile.from_specs("workload_1", spec_w1),
             mode=paged_mode,
             max_running_requests=2,
-            specs=spec_w1,
             paged_cache_config=paged_config,
+            suite_name="multi-workload-suite",
+            engine="scheduler",
         ),
     ]
 
+    @dataclass
     class DummyMultiWorkloadSuite:
-        name = "multi-workload-suite"
-        warmup = 0
-        repeats = 2
-        max_running_requests = 2
-        interleave = (CaseDimension.CACHING_METHOD, CaseDimension.PAGED_CACHE_CONFIG)
-        comparison = None
+        cases: tuple[BenchmarkCase, ...]
+        name: str = "multi-workload-suite"
+        warmup: int = 0
+        repeats: int = 2
+        max_running_requests: int = 2
+        interleave: tuple[CaseDimension, ...] = (
+            CaseDimension.CACHING_METHOD,
+            CaseDimension.BLOCK_SIZE,
+        )
+        comparison: Any = None
 
         def modes(self):
             return [dense_mode, paged_mode]
 
-        def cases(self, vocab_size, device=None):
-            return cases
-
-    suite = DummyMultiWorkloadSuite()
+    suite = DummyMultiWorkloadSuite(cases=tuple(cases))
     results = run_suite(
         model=model,
         device=device,
@@ -451,25 +471,26 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
     assert len(results) == 4
     # 验证返回顺序与 cases 一致，且负载规格与各 case 匹配
-    assert results[0].workload.prompt_len == 2
-    assert results[0].workload.mode == dense_mode
-    assert results[1].workload.prompt_len == 2
-    assert results[1].workload.mode == paged_mode
-    assert results[2].workload.prompt_len == 3
-    assert results[2].workload.mode == dense_mode
-    assert results[3].workload.prompt_len == 3
-    assert results[3].workload.mode == paged_mode
+    assert results[0].workload.prompt_lens == (2, 2)
+    assert results[0].mode == dense_mode
+    assert results[1].workload.prompt_lens == (2, 2)
+    assert results[1].mode == paged_mode
+    assert results[2].workload.prompt_lens == (3, 3)
+    assert results[2].mode == dense_mode
+    assert results[3].workload.prompt_lens == (3, 3)
+    assert results[3].mode == paged_mode
 
 
 def test_scheduler_suite_dry_run_main(capsys):
-    """验证 --dry-run 参数无需 GPU 与模型即可打印执行计划。"""
+    """验证 bench sweep --dry-run 参数无需 GPU 与模型即可打印执行计划。"""
     from mini_infra.cli import main
 
     ret = main(
         [
             "bench",
+            "sweep",
+            "--engine",
             "scheduler",
-            "suite",
             "--tag",
             "dev",
             "--dry-run",

@@ -16,12 +16,14 @@
    - **基线可对照性**：新增优化必须经模式或策略抽象接入，**不得破坏既有 Baseline 路径的可运行性与可对比性**。
    - **零黑盒依赖**：核心运行时（`model/`、`worker/`、`core/`、`engine/`、`entrypoints/`）只用原生 Python 与 PyTorch，**严禁引入 `transformers`、`tokenizers` 等外部封装库**（`transformers` 仅限 `verification/parity/` 与 `tests/gpu/parity/` 作 Golden Reference）。
 
-3. **YAGNI：禁止无声明的向后兼容**
+3. **YAGNI：禁废弃代码与 dead code**
    - 严禁为兼容旧逻辑保留废弃代码：废弃 member field、过时 method name、兼容性 property、无用参数默认值、forwarding wrapper。
+   - 严禁新增 dead code：无调用点的函数/方法、无读取点的字段。
+   - **测试专有代码显式标注**：生产代码中仅供测试（`tests/`）调用、未被任何生产链路引用的函数/方法/类，必须在 docstring 中显式注明使用边界（如 `专供测试使用 / Test-only`），严禁伪装为通用业务接口。
 
 4. **结果指标变更的端到端联动守恒**
    - **增删改任何结果指标**（延迟、吞吐、显存统计、调度事件字段等）必须同步下游：
-     1. **Schema 与 JSON 数据**：Pydantic 模型（`bench/schema.py`）、基准数据文件（`benchmarks/result-history/`、`benchmarks/data/`）。
+     1. **Schema 与 JSON 数据**：Pydantic 模型（`bench/result/schema.py`）、基准数据文件（`benchmarks/results/history/`、`benchmarks/golden/`）。
      2. **绘图脚本**：`src/mini_infra/bench/plotting/`，防止指标增删改名导致 KeyError、字段取空或图表损坏。
 
 5. **增量守门，存量债务显式标记**

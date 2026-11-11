@@ -14,13 +14,7 @@ from typing import Any
 from mini_infra.bench.plotting.tidy import (
     records_to_wide_df,
     resolve_plot_specs,
-    resolve_record_label,
     wide_to_tidy_df,
-)
-from mini_infra.bench.schema import (
-    LockstepBenchmarkRecord,
-    SchedulerBenchmarkRecord,
-    load_benchmark_record,
 )
 
 # 耗时类指标（越小越好，变化比计算为 base / target 加速比）
@@ -40,17 +34,6 @@ _THROUGHPUT_KEYS = {
     "slot_utilization",
     "running_capacity_utilization",
 }
-
-
-def load_record(path: Path) -> LockstepBenchmarkRecord | SchedulerBenchmarkRecord:
-    """读取并校验单 Case benchmark JSON 结果（若包含多个 case 则报错）。"""
-    return load_benchmark_record(path, require_single_case=True)
-
-
-def resolve_label(rec: Any, custom: str | None = None) -> str:
-    """提取对齐显示的模式/版本标签。"""
-    return resolve_record_label(rec, custom)
-
 
 # 显存容量类指标（以 MiB 绝对增量展示变化）
 _MEMORY_MB_KEYS = {"peak_allocated_mb", "peak_live_kv_cache_mb", "peak_kv_cache_pool_mb"}
@@ -230,7 +213,5 @@ def plot_mode_comparison(
 
 __all__ = [
     "generate_comparison_table",
-    "load_record",
     "plot_mode_comparison",
-    "resolve_label",
 ]

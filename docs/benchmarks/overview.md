@@ -8,18 +8,77 @@
 
 | 一级分类 | 子命令 | 核心执行函数 / 模块 | 核心用途 | 默认输出路径 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Lockstep 齐步** | `mini-infra bench lockstep case` | `lockstep/run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/result-history/lockstep/` 或 `--output` |
-| | `mini-infra bench lockstep suite` | `lockstep/run_suite.py` | 运行预设齐步批处理对比套件（吞吐扫描、Padding 损耗、batch slot 浪费） | `benchmarks/suites/lockstep/<suite>/` |
+| **Lockstep 齐步** | `mini-infra bench lockstep case` | `lockstep/run_case.py` | 运行单用例无调度器推理（单请求 Baseline/KV Cache 或固定批处理） | `benchmarks/results/history/lockstep/` 或 `--output` |
 | **scheduler 调度器** | `mini-infra bench scheduler case` | `scheduler/run_case.py` | 运行单用例动态调度服务化推理（Fixed vs Continuous、Dense vs Paged，支持并发与错峰到达） | 控制台输出或 `--output` |
-| | `mini-infra bench scheduler suite` | `scheduler/run_suite.py` | 运行预设调度器套件（长短请求混跑、流式到达、Prefill 干扰、Paged 显存/块大小对比） | `benchmarks/suites/scheduler/<name>/` |
-| **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/result-history/{lockstep,scheduler}/` |
+| **Suite 检视** | `mini-infra bench suites list \| show \| schema` | `spec/` | 浏览内置 suite、查看合并后的 YAML 与展开用例、导出 JSON Schema（无需 GPU） | 标准输出 |
+| **Suite 运行 / 扫描** | `mini-infra bench sweep` | `sweep.py` | 运行单个或批量 suite（`--suite A [B...]` / `--spec P...` / `--all`），共享模型加载与正确性检查，支持 `--set` 覆盖并汇总产物与对比；单 suite 支持 `--output` | `--output`、`--output-dir` 或各 suite 默认目录 |
+| **Release 固化** | `mini-infra bench release` | `cli/commands/bench/release.py` | 按标准多规模负载（small/medium/large）一键生成版本基准、报告与回归基线 | `benchmarks/results/history/{lockstep,scheduler}/` |
 | **Plot 绘图** | `mini-infra bench plot history` | `plotting/history.py` | 读取所有历史发版数据，生成跨版本演进时间线图与深度 Profiling 报告 | `benchmarks/reports/{lockstep,scheduler}/` |
 | | `mini-infra bench plot compare` | `plotting/compare.py` | 对比任意两个独立 JSON 实验结果，绘制柱状对比图与 Markdown 差异表 | `./benchmark_comparison.png` |
 | **Regression 守门** | `mini-infra bench check-regression` | `check_regression.py` | 1 分钟轻量级冒烟比对，拦截 TTFT/TPOT 劣化超过 5% 的代码变更 | `benchmarks/candidate.local.json` |
 
 ---
 
-## 二、Lockstep 齐步基准测试 (`bench lockstep`)
+## 二、评测系统架构与四阶段生命周期 (Bench System Architecture)
+
+评测系统采用分层解耦架构，数据流严格遵循「规格声明 $\to$ 评测执行 $\to$ 实测结果 $\to$ 落盘契约」单向流动：
+
+```mermaid
+flowchart TD
+    subgraph S1["阶段一：规格声明 (Specification Plane) [*Spec]"]
+        SS["SuiteSpec (YAML 根声明)"] --> CS["CaseSpec (单用例规格)"]
+        WS["WorkloadSpec (分布语法规则)"] --> RWS["ResolvedWorkloadSpec (数值流量画像)"]
+        CS -.-> RWS
+        CompSpec["ComparisonSpec (对比配置)"]
+    end
+
+    subgraph S2["阶段二：评测执行 (Execution Plane) [*Suite, *Case, *Plan, Comparison]"]
+        BS["BenchmarkSuite (套件运行时容器)"] --> SC["BenchmarkCase (统一用例实体)"]
+        CompSpec -->|build| Comp["Comparison (运行时对比配置)"]
+        RWS -->|to_profile| WP["WorkloadProfile (数值画像)"]
+        WP -.-> SC
+        PR["PlannedRun (执行排期步)"] -.-> SC
+    end
+
+    subgraph S3["阶段三：实测结果 (Measurement Plane) [*Result]"]
+        SC -->|run_case_once / run_case| CR["SchedulerCaseResult / LockstepCaseResult"]
+        CR --- CK["统一持有 key: CaseKey + DistributionStats (无兼容代理)"]
+        CR & Comp -->|compute_comparisons| MC["ComparisonResult (指标对比结果)"]
+    end
+
+    subgraph S4["阶段四：落盘契约 (Persistence Plane) [*Record]"]
+        CR -->|build_benchmark_record| BR["*CaseRecord / *BenchmarkRecord"]
+    end
+
+    S1 -->|加载与解析| S2
+    S2 -->|执行与采样| S3
+    S3 -->|序列化归档| S4
+```
+
+### 核心设计原则与架构不变量
+
+1. **规格与执行严格解耦（Specification vs Execution）**
+   - **规格声明层（Specification Plane）**：全部以 `*Spec` 命名（如 `SuiteSpec`、`CaseSpec`、`WorkloadSpec`、`ResolvedWorkloadSpec`、`ComparisonSpec`）。纯粹负责 YAML 反序列化、分布展开与参数合法性校验，零 Token 序列依赖，不触碰执行逻辑。
+   - **评测执行层（Execution Plane）**：套件由统一容器 `BenchmarkSuite` 承载；通过 `ComparisonSpec.build()` 构建运行时对比对象 `Comparison`；用例实体统一为 `BenchmarkCase`，对齐持有 `key: CaseKey` 与轻量数值画像 `profile: WorkloadProfile`；套件用例属性 `suite.cases` 彻底与词表大小和设备解耦，具体 Token 序列仅在底层执行函数中按需局部材质化（Materialize on Demand）。
+2. **流量画像单一真相源（SSOT）**
+   - 彻底废除重复冗余的 `Workload` 类，全仓统一以 `ResolvedWorkloadSpec` 展开为 `WorkloadProfile` 作为唯一权威数值流量画像。
+   - 显式字段 `num_total_requests: int` 与请求级列表（`prompt_lens`、`output_budgets`、`arrival_ms`）严格校验守恒；运行时仅在 `run_case` 执行入口按需材质化为局部 `RequestSpec`，彻底杜绝纯数字画像与具体 Token 载荷的混淆与内存常驻。
+3. **两套引擎绝对结构对称（Two-Engine Symmetry）**
+   - `Lockstep` 与 `Scheduler` 在套件抽象（`BenchmarkSuite`）、用例实体（`BenchmarkCase`）、数值画像（`WorkloadProfile`）、执行分层（原子 `run_case_once` 与统计多轮 `run_case`）、以及结果身份凭证（`key: CaseKey`）上保持 100% 对齐。
+   - 杜绝向后兼容包袱（严格遵循 YAGNI）：不保留兼容代理属性（如 `res.mode`），所有调用点直接访问规范路径 `res.key.mode`。
+
+### 核心类型与生命周期映射表
+
+| 生命周期阶段 | 核心类型 / 函数 | 命名规范 | 职责边界 |
+| :--- | :--- | :--- | :--- |
+| **阶段一：规格声明** | `SuiteSpec` / `CaseSpec` / `ResolvedWorkloadSpec` / `ComparisonSpec` | `*Spec` | YAML 声明解析、场景展开与参数校验，无状态与纯数值元数据 |
+| **阶段二：评测执行** | `BenchmarkSuite` / `BenchmarkCase` / `Comparison` / `WorkloadProfile.to_payload` | `*Suite`, `*Case`, `Comparison`, `to_payload` | 运行时套件容器、轻量用例定义、对比策略、单步执行排期与按需局部载荷装配 |
+| **阶段三：实测结果** | `run_case_once` / `run_case` / `SchedulerCaseResult` / `LockstepCaseResult` / `ComparisonResult` | `run_case*`, `*Result` | 单次/多轮测量采样、时钟打点、指标聚合与统计中位数比对 |
+| **阶段四：落盘契约** | `LockstepBenchmarkRecord` / `SchedulerBenchmarkRecord` / `save_benchmark_record` | `*Record` | Pydantic v2 Schema 校验、JSON 序列化与历史基准归档 |
+
+---
+
+## 三、Lockstep 齐步基准测试 (`bench lockstep`)
 
 面向**无队列调度器**的推理底座（基于 `generate` / `lockstep_loop`），覆盖单请求与整批同步前向（Fixed Batching）。
 
@@ -55,14 +114,14 @@ mini-infra bench lockstep case \
 # 5. 开启硬件级 Profiling（采集 MBU、MFU 及 CUDA 算子耗时归因）
 mini-infra bench lockstep case \
   --tag profile \
-  --profile-mode extra-profile \
+  --profiling-mode dedicated-pass \
   --output tmp/profile.json
 ```
 
 ---
 
-### 2. 预设实验套件 (`lockstep suite`)
-通过系统扫描关键超参数，探索硬件与批处理策略的扩展边界。
+### 2. 预设实验套件 (`bench sweep --engine lockstep`)
+通过系统扫描关键超参数，探索硬件与批处理策略的扩展边界。所有 suite 统一经 `mini-infra bench sweep` 执行。
 
 #### 注册套件清单
 1. **`serial-vs-fixed-batch-throughput`**：扫描 Batch Size 1, 2, 4, 8, 16，对比单请求串行与固定批处理的吞吐与显存增长曲线。
@@ -71,25 +130,34 @@ mini-infra bench lockstep case \
 
 #### 常用命令样例
 ```bash
-# 运行固定批处理吞吐扩展套件
-mini-infra bench lockstep suite \
+# 预览用例列表（无需 GPU，Dry-Run）
+mini-infra bench sweep --engine lockstep \
+  --tag dev \
+  --suite serial-vs-fixed-batch-throughput \
+  --dry-run
+
+# 运行固定批处理吞吐扩展套件（单 suite 可用 --output 指定输出路径）
+mini-infra bench sweep --engine lockstep \
   --tag dev \
   --suite serial-vs-fixed-batch-throughput
 
 # 运行变长 Prompt 输入的 Padding 损耗套件
-mini-infra bench lockstep suite \
+mini-infra bench sweep --engine lockstep \
   --tag dev \
   --suite uniform-vs-variable-prompt-padding
 
 # 运行变长输出预算的 batch slot 利用率套件
-mini-infra bench lockstep suite \
+mini-infra bench sweep --engine lockstep \
   --tag dev \
   --suite uniform-vs-variable-budget-slots
 ```
 
+> [!NOTE]
+> 套件的 `warmup` / `repeats` 取自 YAML 的 `execution`，命令行 `--warmup` / `--repeats` 仅在显式传入时覆盖。
+
 ---
 
-## 三、scheduler 调度器基准测试 (`bench scheduler`)
+## 四、scheduler 调度器基准测试 (`bench scheduler`)
 
 面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出、`DenseSlotCache`（batch slot 管理）与 `PagedKVCachePool`（physical block pool 管理）。
 
@@ -138,8 +206,8 @@ mini-infra bench scheduler case \
 
 ---
 
-### 2. 预设调度器套件 (`scheduler suite`)
-评估连续批处理在复杂线上工况相对固定批处理的加速比，以及 Paged KV Cache 相对 Dense 路径在显存占用与 KV 访问上的优化收益。
+### 2. 预设调度器套件 (`bench sweep --engine scheduler`)
+评估连续批处理在复杂线上工况相对固定批处理的加速比，以及 Paged KV Cache 相对 Dense 路径在显存占用与 KV 访问上的优化收益。所有 suite 统一经 `mini-infra bench sweep` 执行。
 
 #### 注册套件清单
 
@@ -149,36 +217,39 @@ mini-infra bench scheduler case \
 3. **`fixed-vs-continuous-staggered-arrivals`**：请求按时间阶梯陆续到达，考察连续批处理的即到即调度能力 vs 固定批处理的攒批排队延迟。
 4. **`fixed-vs-continuous-prefill-interference`**：运行中 Decode batch slot 受新入场请求 Prefill 插入时的 ITL 抖动与打断开销。
 
-**Dense vs Paged 对比套件（默认交替维度 `interleave=(caching_method, paged_cache_config)`）**：
+**Dense vs Paged 对比套件（默认交替维度 `interleave=(caching_method, block_size)`）**：
 5. **`dense-vs-paged-long-short-stress`**：长短 Prompt 混杂受控压力测试（long=2048），对比 Dense batch slot 与 Paged 物理块池的峰值显存、KV 读取数与调度延迟。
 6. **`dense-vs-paged-length-ratio`**：长短 Prompt 长度比扫描（长 Prompt 取 128 / 512 / 2048 / 3072），评估非均匀 Prompt 长度分布下 Paged KV Cache 的显存与吞吐收益变化趋势。
 7. **`dense-vs-paged-block-size`**：Paged 物理块大小扫描（8 / 16 / 32 / 64），对比不同 block size 下的显存开销与调度吞吐，共用同一 Dense 基线。
 
+> [!NOTE]
+> 与 lockstep 一致：套件的 `warmup` / `repeats` 取自 YAML 的 `execution`，命令行 `--warmup` / `--repeats` 仅在显式传入时覆盖。
+
 #### 常用命令样例
 ```bash
-# 1. 运行长短请求混跑对比套件（推荐：最能体现 Continuous Batching 优势的场景）
-mini-infra bench scheduler suite \
+# 1. 运行长短请求混跑对比套件（推荐：最能体现 Continuous Batching 优势的场景；单 suite 可用 --output 指定输出路径）
+mini-infra bench sweep --engine scheduler \
   --tag v0.4.0 \
   --suite fixed-vs-continuous-variable-output-length
 
 # 2. 运行长短 Prompt 受控压力测试套件（Dense vs Paged 对比）
-mini-infra bench scheduler suite \
+mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-long-short-stress
 
 # 3. 运行 block size 扫描套件
-mini-infra bench scheduler suite \
+mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-block-size
 
-# 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, paged_cache_config）
-mini-infra bench scheduler suite \
+# 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, block_size, num_blocks）
+mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-block-size \
-  --interleave caching_method paged_cache_config
+  --interleave caching_method block_size
 
 # 5. 预览执行计划（无需 GPU，Dry-Run 模式毫秒级验证调度计划）
-mini-infra bench scheduler suite \
+mini-infra bench sweep --engine scheduler \
   --tag test \
   --suite dense-vs-paged-block-size \
   --dry-run
@@ -186,14 +257,14 @@ mini-infra bench scheduler suite \
 
 > [!TIP]
 > **热漂移规避（Thermal Drift Mitigation）与声明式对比**：
-> `bench scheduler suite` 内建了基于 `CaseDimension` 的交替执行机制（Run Alternation），在奇偶轮次反转对比维度的执行顺序，并在每次运行间强制调用 `gc.collect()` 与 `torch.cuda.empty_cache()`。套件运行结束后自动计算中位数相对指标（Makespan 加速比、吞吐增益、KV 读取削减、显存削减）并输出列对齐终端摘要。
+> `bench sweep --engine scheduler` 内建了基于 `CaseDimension` 的交替执行机制（Run Alternation），在奇偶轮次反转对比维度的执行顺序，并在每次运行间强制调用 `gc.collect()` 与 `torch.cuda.empty_cache()`。套件运行结束后自动计算中位数相对指标（Makespan 加速比、吞吐增益、KV 读取削减、显存削减）并输出列对齐终端摘要。
 
 ---
 
-## 四、性能图表绘制与对比分析 (`bench plot`)
+## 五、性能图表绘制与对比分析 (`bench plot`)
 
 ### 1. 跨版本演化全景图 (`plot history`)
-读取 `benchmarks/result-history/{lockstep,scheduler}/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
+读取 `benchmarks/results/history/{lockstep,scheduler}/*.json` 下积累的所有历史版本数据，重新绘制时间线演进大图与 Markdown 汇总报表。
 
 ```bash
 # 读取历史数据并生成汇总报表与两大演进图
@@ -213,7 +284,7 @@ mini-infra bench plot history
 ```bash
 # 对比当前实验结果与 Baseline
 mini-infra bench plot compare \
-  benchmarks/result-history/lockstep/915b0d9_v0.1.0.json \
+  benchmarks/results/history/lockstep/915b0d9_v0.1.0.json \
   tmp/profile.json \
   --output-figure tmp/comparison.png \
   --output-markdown tmp/comparison.md \
@@ -222,9 +293,9 @@ mini-infra bench plot compare \
 
 ---
 
-## 五、轻量性能回归守门 (`bench check-regression`)
+## 六、轻量性能回归守门 (`bench check-regression`)
 
-作为 CI 门禁与 Pre-push Hook 的核心守门工具，耗时约 1 分钟，现场运行轻量 Benchmark 并与 `benchmarks/data/reference.json` 比对。
+作为 CI 门禁与 Pre-push Hook 的核心守门工具，耗时约 1 分钟，现场运行轻量 Benchmark 并与 `benchmarks/golden/reference.json` 比对。
 
 ```bash
 # 1. 日常快速守护检查（TTFT 或 TPOT 劣化超过 5% 时报错退出）
@@ -233,19 +304,92 @@ mini-infra bench check-regression
 # 2. 严格硬件匹配（非同一型号 GPU 时直接报错拦截，用于云端 CI）
 mini-infra bench check-regression --strict-hardware
 
-# 3. 新特性发布时固化当前性能底线（更新 benchmarks/data/reference.json）
+# 3. 新特性发布时固化当前性能底线（更新 benchmarks/golden/reference.json）
 mini-infra bench check-regression --update-reference
 ```
 
 ---
 
-## 六、测试数据产物与输出目录约定
+## 七、声明式 Suite（YAML）：新增、检视与批量运行
 
-为保持工作区整洁，所有 Benchmark 命令的输出落盘建议遵循以下规范：
+所有评测套件与发版标准负载均由 [`benchmarks/specs/`](../../benchmarks/specs/) 下的 YAML 声明；**新增 suite = 新增一个 YAML 文件，无需修改 Python 代码**。
 
-1. **`benchmarks/result-history/`**：
+> [!IMPORTANT]
+> **完整形式化语法（EBNF）与字段手册**：关于 `SuiteSpec` / `ReleaseSpec` 的 **Extended Backus-Naur Form (EBNF) 语法定义**、长度与到达分布规约、确定性随机种子抽样协议以及跨字段语义约束，请查阅 **[声明式评测规范：Suite & Release YAML Schema (spec-schema.md)](./spec-schema.md)**。
+
+```yaml
+# benchmarks/specs/scheduler/fixed-vs-continuous-staggered-arrivals.yaml
+# yaml-language-server: $schema=../suite.schema.json
+name: fixed-vs-continuous-staggered-arrivals
+extends: _bases/fixed_vs_continuous.yaml     # 映射深合并，列表整体替换
+workload:
+  id: staggered_arrivals                     # → CaseKey.workload_id
+  count: 8
+  prompt_len: 128
+  output_len: {alternating: [8, 32]}
+  arrival_ms: {interval: 150}
+```
+
+### 1. 检视与临时实验 (`bench suites`)
+```bash
+mini-infra bench suites list                          # 列出全部内置 suite 与用例数
+mini-infra bench suites show dense-vs-paged-block-size   # 合并后的 YAML + 展开后的用例列表
+mini-infra bench suites schema --output benchmarks/specs/suite.schema.json   # 重新导出 JSON Schema（IDE 补全）
+
+# 运行任意 YAML（临时实验；结果默认写入被 .gitignore 忽略的 tmp/results/suites/，不污染 benchmarks/；单 suite 支持 --output）
+mini-infra bench sweep --engine scheduler --tag dev --spec tmp/my-suite.yaml --dry-run
+
+# 命令行覆盖声明字段（KEY 为点分路径，VALUE 按 YAML 解析；带覆盖的运行视为实验，结果同样写入 tmp/results/suites/）
+mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-length-ratio \
+  --set 'sweep.workload.long_prompt_len=[256, 1024]' --set execution.repeats=5
+```
+
+### 2. 批量运行 (`bench sweep`)
+一次调用顺序运行多个 suite：共享同一次模型加载、正确性检查（按 Mode 缓存）与环境信息，结尾汇总各 suite 的产物路径、耗时与对比结论。配置层面的扫描由 YAML 的 `sweep:` 声明，`bench sweep` 负责「跨 suite 批量运行」与 `--set` 覆盖：
+
+```bash
+# 运行指定的多个内置 suite，并统一把结果写入 tmp/sweep/
+mini-infra bench sweep --engine scheduler --tag dev \
+  --suite fixed-vs-continuous-variable-output-length fixed-vs-continuous-staggered-arrivals \
+  --output-dir tmp/sweep
+
+# 运行某引擎的全部内置 suite（先 dry-run 预览所有计划）
+mini-infra bench sweep --engine lockstep --tag dev --all --dry-run
+
+# 对多个 suite 统一覆盖字段（任何一个 suite 校验失败都会在运行前暴露）
+mini-infra bench sweep --engine scheduler --tag dev --all --set execution.repeats=1 --set execution.warmup=0
+```
+
+`--suite`、`--spec`、`--all` 三选一；sweep 内 suite 名称必须唯一；任一 suite 出错即中止（已完成的结果已各自落盘）。
+
+> [!NOTE]
+> 结果 JSON 的 `suite` 块记录 `{name, engine, spec_sha256, spec}`：`spec` 是 `extends` 合并后的完整声明，`spec_sha256` 是其内容哈希，可据此复现与比对实验配置。
+
+---
+
+## 八、测试数据产物与输出目录约定
+
+评测系统产物严格按功能与受控属性隔离，根目录布局如下：
+
+```text
+benchmarks/
+├── golden/                        # 权威黄金数据（git 追踪：golden_output_tokens.json, reference.json）
+├── specs/                         # 声明式评测规范 YAML 根目录
+│   ├── lockstep/                  # 齐步测试套件 YAML 声明
+│   ├── scheduler/                 # 调度器测试套件 YAML 声明
+│   ├── _bases/                    # 基础模板（供 extends 复用）
+│   └── release/                   # 发版标准负载声明（lockstep.yaml, scheduler.yaml）
+├── results/                       # 评测输出与历史沉淀根目录（消除 suites 与 specs 命名倒置）
+│   ├── suites/                    # 预设套件执行产物（按 {lockstep,scheduler}/<name>/ 分域）
+│   └── history/                   # 正式发版多规模基准历史（按 {lockstep,scheduler}/<commit>_<tag>.json 归档）
+├── reports/                       # 演进报告与分析图表（SUMMARY.md, *.png）
+└── tmp/results/suites/            # 临时/实验性套件运行产物（已被 .gitignore 忽略，防污染）
+```
+
+1. **`benchmarks/results/history/`**：
    - 仅存放发版时固化的正式基准文件（格式为 `<commit>_<tag>.json`），由 `mini-infra bench plot history` 消费。
-2. **`benchmarks/suites/`**：
-   - 各预设套件（Suite）执行结果自动落盘目录（如 `benchmarks/suites/serial-vs-fixed-batch-throughput/`）。
+2. **`benchmarks/results/suites/`**：
+   - 各预设套件（Suite）执行结果自动落盘目录，按引擎分域：`benchmarks/results/suites/lockstep/<name>/` 与 `benchmarks/results/suites/scheduler/<name>/`。
+   - 以 `--spec` 运行的临时 YAML 套件默认写入 `tmp/results/suites/<engine>/<name>/`。
 3. **`tmp/`（推荐临时输出目录）**：
    - 日常单次测试、调优对比或 Profiling 产物建议输出到 `tmp/`（如 `--output tmp/test.json`）。该目录已纳入 `.gitignore`，不会污染版本控制。

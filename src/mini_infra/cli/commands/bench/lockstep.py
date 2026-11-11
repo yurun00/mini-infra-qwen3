@@ -1,33 +1,23 @@
-"""CLI 子命令：mini-infra bench lockstep (case / suite)
+"""CLI 子命令：mini-infra bench lockstep case
 
-齐步（Lockstep：所有请求同时开始，无调度器）基准测试执行入口。
+齐步（Lockstep：所有请求同时开始，无调度器）单用例基准测试执行入口。
+套件执行请使用 `mini-infra bench sweep --engine lockstep`。
 """
 
 import argparse
 import sys
 from dataclasses import replace
 
-from mini_infra.bench.common import (
-    LOCKSTEP_RESULT_HISTORY_DIR,
-    SUITES_DIR,
-    add_common_args,
-    check_correctness,
-    format_lengths,
-    git_info,
-    gpu_info,
-    model_cost,
-    require_cuda,
-    resolve_peak_specs,
-    save_benchmark_record,
-)
-from mini_infra.bench.lockstep.format import (
-    format_case_summary,
-    format_table,
-)
-from mini_infra.bench.lockstep.run_case import resolve_case_specs, run_case
-from mini_infra.bench.lockstep.run_suite import run_suite
-from mini_infra.bench.lockstep.suites import SUITES, SuiteCase, get_suite
-from mini_infra.bench.schema import build_benchmark_record
+from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
+from mini_infra.bench.correctness import check_correctness
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.env import git_info, gpu_info, require_cuda
+from mini_infra.bench.format import format_lengths
+from mini_infra.bench.lockstep.format import format_table
+from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
+from mini_infra.bench.paths import LOCKSTEP_RESULT_HISTORY_DIR
+from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
+from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
@@ -69,100 +59,86 @@ def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParse
     return p
 
 
-def add_lockstep_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 lockstep suite 参数。"""
-    add_common_args(p)
-    p.add_argument(
-        "--suite",
-        choices=sorted(SUITES),
-        required=True,
-        help="运行 suites.py 中注册的命名 suite（配置来自该文件，结果写入 benchmarks/suites/<name>/）",
-    )
-    return p
-
-
-def build_case_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行单用例齐步（Lockstep）基准测试")
-    add_lockstep_case_args(p)
-    return p
-
-
-def build_suite_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行预设齐步（Lockstep）套件")
-    add_lockstep_suite_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 lockstep 组及 case/suite 子命令。"""
+    """在 bench 下注册 lockstep 组及 case 子命令。"""
     lockstep_parser = subparsers.add_parser("lockstep", help="齐步（Lockstep：所有请求同时开始，无调度器）推理基准测试")
     lockstep_subs = lockstep_parser.add_subparsers(dest="lockstep_subcommand", required=True)
 
     case_parser = lockstep_subs.add_parser("case", help="运行单用例齐步（Lockstep）基准测试")
     add_lockstep_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
-
-    suite_parser = lockstep_subs.add_parser("suite", help="运行预设齐步（Lockstep）套件")
-    add_lockstep_suite_args(suite_parser)
-    suite_parser.set_defaults(func=handle_suite)
     return lockstep_parser
 
 
 def handle_case(args: argparse.Namespace) -> int:
     device = require_cuda()
 
-    target_bs, resolved_prompt_len, resolved_max_new_tokens = resolve_case_specs(
+    target_bs, resolved_prompt_len, resolved_max_new_tokens = broadcast_case_lengths(
         args.prompt_lens, args.max_new_tokens, args.batch_size
     )
-
-    caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
-    mode = Mode(caching_method, batching_method=args.batching_method)
-    case = SuiteCase(mode, target_bs, resolved_prompt_len, resolved_max_new_tokens)
 
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
+
+    caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
+    mode = Mode(caching_method, batching_method=args.batching_method)
+
+    plens = (resolved_prompt_len,) * target_bs if isinstance(resolved_prompt_len, int) else resolved_prompt_len
+    budgets = (
+        (resolved_max_new_tokens,) * target_bs if isinstance(resolved_max_new_tokens, int) else resolved_max_new_tokens
+    )
+    profile = WorkloadProfile(
+        workload_id="custom",
+        num_total_requests=target_bs,
+        prompt_lens=plens,
+        output_budgets=budgets,
+        arrival_ms=(0.0,) * target_bs,
+    )
+    case = BenchmarkCase(
+        profile=profile,
+        mode=mode,
+        suite_name="custom",
+        engine="lockstep",
+    )
 
     correctness = check_correctness(model, tokenizer, case.mode, device, args.update_golden)
-    if correctness["passed"] is False and not args.allow_mismatch:
+    if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    if None in peaks.values():
+    peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    cost = ModelCostProfile.from_model(model)
+    if peaks.bandwidth_gbs is None or peaks.tflops is None:
         print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-case] mode={case.mode} batch={case.num_total_requests} prompt={format_lengths(case.prompt_len)} "
-        f"max_new_tokens={format_lengths(case.max_new_tokens)} ...",
+        f"[bench-case] mode={case.mode} batch={case.profile.num_total_requests} "
+        f"prompt={format_lengths(case.profile.prompt_lens)} "
+        f"max_new_tokens={format_lengths(case.profile.output_budgets)} ...",
         flush=True,
     )
 
     result = run_case(
-        model,
-        case.mode,
-        list(case.prompt_len) if isinstance(case.prompt_len, tuple) else case.prompt_len,
-        list(case.max_new_tokens) if isinstance(case.max_new_tokens, tuple) else case.max_new_tokens,
-        case.num_total_requests,
-        args.warmup,
-        args.repeats,
-        vocab,
-        device,
+        model=model,
+        device=device,
+        case=case,
+        warmup=args.warmup,
+        repeats=args.repeats,
         cost=cost,
         peaks=peaks,
-        profile_mode=args.profile_mode,
+        profiling_mode=args.profiling_mode,
         tensorboard_options=tb_options,
     )
     if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
         result = replace(
             result,
-            workload=replace(result.workload, scale=getattr(args, "scale", None), seed=getattr(args, "seed", None)),
+            scale=getattr(args, "scale", None),
+            seed=getattr(args, "seed", None),
         )
 
-    print(format_case_summary(result))
+    print(result.format_summary())
 
     git = git_info()
     record = build_benchmark_record(
@@ -180,85 +156,7 @@ def handle_case(args: argparse.Namespace) -> int:
     )
 
     output = args.output or LOCKSTEP_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
+    save_benchmark_record(output, record, is_dirty=bool(git["dirty"]))
     print()
     print(format_table([result]))
-    return 0
-
-
-def handle_suite(args: argparse.Namespace) -> int:
-    device = require_cuda()
-
-    suite = get_suite(args.suite)
-    modes = suite.modes()
-    cases = suite.cases()
-    warmup = args.warmup if args.warmup is not None else suite.warmup
-    repeats = args.repeats if args.repeats is not None else suite.repeats
-    mode_label = ",".join(str(m) for m in modes)
-
-    model_dir = resolve_model_directory(args.model, args.revision)
-    tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
-
-    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
-    if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
-
-    env = gpu_info()
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    if None in peaks.values():
-        print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
-    tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
-
-    print(
-        f"[bench-suite] suite={args.suite} modes={mode_label} cases={len(cases)} warmup={warmup} repeats={repeats}",
-        flush=True,
-    )
-
-    def on_progress(case_number: int, total_cases: int, case: SuiteCase) -> None:
-        print(
-            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.num_total_requests} "
-            f"prompt={format_lengths(case.prompt_len)} max_new_tokens={format_lengths(case.max_new_tokens)} ...",
-            flush=True,
-        )
-
-    results = run_suite(
-        model=model,
-        device=device,
-        suite=suite,
-        vocab=vocab,
-        warmup=warmup,
-        repeats=repeats,
-        cost=cost,
-        peaks=peaks,
-        profile_mode=args.profile_mode,
-        tensorboard_options=tb_options,
-        on_case_progress=on_progress,
-        on_case_result=lambda r: print(format_case_summary(r)),
-    )
-
-    git = git_info()
-    record = build_benchmark_record(
-        args=args,
-        model=model,
-        mode_label=mode_label,
-        cases=results,
-        correctness=correctness,
-        env=env,
-        peaks=peaks,
-        cost=cost,
-        git=git,
-        warmup=warmup,
-        repeats=repeats,
-        suite_info=suite.to_dict(),
-    )
-
-    suite_dir = SUITES_DIR / args.suite
-    suite_dir.mkdir(parents=True, exist_ok=True)
-    output = args.output or suite_dir / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
-    print()
-    print(format_table(results))
     return 0

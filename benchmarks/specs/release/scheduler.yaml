@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=../release.schema.json
+# Scheduler 版本发布标准负载（small / medium / large）。
+# 每档随机分布共用 random.Random(seed * 1000 + seed_salt)：先抽 prompt_len，再 output_len，最后 arrival_ms。
+# `mini-infra bench release --seed N` 只覆盖 seed。
+# 修改本文件会改变所有版本归档的可比性，仅在受控基准更新流程中变更（见 RELEASE.md）。
+description: Scheduler 标准伪随机负载：对数均匀的长度分布 + 带初始突发的泊松到达。
+default_seed: 42
+execution: {warmup: 2, repeats: 5}
+system:
+  engine_mode: scheduler
+  batching_method: continuous-batching
+  caching_method: dense-kv-cache
+scales:
+  small:
+    seed_salt: 601
+    max_running_requests: 4
+    workload:
+      count: 16
+      prompt_len: {log_uniform: {min: 16, max: 64}}
+      output_len: {log_uniform: {min: 8, max: 32}}
+      arrival_ms: {poisson: {initial_burst: 4, mean_interval_ms: 55}}
+  medium:
+    seed_salt: 702
+    max_running_requests: 8
+    workload:
+      count: 32
+      prompt_len: {log_uniform: {min: 64, max: 256}}
+      output_len: {log_uniform: {min: 32, max: 96}}
+      arrival_ms: {poisson: {initial_burst: 8, mean_interval_ms: 110}}
+  large:
+    seed_salt: 803
+    max_running_requests: 16
+    workload:
+      count: 64
+      prompt_len: {log_uniform: {min: 256, max: 1024}}
+      output_len: {log_uniform: {min: 64, max: 192}}
+      arrival_ms: {poisson: {initial_burst: 16, mean_interval_ms: 180}}

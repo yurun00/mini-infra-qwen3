@@ -2,9 +2,9 @@
 
 from collections.abc import Sequence
 
-from mini_infra.bench.common import format_lengths
+from mini_infra.bench.cases import BenchmarkCase
+from mini_infra.bench.format import format_lengths
 from mini_infra.bench.lockstep.types import LockstepCaseResult
-from mini_infra.bench.schema import build_benchmark_record
 
 
 def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
@@ -12,9 +12,9 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     ttft = w.metrics.ttft_ms
     tpot = w.metrics.mean_tpot_ms
     row = [
-        str(w.workload.mode),
-        format_lengths(w.workload.prompt_len),
-        format_lengths(w.workload.max_new_tokens),
+        str(w.key.mode),
+        format_lengths(w.workload.prompt_lens),
+        format_lengths(w.workload.output_budgets),
         f"{(ttft.mean if ttft else 0.0):.3f}",
         f"{(tpot.mean if tpot else 0.0):.3f}",
         f"{(tpot.median if tpot else 0.0):.3f}",
@@ -68,42 +68,22 @@ def format_table(case_results: Sequence[LockstepCaseResult]) -> str:
     return "\n".join(lines)
 
 
-def format_case_summary(result: LockstepCaseResult) -> str:
-    """格式化单用例的延迟/吞吐/显存摘要与 MBU/MFU 行。"""
-    ttft = result.metrics.ttft_ms
-    tpot = result.metrics.mean_tpot_ms
+def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup: int, repeats: int) -> str:
+    """格式化 Lockstep 套件的用例列表，用于 --dry-run 预览（用例顺序即执行顺序）。"""
     lines = [
-        "  TTFT %.2f ms | TPOT %.2f±%.2f ms | %.1f tok/s | %.2f req/s | %.0f MiB"
-        % (
-            ttft.median if ttft else 0.0,
-            tpot.median if tpot else 0.0,
-            tpot.std if tpot else 0.0,
-            result.metrics.throughput_tok_s.median,
-            result.metrics.throughput_req_s.median,
-            result.memory.peak_allocated_mb,
-        )
+        f"Lockstep 基准评测执行计划（suite={suite_name}，共 {len(cases)} 个用例，"
+        f"每个 warmup={warmup} repeats={repeats}）："
     ]
-    if result.efficiency and result.efficiency.decode_mbu is not None:
-        gpu_busy_str = (
-            "%.0f%%" % (100 * result.metrics.gpu_time_ratio.median)
-            if result.metrics.gpu_time_ratio is not None
-            else "N/A"
-        )
+    for i, case in enumerate(cases, 1):
         lines.append(
-            "  MBU %.1f%% | decode MFU %.2f%% | prefill MFU %.1f%% | GPU busy %s"
-            % (
-                100 * result.efficiency.decode_mbu,
-                100 * (result.efficiency.decode_mfu or 0),
-                100 * (result.efficiency.prefill_mfu or 0),
-                gpu_busy_str,
-            )
+            f"  [{i:02d}] mode={case.mode} batch={case.profile.num_total_requests} "
+            f"prompt={format_lengths(case.profile.prompt_lens)} "
+            f"max_new_tokens={format_lengths(case.profile.output_budgets)}"
         )
     return "\n".join(lines)
 
 
 __all__ = [
-    "_format_case_row",
-    "build_benchmark_record",
-    "format_case_summary",
+    "format_suite_plan",
     "format_table",
 ]

@@ -1,46 +1,22 @@
-"""CLI 子命令：mini-infra bench scheduler (case / suite)
+"""CLI 子命令：mini-infra bench scheduler case
 
-队列调度器（Scheduler）评测套件与用例执行入口。
+队列调度器（Scheduler）单用例评测执行入口。套件执行请使用 `mini-infra bench sweep --engine scheduler`。
 """
 
 import argparse
 import sys
 from dataclasses import replace
 
-import torch
-
-from mini_infra.bench.common import (
-    BENCH_ARTIFACTS_DIR,
-    CASE_DIR,
-    add_common_args,
-    check_correctness,
-    git_info,
-    gpu_info,
-    model_cost,
-    require_cuda,
-    resolve_peak_specs,
-    save_benchmark_record,
-)
-from mini_infra.bench.scheduler.format import (
-    format_case_summary,
-    format_comparison,
-    format_table,
-)
-from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
+from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
+from mini_infra.bench.correctness import check_correctness
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.env import git_info, gpu_info, require_cuda
+from mini_infra.bench.paths import CASE_DIR
+from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
+from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
-from mini_infra.bench.scheduler.run_suite import (
-    parse_interleave_args,
-    run_suite,
-)
-from mini_infra.bench.scheduler.suites import (
-    SCHEDULER_SUITES,
-    CaseDimension,
-    SchedulerSuiteCase,
-    get_suite,
-)
-from mini_infra.bench.scheduler.types import MetricComparison, compute_comparisons
-from mini_infra.bench.schema import build_benchmark_record
-from mini_infra.bench.workloads import WorkloadSpec, build_scheduler_request_specs, make_arrival_times
+from mini_infra.bench.spec.common.lengths import make_arrival_times
+from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.core.block_manager import PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
@@ -89,56 +65,14 @@ def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPars
     return p
 
 
-def add_scheduler_suite_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    """向 parser 添加 scheduler suite 参数。"""
-    add_common_args(p)
-    p.add_argument(
-        "--suite",
-        choices=sorted(SCHEDULER_SUITES),
-        required=True,
-        help="运行 suites.py 中注册的命名 Scheduler 套件（结果写入 benchmarks/suites/scheduler/<name>/）",
-    )
-    p.add_argument(
-        "--interleave",
-        nargs="*",
-        default=None,
-        help=(
-            f"选择交替轮换的特征维度（可选: {[d.value for d in CaseDimension]}，"
-            "或 none 关闭交替；默认使用 Suite 的配置）"
-        ),
-    )
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="仅生成并打印执行计划，不加载模型也不要求 CUDA",
-    )
-    return p
-
-
-def build_case_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行单用例 Scheduler 基准测试")
-    add_scheduler_case_args(p)
-    return p
-
-
-def build_suite_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="运行预设 Scheduler 套件")
-    add_scheduler_suite_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """在 bench 下注册 scheduler 组及 case/suite 子命令。"""
+    """在 bench 下注册 scheduler 组及 case 子命令。"""
     scheduler_parser = subparsers.add_parser("scheduler", help="队列调度器（Scheduler: Fixed vs Continuous）基准测试")
     scheduler_subs = scheduler_parser.add_subparsers(dest="scheduler_subcommand", required=True)
 
     case_parser = scheduler_subs.add_parser("case", help="运行单用例 Scheduler 基准测试")
     add_scheduler_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
-
-    suite_parser = scheduler_subs.add_parser("suite", help="运行预设 Scheduler 套件")
-    add_scheduler_suite_args(suite_parser)
-    suite_parser.set_defaults(func=handle_suite)
     return scheduler_parser
 
 
@@ -148,7 +82,6 @@ def handle_case(args: argparse.Namespace) -> int:
     model_dir = resolve_model_directory(args.model, args.revision)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
 
     caching = CachingMethod(args.caching_method)
     method = BatchingMethod(args.batching_method)
@@ -167,7 +100,7 @@ def handle_case(args: argparse.Namespace) -> int:
         update_golden=False,
         paged_cache_config=paged_cache_config,
     )
-    if correctness["passed"] is False and not args.allow_mismatch:
+    if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     req_count = len(args.prompt_lens) if args.prompt_lens is not None else args.request_count
@@ -184,37 +117,45 @@ def handle_case(args: argparse.Namespace) -> int:
     warmup = args.warmup if args.warmup is not None else 1
     repeats = args.repeats if args.repeats is not None else 3
 
-    workload = WorkloadSpec(
-        mode=target_mode,
-        num_total_requests=req_count,
-        prompt_len=prompt_len,
-        max_new_tokens=max_new_tokens,
-        repeats=repeats,
-        warmup=warmup,
-        max_running_requests=max_running,
-        arrival_times_ms=arrivals,
+    prompt_lens = (prompt_len,) * req_count if isinstance(prompt_len, int) else tuple(prompt_len)
+    output_budgets = (max_new_tokens,) * req_count if isinstance(max_new_tokens, int) else tuple(max_new_tokens)
+    arrival_ms = (
+        (0.0,) * req_count
+        if arrivals is None
+        else (tuple(arrivals) if isinstance(arrivals, tuple) else (float(arrivals),) * req_count)
     )
-    specs = tuple(build_scheduler_request_specs(workload, vocab))
+    workload_profile = WorkloadProfile(
+        workload_id="custom",
+        num_total_requests=req_count,
+        prompt_lens=prompt_lens,
+        output_budgets=output_budgets,
+        arrival_ms=arrival_ms,
+    )
     case_name = "custom"
 
-    case = SchedulerSuiteCase(
-        suite_name=case_name,
+    case = BenchmarkCase(
+        profile=workload_profile,
         mode=target_mode,
         max_running_requests=max_running,
-        specs=specs,
-        workload_id="custom",
         paged_cache_config=paged_cache_config,
+        suite_name=case_name,
+        engine="scheduler",
     )
 
     block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""
     print(
-        f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} requests={len(specs)} "
+        f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} "
+        f"requests={workload_profile.num_total_requests} "
         f"max_running={max_running} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 
     def on_case_step(phase: str, step_number: int, total_steps: int) -> None:
-        print(f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={len(specs)} ...", flush=True)
+        count = workload_profile.num_total_requests
+        print(
+            f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={count} ...",
+            flush=True,
+        )
 
     result = run_case(
         model=model,
@@ -227,13 +168,14 @@ def handle_case(args: argparse.Namespace) -> int:
     if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
         result = replace(
             result,
-            workload=replace(result.workload, scale=getattr(args, "scale", None), seed=getattr(args, "seed", None)),
+            scale=getattr(args, "scale", None),
+            seed=getattr(args, "seed", None),
         )
-    print(format_case_summary(result))
+    print(result.format_summary())
 
     env = gpu_info(device)
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
+    peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    cost = ModelCostProfile.from_model(model)
     git = git_info()
     record = build_benchmark_record(
         args=args,
@@ -250,105 +192,8 @@ def handle_case(args: argparse.Namespace) -> int:
         engine="scheduler",
     )
     output = args.output or CASE_DIR / f"{git['commit']}_{args.tag}.json"
-    save_benchmark_record(output, record, dirty=git["dirty"])
+    save_benchmark_record(output, record, is_dirty=bool(git["dirty"]))
 
     print()
     print(format_table([result], suite_name=case_name))
-    return 0
-
-
-def handle_suite(args: argparse.Namespace) -> int:
-    suite = get_suite(args.suite)
-
-    if args.dry_run:
-        warmup = args.warmup if args.warmup is not None else suite.warmup
-        repeats = args.repeats if args.repeats is not None else suite.repeats
-        interleave_features = parse_interleave_args(args.interleave, suite.interleave)
-        cases = suite.cases(vocab_size=100, device=torch.device("cpu"))
-        plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_features)
-        print(f"=== [Dry Run] Suite: {args.suite} ===")
-        print(format_scheduler_run_plan(plan))
-        return 0
-
-    device = require_cuda()
-
-    model_dir = resolve_model_directory(args.model, args.revision)
-    tokenizer = Qwen3Tokenizer(model_dir)
-    model = load_model(model_dir, device)
-    vocab = model.config.vocab_size
-
-    modes = suite.modes()
-    mode_label = ",".join(str(m) for m in modes)
-    correctness = {str(m): check_correctness(model, tokenizer, m, device, update_golden=False) for m in modes}
-    if any(c["passed"] is False for c in correctness.values()) and not args.allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
-
-    env = gpu_info(device)
-    peaks = resolve_peak_specs(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
-    cost = model_cost(model)
-    git = git_info()
-
-    warmup = args.warmup if args.warmup is not None else suite.warmup
-    repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_features = parse_interleave_args(args.interleave, suite.interleave)
-
-    print(
-        f"[bench-scheduler-suite] suite={suite.name} max_running={suite.max_running_requests} "
-        f"warmup={warmup} repeats={repeats} ...",
-        flush=True,
-    )
-
-    def on_suite_step(step_number: int, total_steps: int, planned_run: PlannedRun) -> None:
-        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
-        case = planned_run.case
-        print(
-            f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | {case.key} ...",
-            flush=True,
-        )
-
-    results = run_suite(
-        model=model,
-        device=device,
-        suite=suite,
-        vocab_size=vocab,
-        warmup=warmup,
-        repeats=repeats,
-        interleave=interleave_features,
-        on_step_progress=on_suite_step,
-    )
-
-    for res in results:
-        print(format_case_summary(res))
-
-    comparisons: list[MetricComparison] = []
-    if suite.comparison is not None:
-        comparisons = compute_comparisons(results, suite.comparison)
-        if comparisons:
-            print(f"\n--- Comparisons (suite: {suite.name}) ---")
-            for comp in comparisons:
-                print(format_comparison(comp))
-
-    record = build_benchmark_record(
-        args=args,
-        model=model,
-        mode_label=mode_label,
-        cases=results,
-        correctness=correctness,
-        env=env,
-        peaks=peaks,
-        cost=cost,
-        git=git,
-        warmup=warmup,
-        repeats=repeats,
-        suite_info=suite.to_dict(),
-        engine="scheduler",
-        comparisons=comparisons,
-    )
-
-    scheduler_dir = BENCH_ARTIFACTS_DIR / "suites" / "scheduler"
-    output_path = args.output or (scheduler_dir / args.suite / f"{git['commit']}_{args.tag}.json")
-    save_benchmark_record(output_path, record, dirty=git["dirty"])
-
-    print()
-    print(format_table(results, suite_name=suite.name))
     return 0

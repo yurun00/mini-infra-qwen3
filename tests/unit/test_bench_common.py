@@ -1,8 +1,14 @@
-"""bench/common.py 共享辅助函数的单元测试（CPU 可运行）。"""
+"""bench 共享基础设施子模块（paths / stats / efficiency / env / correctness / cases）的单元测试（CPU 可运行）。"""
+
+import sys
 
 import pytest
 
-from mini_infra.bench.common import format_lengths, resolve_peak_specs
+from mini_infra.bench.cases import DEFAULT_REPEATS, DEFAULT_WARMUP
+from mini_infra.bench.correctness import CorrectnessReport
+from mini_infra.bench.efficiency import EfficiencyMetrics, HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.format import format_lengths
+from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.utils import percentile
 
 
@@ -19,17 +25,18 @@ from mini_infra.utils import percentile
         ("NVIDIA GeForce RTX 4090", 1008.0, 165.0),
     ],
 )
-def test_resolve_peak_specs_matches_exact_model(gpu_name, expected_bandwidth, expected_tflops):
-    peaks = resolve_peak_specs(gpu_name)
-    assert peaks == {"bandwidth_gbs": expected_bandwidth, "tflops": expected_tflops}
+def test_lookup_gpu_peak_specs_matches_exact_model(gpu_name, expected_bandwidth, expected_tflops):
+    peaks = HardwarePeakSpecs.lookup(gpu_name)
+    assert peaks == HardwarePeakSpecs(bandwidth_gbs=expected_bandwidth, tflops=expected_tflops)
+    assert peaks.to_dict() == {"bandwidth_gbs": expected_bandwidth, "tflops": expected_tflops}
 
 
-def test_resolve_peak_specs_unknown_gpu_and_overrides():
-    assert resolve_peak_specs("Unknown GPU") == {"bandwidth_gbs": None, "tflops": None}
-    assert resolve_peak_specs("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == {
-        "bandwidth_gbs": 100.0,
-        "tflops": 10.0,
-    }
+def test_lookup_gpu_peak_specs_unknown_gpu_and_overrides():
+    assert HardwarePeakSpecs.lookup("Unknown GPU") == HardwarePeakSpecs(bandwidth_gbs=None, tflops=None)
+    assert HardwarePeakSpecs.lookup("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == HardwarePeakSpecs(
+        bandwidth_gbs=100.0,
+        tflops=10.0,
+    )
 
 
 def test_format_lengths_scalar_and_sequence():
@@ -49,8 +56,6 @@ def test_percentile_supports_float_percent_and_matches_nearest_rank():
 def test_add_common_args_includes_warmup_and_repeats():
     import argparse
 
-    from mini_infra.bench.common import DEFAULT_REPEATS, DEFAULT_WARMUP, add_common_args
-
     parser = argparse.ArgumentParser()
     add_common_args(parser)
     default_args = parser.parse_args(["--tag", "test"])
@@ -64,29 +69,34 @@ def test_add_common_args_includes_warmup_and_repeats():
 
 
 def test_repo_root_anchored_to_project_root():
-    from mini_infra.bench.common import BENCH_ARTIFACTS_DIR, REPO_ROOT
+    from mini_infra.bench.paths import (
+        BENCH_ARTIFACTS_DIR,
+        LOCKSTEP_RESULT_HISTORY_DIR,
+        REPO_ROOT,
+        RESULT_HISTORY_DIR,
+        RESULTS_DIR,
+        SCHEDULER_RESULT_HISTORY_DIR,
+        SUITES_DIR,
+    )
 
     assert REPO_ROOT.is_dir()
     assert (REPO_ROOT / "pyproject.toml").exists()
     assert BENCH_ARTIFACTS_DIR == (REPO_ROOT / "benchmarks").resolve()
+    assert RESULTS_DIR == BENCH_ARTIFACTS_DIR / "results"
+    assert RESULT_HISTORY_DIR == RESULTS_DIR / "history"
+    assert SUITES_DIR == RESULTS_DIR / "suites"
+    assert LOCKSTEP_RESULT_HISTORY_DIR == RESULT_HISTORY_DIR / "lockstep"
+    assert SCHEDULER_RESULT_HISTORY_DIR == RESULT_HISTORY_DIR / "scheduler"
 
 
-def test_dataclasses_attributes_and_dict_compatibility():
-    from mini_infra.bench.common import (
-        CorrectnessReport,
-        EfficiencyMetrics,
-        HardwarePeakSpecs,
-        ModelCostProfile,
-    )
-
+def test_dataclasses_attributes_and_to_dict():
     # 1. HardwarePeakSpecs
     peaks = HardwarePeakSpecs(bandwidth_gbs=864.0, tflops=362.0)
     assert peaks.bandwidth_gbs == 864.0
     assert peaks.tflops == 362.0
-    assert peaks["bandwidth_gbs"] == 864.0
-    assert peaks["tflops"] == 362.0
-    assert peaks == {"bandwidth_gbs": 864.0, "tflops": 362.0}
     assert peaks.to_dict() == {"bandwidth_gbs": 864.0, "tflops": 362.0}
+    with pytest.raises(TypeError):
+        _ = peaks["bandwidth_gbs"]  # type: ignore[index]
 
     # 2. ModelCostProfile
     cost = ModelCostProfile(
@@ -96,41 +106,58 @@ def test_dataclasses_attributes_and_dict_compatibility():
         attn_flop_coeff=16,
     )
     assert cost.n_params == 600_000_000
-    assert cost["n_params"] == 600_000_000
     assert cost.to_dict()["kv_bytes_per_token"] == 2048
+    with pytest.raises(TypeError):
+        _ = cost["n_params"]  # type: ignore[index]
 
     # 3. EfficiencyMetrics
     eff = EfficiencyMetrics(prefill_mfu=0.45, decode_mfu=0.32, decode_mbu=0.78)
     assert eff.prefill_mfu == 0.45
-    assert eff["decode_mbu"] == 0.78
+    assert eff.decode_mbu == 0.78
     assert eff.to_dict()["decode_mfu"] == 0.32
+    with pytest.raises(TypeError):
+        _ = eff["decode_mbu"]  # type: ignore[index]
 
     # 4. CorrectnessReport
     rep = CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
     assert rep.checked is True
     assert rep.passed is True
-    assert rep["passed"] is True
     assert rep.to_dict() == {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": False}
+    with pytest.raises(TypeError):
+        _ = rep["passed"]  # type: ignore[index]
 
 
-def test_common_strictly_decoupled_from_lockstep():
-    import mini_infra.bench.common as bench_common
+def test_shared_modules_strictly_decoupled_from_engines():
+    import mini_infra.bench.correctness as bench_correctness
+    import mini_infra.bench.efficiency as bench_efficiency
+    import mini_infra.bench.env as bench_env
+    import mini_infra.bench.paths as bench_paths
+    import mini_infra.bench.result.schema as bench_result_schema
+    import mini_infra.bench.stats as bench_stats
     from mini_infra.bench.lockstep import (
-        build_benchmark_record,
-        format_case_summary,
+        LockstepCaseResult,
         format_table,
     )
+    from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
 
-    # 1. common.py 自身不直接反向引入 LockstepCaseResult，解除分层倒置
-    assert "LockstepCaseResult" not in bench_common.__dict__
+    # 0. 旧上帝模块 bench.common 已彻底删除
+    assert "mini_infra.bench.common" not in sys.modules
 
-    # 2. common.py 没有任何批处理专属展示/记录函数与兼容钩子
-    assert not hasattr(bench_common, "format_table")
-    assert not hasattr(bench_common, "format_case_summary")
-    assert not hasattr(bench_common, "build_benchmark_record")
-    assert not hasattr(bench_common, "_format_case_row")
+    # 1. 各共享基础设施模块不直接反向引入引擎结果类或表格展示钩子
+    for mod in (bench_paths, bench_stats, bench_efficiency, bench_env, bench_correctness, bench_result_schema):
+        assert "LockstepCaseResult" not in mod.__dict__
+        assert "SchedulerCaseResult" not in mod.__dict__
+        assert not hasattr(mod, "format_table")
+        assert not hasattr(mod, "build_benchmark_record")
+        assert not hasattr(mod, "add_common_args")
 
-    # 3. 批处理展示与记录构建函数在 batch 域完整导出且可用
+    # 2. paths、stats 与 result.schema 完全不依赖 torch
+    assert "torch" not in bench_paths.__dict__
+    assert "torch" not in bench_stats.__dict__
+    assert "torch" not in bench_result_schema.__dict__
+
+    # 3. 批处理展示与记录构建/保存在各自权威模块完整导出且可用
     assert callable(format_table)
-    assert callable(format_case_summary)
+    assert callable(getattr(LockstepCaseResult, "format_summary", None))
     assert callable(build_benchmark_record)
+    assert callable(save_benchmark_record)

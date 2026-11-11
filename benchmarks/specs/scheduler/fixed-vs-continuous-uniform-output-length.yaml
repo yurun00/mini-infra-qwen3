@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: fixed-vs-continuous-uniform-output-length
+extends: _bases/fixed_vs_continuous.yaml
+description: 相同长度 prompt、统一输出预算、同时到达（对照基准）；两种策略耗时差距应收窄。
+workload:
+  id: uniform_output_length
+  count: 8
+  prompt_len: 128
+  output_len: 20

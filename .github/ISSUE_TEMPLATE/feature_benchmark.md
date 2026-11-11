@@ -37,13 +37,13 @@ The objective is to quantify generation throughput scaling, latency characterist
 
 ```bash
 # 1. Benchmark Suite 1 (<description>)
-mini-infra bench scheduler suite --tag dev --suite <suite-name-1>
+mini-infra bench sweep --engine scheduler --tag dev --suite <suite-name-1>
 
 # 2. Benchmark Suite 2 (<description>)
-mini-infra bench scheduler suite --tag dev --suite <suite-name-2>
+mini-infra bench sweep --engine scheduler --tag dev --suite <suite-name-2>
 
 # 3. Benchmark Suite 3 (<description>)
-mini-infra bench scheduler suite --tag dev --suite <suite-name-3>
+mini-infra bench sweep --engine scheduler --tag dev --suite <suite-name-3>
 
 # 4. (Optional) Run individual parameterized case
 mini-infra bench scheduler case --tag dev --batching-method <method> --max-running-requests 4 --request-count 8 --prompt-length 128 --output-budget 32

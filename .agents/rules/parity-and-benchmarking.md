@@ -41,9 +41,9 @@ description: "确定性数值等价性验证（Parity）、假设驱动性能评
 1. **严禁污染受控历史归档与黄金基准**
    - 日常开发、Debug 与调优实验运行基准测试时，输出文件**必须**定向至 `tmp/` 目录或命名为 `*.local.json`（已由 `.gitignore` 忽略）。
    - 以下受版本控制的权威文件**默认禁止手动编辑、伪造或用非标准实验参数覆盖**，仅在确有必要（如 Schema 迁移）时才允许修改：
-     - `benchmarks/result-history/{lockstep,scheduler}/*.json`
-     - `benchmarks/data/reference.json`
-     - `benchmarks/data/golden_output_tokens.json`
+     - `benchmarks/results/history/{lockstep,scheduler}/*.json`
+     - `benchmarks/golden/reference.json`
+     - `benchmarks/golden/golden_output_tokens.json`
    - 正式历史归档仅允许在版本发布（Release SOP）或受控基准更新流程中，使用固定随机种子（`seed=42`）的标准工作负载生成。
 
-2. **Schema 强类型契约同步**：评测 JSON 结构由 `src/mini_infra/bench/schema.py` 中的三层 Pydantic v2 模型与判别式联合（`AnyBenchmarkRecord`）严格守护。任何运行时领域统计指标的增删，必须同步更新对应的 Pydantic Record 与单元测试，严禁塞入未声明的散乱裸字典字段。
+2. **Schema 强类型契约同步**：评测 JSON 结构由 `src/mini_infra/bench/result/schema.py` 中的三层 Pydantic v2 模型与判别式联合（`AnyBenchmarkRecord`）严格守护。任何运行时领域统计指标的增删，必须同步更新对应的 Pydantic Record 与单元测试，严禁塞入未声明的散乱裸字典字段。

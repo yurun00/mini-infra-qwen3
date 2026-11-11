@@ -19,29 +19,26 @@
         --max-new-tokens 32 --batching-method fixed-batching
 """
 
+import gc
 from collections.abc import Sequence
 
 import torch
 
-from mini_infra.bench.common import ProfileMode, efficiency
+from mini_infra.bench.cases import (
+    DEFAULT_REPEATS,
+    DEFAULT_WARMUP,
+    BenchmarkCase,
+    ProfilingMode,
+)
+from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.lockstep.types import (
-    DistributionStats,
     LockstepCaseResult,
-    WorkloadSpec,
-    summarize_samples,
 )
-from mini_infra.bench.workloads import make_prompt
-from mini_infra.engine import GenerationOptions, Mode, generate
-from mini_infra.engine.metrics import (
-    BatchScheduleInfo,
-    MemoryProfile,
-    StepAggregatedMetrics,
-    summarize_repeated_kv_cache_profiles,
-)
+from mini_infra.engine import GenerationOptions, GenerationResult, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 
-def resolve_case_specs(
+def broadcast_case_lengths(
     prompt_lens: Sequence[int],
     max_new_tokens: Sequence[int],
     batch_size: int | None = None,
@@ -80,29 +77,62 @@ def resolve_case_specs(
     return target_bs, resolved_prompt_len, resolved_max_new_tokens
 
 
+def run_case_once(
+    model: torch.nn.Module,
+    device: torch.device,
+    case: BenchmarkCase,
+    options: GenerationOptions | None = None,
+    prompts: Sequence[Sequence[int]] | None = None,
+) -> GenerationResult:
+    """执行单一 BenchmarkCase 的单次生成运行（原子操作）。"""
+    if prompts is None:
+        specs = case.profile.to_payload(model.config.vocab_size)
+        resolved_prompts = [list(s.token_ids) for s in specs]
+    else:
+        resolved_prompts = prompts
+    budgets = case.profile.output_budgets
+    max_new_tokens = budgets[0] if len(set(budgets)) == 1 else budgets
+    opts = options or GenerationOptions(
+        eos_token_id=-1,
+        device=device,
+        stop_on_eos=False,
+    )
+    res = generate(
+        case.mode,
+        model,
+        resolved_prompts,
+        max_new_tokens,
+        options=opts,
+    )
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    return res
+
+
 def run_case(
     model: torch.nn.Module,
-    mode: Mode,
-    prompt_len: int | Sequence[int],
-    max_new_tokens: int | Sequence[int],
-    batch_size: int,
-    warmup: int,
-    repeats: int,
-    vocab: int,
     device: torch.device,
-    cost: dict | None = None,
-    peaks: dict | None = None,
-    profile_mode: ProfileMode | None = None,
+    case: BenchmarkCase,
+    warmup: int = DEFAULT_WARMUP,
+    repeats: int = DEFAULT_REPEATS,
+    cost: ModelCostProfile | None = None,
+    peaks: HardwarePeakSpecs | None = None,
+    profiling_mode: ProfilingMode | None = None,
     tensorboard_options: TensorBoardOptions | None = None,
+    scale: str | None = None,
+    seed: int | None = None,
 ) -> LockstepCaseResult:
     """运行单一用例基准测试并返回 LockstepCaseResult 强类型结果。"""
-    min_tokens = min(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens
+    output_budgets = case.profile.output_budgets
+
+    min_tokens = min(output_budgets)
     if min_tokens < 2:
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
 
-    is_variable_prompt_lens = isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str)
-    effective_batch_size = len(prompt_len) if is_variable_prompt_lens else batch_size
-    prompts = make_prompt(vocab, prompt_len, effective_batch_size)
+    workload = case.profile
+    specs = case.profile.to_payload(model.config.vocab_size)
+    prompts = [list(s.token_ids) for s in specs]
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
@@ -110,99 +140,23 @@ def run_case(
         stop_on_eos=False,
     )
     for _ in range(warmup):
-        generate(
-            mode,
-            model,
-            prompts,
-            max_new_tokens,
-            options=warmup_opts,
-        )
+        run_case_once(model, device, case, options=warmup_opts, prompts=prompts)
 
-    is_full_profile = profile_mode == ProfileMode.FULL_PROFILE
+    is_all_repeats_profile = profiling_mode == ProfilingMode.ALL_REPEATS
     run_opts = GenerationOptions(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
-        profile=is_full_profile,
-        tensorboard_options=tensorboard_options if is_full_profile else None,
+        profile=is_all_repeats_profile,
+        tensorboard_options=tensorboard_options if is_all_repeats_profile else None,
     )
-    runs = [
-        generate(
-            mode,
-            model,
-            prompts,
-            max_new_tokens,
-            options=run_opts,
-        )
-        for _ in range(repeats)
-    ]
-
-    workload = WorkloadSpec(
-        mode=mode,
-        num_total_requests=effective_batch_size,
-        prompt_len=tuple(prompt_len) if is_variable_prompt_lens else prompt_len,
-        max_new_tokens=tuple(max_new_tokens) if isinstance(max_new_tokens, Sequence) else max_new_tokens,
-        repeats=repeats,
-        warmup=warmup,
-    )
-
-    eff_prompt_vals = [r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None]
-    pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
-    gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
-    gpu_ratio_stat = (
-        summarize_samples([v for v in gpu_ratios if v is not None]) if all(v is not None for v in gpu_ratios) else None
-    )
-
-    metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-        ttft_ms=summarize_samples([r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]),
-        mean_tpot_ms=summarize_samples([r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]),
-        e2e_wall_ms=summarize_samples([r.metrics.e2e_wall_ms for r in runs]),
-        e2e_model_ms=summarize_samples([r.metrics.e2e_model_ms for r in runs]),
-        throughput_tok_s=summarize_samples([r.metrics.throughput_tok_s for r in runs]),
-        throughput_req_s=summarize_samples([r.metrics.throughput_req_s for r in runs]),
-        gpu_time_ratio=gpu_ratio_stat,
-        effective_prompt_tok_s=summarize_samples(eff_prompt_vals) if eff_prompt_vals else None,
-        padded_prompt_tok_s=summarize_samples(pad_prompt_vals) if pad_prompt_vals else None,
-    )
-
-    mib = 1024**2
-    weights_mb = cost["weight_bytes"] / mib if cost else None
-    case_memory = MemoryProfile(
-        weights_mb=weights_mb,
-        baseline_mb=max((r.memory.baseline_mb for r in runs), default=0.0),
-        prefill_mb=max((r.memory.prefill_mb or 0.0 for r in runs), default=0.0),
-        peak_allocated_mb=max((r.memory.peak_allocated_mb for r in runs), default=0.0),
-        peak_reserved_mb=max((r.memory.peak_reserved_mb for r in runs), default=0.0),
-        kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
-    )
-
-    batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
-    packing: BatchScheduleInfo[DistributionStats] | None = None
-    if batch_infos:
-        packing = BatchScheduleInfo(
-            padding_efficiency=summarize_samples([b.padding_efficiency for b in batch_infos]),
-            slot_utilization=summarize_samples([b.slot_utilization for b in batch_infos]),
-        )
-
-    eff = (
-        efficiency(
-            cost,
-            peaks,
-            batch_size,
-            prompt_len,
-            max_new_tokens,
-            metrics.ttft_ms.median if metrics.ttft_ms is not None else 0.0,
-            metrics.mean_tpot_ms.median if metrics.mean_tpot_ms is not None else 0.0,
-        )
-        if cost and peaks
-        else None
-    )
+    runs = [run_case_once(model, device, case, options=run_opts, prompts=prompts) for _ in range(repeats)]
 
     op_breakdown = None
-    if is_full_profile and runs:
+    if is_all_repeats_profile and runs:
         breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
         op_breakdown = merge_op_latency_breakdowns(breakdowns)
-    elif profile_mode == ProfileMode.EXTRA_PROFILE:
+    elif profiling_mode == ProfilingMode.DEDICATED_PASS:
         prof_opts = GenerationOptions(
             eos_token_id=-1,
             device=device,
@@ -210,26 +164,24 @@ def run_case(
             profile=True,
             tensorboard_options=tensorboard_options,
         )
-        prof_res = generate(
-            mode=mode,
-            model=model,
-            prompts=prompts,
-            max_new_tokens=max_new_tokens,
-            options=prof_opts,
-        )
+        prof_res = run_case_once(model, device, case, options=prof_opts)
         op_breakdown = prof_res.op_breakdown
 
-    return LockstepCaseResult(
+    return LockstepCaseResult.from_runs(
+        case_key=case.key,
         workload=workload,
-        metrics=metrics,
-        memory=case_memory,
-        packing=packing,
-        efficiency=eff,
+        runs=runs,
+        warmup=warmup,
+        cost=cost,
+        peaks=peaks,
         op_breakdown=op_breakdown,
+        scale=scale,
+        seed=seed,
     )
 
 
 __all__ = [
-    "resolve_case_specs",
+    "broadcast_case_lengths",
     "run_case",
+    "run_case_once",
 ]

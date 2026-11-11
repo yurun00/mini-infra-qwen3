@@ -5,6 +5,8 @@
     mini-infra bench lockstep case / suite [...]
     mini-infra bench scheduler case / suite [...]
     mini-infra bench plot history / compare [...]
+    mini-infra bench suites list / show / schema [...]
+    mini-infra bench sweep --engine scheduler --suite A B [...]
     mini-infra bench check-regression [...]
     mini-infra verify smoke [...]
     mini-infra verify transformers / cache / lockstep-batch / scheduler-batch [...]

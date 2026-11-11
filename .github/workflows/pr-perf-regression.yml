@@ -6,7 +6,7 @@ on:
 
 jobs:
   perf:
-    # 需要带 NVIDIA GPU 的 self-hosted runner，且与 benchmarks/data/reference.json 的 GPU 型号一致
+    # 需要带 NVIDIA GPU 的 self-hosted runner，且与 benchmarks/golden/reference.json 的 GPU 型号一致
     runs-on: [self-hosted, gpu]
     steps:
       - uses: actions/checkout@v4

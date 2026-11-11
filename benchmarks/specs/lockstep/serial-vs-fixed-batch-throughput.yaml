@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: serial-vs-fixed-batch-throughput
+description: >-
+  对每个 batch size，分别用 serial（逐请求串行）与 fixed-batching 两种路径，
+  在固定长度 prompt、固定输出长度、忽略 EOS 的条件下测量吞吐与显存。
+execution:
+  warmup: 1
+  repeats: 3
+system:
+  engine_mode: lockstep
+  batching_method: none
+  caching_method: dense-kv-cache
+workload:
+  vars:
+    num_requests: 1
+  id: "batch_${num_requests}"
+  count: "${num_requests}"
+  prompt_len: 128
+  output_len: 32
+sweep:
+  system:
+    batching_method: [none, fixed-batching]
+  workload:
+    num_requests: [1, 2, 4, 8, 16]
+checks:
+  - min_output_len: 2

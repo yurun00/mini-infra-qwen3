@@ -1,15 +1,15 @@
 """CLI 子命令：mini-infra bench release
 
-使用 `mini_infra.bench.workloads` 中预定义的多规模伪随机真实 Traffic 工作负载
-（`BENCH_LOCKSTEP_WORKLOAD` 与 `BENCH_SCHEDULER_WORKLOAD`，含 small / medium / large 三档），
+使用 `mini_infra.bench.spec.release` 加载的多规模伪随机真实 Traffic 工作负载
+（声明于 `benchmarks/specs/release/{lockstep,scheduler}.yaml`，含 small / medium / large 三档），
 根据输入的 `--engine`（lockstep / scheduler）、`--tag` 与 `--release-feature` 一键生成版本发布所需的全部基准评测产物：
-1. 多规模历史记录：`benchmarks/result-history/{lockstep,scheduler}/<commit>_<tag>.json`（含 small/medium/large 三档）
+1. 多规模历史记录：`benchmarks/results/history/{lockstep,scheduler}/<commit>_<tag>.json`（含 small/medium/large 三档）
 2. 演进报告与剖析大图：
    `benchmarks/reports/{lockstep,scheduler}/{SUMMARY.md, evolution_and_scaling.png, profiling_and_optimization.png}`
-3. 零退化回归参考基线：`benchmarks/data/reference.json`
+3. 零退化回归参考基线：`benchmarks/golden/reference.json`
 
 用法示例：
-    # 生成 Scheduler 固定批处理基准线 (baseline: Fixed Batching，仅 Mode 不同，其余 WorkloadSpec 完全一致)
+    # 生成 Scheduler 固定批处理基准线 (baseline: Fixed Batching，仅 Mode 不同，其余 Workload 完全一致)
     mini-infra bench release \
         --engine scheduler \
         --tag baseline \
@@ -42,26 +42,19 @@ import argparse
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
-from mini_infra.bench.common import (
+from mini_infra.bench.cases import WorkloadProfile
+from mini_infra.bench.env import git_info
+from mini_infra.bench.paths import (
     LOCKSTEP_REPORTS_DIR,
     LOCKSTEP_RESULT_HISTORY_DIR,
     REPO_ROOT,
     SCHEDULER_REPORTS_DIR,
     SCHEDULER_RESULT_HISTORY_DIR,
-    git_info,
 )
-from mini_infra.bench.workloads import (
-    BENCH_LOCKSTEP_WORKLOAD,
-    BENCH_SCHEDULER_WORKLOAD,
-    WORKLOAD_SCALES,
-    WorkloadScale,
-    WorkloadSpec,
-    make_lockstep_workload,
-    make_scheduler_workload,
-)
+from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, get_release_spec
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
@@ -75,20 +68,19 @@ class ReleaseStep:
 
 
 def build_lockstep_case_cmd(
-    workload: WorkloadSpec,
+    workload: WorkloadProfile,
     tag: str,
     release_feature: str,
-    profile_mode: str | None = "extra-profile",
+    mode: Mode,
+    warmup: int = 2,
+    repeats: int = 5,
+    scale: str | None = None,
+    seed: int | None = None,
+    profiling_mode: str | None = "dedicated-pass",
 ) -> list[str]:
-    """将 WorkloadSpec 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
-    prompt_args = (
-        [str(workload.prompt_len)] if isinstance(workload.prompt_len, int) else [str(x) for x in workload.prompt_len]
-    )
-    budget_args = (
-        [str(workload.max_new_tokens)]
-        if isinstance(workload.max_new_tokens, int)
-        else [str(x) for x in workload.max_new_tokens]
-    )
+    """将 WorkloadProfile 转换为 `mini-infra bench lockstep case` CLI 命令参数列表。"""
+    prompt_args = [str(x) for x in workload.prompt_lens]
+    budget_args = [str(x) for x in workload.output_budgets]
     cmd = [
         sys.executable,
         "-u",
@@ -101,9 +93,9 @@ def build_lockstep_case_cmd(
         tag,
         "--release-feature",
         release_feature,
-        "--kv-cache" if workload.mode.use_kv_cache else "--no-kv-cache",
+        "--kv-cache" if mode.use_kv_cache else "--no-kv-cache",
         "--batching-method",
-        workload.mode.batching_method.value,
+        mode.batching_method.value,
         "--batch-size",
         str(workload.num_total_requests),
         "--prompt-lens",
@@ -111,27 +103,33 @@ def build_lockstep_case_cmd(
         "--max-new-tokens",
         *budget_args,
         "--warmup",
-        str(workload.warmup),
+        str(warmup),
         "--repeats",
-        str(workload.repeats),
+        str(repeats),
     ]
-    if workload.scale is not None:
-        cmd.extend(["--scale", str(workload.scale)])
-    if workload.seed is not None:
-        cmd.extend(["--seed", str(workload.seed)])
-    if profile_mode and profile_mode != "none":
-        cmd.extend(["--profile-mode", profile_mode])
+    if scale is not None:
+        cmd.extend(["--scale", str(scale)])
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
+    if profiling_mode and profiling_mode != "none":
+        cmd.extend(["--profiling-mode", profiling_mode])
     return cmd
 
 
 def build_scheduler_case_cmd(
-    workload: WorkloadSpec,
+    workload: WorkloadProfile,
     tag: str,
     release_feature: str,
+    mode: Mode,
+    max_running_requests: int = 4,
+    warmup: int = 2,
+    repeats: int = 5,
+    scale: str | None = None,
+    seed: int | None = None,
     block_size: int | None = None,
     output: Path | str | None = None,
 ) -> list[str]:
-    """将 WorkloadSpec 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
+    """将 WorkloadProfile 转换为 `mini-infra bench scheduler case` CLI 命令参数列表。"""
     cmd = [
         sys.executable,
         "-u",
@@ -145,39 +143,32 @@ def build_scheduler_case_cmd(
         "--release-feature",
         release_feature,
         "--caching-method",
-        workload.mode.caching_method.value,
+        mode.caching_method.value,
         "--batching-method",
-        workload.mode.batching_method.value,
+        mode.batching_method.value,
         "--request-count",
         str(workload.num_total_requests),
         "--max-running-requests",
-        str(workload.max_running_requests or 4),
+        str(max_running_requests),
         "--warmup",
-        str(workload.warmup),
+        str(warmup),
         "--repeats",
-        str(workload.repeats),
+        str(repeats),
     ]
-    if workload.mode.caching_method == CachingMethod.PAGED and block_size is not None:
+    if mode.caching_method == CachingMethod.PAGED and block_size is not None:
         cmd.extend(["--block-size", str(block_size)])
-    if workload.scale is not None:
-        cmd.extend(["--scale", str(workload.scale)])
-    if workload.seed is not None:
-        cmd.extend(["--seed", str(workload.seed)])
+    if scale is not None:
+        cmd.extend(["--scale", str(scale)])
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
 
-    if isinstance(workload.prompt_len, int):
-        cmd.extend(["--prompt-length", str(workload.prompt_len)])
-    else:
-        cmd.extend(["--prompt-lens", *[str(x) for x in workload.prompt_len]])
+    cmd.extend(["--prompt-lens", *[str(x) for x in workload.prompt_lens]])
+    cmd.extend(["--output-budgets", *[str(x) for x in workload.output_budgets]])
 
-    if isinstance(workload.max_new_tokens, int):
-        cmd.extend(["--output-budget", str(workload.max_new_tokens)])
-    else:
-        cmd.extend(["--output-budgets", *[str(x) for x in workload.max_new_tokens]])
-
-    if isinstance(workload.arrival_times_ms, tuple | list):
-        cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_times_ms]])
-    elif isinstance(workload.arrival_times_ms, int | float):
-        cmd.extend(["--arrival-interval-ms", str(workload.arrival_times_ms)])
+    if isinstance(workload.arrival_ms, tuple | list):
+        cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_ms]])
+    elif isinstance(workload.arrival_ms, int | float):
+        cmd.extend(["--arrival-interval-ms", str(workload.arrival_ms)])
 
     if output is not None:
         cmd.extend(["--output", str(output)])
@@ -232,15 +223,15 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument(
         "--scales",
         nargs="+",
-        choices=list(WORKLOAD_SCALES),
-        default=list(WORKLOAD_SCALES),
+        choices=list(RELEASE_SCALES),
+        default=list(RELEASE_SCALES),
         help="要运行的负载规模档位（默认: small medium large）",
     )
     p.add_argument(
         "--seed",
         type=int,
         default=None,
-        help="覆盖伪随机种子（默认直接使用 BENCH_LOCKSTEP_WORKLOAD / BENCH_SCHEDULER_WORKLOAD 的标准种子）",
+        help="覆盖伪随机种子（默认使用 benchmarks/specs/release/<engine>.yaml 的 default_seed）",
     )
     p.add_argument(
         "--batching-method",
@@ -267,15 +258,15 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="Paged KV Cache 的 physical block 大小（默认: 16，仅 paged-kv-cache 时生效）",
     )
     p.add_argument(
-        "--profile-mode",
-        choices=["extra-profile", "full-profile", "none"],
+        "--profiling-mode",
+        choices=["dedicated-pass", "all-repeats", "none"],
         default=None,
-        help="Profiler 模式（lockstep 默认仅在 small 规模启用 extra-profile，scheduler 默认 none）",
+        help="Profiler 模式（lockstep 默认仅在 small 规模启用 dedicated-pass，scheduler 默认 none）",
     )
     p.add_argument(
         "--skip-regression",
         action="store_true",
-        help="跳过更新 benchmarks/data/reference.json 回归基线",
+        help="跳过更新 benchmarks/golden/reference.json 回归基线",
     )
     p.add_argument(
         "--dry-run",
@@ -287,7 +278,7 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="使用预定义 BENCH_LOCKSTEP_WORKLOAD / BENCH_SCHEDULER_WORKLOAD 一键生成版本发布所需的基准与报告产物"
+        description="使用 benchmarks/specs/release/ 声明的标准负载一键生成版本发布所需的基准与报告产物"
     )
     add_release_args(p)
     return p
@@ -305,32 +296,40 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 
 
 def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
-    """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 WorkloadSpec 字段保持一致）。"""
+    """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 Workload 字段保持一致）。"""
     steps: list[ReleaseStep] = []
     if getattr(args, "caching_method", None):
         caching_method = CachingMethod(args.caching_method)
     else:
         caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
-    scales: list[WorkloadScale] = list(getattr(args, "scales", None) or WORKLOAD_SCALES)
+    scales: list[ReleaseScale] = list(getattr(args, "scales", None) or RELEASE_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
 
     if args.engine == "lockstep":
-        default_bm = BENCH_LOCKSTEP_WORKLOAD["medium"].mode.batching_method
+        loaded = get_release_spec("lockstep")
+        default_bm = loaded.default_mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         mode = Mode(caching_method, batching_method=bm)
-        prof = args.profile_mode if args.profile_mode is not None else "extra-profile"
+        prof = args.profiling_mode if args.profiling_mode is not None else "dedicated-pass"
 
+        scales_spec = loaded.resolve(custom_seed)
         for sc in scales:
-            base_wl = (
-                make_lockstep_workload(sc, seed=custom_seed, mode=mode)
-                if custom_seed is not None
-                else replace(BENCH_LOCKSTEP_WORKLOAD[sc], mode=mode)
-            )
             scale_prof = prof if sc == "small" else None
+            res_scale = scales_spec[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Lockstep 基准 [{sc}] ({args.tag}: {args.release_feature})",
-                    cmd=build_lockstep_case_cmd(base_wl, args.tag, args.release_feature, profile_mode=scale_prof),
+                    cmd=build_lockstep_case_cmd(
+                        res_scale.workload.to_profile(),
+                        args.tag,
+                        args.release_feature,
+                        mode=mode,
+                        warmup=loaded.spec.execution.warmup,
+                        repeats=loaded.spec.execution.repeats,
+                        scale=sc,
+                        seed=res_scale.seed,
+                        profiling_mode=scale_prof,
+                    ),
                     artifacts=(LOCKSTEP_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
                 )
             )
@@ -347,26 +346,30 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             )
         )
     else:
-        default_bm = BENCH_SCHEDULER_WORKLOAD["medium"].mode.batching_method
+        loaded = get_release_spec("scheduler")
+        default_bm = loaded.default_mode.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         target_mode = Mode(caching_method, batching_method=bm)
         block_size = getattr(args, "block_size", None)
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
 
+        scales_spec = loaded.resolve(custom_seed)
         for sc in scales:
-            target_wl = (
-                make_scheduler_workload(sc, seed=custom_seed, mode=target_mode)
-                if custom_seed is not None
-                else replace(BENCH_SCHEDULER_WORKLOAD[sc], mode=target_mode)
-            )
+            res_scale = scales_spec[sc]
             steps.append(
                 ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
                     cmd=build_scheduler_case_cmd(
-                        target_wl,
+                        res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
+                        mode=target_mode,
+                        max_running_requests=res_scale.max_running_requests or 4,
+                        warmup=loaded.spec.execution.warmup,
+                        repeats=loaded.spec.execution.repeats,
+                        scale=sc,
+                        seed=res_scale.seed,
                         block_size=block_size,
                         output=hist_file,
                     ),
@@ -391,7 +394,7 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             ReleaseStep(
                 description="更新日常零退化守门基线 (reference.json)",
                 cmd=build_update_reference_cmd(),
-                artifacts=(REPO_ROOT / "benchmarks" / "data" / "reference.json",),
+                artifacts=(REPO_ROOT / "benchmarks" / "golden" / "reference.json",),
             )
         )
 

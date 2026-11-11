@@ -8,13 +8,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from mini_infra.bench.scheduler.suites import (
+from mini_infra.bench.cases import (
+    BenchmarkCase,
     CaseDimension,
     CaseDimensionValue,
     CaseKey,
-    SchedulerSuiteCase,
+    WorkloadProfile,
 )
-from mini_infra.core.request import RequestSpec
 
 
 class RunPhase(str, Enum):
@@ -28,14 +28,14 @@ class RunPhase(str, Enum):
 class PlannedRun:
     """单一计划执行步：包含目标用例、执行阶段、测量轮次及所属特征分组 ID。"""
 
-    case: SchedulerSuiteCase
+    case: BenchmarkCase
     phase: RunPhase
     repeat_idx: int | None
     group_id: int
 
 
 def build_scheduler_run_plan(
-    cases: Sequence[SchedulerSuiteCase],
+    cases: Sequence[BenchmarkCase],
     warmup: int,
     repeats: int,
     interleave: Sequence[CaseDimension] = (CaseDimension.BATCHING_METHOD,),
@@ -47,7 +47,7 @@ def build_scheduler_run_plan(
     2. 未选中的特征：作为外层分组键，每个分组连续跑完所有 repeat 后才切换到下一分组。
 
     Args:
-        cases: 展开后的 SchedulerSuiteCase 用例列表。
+        cases: 展开后的 BenchmarkCase 用例列表。
         warmup: 每个用例在测量前执行的预热轮数。
         repeats: 正式测量轮数。
         interleave: 选中的交替特征序列（如 (CaseDimension.BATCHING_METHOD,) 或 ()）。
@@ -61,12 +61,13 @@ def build_scheduler_run_plan(
     interleaved_dims: list[CaseDimension] = []
     for feat in interleave:
         if isinstance(feat, CaseDimension):
-            interleaved_dims.append(feat)
+            d = feat
         else:
             try:
-                interleaved_dims.append(CaseDimension(feat))
+                d = CaseDimension(feat)
             except ValueError as err:
                 raise TypeError(f"未知的 interleave 特征维度: {feat!r}，必须为 CaseDimension 类型") from err
+        interleaved_dims.append(d)
 
     # 1. 守门检查：确保不存在重复的用例全局唯一身份键（CaseKey）
     seen_keys: set[CaseKey] = set()
@@ -75,21 +76,21 @@ def build_scheduler_run_plan(
             raise ValueError(f"存在重复的用例身份键（CaseKey）: {case.key}")
         seen_keys.add(case.key)
 
-    # 2. 守门检查：同一 workload_id 下的所有用例请求规格（specs）必须一致
-    specs_by_workload: dict[str, tuple[RequestSpec, ...]] = {}
+    # 2. 守门检查：同一 workload_id 下的所有用例请求规格画像（profile）必须一致
+    profiles_by_workload: dict[str, WorkloadProfile] = {}
     for case in cases:
-        if case.workload_id in specs_by_workload:
-            if case.specs != specs_by_workload[case.workload_id]:
-                raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（specs）不一致")
+        if case.workload_id in profiles_by_workload:
+            if case.profile != profiles_by_workload[case.workload_id]:
+                raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（profile）不一致")
         else:
-            specs_by_workload[case.workload_id] = case.specs
+            profiles_by_workload[case.workload_id] = case.profile
 
     # 3. 选中的特征与未选中的特征（作为外层分组键）
     interleaved_set = set(interleaved_dims)
     non_interleaved_dims = [d for d in CaseDimension if d not in interleaved_set]
 
     # 4. 按未选中的特征将用例归类到不同的分组，保持用例原本的插入顺序
-    groups: dict[tuple[CaseDimensionValue, ...], list[SchedulerSuiteCase]] = {}
+    groups: dict[tuple[CaseDimensionValue, ...], list[BenchmarkCase]] = {}
     for case in cases:
         key = case.key.project(non_interleaved_dims)
         groups.setdefault(key, []).append(case)

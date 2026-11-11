@@ -1,0 +1,20 @@
+# fixed-vs-continuous-* 系列的共同基底：同一份请求负载在 fixed 与 continuous 批处理下对比。
+# 本文件缺少 name，不是可运行 suite；仅供 extends 引用。
+execution:
+  warmup: 1
+  repeats: 3
+  interleave: [batching_method]
+system:
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 4
+  batching_method: fixed-batching
+  caching_method: dense-kv-cache
+sweep:
+  system:
+    batching_method: [fixed-batching, continuous-batching]
+comparison:
+  group_by: [workload_id]
+  baseline: {batching_method: fixed-batching}
+  metrics:
+    - {path: schedule_metrics.makespan_ms, kind: speedup, name: makespan}

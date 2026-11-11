@@ -7,9 +7,9 @@ import subprocess
 import sys
 from typing import Any
 
-from mini_infra.bench.common import BENCH_ARTIFACTS_DIR, REPO_ROOT
+from mini_infra.bench.paths import BENCH_ARTIFACTS_DIR, REPO_ROOT
 
-DEFAULT_REFERENCE = BENCH_ARTIFACTS_DIR / "data" / "reference.json"
+DEFAULT_REFERENCE = BENCH_ARTIFACTS_DIR / "golden" / "reference.json"
 # *.local.json 已被 .gitignore 忽略
 DEFAULT_CANDIDATE = BENCH_ARTIFACTS_DIR / "candidate.local.json"
 

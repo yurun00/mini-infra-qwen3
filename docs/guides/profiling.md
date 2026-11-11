@@ -6,7 +6,7 @@
 
 ## 一、运行性能剖析与导出 Trace
 
-使用 `mini-infra bench lockstep case` 附带 `--profile-mode full-profile`（或 `extra-profile`）进行采样分析，可同时生成结构化性能 JSON 并导出底层的 Chrome / TensorBoard Trace：
+使用 `mini-infra bench lockstep case` 附带 `--profiling-mode all-repeats`（或 `dedicated-pass`）进行采样分析，可同时生成结构化性能 JSON 并导出底层的 Chrome / TensorBoard Trace：
 
 ```bash
 # 运行轻量压测进行算子耗时诊断，落盘诊断 JSON 并导出 Trace 日志
@@ -15,7 +15,7 @@ mini-infra bench lockstep case \
   --prompt-lens 512 \
   --max-new-tokens 32 \
   --repeats 1 \
-  --profile-mode full-profile \
+  --profiling-mode all-repeats \
   --tensorboard-dir tmp/tb_trace \
   --output tmp/profile.json
 ```
