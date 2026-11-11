@@ -11,7 +11,7 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from mini_infra.core.request import RequestSpec
+from mini_infra.core.request import Request
 
 # vLLM 约定：block 0 为 null block，永不分配，仅用于 Block Table 右侧补齐，保证补齐位寻址合法。
 NULL_BLOCK_ID = 0
@@ -39,13 +39,13 @@ def num_blocks_for_tokens(num_tokens: int, block_size: int) -> int:
     return (num_tokens + block_size - 1) // block_size
 
 
-def required_pool_blocks(request_specs: Sequence[RequestSpec], max_running_requests: int, block_size: int) -> int:
+def required_pool_blocks(requests: Sequence[Request], max_running_requests: int, block_size: int) -> int:
     """保证任意 max_running_requests 个请求并发都不会耗尽的物理块池大小（含 null block）。
 
     请求生命周期内 KV Cache 最多持有 prompt_len + max_new_tokens - 1 个 Token：
     最后一个生成的 Token 不会再被前向消费，其 K/V 永远不会写入。取最长的 max_running_requests 个请求求和即为上界。
     """
-    peak_tokens = sorted((spec.prompt_len + spec.max_new_tokens - 1 for spec in request_specs), reverse=True)
+    peak_tokens = sorted((req.prompt_len + req.max_new_tokens - 1 for req in requests), reverse=True)
     return 1 + sum(num_blocks_for_tokens(tokens, block_size) for tokens in peak_tokens[:max_running_requests])
 
 

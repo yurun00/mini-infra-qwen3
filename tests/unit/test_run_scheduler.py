@@ -17,7 +17,7 @@ from mini_infra.bench.scheduler import (
     run_suite,
 )
 from mini_infra.bench.suite import load_benchmark_suite
-from mini_infra.core.request import make_request_specs
+from mini_infra.core.request import make_requests
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -237,10 +237,10 @@ def test_run_scheduler_case_and_step_on_cpu():
     """验证原子 step 与单用例 run_case 仅执行单一策略。"""
     model = build_tiny_model()
     device = torch.device("cpu")
-    specs = tuple(make_request_specs([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
+    requests = tuple(make_requests([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = BenchmarkCase(
-        profile=WorkloadProfile.from_specs("test-cont-case", specs),
+        profile=WorkloadProfile.from_requests("test-cont-case", requests),
         mode=mode,
         max_running_requests=2,
         suite_name="test-cont-case",
@@ -360,12 +360,12 @@ def test_run_scheduler_paged_case_on_cpu():
 
     model = build_tiny_model()
     device = torch.device("cpu")
-    specs = tuple(make_request_specs([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
+    requests = tuple(make_requests([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
     mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     paged_config = PagedCacheConfig(block_size=4)
 
     case = BenchmarkCase(
-        profile=WorkloadProfile.from_specs("stress_case", specs),
+        profile=WorkloadProfile.from_requests("stress_case", requests),
         mode=mode,
         max_running_requests=2,
         paged_cache_config=paged_config,
@@ -403,8 +403,8 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
     model = build_tiny_model()
     device = torch.device("cpu")
-    spec_w0 = tuple(make_request_specs([[1, 2], [3, 4]], [2, 2], [0.0, 0.0]))
-    spec_w1 = tuple(make_request_specs([[5, 6, 7], [8, 9, 10]], [1, 1], [0.0, 0.0]))
+    req_w0 = tuple(make_requests([[1, 2], [3, 4]], [2, 2], [0.0, 0.0]))
+    req_w1 = tuple(make_requests([[5, 6, 7], [8, 9, 10]], [1, 1], [0.0, 0.0]))
 
     dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
@@ -412,14 +412,14 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
 
     cases = [
         BenchmarkCase(
-            profile=WorkloadProfile.from_specs("workload_0", spec_w0),
+            profile=WorkloadProfile.from_requests("workload_0", req_w0),
             mode=dense_mode,
             max_running_requests=2,
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
         BenchmarkCase(
-            profile=WorkloadProfile.from_specs("workload_0", spec_w0),
+            profile=WorkloadProfile.from_requests("workload_0", req_w0),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=paged_config,
@@ -427,14 +427,14 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
             engine="scheduler",
         ),
         BenchmarkCase(
-            profile=WorkloadProfile.from_specs("workload_1", spec_w1),
+            profile=WorkloadProfile.from_requests("workload_1", req_w1),
             mode=dense_mode,
             max_running_requests=2,
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
         BenchmarkCase(
-            profile=WorkloadProfile.from_specs("workload_1", spec_w1),
+            profile=WorkloadProfile.from_requests("workload_1", req_w1),
             mode=paged_mode,
             max_running_requests=2,
             paged_cache_config=paged_config,

@@ -11,7 +11,7 @@ from mini_infra.core.block_manager import (
     num_blocks_for_tokens,
     required_pool_blocks,
 )
-from mini_infra.core.request import RequestSpec, RequestState
+from mini_infra.core.request import Request, RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
 from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
@@ -30,7 +30,7 @@ class PagedScheduleBackend(ScheduleBackend):
         self,
         model: torch.nn.Module,
         device: torch.device,
-        request_specs: Sequence[RequestSpec],
+        requests: Sequence[Request],
         max_running_requests: int,
         paged_cache_config: PagedCacheConfig,
         batching_method: BatchingMethod = BatchingMethod.CONTINUOUS,
@@ -38,10 +38,10 @@ class PagedScheduleBackend(ScheduleBackend):
     ) -> None:
         self.block_size = paged_cache_config.block_size
         num_blocks = paged_cache_config.num_blocks or required_pool_blocks(
-            request_specs, max_running_requests, self.block_size
+            requests, max_running_requests, self.block_size
         )
         largest_request_blocks = max(
-            num_blocks_for_tokens(spec.prompt_len + spec.max_new_tokens - 1, self.block_size) for spec in request_specs
+            num_blocks_for_tokens(req.prompt_len + req.max_new_tokens - 1, self.block_size) for req in requests
         )
         if largest_request_blocks > num_blocks - 1:
             raise ValueError(
@@ -75,21 +75,21 @@ class PagedScheduleBackend(ScheduleBackend):
         can_admit = running_queue.can_admit() if self.is_continuous else not running_queue
         if can_admit and waiting_queue:
             candidates = waiting_queue.requests[: running_queue.num_free_batch_slots]
-            return self.kv_cache_manager.num_admissible([s.spec.prompt_len for s in candidates])
+            return self.kv_cache_manager.num_admissible([s.request.prompt_len for s in candidates])
         return 0
 
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
-        prefill_out = self.runner.run_prefill_step([s.spec.token_ids for s in admitted])
+        prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in admitted])
         self.snapshot_tracker.record_stage("02_paged_prefill_forward_done")
         cache_lengths = [s.cache_length for s in admitted]
         synchronize(self.device)
         cache_start = time.perf_counter()
         for state in admitted:
-            self.kv_cache_manager.allocate_slots(state.spec.request_idx, state.cache_length)
+            self.kv_cache_manager.allocate_slots(state.request.request_idx, state.cache_length)
         self.runner.store_prefill(
             self.pool,
             prefill_out.prefill_cache,
-            [self.kv_cache_manager.block_table(s.spec.request_idx) for s in admitted],
+            [self.kv_cache_manager.block_table(s.request.request_idx) for s in admitted],
             cache_lengths,
         )
         synchronize(self.device)
@@ -115,10 +115,10 @@ class PagedScheduleBackend(ScheduleBackend):
         synchronize(self.device)
         prepare_start = time.perf_counter()
         for state in running_queue:
-            if not self.kv_cache_manager.allocate_slots(state.spec.request_idx, 1):
+            if not self.kv_cache_manager.allocate_slots(state.request.request_idx, 1):
                 raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
         input_ids, position_ids, metadata = self.runner.prepare_decode_inputs(
-            [self.kv_cache_manager.block_table(s.spec.request_idx) for s in running_queue],
+            [self.kv_cache_manager.block_table(s.request.request_idx) for s in running_queue],
             last_tokens=[s.generated[-1] for s in running_queue],
             positions=[s.cache_length for s in running_queue],
             block_size=self.block_size,
@@ -140,7 +140,7 @@ class PagedScheduleBackend(ScheduleBackend):
 
     def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
         for state in finished:
-            self.kv_cache_manager.free(state.spec.request_idx)
+            self.kv_cache_manager.free(state.request.request_idx)
         running_queue.retire(finished)
         if not running_queue:
             self.snapshot_tracker.stop()

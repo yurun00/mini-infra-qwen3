@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_request_specs
+from mini_infra.core.request import make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -45,7 +45,7 @@ def test_continuous_batching_gpu_parity() -> None:
     ]
     budgets = [12, 8, 16]
     prompt_tokens = [tokenizer.encode(p) for p in prompts]
-    specs = make_request_specs(prompt_tokens, budgets, arrival_times_ms=[0.0, 2.0, 4.0])
+    requests = make_requests(prompt_tokens, budgets, arrival_times_ms=[0.0, 2.0, 4.0])
 
     eos_token_id = tokenizer.eos_token_id or -1
 
@@ -53,7 +53,7 @@ def test_continuous_batching_gpu_parity() -> None:
     cont_result = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
@@ -65,7 +65,7 @@ def test_continuous_batching_gpu_parity() -> None:
     fixed_result = run_scheduler(
         BatchingMethod.FIXED,
         model,
-        specs,
+        requests,
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
@@ -76,7 +76,7 @@ def test_continuous_batching_gpu_parity() -> None:
     paged_result = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
@@ -116,7 +116,7 @@ def test_continuous_batching_gpu_parity() -> None:
     # 5. 指标健康检查
     assert cont_result.step_agg_metrics.e2e_wall_ms > 0
     assert cont_result.memory.peak_allocated_mb > 0
-    assert len(cont_result.request_metrics) == len(specs)
+    assert len(cont_result.request_metrics) == len(requests)
     for rm in cont_result.request_metrics:
         assert rm.num_output_tokens > 0
         assert rm.ttft_ms > 0

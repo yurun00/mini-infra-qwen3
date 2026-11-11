@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from mini_infra.core import PagedCacheConfig, make_request_specs
+from mini_infra.core import PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -215,16 +215,16 @@ def run_mode(
             raise ValueError("调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache")
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
-        specs = make_request_specs(sequences, budgets)
+        requests = make_requests(sequences, budgets)
         effective_max_running_requests = (
-            options.max_running_requests if options.max_running_requests is not None else len(specs)
+            options.max_running_requests if options.max_running_requests is not None else len(requests)
         )
         if effective_max_running_requests < 1:
             raise ValueError("max_running_requests 必须大于 0")
         return run_scheduler(
             mode.batching_method,
             model,
-            specs,
+            requests,
             effective_max_running_requests,
             options.eos_token_id,
             options.device or torch.device("cuda"),

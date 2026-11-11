@@ -9,11 +9,11 @@ from mini_infra.core.block_manager import (
     required_pool_blocks,
 )
 from mini_infra.core.request import (
-    RequestSpec,
+    Request,
     RequestState,
     RequestStatus,
-    make_request_specs,
-    validate_request_specs,
+    make_requests,
+    validate_requests,
 )
 from mini_infra.core.scheduler import (
     ArrivalQueue,
@@ -37,17 +37,17 @@ __all__ = [
     "KVCacheManager",
     "CachingMethod",
     "PagedCacheConfig",
+    "Request",
     "RequestMetrics",
-    "RequestSpec",
     "RequestState",
     "RequestStatus",
     "RunningQueue",
     "SequenceOutput",
     "WaitingQueue",
     "collapse_uniform",
-    "make_request_specs",
+    "make_requests",
     "num_blocks_for_tokens",
     "prepare_schedule",
     "required_pool_blocks",
-    "validate_request_specs",
+    "validate_requests",
 ]

@@ -46,7 +46,7 @@ class DenseScheduleBackend(ScheduleBackend):
         return 0
 
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
-        prefill_out = self.runner.run_prefill_step([s.spec.token_ids for s in admitted])
+        prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in admitted])
         self.snapshot_tracker.record_stage("02_dense_prefill_forward_done")
         batch_slot_indices = [s.batch_slot_idx for s in admitted if s.batch_slot_idx is not None]
         cache_lengths = [s.cache_length for s in admitted]

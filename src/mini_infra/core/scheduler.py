@@ -11,10 +11,10 @@ from collections import deque
 from collections.abc import Iterable, Sequence
 
 from mini_infra.core.request import (
-    RequestSpec,
+    Request,
     RequestState,
     RequestStatus,
-    validate_request_specs,
+    validate_requests,
 )
 
 
@@ -26,7 +26,7 @@ class ArrivalQueue:
     """
 
     def __init__(self, states: Iterable[RequestState]):
-        self._requests: deque[RequestState] = deque(sorted(states, key=lambda state: state.spec.arrival_ms))
+        self._requests: deque[RequestState] = deque(sorted(states, key=lambda state: state.request.arrival_ms))
 
     def __len__(self) -> int:
         return len(self._requests)
@@ -40,13 +40,13 @@ class ArrivalQueue:
     def pop_arrived(self, clock_ms: float) -> list[RequestState]:
         """取出所有 arrival_ms <= clock_ms 的已到达请求，转入 WaitingQueue。"""
         arrived: list[RequestState] = []
-        while self._requests and self._requests[0].spec.arrival_ms <= clock_ms:
+        while self._requests and self._requests[0].request.arrival_ms <= clock_ms:
             arrived.append(self._requests.popleft())
         return arrived
 
     def next_arrival_ms(self) -> float:
         """下一个请求的到达时间；队列为空时抛出 IndexError。"""
-        return self._requests[0].spec.arrival_ms
+        return self._requests[0].request.arrival_ms
 
 
 class WaitingQueue:
@@ -132,7 +132,7 @@ class RunningQueue:
             state.status = RequestStatus.RUNNING
             state.admitted_ms = clock_ms
             state.batch_slot_idx = heapq.heappop(self._free_batch_slots)
-            state.cache_length = state.spec.prompt_len
+            state.cache_length = state.request.prompt_len
             self._requests.append(state)
         return list(states)
 
@@ -165,11 +165,11 @@ class RunningQueue:
 
 
 def prepare_schedule(
-    request_specs: Sequence[RequestSpec], max_running_requests: int
+    requests: Sequence[Request], max_running_requests: int
 ) -> tuple[list[RequestState], ArrivalQueue, float]:
     """校验输入并建立运行态与到达队列，返回 (states, queue, 初始逻辑时钟)。"""
     if max_running_requests < 1:
         raise ValueError("max_running_requests 必须大于 0")
-    validate_request_specs(request_specs)
-    states = [RequestState(spec) for spec in request_specs]
-    return states, ArrivalQueue(states), min(state.spec.arrival_ms for state in states)
+    validate_requests(requests)
+    states = [RequestState(req) for req in requests]
+    return states, ArrivalQueue(states), min(state.request.arrival_ms for state in states)

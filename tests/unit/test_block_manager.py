@@ -7,7 +7,7 @@ from mini_infra.core import (
     FreeKVCacheBlockQueue,
     KVCacheManager,
     PagedCacheConfig,
-    RequestSpec,
+    Request,
     num_blocks_for_tokens,
     required_pool_blocks,
 )
@@ -85,15 +85,15 @@ def test_num_admissible_is_fcfs_prefix_bounded_by_free_blocks():
 
 
 def test_required_pool_blocks_sums_the_longest_concurrent_requests():
-    specs = [
-        RequestSpec(0, (1,) * 5, 4),  # 峰值 5+4-1=8 Token
-        RequestSpec(1, (1,) * 3, 2),  # 4
-        RequestSpec(2, (1,) * 9, 1),  # 9
+    requests = [
+        Request(0, (1,) * 5, 4),  # 峰值 5+4-1=8 Token
+        Request(1, (1,) * 3, 2),  # 4
+        Request(2, (1,) * 9, 1),  # 9
     ]
     # 并发 2：最长两个是 9 与 8 -> ceil(9/4)+ceil(8/4)=3+2；另加 null block
-    assert required_pool_blocks(specs, 2, 4) == 1 + 3 + 2
+    assert required_pool_blocks(requests, 2, 4) == 1 + 3 + 2
     # 并发不小于请求数：全部求和
-    assert required_pool_blocks(specs, 8, 4) == 1 + 3 + 2 + 1
+    assert required_pool_blocks(requests, 8, 4) == 1 + 3 + 2 + 1
 
 
 def test_paged_cache_config_validates():

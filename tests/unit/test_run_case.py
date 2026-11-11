@@ -5,7 +5,7 @@ import torch
 
 from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case, run_case_once
-from mini_infra.core.request import RequestSpec
+from mini_infra.core.request import Request
 from mini_infra.engine import Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -86,9 +86,9 @@ def test_run_case_on_cpu():
     mode = Mode()
 
     # 1. 单用例标量执行
-    spec1 = RequestSpec(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
+    req1 = Request(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
     case_scalar = BenchmarkCase(
-        profile=WorkloadProfile.from_specs("s1", (spec1,)),
+        profile=WorkloadProfile.from_requests("s1", (req1,)),
         mode=mode,
         engine="lockstep",
     )
@@ -117,10 +117,10 @@ def test_run_case_on_cpu():
     assert rec_scalar["max_new_tokens"] == 2
 
     # 2. 变长 prompt 执行
-    s1 = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
-    s2 = RequestSpec(request_idx=1, token_ids=[3, 4, 5, 6], max_new_tokens=2, arrival_ms=0.0)
+    r1 = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
+    r2 = Request(request_idx=1, token_ids=[3, 4, 5, 6], max_new_tokens=2, arrival_ms=0.0)
     case_var = BenchmarkCase(
-        profile=WorkloadProfile.from_specs("v1", (s1, s2)),
+        profile=WorkloadProfile.from_requests("v1", (r1, r2)),
         mode=mode,
         engine="lockstep",
     )

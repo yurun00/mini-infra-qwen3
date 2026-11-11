@@ -9,7 +9,7 @@ from typing import Any
 import torch
 
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_request_specs
+from mini_infra.core.request import make_requests
 from mini_infra.engine import BatchingMethod, CachingMethod, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
@@ -41,13 +41,13 @@ def run_compare_scheduler_batch(
     environment_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """运行单请求隔离、固定批处理、连续批处理与 Paged KV Cache 连续批处理对比，返回比对统计结果字典。"""
-    specs = make_request_specs(sequences, budgets)
+    requests = make_requests(sequences, budgets)
 
     # 1. 串行调度基准（serialized baseline，并发槽位为 1）
     serialized = run_scheduler(
         BatchingMethod.NONE,
         model,
-        specs,
+        requests,
         max_running_requests=1,
         eos_token_id=eos_token_id,
         device=device,
@@ -59,7 +59,7 @@ def run_compare_scheduler_batch(
     fixed = run_scheduler(
         BatchingMethod.FIXED,
         model,
-        specs,
+        requests,
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
@@ -71,7 +71,7 @@ def run_compare_scheduler_batch(
     continuous = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
@@ -83,7 +83,7 @@ def run_compare_scheduler_batch(
     paged = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,

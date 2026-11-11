@@ -39,8 +39,8 @@ def run_suite(
 
     cases = suite.cases
 
-    # 局部材质化同一 workload 的 request_specs，保证 suite 内同 workload 严格使用同一份输入
-    specs_by_workload = {case.workload_id: case.profile.to_payload(vocab_size) for case in cases}
+    # 局部材质化同一 workload 的 requests，保证 suite 内同 workload 严格使用同一份输入
+    requests_by_workload = {case.workload_id: case.profile.to_payload(vocab_size) for case in cases}
 
     # 生成执行计划
     plan = build_scheduler_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_dims)
@@ -55,7 +55,7 @@ def run_suite(
             model,
             device,
             planned_run.case,
-            request_specs=specs_by_workload[planned_run.case.workload_id],
+            requests=requests_by_workload[planned_run.case.workload_id],
         )
         if planned_run.phase == RunPhase.MEASURE:
             runs_by_case_key[planned_run.case.key].append(res)

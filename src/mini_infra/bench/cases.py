@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from mini_infra.bench.format import format_lengths
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import RequestSpec, make_request_specs
+from mini_infra.core.request import Request, make_requests
 from mini_infra.engine.mode import BatchingMethod, CachingMethod, FeatureFlag, Mode
 
 DEFAULT_WARMUP = 3
@@ -256,12 +256,12 @@ class WorkloadProfile:
                 f"arrival_ms 长度 ({len(self.arrival_ms)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
             )
 
-    def to_payload(self, vocab_size: int) -> tuple[RequestSpec, ...]:
-        """把数值画像按需装配为具体合成 Token 序列的 RequestSpec 载荷元组（即用即弃，函数局部变量）。"""
+    def to_payload(self, vocab_size: int) -> tuple[Request, ...]:
+        """把数值画像按需装配为具体合成 Token 序列的 Request 载荷元组（即用即弃，函数局部变量）。"""
         from mini_infra.bench.synthetic import make_sequences
 
         return tuple(
-            make_request_specs(
+            make_requests(
                 make_sequences(self.prompt_lens, vocab_size),
                 self.output_budgets,
                 self.arrival_ms,
@@ -269,14 +269,14 @@ class WorkloadProfile:
         )
 
     @classmethod
-    def from_specs(cls, workload_id: str, specs: Sequence[RequestSpec]) -> WorkloadProfile:
-        """从已有的 RequestSpec 序列反向提取 WorkloadProfile 数值画像。"""
+    def from_requests(cls, workload_id: str, requests: Sequence[Request]) -> WorkloadProfile:
+        """从已有的 Request 序列反向提取 WorkloadProfile 数值画像。"""
         return cls(
             workload_id=workload_id,
-            num_total_requests=len(specs),
-            prompt_lens=tuple(s.prompt_len for s in specs),
-            output_budgets=tuple(s.max_new_tokens for s in specs),
-            arrival_ms=tuple(s.arrival_ms for s in specs),
+            num_total_requests=len(requests),
+            prompt_lens=tuple(r.prompt_len for r in requests),
+            output_budgets=tuple(r.max_new_tokens for r in requests),
+            arrival_ms=tuple(r.arrival_ms for r in requests),
         )
 
 

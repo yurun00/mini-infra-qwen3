@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from mini_infra.core import PagedCacheConfig, make_request_specs, required_pool_blocks
+from mini_infra.core import PagedCacheConfig, make_requests, required_pool_blocks
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -40,11 +40,11 @@ def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) 
     ]
 
 
-def run_paged(model, specs, capacity, eos=-1, stop_on_eos=False, **config):
+def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, **config):
     return run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         capacity,
         eos,
         CPU,
@@ -69,13 +69,13 @@ CASES = {
 def test_outputs_match_serial_generate_and_dense(model, case, block_size):
     lengths, budgets, arrivals, capacity = CASES[case]
     prompts = make_prompts(lengths)
-    specs = make_request_specs(prompts, budgets, arrivals)
+    requests = make_requests(prompts, budgets, arrivals)
 
-    paged = run_paged(model, specs, capacity, block_size=block_size)
+    paged = run_paged(model, requests, capacity, block_size=block_size)
     dense = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         capacity,
         -1,
         CPU,
@@ -94,9 +94,9 @@ def test_eos_stops_request_and_releases_its_blocks(model):
     prompts = make_prompts([4, 6, 5])
     budgets = [8, 8, 8]
     eos = serial_outputs(model, prompts, budgets)[0][2]
-    specs = make_request_specs(prompts, budgets)
+    requests = make_requests(prompts, budgets)
 
-    result = run_paged(model, specs, 2, eos, stop_on_eos=True, block_size=4)
+    result = run_paged(model, requests, 2, eos, stop_on_eos=True, block_size=4)
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets, eos, stop_on_eos=True)
     assert result.sequences[0].finish_reason == "stop"
@@ -104,17 +104,17 @@ def test_eos_stops_request_and_releases_its_blocks(model):
 
 def test_timeline_and_event_invariants(model):
     lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
-    specs = make_request_specs(make_prompts(lengths), budgets, arrivals)
+    requests = make_requests(make_prompts(lengths), budgets, arrivals)
 
-    result = run_paged(model, specs, capacity, block_size=4)
+    result = run_paged(model, requests, capacity, block_size=4)
     decode_events = [e for e in result.events if e.phase is SchedulePhase.DECODE]
 
     for request, budget in zip(result.request_metrics, budgets):
         assert request.arrival_ms <= request.admitted_ms <= request.first_token_ms <= request.completion_ms
         assert request.num_output_tokens == budget == len(request.token_times_ms)
     assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
-    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(specs)))
-    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(specs)))
+    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(requests)))
+    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(requests)))
     # Paged Decode 只执行活跃请求：无 Padding 行，执行槽位利用率恒为 1
     assert all(e.physical_batch_size == e.num_active_requests for e in decode_events)
     assert result.batch_info.execution_slot_utilization == pytest.approx(1.0)
@@ -124,14 +124,14 @@ def test_timeline_and_event_invariants(model):
 
 def test_live_kv_bytes_track_used_blocks_and_stay_within_pool(model):
     block_size = 4
-    specs = make_request_specs(make_prompts([5, 5]), [6, 6], [0.0, 0.0])
+    requests = make_requests(make_prompts([5, 5]), [6, 6], [0.0, 0.0])
     config = model.config
     block_bytes = 2 * config.num_hidden_layers * block_size * config.num_key_value_heads * config.head_dim * 4
 
-    result = run_paged(model, specs, 2, block_size=block_size)
+    result = run_paged(model, requests, 2, block_size=block_size)
 
     assert all(e.live_kv_cache_bytes % block_bytes == 0 for e in result.events)
-    pool_blocks = required_pool_blocks(specs, 2, block_size)
+    pool_blocks = required_pool_blocks(requests, 2, block_size)
     assert max(e.live_kv_cache_bytes for e in result.events) <= (pool_blocks - 1) * block_bytes
     # 两个请求各 10 个 Token（5 + 6 - 1）-> 各 3 块；同时在池的峰值为 6 块
     assert max(e.live_kv_cache_bytes for e in result.events) == 6 * block_bytes
@@ -141,9 +141,9 @@ def test_small_pool_gates_admission_and_still_matches_serial(model):
     """块池小于「全并发」所需：入场受限于空闲块，请求排队等待块被归还，输出仍与串行一致。"""
     prompts = make_prompts([6, 6, 6])
     budgets = [3, 3, 3]
-    specs = make_request_specs(prompts, budgets)
+    requests = make_requests(prompts, budgets)
     # 块大小 4：每个请求峰值 8 Token = 2 块；池 = 1 个 null block + 4 块，只够 2 个请求并发（并发上限 3）
-    result = run_paged(model, specs, 3, block_size=4, num_blocks=5)
+    result = run_paged(model, requests, 3, block_size=4, num_blocks=5)
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -152,25 +152,25 @@ def test_small_pool_gates_admission_and_still_matches_serial(model):
 
 
 def test_pool_that_cannot_hold_one_request_is_rejected(model):
-    specs = make_request_specs(make_prompts([10]), [5])  # 峰值 14 Token -> 4 块（块大小 4）
+    requests = make_requests(make_prompts([10]), [5])  # 峰值 14 Token -> 4 块（块大小 4）
     with pytest.raises(ValueError, match="无法容纳单个请求"):
-        run_paged(model, specs, 1, block_size=4, num_blocks=4)
+        run_paged(model, requests, 1, block_size=4, num_blocks=4)
 
 
 def test_concurrent_growth_exhaustion_fails_loudly(model):
     """Prompt 刚好能入场、但并发增长耗尽块池：显式报错（未实现抢占），而不是静默产出错误结果。"""
-    specs = make_request_specs(make_prompts([4, 4]), [6, 6])  # 块大小 4：Prompt 各 1 块，增长至 9 Token 需 3 块
+    requests = make_requests(make_prompts([4, 4]), [6, 6])  # 块大小 4：Prompt 各 1 块，增长至 9 Token 需 3 块
     with pytest.raises(RuntimeError, match="物理块已耗尽"):
-        run_paged(model, specs, 2, block_size=4, num_blocks=5)
+        run_paged(model, requests, 2, block_size=4, num_blocks=5)
 
 
 def test_paged_scheduling_rejects_none_batching(model):
-    specs = make_request_specs(make_prompts([4]), [2])
+    requests = make_requests(make_prompts([4]), [2])
     with pytest.raises(ValueError, match="仅支持"):
         run_scheduler(
             BatchingMethod.NONE,
             model,
-            specs,
+            requests,
             1,
             -1,
             CPU,
@@ -183,12 +183,12 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
     """Paged + FIXED 模式下：波次内短请求提前完成后不立即准入新请求，必须等整波排空才准入下一波。"""
     prompts = make_prompts([4, 6, 5])
     budgets = [2, 5, 3]
-    specs = make_request_specs(prompts, budgets)
+    requests = make_requests(prompts, budgets)
 
     fixed_res = run_scheduler(
         BatchingMethod.FIXED,
         model,
-        specs,
+        requests,
         2,
         -1,
         CPU,
@@ -199,7 +199,7 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
     cont_res = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         2,
         -1,
         CPU,

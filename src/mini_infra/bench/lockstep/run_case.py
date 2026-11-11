@@ -86,8 +86,8 @@ def run_case_once(
 ) -> GenerationResult:
     """执行单一 BenchmarkCase 的单次生成运行（原子操作）。"""
     if prompts is None:
-        specs = case.profile.to_payload(model.config.vocab_size)
-        resolved_prompts = [list(s.token_ids) for s in specs]
+        requests = case.profile.to_payload(model.config.vocab_size)
+        resolved_prompts = [list(r.token_ids) for r in requests]
     else:
         resolved_prompts = prompts
     budgets = case.profile.output_budgets
@@ -131,8 +131,8 @@ def run_case(
         raise ValueError("max_new_tokens 至少为 2，才能测量 Decode")
 
     workload = case.profile
-    specs = case.profile.to_payload(model.config.vocab_size)
-    prompts = [list(s.token_ids) for s in specs]
+    requests = case.profile.to_payload(model.config.vocab_size)
+    prompts = [list(r.token_ids) for r in requests]
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,

@@ -50,7 +50,7 @@ mini-infra-qwen3/
 │       ├── inputs/                    # 输入协议共享层（PromptInput：纯 Python，无 torch，不含 tokenize）
 │       ├── core/                      # 调度与请求核心 control plane（纯 CPU 逻辑，无 GPU/模型依赖）
 │       │   ├── block_manager.py       # FreeKVCacheBlockQueue（free block queue）、KVCacheManager（请求级 block table）与 PagedCacheConfig
-│       │   ├── request.py             # RequestSpec, RequestState (append_token), RequestStatus 请求生命周期模型
+│       │   ├── request.py             # Request, RequestState (append_token), RequestStatus 请求生命周期模型
 │       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）
 │       │   └── types.py               # CachingMethod, BatchingMethod, SequenceOutput, RequestMetrics 基础 control plane 类型
 │       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）

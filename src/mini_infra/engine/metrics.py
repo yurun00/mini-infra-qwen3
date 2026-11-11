@@ -342,7 +342,7 @@ def summarize_schedule(
     }
     sequences = [
         state.to_sequence_output(
-            completion_step=completion_step_by_request_idx.get(state.spec.request_idx, len(events))
+            completion_step=completion_step_by_request_idx.get(state.request.request_idx, len(events))
         )
         for state in states
     ]
@@ -366,8 +366,8 @@ def summarize_schedule(
     cache_realign_moved_bytes = sum(e.cache_realign_moved_bytes for e in events)
     accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
-    prompt_len_by_request_idx = {state.spec.request_idx: state.spec.prompt_len for state in states}
-    num_prompt_tokens = sum(state.spec.prompt_len for state in states)
+    prompt_len_by_request_idx = {state.request.request_idx: state.request.prompt_len for state in states}
+    num_prompt_tokens = sum(state.request.prompt_len for state in states)
     num_padded_prompt_tokens = sum(
         len(e.admitted_request_ids) * max(prompt_len_by_request_idx[i] for i in e.admitted_request_ids)
         for e in events

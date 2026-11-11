@@ -6,23 +6,23 @@ import pytest
 
 from mini_infra.core import (
     ArrivalQueue,
-    RequestSpec,
+    Request,
     RequestState,
     RequestStatus,
     RunningQueue,
     WaitingQueue,
-    make_request_specs,
+    make_requests,
     prepare_schedule,
-    validate_request_specs,
+    validate_requests,
 )
 
 
 def make_states(arrivals: list[float]) -> list[RequestState]:
-    return [RequestState(RequestSpec(i, (1, 2, 3), 4, arrival)) for i, arrival in enumerate(arrivals)]
+    return [RequestState(Request(i, (1, 2, 3), 4, arrival)) for i, arrival in enumerate(arrivals)]
 
 
 def indices(states: Sequence[RequestState]) -> list[int]:
-    return [state.spec.request_idx for state in states]
+    return [state.request.request_idx for state in states]
 
 
 def test_next_arrival_and_len():
@@ -45,47 +45,47 @@ def test_next_arrival_and_len():
         {"request_idx": 0, "token_ids": (1,), "max_new_tokens": 1, "arrival_ms": -1.0},
     ],
 )
-def test_request_spec_rejects_invalid_fields(kwargs):
+def test_request_rejects_invalid_fields(kwargs):
     with pytest.raises(ValueError):
-        RequestSpec(**kwargs)
+        Request(**kwargs)
 
 
-def test_make_request_specs_broadcasts_budget_and_defaults_arrival():
-    specs = make_request_specs([[1, 2], [3]], 5)
-    assert [(s.request_idx, s.token_ids, s.max_new_tokens, s.arrival_ms) for s in specs] == [
+def test_make_requests_broadcasts_budget_and_defaults_arrival():
+    requests = make_requests([[1, 2], [3]], 5)
+    assert [(r.request_idx, r.token_ids, r.max_new_tokens, r.arrival_ms) for r in requests] == [
         (0, (1, 2), 5, 0.0),
         (1, (3,), 5, 0.0),
     ]
-    specs = make_request_specs([[1, 2], [3]], [2, 4], [0.0, 7.5])
-    assert [(s.max_new_tokens, s.arrival_ms) for s in specs] == [(2, 0.0), (4, 7.5)]
+    requests = make_requests([[1, 2], [3]], [2, 4], [0.0, 7.5])
+    assert [(r.max_new_tokens, r.arrival_ms) for r in requests] == [(2, 0.0), (4, 7.5)]
 
 
-def test_make_request_specs_rejects_length_mismatch_and_duplicates():
+def test_make_requests_rejects_length_mismatch_and_duplicates():
     with pytest.raises(ValueError, match="数量必须一致"):
-        make_request_specs([[1], [2]], [1, 2, 3])
+        make_requests([[1], [2]], [1, 2, 3])
     with pytest.raises(ValueError, match="数量必须一致"):
-        make_request_specs([[1], [2]], 1, [0.0])
+        make_requests([[1], [2]], 1, [0.0])
     with pytest.raises(ValueError, match="不能为空"):
-        validate_request_specs([])
-    spec = RequestSpec(0, (1,), 1)
+        validate_requests([])
+    req = Request(0, (1,), 1)
     with pytest.raises(ValueError, match="唯一"):
-        validate_request_specs([spec, spec])
+        validate_requests([req, req])
 
 
 def test_prepare_schedule_validates_and_returns_initial_clock():
-    specs = make_request_specs([[1], [2], [3]], 2, [30.0, 10.0, 20.0])
-    states, queue, clock_ms = prepare_schedule(specs, max_running_requests=2)
+    requests = make_requests([[1], [2], [3]], 2, [30.0, 10.0, 20.0])
+    states, queue, clock_ms = prepare_schedule(requests, max_running_requests=2)
     assert len(states) == 3 and len(queue) == 3
     assert clock_ms == 10.0
     with pytest.raises(ValueError, match="max_running_requests"):
-        prepare_schedule(specs, max_running_requests=0)
+        prepare_schedule(requests, max_running_requests=0)
     with pytest.raises(ValueError, match="不能为空"):
         prepare_schedule([], max_running_requests=1)
 
 
 def test_running_queue_process_step_output_prefers_eos_over_budget_and_tracks_timestamps():
     rq = RunningQueue(capacity=3)
-    states = [RequestState(RequestSpec(i, (1,), 2)) for i in range(3)]
+    states = [RequestState(Request(i, (1,), 2)) for i in range(3)]
     rq.admit(states, clock_ms=0.0)
 
     # 产出第 1 批 token
@@ -105,11 +105,11 @@ def test_running_queue_process_step_output_prefers_eos_over_budget_and_tracks_ti
     assert all(s.status is RequestStatus.FINISHED for s in states[:2])
 
     # 单请求 append_token 单元逻辑测试
-    single = RequestState(RequestSpec(0, (1,), 2))
+    single = RequestState(Request(0, (1,), 2))
     assert not single.append_token(9, 10.0, eos_token_id=9, stop_on_eos=False)  # 仅产出第 1 个 token，未达预算
     assert single.append_token(9, 11.0, eos_token_id=9, stop_on_eos=False)  # 产出第 2 个 token，达到预算 2
     assert single.finish_reason == "max_tokens"
-    single_eos = RequestState(RequestSpec(1, (1,), 10))
+    single_eos = RequestState(Request(1, (1,), 10))
     assert single_eos.append_token(9, 10.0, eos_token_id=9, stop_on_eos=True)  # eos 停止
     assert single_eos.finish_reason == "stop"
 

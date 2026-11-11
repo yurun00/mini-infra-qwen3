@@ -6,7 +6,7 @@ from typing import Any
 import torch
 
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_request_specs
+from mini_infra.core.request import make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -57,13 +57,13 @@ def run_compare_paged_cache_scheduler(
         budgets = [max_new_tokens] * len(prompts_to_run)
         arrivals = [float(i) for i in range(len(prompts_to_run))]
 
-    specs = make_request_specs(sequences, budgets, arrival_times_ms=arrivals)
+    requests = make_requests(sequences, budgets, arrival_times_ms=arrivals)
 
     # 1. Dense KV Cache 连续批处理基准
     dense = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         max_running_requests=max_running_requests,
         eos_token_id=tokenizer.eos_token_id,
         device=device,
@@ -78,7 +78,7 @@ def run_compare_paged_cache_scheduler(
         paged_run = run_scheduler(
             BatchingMethod.CONTINUOUS,
             model,
-            specs,
+            requests,
             max_running_requests=max_running_requests,
             eos_token_id=tokenizer.eos_token_id,
             device=device,

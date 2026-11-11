@@ -55,7 +55,7 @@ ResolvedWorkloadSpec (确定性纯数字元组声明)
   ↓ to_profile (显式转换)
 WorkloadProfile (轻量数值画像 SSOT, 供 Case / Result 共享)
   ↓ to_payload(vocab_size) (执行期现场装配)
-tuple[RequestSpec, ...] (函数栈局部变量，即用即弃，严禁堆常驻)
+tuple[Request, ...] (函数栈局部变量，即用即弃，严禁堆常驻)
 ```
 
 1. **唯一真相源（SSOT）**：`WorkloadProfile` 是全仓唯一标准流量画像，彻底切断结果层对规格层的反向依赖。

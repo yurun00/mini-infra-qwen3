@@ -7,8 +7,8 @@ import pytest
 import torch
 
 from mini_infra.core import (
-    RequestSpec,
-    make_request_specs,
+    Request,
+    make_requests,
 )
 from mini_infra.engine import (
     BatchingMethod,
@@ -78,9 +78,9 @@ CASES = {
 def test_outputs_match_serial_generate(model, method, case):
     lengths, budgets, arrivals, capacity = CASES[case]
     prompts = make_prompts(lengths)
-    specs = make_request_specs(prompts, budgets, arrivals)
+    requests = make_requests(prompts, budgets, arrivals)
 
-    result = RUNNERS[method](model, specs, capacity, -1, CPU, stop_on_eos=False)
+    result = RUNNERS[method](model, requests, capacity, -1, CPU, stop_on_eos=False)
 
     assert result.batching_method == method
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
@@ -95,9 +95,9 @@ def test_eos_stops_request_and_matches_serial(model, method):
     budgets = [8, 8, 8]
     # 取第一个请求的第 3 个输出 Token 作为 EOS：该请求应在第 3 步以 "stop" 结束
     eos = serial_outputs(model, prompts, budgets)[0][2]
-    specs = make_request_specs(prompts, budgets)
+    requests = make_requests(prompts, budgets)
 
-    result = RUNNERS[method](model, specs, 2, eos, CPU, stop_on_eos=True)
+    result = RUNNERS[method](model, requests, 2, eos, CPU, stop_on_eos=True)
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets, eos, stop_on_eos=True)
     assert result.sequences[0].finish_reason == "stop"
@@ -109,9 +109,9 @@ def test_eos_stops_request_and_matches_serial(model, method):
 @pytest.mark.parametrize("case", ["mixed_budgets", "staggered", "longer_prompt_joins_late"])
 def test_timeline_and_metric_invariants(model, method, case):
     lengths, budgets, arrivals, capacity = CASES[case]
-    specs = make_request_specs(make_prompts(lengths), budgets, arrivals)
+    requests = make_requests(make_prompts(lengths), budgets, arrivals)
 
-    result = RUNNERS[method](model, specs, capacity, -1, CPU, stop_on_eos=False)
+    result = RUNNERS[method](model, requests, capacity, -1, CPU, stop_on_eos=False)
     metrics = result.schedule_metrics
 
     for request, budget in zip(result.request_metrics, budgets):
@@ -121,7 +121,7 @@ def test_timeline_and_metric_invariants(model, method, case):
         assert request.completion_ms == request.token_times_ms[-1]
         assert list(request.token_times_ms) == sorted(request.token_times_ms)
 
-    assert metrics.request_count == len(specs) and metrics.max_running_requests == capacity
+    assert metrics.request_count == len(requests) and metrics.max_running_requests == capacity
     assert metrics.makespan_ms == max(r.completion_ms for r in result.request_metrics) - min(arrivals)
     assert result.step_agg_metrics.e2e_wall_ms >= result.step_agg_metrics.e2e_model_ms
     assert result.step_agg_metrics.throughput_req_s > 0
@@ -144,16 +144,16 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert 0 <= metrics.cache_management_fraction < 1
     assert metrics.ttft_ms_p50 <= metrics.ttft_ms_p95
     assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
-    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(specs)))
-    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(specs)))
+    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(requests)))
+    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(requests)))
     assert all(e.physical_batch_size <= capacity for e in result.events)
 
 
 def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(model):
-    specs = make_request_specs(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
+    requests = make_requests(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.FIXED, model, specs, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.FIXED, model, requests, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -167,10 +167,10 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
 
 
 def test_continuous_batching_refills_freed_slots_while_others_keep_running(model):
-    specs = make_request_specs(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
+    requests = make_requests(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -185,10 +185,10 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
 
 
 def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
-    specs = make_request_specs(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
+    requests = make_requests(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, specs, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
     )
 
     assert result.request_metrics[0].admitted_ms == 10.0  # 初始时钟取最早到达时间
@@ -201,22 +201,22 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
 
 @pytest.mark.parametrize("runner", list(RUNNERS.values()))
 def test_runners_reject_invalid_arguments(model, runner):
-    specs = make_request_specs(make_prompts([4]), [2])
+    requests = make_requests(make_prompts([4]), [2])
     with pytest.raises(ValueError, match="max_running_requests"):
-        runner(model, specs, 0, -1, CPU)
+        runner(model, requests, 0, -1, CPU)
     with pytest.raises(ValueError, match="不能为空"):
         runner(model, [], 2, -1, CPU)
-    duplicate = [RequestSpec(0, (1, 2), 2), RequestSpec(0, (3, 4), 2)]
+    duplicate = [Request(0, (1, 2), 2), Request(0, (3, 4), 2)]
     with pytest.raises(ValueError, match="唯一"):
         runner(model, duplicate, 2, -1, CPU)
 
 
 def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model):
     # 第二个请求在第一个完全结束（Cache 被整块回收）之后才到达
-    specs = make_request_specs(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
+    requests = make_requests(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, specs, 1, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 1, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
     )
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, make_prompts([4, 6]), [2, 3])
@@ -300,13 +300,13 @@ class TestGenerateDispatch:
 
 
 def test_run_scheduler_dispatch(model):
-    specs = make_request_specs(make_prompts([3, 4]), max_new_tokens=2)
+    requests = make_requests(make_prompts([3, 4]), max_new_tokens=2)
 
     # 1. 验证枚举分发 CONTINUOUS
     res_cont = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,
-        specs,
+        requests,
         2,
         eos_token_id=-1,
         device=CPU,
@@ -320,7 +320,7 @@ def test_run_scheduler_dispatch(model):
     res_fixed = run_scheduler(
         BatchingMethod.FIXED,
         model,
-        specs,
+        requests,
         2,
         eos_token_id=-1,
         device=CPU,
@@ -334,7 +334,7 @@ def test_run_scheduler_dispatch(model):
     res_none = run_scheduler(
         BatchingMethod.NONE,
         model,
-        specs,
+        requests,
         2,
         eos_token_id=-1,
         device=CPU,

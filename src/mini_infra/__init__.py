@@ -1,12 +1,12 @@
 from mini_infra.core import (
     ArrivalQueue,
+    Request,
     RequestMetrics,
-    RequestSpec,
     RequestState,
     RequestStatus,
     SequenceOutput,
-    make_request_specs,
-    validate_request_specs,
+    make_requests,
+    validate_requests,
 )
 from mini_infra.device import (
     peak_memory_mb,
@@ -91,8 +91,8 @@ __all__ = [
     "Qwen3Config",
     "Qwen3ForCausalLM",
     "Qwen3Tokenizer",
+    "Request",
     "RequestMetrics",
-    "RequestSpec",
     "RequestState",
     "RequestStatus",
     "ScheduleEvent",
@@ -108,7 +108,7 @@ __all__ = [
     "install_scope_hooks",
     "kernel_category",
     "load_model",
-    "make_request_specs",
+    "make_requests",
     "merge_op_latency_breakdowns",
     "model_dtype_from_config",
     "pad_output_tokens",
@@ -121,5 +121,5 @@ __all__ = [
     "run_scheduler",
     "summarize_schedule",
     "synchronize",
-    "validate_request_specs",
+    "validate_requests",
 ]

@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_request_specs
+from mini_infra.core.request import make_requests
 from mini_infra.engine.lockstep_loop import run_lockstep
 from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode, validate_mode
 from mini_infra.engine.preprocessing import (
@@ -170,12 +170,12 @@ def _dispatch_continuous(
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
     if opts.max_running_requests is not None and opts.max_running_requests < 1:
         raise ValueError("max_running_requests 必须大于 0")
-    specs = make_request_specs(token_sequences, budgets)
-    max_running_requests = opts.max_running_requests if opts.max_running_requests is not None else len(specs)
+    requests = make_requests(token_sequences, budgets)
+    max_running_requests = opts.max_running_requests if opts.max_running_requests is not None else len(requests)
     return run_scheduler(
         mode.batching_method,
         model,
-        specs,
+        requests,
         max_running_requests,
         opts.eos_token_id,
         device,
