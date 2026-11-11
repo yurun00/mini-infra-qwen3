@@ -10,7 +10,6 @@ from mini_infra.bench.cases import (
     WorkloadProfile,
 )
 from mini_infra.bench.scheduler.format import (
-    build_benchmark_record,
     format_table,
 )
 from mini_infra.bench.scheduler.plan import (
@@ -48,7 +47,6 @@ __all__ = [
     "RunPhase",
     "SchedulerCaseResult",
     "WorkloadProfile",
-    "build_benchmark_record",
     "build_scheduler_run_plan",
     "compute_comparisons",
     "extract_metric_by_path",

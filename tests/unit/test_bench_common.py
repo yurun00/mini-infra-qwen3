@@ -130,9 +130,9 @@ def test_common_strictly_decoupled_from_lockstep():
     import mini_infra.bench.common as bench_common
     from mini_infra.bench.lockstep import (
         LockstepCaseResult,
-        build_benchmark_record,
         format_table,
     )
+    from mini_infra.bench.schema import build_benchmark_record
 
     # 1. common.py 自身不直接反向引入 LockstepCaseResult，解除分层倒置
     assert "LockstepCaseResult" not in bench_common.__dict__

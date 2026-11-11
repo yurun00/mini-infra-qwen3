@@ -18,9 +18,7 @@ from mini_infra.bench.common import (
 )
 from mini_infra.bench.plotting.compare import (
     generate_comparison_table,
-    load_record,
     plot_mode_comparison,
-    resolve_label,
 )
 from mini_infra.bench.plotting.history import (
     generate_optimization_guidance,
@@ -29,6 +27,8 @@ from mini_infra.bench.plotting.history import (
     plot_evolution_and_scaling,
     plot_profiling_and_optimization,
 )
+from mini_infra.bench.plotting.tidy import resolve_record_label
+from mini_infra.bench.schema import load_benchmark_record
 
 
 def add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -200,11 +200,11 @@ def handle_history(args: argparse.Namespace) -> int:
 
 
 def handle_compare(args: argparse.Namespace) -> int:
-    rec1 = load_record(args.file_a)
-    rec2 = load_record(args.file_b)
+    rec1 = load_benchmark_record(args.file_a, require_single_case=True)
+    rec2 = load_benchmark_record(args.file_b, require_single_case=True)
 
-    label1 = resolve_label(rec1, args.label_a)
-    label2 = resolve_label(rec2, args.label_b)
+    label1 = resolve_record_label(rec1, args.label_a)
+    label2 = resolve_record_label(rec2, args.label_b)
 
     table_md = generate_comparison_table(rec1, rec2, label1, label2)
     print()

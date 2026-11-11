@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 
 from mini_infra.bench.scheduler.types import SchedulerCaseResult
-from mini_infra.bench.schema import build_benchmark_record
 
 
 def _abbreviate_workload_id(wid: str) -> str:
@@ -87,10 +86,5 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
 
 
 __all__ = [
-    "_abbreviate_mode",
-    "_abbreviate_suite_name",
-    "_abbreviate_workload_id",
-    "_format_case_row",
-    "build_benchmark_record",
     "format_table",
 ]

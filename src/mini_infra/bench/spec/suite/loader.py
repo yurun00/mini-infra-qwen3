@@ -7,7 +7,7 @@ from typing import Any
 
 from mini_infra.bench.common import SPECS_DIR
 from mini_infra.bench.spec.common.overrides import apply_overrides
-from mini_infra.bench.spec.common.raw import _sha256, load_raw_spec
+from mini_infra.bench.spec.common.raw import load_raw_spec, spec_sha256
 from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec
 from mini_infra.bench.spec.suite.schema import SuiteEngine, SuiteSpec
 
@@ -51,7 +51,7 @@ def load_suite_spec(path: Path, overrides: Mapping[str, Any] | None = None) -> L
         spec=spec,
         path=path,
         raw=raw,
-        sha256=_sha256(raw),
+        sha256=spec_sha256(raw),
         cases=tuple(expand_suite_spec(spec)),
         overrides=dict(overrides or {}),
     )

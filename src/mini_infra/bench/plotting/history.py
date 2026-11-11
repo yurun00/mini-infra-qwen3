@@ -45,11 +45,6 @@ def load_results(history_dir: Path | None = None) -> list[LockstepBenchmarkRecor
     return records
 
 
-def label(record: Any) -> str:
-    """提取版本演进展示标签。"""
-    return resolve_record_label(record)
-
-
 def _select_primary_case_dict(rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord) -> dict[str, Any]:
     """优先选取包含 op_latency_breakdown 的 case（如 small），否则优先选取 medium 规模作为代表性单点剖析对象。"""
     for c in rec.cases:
@@ -349,7 +344,8 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
         extra_ax.set_axis_off()
 
     fig.suptitle(
-        f"mini-infra-qwen3 Category 1: Release Evolution & Multi-Scale Analysis (Baseline: {label(base)})",
+        "mini-infra-qwen3 Category 1: Release Evolution & Multi-Scale Analysis "
+        f"(Baseline: {resolve_record_label(base)})",
         fontsize=14,
         y=0.995,
     )
@@ -592,7 +588,8 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
                 ax.set_axis_off()
 
     fig.suptitle(
-        f"mini-infra-qwen3 Category 2: Current Model Profiling & Optimization Guidance ({label(validated_target)})",
+        "mini-infra-qwen3 Category 2: Current Model Profiling & Optimization Guidance "
+        f"({resolve_record_label(validated_target)})",
         fontsize=14,
         y=0.995,
     )
@@ -635,7 +632,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
         frag_mb = float(mem.get("fragmentation_mb") or 0.0)
 
         lines.append(
-            f"基于当前调度器版本 `{label(validated_target)}`（`requests={w['num_total_requests']}, "
+            f"基于当前调度器版本 `{resolve_record_label(validated_target)}`（`requests={w['num_total_requests']}, "
             f"max_running={sched.get('max_running_requests', 4)}`）下的基准测量与轨迹剖析，诊断如下：\n"
         )
         lines.append("### 1. batch slot 与并发容量利用率诊断（调度效率）")
@@ -694,7 +691,7 @@ def generate_optimization_guidance(target_rec: Any) -> str:
     ob = w.get("op_latency_breakdown")
     if not (isinstance(ob, dict) and ob.get("time_share_by_module")):
         lines.append(
-            f"> 提示：当前版本 `{label(validated_target)}` 中未包含详细的算子剖析采样数据。"
+            f"> 提示：当前版本 `{resolve_record_label(validated_target)}` 中未包含详细的算子剖析采样数据。"
             "使用 `mini-infra bench lockstep case --profile-mode extra-profile` 重跑可获取完整算子诊断。"
         )
         return "\n".join(lines)
@@ -707,7 +704,8 @@ def generate_optimization_guidance(target_rec: Any) -> str:
 
     prompt_desc = f"prompt={w['prompt_len']}"
     lines.append(
-        f"基于当前版本 `{label(validated_target)}`（`{prompt_desc}`）下的基准测量与 profiling 结果，诊断如下：\n"
+        f"基于当前版本 `{resolve_record_label(validated_target)}`（`{prompt_desc}`）下的"
+        "基准测量与 profiling 结果，诊断如下：\n"
     )
 
     attn_share = by_mod.get("attention_block", 0.0)
@@ -773,7 +771,6 @@ def generate_optimization_guidance(target_rec: Any) -> str:
 
 __all__ = [
     "generate_optimization_guidance",
-    "label",
     "load_results",
     "markdown_table",
     "plot_evolution_and_scaling",

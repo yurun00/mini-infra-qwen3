@@ -18,6 +18,7 @@ from mini_infra.bench.spec import (
     release_json_schema,
     suite_json_schema,
 )
+from mini_infra.bench.suite import BenchmarkSuite
 
 _ENGINES: tuple[SuiteEngine, ...] = ("lockstep", "scheduler")
 
@@ -84,13 +85,12 @@ def handle_show(args: argparse.Namespace) -> int:
         loaded = _resolve_target(args.target, args.engine)
     except ValueError as err:
         sys.exit(str(err))
-    engine = loaded.spec.engine
+    suite = BenchmarkSuite.from_spec(loaded)
     print(f"# {loaded.path}  (sha256={loaded.sha256[:12]})")
     print(yaml.safe_dump(loaded.raw, sort_keys=False, allow_unicode=True).rstrip())
-    cases = loaded.cases
-    print(f"\n# 展开后的用例（共 {len(cases)} 个，顺序即执行顺序）")
-    for i, case_spec in enumerate(cases, 1):
-        print(f"  [{i:02d}] {case_spec.format_summary(engine)}")
+    print(f"\n# 展开后的用例（共 {len(suite)} 个，顺序即执行顺序）")
+    for i, case in enumerate(suite, 1):
+        print(f"  [{i:02d}] {case.format_summary()}")
     return 0
 
 

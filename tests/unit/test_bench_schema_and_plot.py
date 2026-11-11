@@ -7,9 +7,7 @@ import pytest
 
 from mini_infra.bench.plotting.compare import (
     generate_comparison_table,
-    load_record,
     plot_mode_comparison,
-    resolve_label,
 )
 from mini_infra.bench.plotting.history import (
     generate_optimization_guidance,
@@ -24,6 +22,7 @@ from mini_infra.bench.plotting.tidy import (
     SHARED_PLOT_SPECS,
     records_to_wide_df,
     resolve_plot_specs,
+    resolve_record_label,
     wide_to_tidy_df,
 )
 from mini_infra.bench.schema import (
@@ -224,10 +223,10 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     )
 
     # 1. 纯 Scheduler 双文件单 Case 对比
-    rec_fixed = load_record(sched_fixed_path)
-    rec_cont = load_record(sched_cont_path)
-    lbl_fixed = resolve_label(rec_fixed)
-    lbl_cont = resolve_label(rec_cont)
+    rec_fixed = load_benchmark_record(sched_fixed_path, require_single_case=True)
+    rec_cont = load_benchmark_record(sched_cont_path, require_single_case=True)
+    lbl_fixed = resolve_record_label(rec_fixed)
+    lbl_cont = resolve_record_label(rec_cont)
     md_text = generate_comparison_table(rec_fixed, rec_cont, lbl_fixed, lbl_cont)
     assert "ITL P95 Latency (ms/token)" in md_text
     assert "Schedule Makespan (ms)" in md_text
@@ -237,8 +236,8 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
 
     # 2. 跨边界 (Lockstep vs Scheduler) 双文件单 Case 对比
     lockstep_path = Path("benchmarks/results/history/lockstep/1c21386_v0.3.0.json")
-    rec_lock = load_record(lockstep_path)
-    lbl_lock = resolve_label(rec_lock)
+    rec_lock = load_benchmark_record(lockstep_path, require_single_case=True)
+    lbl_lock = resolve_record_label(rec_lock)
     cross_md = generate_comparison_table(rec_lock, rec_cont, lbl_lock, lbl_cont)
     assert "TTFT / Prefill Latency (ms)" in cross_md
     assert "TPOT / ITL P50 Latency (ms/token)" in cross_md

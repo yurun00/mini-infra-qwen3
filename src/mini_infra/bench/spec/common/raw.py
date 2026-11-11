@@ -60,14 +60,13 @@ def load_raw_spec(path: Path, _stack: tuple[Path, ...] = ()) -> dict[str, Any]:
     return deep_merge(load_raw_spec(resolved.parent / parent, (*_stack, resolved)), data)
 
 
-def _sha256(raw: Mapping[str, Any]) -> str:
+def spec_sha256(raw: Mapping[str, Any]) -> str:
     canonical = json.dumps(raw, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 __all__ = [
-    "_UniqueKeyLoader",
-    "_sha256",
     "deep_merge",
     "load_raw_spec",
+    "spec_sha256",
 ]

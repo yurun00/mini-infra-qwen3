@@ -371,6 +371,18 @@ class BenchmarkCase:
             paged_cache_config=self.paged_cache_config,
         )
 
+    def format_summary(self) -> str:
+        """格式化单用例配置摘要（供 `bench suites show` 预览）。"""
+        if self.engine == "scheduler":
+            return str(self.key)
+        from mini_infra.bench.common import format_lengths
+
+        return (
+            f"[{self.workload_id}] | {self.mode} | batch={self.profile.num_total_requests} "
+            f"prompt={format_lengths(self.profile.prompt_lens)} "
+            f"max_new_tokens={format_lengths(self.profile.output_budgets)}"
+        )
+
 
 __all__ = [
     "BenchmarkCase",

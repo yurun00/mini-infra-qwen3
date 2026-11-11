@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from mini_infra.bench.common import SPECS_DIR
-from mini_infra.bench.spec.common.raw import _sha256, load_raw_spec
+from mini_infra.bench.spec.common.raw import load_raw_spec, spec_sha256
 from mini_infra.bench.spec.common.schema import SuiteEngine
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec
 from mini_infra.bench.spec.release.expand import (
@@ -47,7 +47,7 @@ def load_release_spec(path: Path) -> LoadedReleaseSpec:
         spec=spec,
         path=path,
         raw=raw,
-        sha256=_sha256(raw),
+        sha256=spec_sha256(raw),
         scales=resolve_release_spec(spec),
     )
 

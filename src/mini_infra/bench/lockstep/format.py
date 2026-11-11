@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.common import format_lengths
 from mini_infra.bench.lockstep.types import LockstepCaseResult
-from mini_infra.bench.schema import build_benchmark_record
 
 
 def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
@@ -85,8 +84,6 @@ def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup:
 
 
 __all__ = [
-    "_format_case_row",
-    "build_benchmark_record",
     "format_suite_plan",
     "format_table",
 ]

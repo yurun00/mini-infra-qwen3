@@ -9,7 +9,7 @@ from mini_infra.bench.spec.common.lengths import (
     sample_poisson_arrivals,
 )
 from mini_infra.bench.spec.common.overrides import apply_overrides, parse_set_args
-from mini_infra.bench.spec.common.raw import _sha256, deep_merge, load_raw_spec
+from mini_infra.bench.spec.common.raw import deep_merge, load_raw_spec, spec_sha256
 from mini_infra.bench.spec.common.schema import (
     AlternatingLength,
     ArrivalSpec,
@@ -39,7 +39,6 @@ from mini_infra.bench.spec.common.schema import (
     SuiteEngine,
     SystemSpec,
     WorkloadSpec,
-    _Strict,
     normalize_workload_body,
 )
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, interpolate, resolve_workload_body
@@ -74,8 +73,6 @@ __all__ = [
     "SuiteEngine",
     "SystemSpec",
     "WorkloadSpec",
-    "_Strict",
-    "_sha256",
     "apply_overrides",
     "deep_merge",
     "expand_arrival",
@@ -89,4 +86,5 @@ __all__ = [
     "run_check",
     "sample_log_uniform_lengths",
     "sample_poisson_arrivals",
+    "spec_sha256",
 ]
