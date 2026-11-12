@@ -9,12 +9,11 @@ from mini_infra.core import KVCacheManager, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
-    GenerationOptions,
     Mode,
     SchedulePhase,
-    generate,
     run_scheduler,
 )
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import DenseAttentionMetadata, Qwen3Config, Qwen3ForCausalLM
 from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner, cache_size_bytes
 from mini_infra.worker.base_runner import _left_pad_sequences

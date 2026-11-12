@@ -83,7 +83,7 @@ def _make_single_case_scheduler_dict(
                 "throughput_req_s": stat(8000.0 / makespan),
                 "gpu_time_ratio": stat(0.98),
                 "memory": {
-                    "weight_mb": 1140.0,
+                    "weights_mb": 1140.0,
                     "prefill_allocated_mb": 1200.0,
                     "peak_allocated_mb": 1260.0,
                     "dynamic_peak_mb": 120.0,
@@ -285,14 +285,19 @@ def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: P
         {
             "baseline_key": {
                 "workload_id": "length_ratio_2048",
-                "mode": "dense/continuous",
+                "caching_method": "dense-kv-cache",
+                "batching_method": "continuous-batching",
+                "flags": [],
                 "max_running_requests": 8,
             },
             "candidate_key": {
                 "workload_id": "length_ratio_2048",
-                "mode": "paged/continuous",
+                "caching_method": "paged-kv-cache",
+                "batching_method": "continuous-batching",
+                "flags": [],
                 "max_running_requests": 8,
-                "paged_cache_config": {"block_size": 16, "num_blocks": 100},
+                "block_size": 16,
+                "num_blocks": 100,
             },
             "metric_path": "schedule_metrics.makespan_ms",
             "metric_name": "makespan",
@@ -320,7 +325,7 @@ def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: P
     assert comp.baseline_key.workload_id == "length_ratio_2048"
     assert comp.speedup == 1.1667
     assert comp.metric_name == "makespan"
-    assert comp.candidate_key.paged_cache_config.block_size == 16
+    assert comp.candidate_key.block_size == 16
 
     wide_df = records_to_wide_df([rec])
     assert "workload_id" in wide_df.columns

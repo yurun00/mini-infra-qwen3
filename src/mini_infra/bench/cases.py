@@ -133,7 +133,7 @@ class CaseKey:
         return tuple(self.value(d) for d in dims)
 
     def as_dimension_map(self) -> dict[CaseDimension, CaseDimensionValue]:
-        """导出完整的正交特征标签映射（类似于指标系统的 Label-Set）。"""
+        """导出完整的正交特征标签映射（类似于指标系统的 Label-Set）。专供测试使用（Test-only）。"""
         return {dim: self.value(dim) for dim in CaseDimension}
 
     @property
@@ -211,7 +211,7 @@ class CaseKey:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> CaseKey:
-        """从字典反向重构完全展平的 CaseKey。"""
+        """从字典反向重构完全展平的 CaseKey。专供测试使用（Test-only）。"""
         raw_flags = data.get("flags", ())
         return cls(
             workload_id=str(data["workload_id"]),
@@ -270,7 +270,7 @@ class WorkloadProfile:
 
     @classmethod
     def from_requests(cls, workload_id: str, requests: Sequence[Request]) -> WorkloadProfile:
-        """从已有的 Request 序列反向提取 WorkloadProfile 数值画像。"""
+        """从已有的 Request 序列反向提取 WorkloadProfile 数值画像。专供测试使用（Test-only）。"""
         return cls(
             workload_id=workload_id,
             num_total_requests=len(requests),

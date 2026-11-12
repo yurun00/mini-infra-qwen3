@@ -66,7 +66,7 @@ def release_workloads(
     seed: int | None = None,
     specs_dir: Path | None = None,
 ) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
-    """三档标准负载规格（small / medium / large）；seed 缺省取 YAML 的 default_seed。"""
+    """三档标准负载规格（small / medium / large）；seed 缺省取 YAML 的 default_seed。专供测试使用（Test-only）。"""
     loaded = get_release_spec(engine, specs_dir=specs_dir)
     return expand_release_scales(loaded.spec, seed=seed)
 

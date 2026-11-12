@@ -37,7 +37,7 @@ def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:
     return [dict(zip(keys, combo)) for combo in itertools.product(*(sweep[k] for k in keys))]
 
 
-def resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkloadSpec:
+def _resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkloadSpec:
     """在一个 sweep 点上解析 suite 的 workload 模板。"""
     variables = {**spec.workload.vars, **point}
     context = f"suite {spec.name} (sweep 点 {point or '{}'})"
@@ -46,7 +46,7 @@ def resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkload
 
 def expand_workload(spec: SuiteSpec) -> list[ResolvedWorkloadSpec]:
     """把 SuiteSpec 的 workload 模板按 sweep.workload 展开为 ResolvedWorkloadSpec 列表。"""
-    return [resolve_workload(spec, point) for point in _expand_workload_points(spec)]
+    return [_resolve_workload(spec, point) for point in _expand_workload_points(spec)]
 
 
 def _generate_system_cases(
@@ -130,5 +130,4 @@ __all__ = [
     "CaseSpec",
     "expand_suite_spec",
     "expand_workload",
-    "resolve_workload",
 ]

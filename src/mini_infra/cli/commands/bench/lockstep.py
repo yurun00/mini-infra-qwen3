@@ -23,7 +23,7 @@ from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
 
 
-def add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_lockstep_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向 parser 添加 lockstep case 参数。"""
     add_common_args(p)
     p.add_argument(
@@ -65,12 +65,12 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     lockstep_subs = lockstep_parser.add_subparsers(dest="lockstep_subcommand", required=True)
 
     case_parser = lockstep_subs.add_parser("case", help="运行单用例齐步（Lockstep）基准测试")
-    add_lockstep_case_args(case_parser)
-    case_parser.set_defaults(func=handle_case)
+    _add_lockstep_case_args(case_parser)
+    case_parser.set_defaults(func=_handle_case)
     return lockstep_parser
 
 
-def handle_case(args: argparse.Namespace) -> int:
+def _handle_case(args: argparse.Namespace) -> int:
     device = require_cuda()
 
     target_bs, resolved_prompt_len, resolved_max_new_tokens = broadcast_case_lengths(

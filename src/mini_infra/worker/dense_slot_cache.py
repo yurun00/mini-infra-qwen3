@@ -105,7 +105,7 @@ class DenseSlotCache:
 
     def release(self, batch_slot_idx: int) -> None:
         """释放已结束请求的 Batch 槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
-        if self.history_mask is not None and batch_slot_idx is not None:
+        if self.history_mask is not None:
             self.history_mask[batch_slot_idx].zero_()
 
     def reset(self) -> None:

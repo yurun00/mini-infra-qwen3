@@ -10,7 +10,8 @@ import torch
 from mini_infra.bench.env import git_info
 from mini_infra.bench.paths import GOLDEN_OUTPUT_PATH
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.engine import GenerationOptions, Mode, Qwen3Tokenizer, generate
+from mini_infra.engine import Mode, Qwen3Tokenizer
+from mini_infra.entrypoints import GenerationOptions, generate
 
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
 GOLDEN_MAX_OUTPUT_TOKENS = 32

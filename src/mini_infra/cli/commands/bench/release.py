@@ -59,7 +59,7 @@ from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 
 @dataclass(frozen=True)
-class ReleaseStep:
+class _ReleaseStep:
     """Release 基准流水线中的单个子步骤描述、执行命令与预期产物。"""
 
     description: str
@@ -67,7 +67,7 @@ class ReleaseStep:
     artifacts: tuple[Path, ...]
 
 
-def build_lockstep_case_cmd(
+def _build_lockstep_case_cmd(
     workload: WorkloadProfile,
     tag: str,
     release_feature: str,
@@ -116,7 +116,7 @@ def build_lockstep_case_cmd(
     return cmd
 
 
-def build_scheduler_case_cmd(
+def _build_scheduler_case_cmd(
     workload: WorkloadProfile,
     tag: str,
     release_feature: str,
@@ -164,11 +164,7 @@ def build_scheduler_case_cmd(
 
     cmd.extend(["--prompt-lens", *[str(x) for x in workload.prompt_lens]])
     cmd.extend(["--output-budgets", *[str(x) for x in workload.output_budgets]])
-
-    if isinstance(workload.arrival_ms, tuple | list):
-        cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_ms]])
-    elif isinstance(workload.arrival_ms, int | float):
-        cmd.extend(["--arrival-interval-ms", str(workload.arrival_ms)])
+    cmd.extend(["--arrival-times-ms", *[str(x) for x in workload.arrival_ms]])
 
     if output is not None:
         cmd.extend(["--output", str(output)])
@@ -176,7 +172,7 @@ def build_scheduler_case_cmd(
     return cmd
 
 
-def build_plot_history_cmd(engine: str) -> list[str]:
+def _build_plot_history_cmd(engine: str) -> list[str]:
     """构建演进报告与图表生成命令。"""
     return [
         sys.executable,
@@ -191,7 +187,7 @@ def build_plot_history_cmd(engine: str) -> list[str]:
     ]
 
 
-def build_update_reference_cmd() -> list[str]:
+def _build_update_reference_cmd() -> list[str]:
     """构建更新零退化性能基线 reference.json 的命令。"""
     return [
         sys.executable,
@@ -204,7 +200,7 @@ def build_update_reference_cmd() -> list[str]:
     ]
 
 
-def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向 parser 添加 release 基准流水线参数。"""
     p.add_argument(
         "-e",
@@ -276,28 +272,20 @@ def add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return p
 
 
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        description="使用 benchmarks/specs/release/ 声明的标准负载一键生成版本发布所需的基准与报告产物"
-    )
-    add_release_args(p)
-    return p
-
-
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
     """在 bench 下注册 release 子命令。"""
     p = subparsers.add_parser(
         "release",
         help="使用预定义多规模真实 Workload 一键生成版本发布基准、演进报告与回归基线",
     )
-    add_release_args(p)
-    p.set_defaults(func=handle_release)
+    _add_release_args(p)
+    p.set_defaults(func=_handle_release)
     return p
 
 
-def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
-    """根据解析后的参数生成有序的 ReleaseStep 列表（仅替换 Mode，其余 Workload 字段保持一致）。"""
-    steps: list[ReleaseStep] = []
+def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
+    """根据解析后的参数生成有序的 _ReleaseStep 列表（仅替换 Mode，其余 Workload 字段保持一致）。"""
+    steps: list[_ReleaseStep] = []
     if getattr(args, "caching_method", None):
         caching_method = CachingMethod(args.caching_method)
     else:
@@ -317,9 +305,9 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             scale_prof = prof if sc == "small" else None
             res_scale = scales_spec[sc]
             steps.append(
-                ReleaseStep(
+                _ReleaseStep(
                     description=f"运行 Lockstep 基准 [{sc}] ({args.tag}: {args.release_feature})",
-                    cmd=build_lockstep_case_cmd(
+                    cmd=_build_lockstep_case_cmd(
                         res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
@@ -335,9 +323,9 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             )
 
         steps.append(
-            ReleaseStep(
+            _ReleaseStep(
                 description="生成 Lockstep 演进报告与剖析图",
-                cmd=build_plot_history_cmd("lockstep"),
+                cmd=_build_plot_history_cmd("lockstep"),
                 artifacts=(
                     LOCKSTEP_REPORTS_DIR / "SUMMARY.md",
                     LOCKSTEP_REPORTS_DIR / "evolution_and_scaling.png",
@@ -358,9 +346,9 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
         for sc in scales:
             res_scale = scales_spec[sc]
             steps.append(
-                ReleaseStep(
+                _ReleaseStep(
                     description=f"运行 Scheduler 基准 [{sc}] ({args.tag}: {args.release_feature})",
-                    cmd=build_scheduler_case_cmd(
+                    cmd=_build_scheduler_case_cmd(
                         res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
@@ -378,9 +366,9 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
             )
 
         steps.append(
-            ReleaseStep(
+            _ReleaseStep(
                 description="生成 Scheduler 演进报告与剖析图",
-                cmd=build_plot_history_cmd("scheduler"),
+                cmd=_build_plot_history_cmd("scheduler"),
                 artifacts=(
                     SCHEDULER_REPORTS_DIR / "SUMMARY.md",
                     SCHEDULER_REPORTS_DIR / "evolution_and_scaling.png",
@@ -391,9 +379,9 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
 
     if not args.skip_regression:
         steps.append(
-            ReleaseStep(
+            _ReleaseStep(
                 description="更新日常零退化守门基线 (reference.json)",
-                cmd=build_update_reference_cmd(),
+                cmd=_build_update_reference_cmd(),
                 artifacts=(REPO_ROOT / "benchmarks" / "golden" / "reference.json",),
             )
         )
@@ -401,12 +389,12 @@ def plan_release_steps(args: argparse.Namespace) -> list[ReleaseStep]:
     return steps
 
 
-def handle_release(args: argparse.Namespace) -> int:
+def _handle_release(args: argparse.Namespace) -> int:
     """执行 Release 基准流水线：在每一步开始时立即打印该步骤信息、命令与目标产物。"""
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
 
-    steps = plan_release_steps(args)
+    steps = _plan_release_steps(args)
     total = len(steps)
 
     print(
@@ -435,13 +423,3 @@ def handle_release(args: argparse.Namespace) -> int:
 
     print(f"\n=== Release Benchmark Pipeline 全部完成 (共 {total} 步) ===", flush=True)
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    return handle_release(args)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

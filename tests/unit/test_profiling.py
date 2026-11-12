@@ -8,7 +8,8 @@ import torch
 from mini_infra.bench.cases import BenchmarkCase, ProfilingMode, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.core.request import Request
-from mini_infra.engine import BatchingMethod, GenerationOptions, Mode, generate
+from mini_infra.engine import BatchingMethod, Mode
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
     MODULE_SCOPES,

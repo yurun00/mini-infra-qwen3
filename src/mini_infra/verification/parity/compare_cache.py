@@ -15,7 +15,7 @@ from mini_infra.verification.parity._common import (
 
 
 @torch.inference_mode()
-def compare_cache_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
+def _compare_cache_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
     """逐步比较同一手写模型在无 Cache 与有 Cache 两种执行路径下的 Logits 与生成结果。"""
     generated_ids = input_ids
     cached_input = input_ids
@@ -68,7 +68,7 @@ def execute_compare_cache(
         model, revision, dtype, prompt, max_new_tokens, logits_atol
     )
     input_ids = torch.tensor([token_ids], dtype=torch.long, device=device)
-    result = compare_cache_step_by_step(
+    result = _compare_cache_step_by_step(
         model_instance,
         input_ids,
         max_new_tokens,
@@ -81,6 +81,5 @@ def execute_compare_cache(
 
 
 __all__ = [
-    "compare_cache_step_by_step",
     "execute_compare_cache",
 ]

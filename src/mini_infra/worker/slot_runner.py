@@ -10,12 +10,9 @@ import torch
 
 from mini_infra.device import StepTimer
 from mini_infra.model import DenseAttentionMetadata
-from mini_infra.worker.base_runner import BaseModelRunner, PrefillOutput
+from mini_infra.worker.base_runner import BaseModelRunner
 from mini_infra.worker.dense_slot_cache import DenseSlotCache
 from mini_infra.worker.sampler import greedy_sample
-
-# 保持类型别名，向后兼容直接引用 SlotPrefillOutput 的调用方
-SlotPrefillOutput = PrefillOutput
 
 
 class SlotDecodeOutput(NamedTuple):
@@ -93,6 +90,5 @@ class SlotRunner(BaseModelRunner):
 
 __all__ = [
     "SlotDecodeOutput",
-    "SlotPrefillOutput",
     "SlotRunner",
 ]

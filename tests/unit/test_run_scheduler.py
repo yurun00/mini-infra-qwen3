@@ -249,7 +249,7 @@ def test_run_scheduler_case_and_step_on_cpu():
 
     # 1. 验证原子 run_case_once 与 extract_workload_profile
     single_res = run_case_once(model, device, case)
-    assert single_res.step_agg_metrics.e2e_wall_ms > 0
+    assert single_res.metrics.e2e_wall_ms > 0
     assert len(single_res.sequences) == 2
     sw = extract_workload_profile(single_res, workload_id=case.workload_id)
     assert sw.num_total_requests == 2
@@ -375,7 +375,7 @@ def test_run_scheduler_paged_case_on_cpu():
 
     # 1. 单次执行
     single_res = run_case_once(model, device, case)
-    assert single_res.step_agg_metrics.e2e_wall_ms > 0
+    assert single_res.metrics.e2e_wall_ms > 0
     assert len(single_res.sequences) == 2
     assert single_res.memory.kv_cache.paged_cache is not None
     assert single_res.memory.kv_cache.paged_cache.block_size == 4

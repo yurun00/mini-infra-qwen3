@@ -54,10 +54,7 @@ class Comparison:
         return {
             "metrics": [m.to_dict() for m in self.metrics],
             "group_by": [d.value for d in self.group_by],
-            "baseline": {
-                d.value if isinstance(d, CaseDimension) else str(d): v.value if hasattr(v, "value") else str(v)
-                for d, v in self.baseline.items()
-            },
+            "baseline": {d.value: v.value if hasattr(v, "value") else str(v) for d, v in self.baseline.items()},
         }
 
     @classmethod

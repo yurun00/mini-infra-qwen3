@@ -16,7 +16,7 @@ YAML 是外部输入边界：这里一次性完成全部校验，下游（expand
 """
 
 import re
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator, model_validator
 
@@ -51,9 +51,6 @@ class WorkloadTemplate(_Strict):
 
 
 # --------------------------------------------------------------------------- 扫描
-
-
-SystemSweepKey = Literal["max_running_requests", "batching_method", "caching_method", "block_size"]
 
 
 class SystemSweepSpec(_Strict):
@@ -252,7 +249,6 @@ __all__ = [
     "SuiteSpec",
     "SweepSpec",
     "SystemSpec",
-    "SystemSweepKey",
     "SystemSweepSpec",
     "WorkloadTemplate",
     "suite_json_schema",

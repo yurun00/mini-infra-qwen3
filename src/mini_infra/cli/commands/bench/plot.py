@@ -33,7 +33,7 @@ from mini_infra.bench.plotting.tidy import resolve_record_label
 from mini_infra.bench.result import load_benchmark_record
 
 
-def add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument(
         "-e",
         "--engine",
@@ -50,7 +50,7 @@ def add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return p
 
 
-def add_compare_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_compare_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument("file_a", type=Path, help="待比较的第一个 benchmark JSON 文件路径 (通常为 baseline)")
     p.add_argument("file_b", type=Path, help="待比较的第二个 benchmark JSON 文件路径 (通常为实验组/优化版)")
     p.add_argument(
@@ -93,12 +93,12 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     plot_subs = plot_parser.add_subparsers(dest="plot_subcommand", required=True)
 
     history_parser = plot_subs.add_parser("history", help="读取 results/history/ 生成跨版本演化与深度剖析图表")
-    add_history_args(history_parser)
-    history_parser.set_defaults(func=handle_history)
+    _add_history_args(history_parser)
+    history_parser.set_defaults(func=_handle_history)
 
     compare_parser = plot_subs.add_parser("compare", help="对比两个独立 benchmark JSON 结果并绘制多维对比图")
-    add_compare_args(compare_parser)
-    compare_parser.set_defaults(func=handle_compare)
+    _add_compare_args(compare_parser)
+    compare_parser.set_defaults(func=_handle_compare)
     return plot_parser
 
 
@@ -142,7 +142,7 @@ def _render_single_history_report(
         print("未安装 matplotlib，跳过绘图（pip install -e '.[bench]'）")
 
 
-def handle_history(args: argparse.Namespace) -> int:
+def _handle_history(args: argparse.Namespace) -> int:
     engine = getattr(args, "engine", "all")
     targets: list[tuple[str, str, Path, Path]] = []
     if engine in ("all", "lockstep"):
@@ -194,7 +194,7 @@ def handle_history(args: argparse.Namespace) -> int:
     return 0
 
 
-def handle_compare(args: argparse.Namespace) -> int:
+def _handle_compare(args: argparse.Namespace) -> int:
     rec1 = load_benchmark_record(args.file_a, require_single_case=True)
     rec2 = load_benchmark_record(args.file_b, require_single_case=True)
 
@@ -219,9 +219,5 @@ def handle_compare(args: argparse.Namespace) -> int:
 
 
 __all__ = [
-    "add_compare_args",
-    "add_history_args",
-    "handle_compare",
-    "handle_history",
     "register_parser",
 ]

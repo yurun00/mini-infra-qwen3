@@ -10,20 +10,18 @@ from pathlib import Path
 import torch
 
 from mini_infra.core import PagedCacheConfig, make_requests
+from mini_infra.device import synchronize
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
     FeatureFlag,
-    GenerationOptions,
     GenerationResult,
     Mode,
     Qwen3Tokenizer,
     ScheduleResult,
-    generate,
     run_scheduler,
-    synchronize,
 )
-from mini_infra.entrypoints.offline import resolve_paged_cache
+from mini_infra.entrypoints import GenerationOptions, generate, resolve_paged_cache
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -118,11 +116,11 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     """在根/上级 subparsers 中注册 run 子命令。"""
     parser = subparsers.add_parser("run", help="运行手写模型单请求/批处理推理与特性对照")
     add_run_args(parser)
-    parser.set_defaults(func=handle_run)
+    parser.set_defaults(func=_handle_run)
     return parser
 
 
-ENUM_COMPARE_DIMENSIONS: dict[str, type[CachingMethod] | type[BatchingMethod]] = {
+_ENUM_COMPARE_DIMENSIONS: dict[str, type[CachingMethod] | type[BatchingMethod]] = {
     "CachingMethod": CachingMethod,
     "BatchingMethod": BatchingMethod,
 }
@@ -144,10 +142,10 @@ def resolve_compare_feature(base_mode: Mode, raw_args: Sequence[str]) -> tuple[t
         raise ValueError("--compare-feature 不能为空")
 
     head = raw_args[0]
-    if head in ENUM_COMPARE_DIMENSIONS:
+    if head in _ENUM_COMPARE_DIMENSIONS:
         if len(raw_args) != 3:
             raise ValueError(f"--compare-feature 指定 {head} 时必须紧跟 2 个枚举值，当前传入: {list(raw_args)}")
-        enum_cls = ENUM_COMPARE_DIMENSIONS[head]
+        enum_cls = _ENUM_COMPARE_DIMENSIONS[head]
         val1 = enum_cls.from_str(raw_args[1])
         val2 = enum_cls.from_str(raw_args[2])
         if val1 == val2:
@@ -162,7 +160,7 @@ def resolve_compare_feature(base_mode: Mode, raw_args: Sequence[str]) -> tuple[t
         flag = FeatureFlag.from_str(head)
     except ValueError as err:
         valid_flags = [f.value for f in FeatureFlag]
-        valid_enums = list(ENUM_COMPARE_DIMENSIONS)
+        valid_enums = list(_ENUM_COMPARE_DIMENSIONS)
         raise ValueError(
             f"--compare-feature 参数 '{head}' 未知。可选 FeatureFlag: {valid_flags}，或 Enum 类名: {valid_enums}"
         ) from err
@@ -236,7 +234,7 @@ def run_mode(
     return generate(mode, model, input_ids, budgets, options=options)
 
 
-def print_schedule_metrics(result: ScheduleResult) -> None:
+def _print_schedule_metrics(result: ScheduleResult) -> None:
     sm = result.schedule_metrics
     print("Makespan: %.2f ms" % sm.makespan_ms)
     print("排队延迟 p50/p95: %.2f / %.2f ms" % (sm.queue_ms_p50, sm.queue_ms_p95))
@@ -272,7 +270,7 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
         print("槽位利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
     if isinstance(result, ScheduleResult):
-        print_schedule_metrics(result)
+        _print_schedule_metrics(result)
     kv_profile = result.memory.kv_cache
     print("峰值显存: %.2f MiB" % result.memory.peak_allocated_mb)
     print("最终 KV Cache: %.2f MiB" % kv_profile.peak_live_kv_cache_mb)
@@ -308,7 +306,7 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         print("TensorBoard Trace 目录: %s" % tensorboard_dir)
 
 
-def handle_run(args: argparse.Namespace) -> int:
+def _handle_run(args: argparse.Namespace) -> int:
     """执行 run 命令。"""
     if args.max_running_requests is not None and args.max_running_requests < 1:
         raise ValueError("--max-running-requests 必须大于 0")

@@ -3,7 +3,6 @@
 import pytest
 import torch
 
-from mini_infra.core.request import Request, RequestState, RequestStatus
 from mini_infra.model import DenseAttentionMetadata
 from mini_infra.verification.smoke import build_tiny_model
 from mini_infra.worker import DenseSlotCache, KVCache
@@ -24,14 +23,6 @@ def prefill(model, prompts: list[list[int]]) -> KVCache:
     with torch.inference_mode():
         _, present = model(input_ids, attention_mask=mask, position_ids=positions)
     return KVCache(present)
-
-
-def admitted_state(index: int, prompt: list[int], slot: int) -> RequestState:
-    state = RequestState(Request(index, tuple(prompt), 4))
-    state.status = RequestStatus.RUNNING
-    state.batch_slot_idx = slot
-    state.cache_length = len(prompt)
-    return state
 
 
 def assert_slot_matches_single_request(

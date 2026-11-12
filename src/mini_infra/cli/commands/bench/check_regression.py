@@ -15,7 +15,7 @@ from mini_infra.bench.check_regression import (
 )
 
 
-def add_regression_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_regression_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     p.add_argument("--reference", type=Path, default=DEFAULT_REFERENCE, help="参考 baseline 结果 JSON 路径")
     p.add_argument("--candidate", type=Path, help="已有候选结果；缺省则现场运行轻量 benchmark")
     p.add_argument("--threshold", type=float, default=0.05, help="中位数劣化阈值，默认 5%%")
@@ -30,12 +30,12 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
         "check-regression",
         help="运行轻量 benchmark 检查性能回归与质量门禁（退出码: 0通过/跳过, 1回归, 2错误）",
     )
-    add_regression_args(p)
-    p.set_defaults(func=handle_regression)
+    _add_regression_args(p)
+    p.set_defaults(func=_handle_regression)
     return p
 
 
-def handle_regression(args: argparse.Namespace) -> int:
+def _handle_regression(args: argparse.Namespace) -> int:
     if args.update_reference:
         code = run_light_benchmark(args.reference, "reference")
         if code:

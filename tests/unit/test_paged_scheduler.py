@@ -11,12 +11,11 @@ from mini_infra.core import PagedCacheConfig, make_requests, required_pool_block
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
-    GenerationOptions,
     Mode,
     SchedulePhase,
-    generate,
     run_scheduler,
 )
+from mini_infra.entrypoints import GenerationOptions, generate
 
 CPU = torch.device("cpu")
 KV_MODE = Mode(CachingMethod.DENSE)
@@ -117,7 +116,7 @@ def test_timeline_and_event_invariants(model):
     assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(requests)))
     # Paged Decode 只执行活跃请求：无 Padding 行，执行槽位利用率恒为 1
     assert all(e.physical_batch_size == e.num_active_requests for e in decode_events)
-    assert result.batch_info.execution_slot_utilization == pytest.approx(1.0)
+    assert result.batch_info.slot_utilization == pytest.approx(1.0)
     assert result.schedule_metrics.busy_ms == pytest.approx(sum(e.step_ms for e in result.events))
     assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
 

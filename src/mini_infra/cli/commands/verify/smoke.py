@@ -11,11 +11,11 @@ from mini_infra.verification.smoke import run_smoke_test
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
     """注册 mini-infra verify smoke 子命令。"""
     parser = subparsers.add_parser("smoke", help="基于微型模型的 CPU 快速冒烟自检")
-    parser.set_defaults(func=handle_smoke)
+    parser.set_defaults(func=_handle_smoke)
     return parser
 
 
-def handle_smoke(args: argparse.Namespace) -> int:
+def _handle_smoke(args: argparse.Namespace) -> int:
     run_smoke_test()
     print("smoke test passed")
     return 0

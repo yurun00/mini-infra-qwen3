@@ -45,7 +45,7 @@ def suite_output_path(
     """`--output` 优先；内置套件写入 benchmarks/results/suites/<engine>/<name>/；
 
     experimental（`--spec` 或带 `--set` 覆盖的非标准配置）写入被 .gitignore 忽略的 tmp/results/suites/<engine>/<name>/，
-    以免污染受控的 benchmarks/。
+    以免污染受控的 benchmarks/。公开导出亦供单测直接验证落盘路径规则（Test-only 外部调用）。
     """
     if args.output is not None:
         return args.output
@@ -53,7 +53,7 @@ def suite_output_path(
     return root / engine / suite_name / f"{commit}_{args.tag}.json"
 
 
-def add_sweep_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_sweep_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     add_common_args(parser)
     _use_suite_execution_defaults(parser)
     parser.add_argument("-e", "--engine", choices=["lockstep", "scheduler"], required=True, help="suite 所属引擎")
@@ -90,12 +90,12 @@ def add_sweep_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
 
 def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p = subparsers.add_parser("sweep", help="一次调用顺序运行多个 suite 并汇总（共享模型加载与正确性检查）")
-    add_sweep_args(p)
-    p.set_defaults(func=handle_sweep)
+    _add_sweep_args(p)
+    p.set_defaults(func=_handle_sweep)
     return p
 
 
-def resolve_targets(args: argparse.Namespace) -> list[_Target]:
+def _resolve_targets(args: argparse.Namespace) -> list[_Target]:
     """把 --suite / --spec / --all 解析为有序、去重后的运行目标；非法组合直接退出。"""
     chosen = [bool(args.suite), bool(args.spec), args.all]
     if sum(chosen) != 1:
@@ -111,7 +111,7 @@ def resolve_targets(args: argparse.Namespace) -> list[_Target]:
     return [_Target(path, False) for path in args.spec]
 
 
-def load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict[str, object]) -> list[BenchmarkSuite]:
+def _load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict[str, object]) -> list[BenchmarkSuite]:
     """加载全部目标（任何一个非法都在运行前暴露）；suite 名称必须唯一，否则结果文件会互相覆盖。"""
     suites = [load_benchmark_suite(target.path, overrides, expected_engine=engine) for target in targets]
     names = [suite.name for suite in suites]
@@ -121,12 +121,12 @@ def load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict
     return suites
 
 
-def handle_sweep(args: argparse.Namespace) -> int:
+def _handle_sweep(args: argparse.Namespace) -> int:
     if args.output is not None and args.output_dir is not None:
         sys.exit("不能同时指定 --output 与 --output-dir")
     overrides = parse_set_args(args.overrides)
-    targets = resolve_targets(args)
-    suites = load_suites(args.engine, targets, overrides)
+    targets = _resolve_targets(args)
+    suites = _load_suites(args.engine, targets, overrides)
     if args.output is not None and len(suites) > 1:
         sys.exit("--output 仅支持单个 suite，多个 suite 请使用 --output-dir")
 

@@ -34,7 +34,8 @@ from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.lockstep.types import (
     LockstepCaseResult,
 )
-from mini_infra.engine import GenerationOptions, GenerationResult, generate
+from mini_infra.engine import GenerationResult
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
 

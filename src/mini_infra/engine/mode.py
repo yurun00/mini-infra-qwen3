@@ -88,7 +88,7 @@ class Mode:
         return self.batching_method != BatchingMethod.NONE
 
     def feature_value(self, feature: FeatureDimension) -> Any:
-        """提取指定特征维度的当前取值。"""
+        """提取指定特征维度的当前取值。专供测试使用（Test-only）。"""
         if feature is CachingMethod:
             return self.caching_method
         if feature is BatchingMethod:

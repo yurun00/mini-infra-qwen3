@@ -1,11 +1,6 @@
 """推理与 Serving 执行引擎域：包含模型执行器、批状态机、批处理调度循环、运行模式与结果类型。"""
 
-from mini_infra.core.types import (
-    RequestMetrics,
-    SequenceOutput,
-)
-from mini_infra.device import synchronize
-from mini_infra.engine.lockstep_loop import run_lockstep
+from mini_infra.engine.lockstep_loop import LockstepState, run_lockstep
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     GenerationTrace,
@@ -43,43 +38,35 @@ from mini_infra.engine.tokenizer import (
     PRE_TOKEN_PATTERN,
     Qwen3Tokenizer,
 )
-from mini_infra.entrypoints.offline import generate
-from mini_infra.entrypoints.types import GenerationOptions
-from mini_infra.utils import percentile
 
 __all__ = [
     "AggregationOptions",
     "BatchScheduleInfo",
     "BatchingMethod",
+    "CachingMethod",
     "FeatureDimension",
     "FeatureFlag",
-    "GenerationOptions",
     "GenerationResult",
     "GenerationTrace",
-    "CachingMethod",
     "KVCacheProfile",
+    "LockstepState",
     "MemoryProfile",
     "Mode",
-    "PagedCacheProfile",
     "PRE_TOKEN_PATTERN",
+    "PagedCacheProfile",
     "Qwen3Tokenizer",
-    "RequestMetrics",
     "ScheduleEvent",
     "ScheduleMetrics",
     "SchedulePhase",
     "ScheduleResult",
-    "SequenceOutput",
     "StepAggregatedMetrics",
     "aggregate_generation_results",
     "build_memory_profile",
     "compute_step_aggregated_metrics",
-    "generate",
     "normalize_budgets",
     "normalize_token_sequences",
     "pad_output_tokens",
-    "percentile",
     "run_lockstep",
     "run_scheduler",
     "summarize_schedule",
-    "synchronize",
 ]

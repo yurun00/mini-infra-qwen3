@@ -261,3 +261,9 @@ def run_lockstep(
         batch_info=batch_info,
         op_breakdown=op_breakdown,
     )
+
+
+__all__ = [
+    "LockstepState",
+    "run_lockstep",
+]

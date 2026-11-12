@@ -14,12 +14,11 @@ from mini_infra.core.request import make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
-    GenerationOptions,
     Mode,
     Qwen3Tokenizer,
-    generate,
     run_scheduler,
 )
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -114,7 +113,7 @@ def test_continuous_batching_gpu_parity() -> None:
         )
 
     # 5. 指标健康检查
-    assert cont_result.step_agg_metrics.e2e_wall_ms > 0
+    assert cont_result.metrics.e2e_wall_ms > 0
     assert cont_result.memory.peak_allocated_mb > 0
     assert len(cont_result.request_metrics) == len(requests)
     for rm in cont_result.request_metrics:

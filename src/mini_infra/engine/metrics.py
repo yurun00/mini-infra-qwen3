@@ -181,11 +181,6 @@ class BatchScheduleInfo(Generic[_MetricT]):
     slot_utilization: _MetricT
     running_capacity_utilization: _MetricT | None = None
 
-    @property
-    def execution_slot_utilization(self) -> _MetricT:
-        """Serving 口径下的执行槽位利用率别名（与 slot_utilization 等价）。"""
-        return self.slot_utilization
-
     def to_dict(self) -> dict[str, Any]:
         """导出为批处理打包特征字典结构。"""
         data: dict[str, Any] = {

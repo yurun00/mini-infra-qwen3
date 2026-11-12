@@ -27,7 +27,7 @@ from mini_infra.verification.parity.compare_scheduler_batch import execute_compa
 from mini_infra.verification.parity.compare_transformers import execute_compare_transformers
 
 
-def add_transformers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_transformers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
@@ -37,7 +37,7 @@ def add_transformers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentP
     return parser
 
 
-def add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
@@ -53,7 +53,7 @@ def add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
-def add_lockstep_batch_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_lockstep_batch_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument("--prompt", default="用一句话解释固定批处理。")
@@ -69,7 +69,7 @@ def add_lockstep_batch_args(parser: argparse.ArgumentParser) -> argparse.Argumen
     return parser
 
 
-def add_scheduler_batch_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_scheduler_batch_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument(
@@ -84,7 +84,7 @@ def add_scheduler_batch_args(parser: argparse.ArgumentParser) -> argparse.Argume
     return parser
 
 
-def add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument(
@@ -106,7 +106,7 @@ def add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     return parser
 
 
-def add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
     parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
     parser.add_argument(
@@ -135,68 +135,36 @@ def add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse.
 
 
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
-    """注册 parity 相关验证命令，直接挂载到 verify 下，同时也挂载到 verify parity 下。"""
-    # 1. 直接挂载 mini-infra verify <subcommand>
+    """注册 parity 相关验证命令，直接挂载到 verify 下。"""
     p_tf = subparsers.add_parser("transformers", help="与 Hugging Face Transformers 对齐")
-    add_transformers_args(p_tf)
-    p_tf.set_defaults(func=handle_transformers)
+    _add_transformers_args(p_tf)
+    p_tf.set_defaults(func=_handle_transformers)
 
     p_cache = subparsers.add_parser("cache", help="KV Cache 数值对齐")
-    add_cache_args(p_cache)
-    p_cache.set_defaults(func=handle_cache)
+    _add_cache_args(p_cache)
+    p_cache.set_defaults(func=_handle_cache)
 
     p_batch = subparsers.add_parser("lockstep-batch", help="Lockstep 齐步批处理数值与请求隔离对齐")
-    add_lockstep_batch_args(p_batch)
-    p_batch.set_defaults(func=handle_lockstep_batch)
+    _add_lockstep_batch_args(p_batch)
+    p_batch.set_defaults(func=_handle_lockstep_batch)
 
     p_cont = subparsers.add_parser("scheduler-batch", help="Scheduler 批处理动态请求归属与输出一致性验证")
-    add_scheduler_batch_args(p_cont)
-    p_cont.set_defaults(func=handle_scheduler_batch)
+    _add_scheduler_batch_args(p_cont)
+    p_cont.set_defaults(func=_handle_scheduler_batch)
 
     p_paged = subparsers.add_parser("paged-cache", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
-    add_paged_cache_args(p_paged)
-    p_paged.set_defaults(func=handle_paged_cache)
+    _add_paged_cache_args(p_paged)
+    p_paged.set_defaults(func=_handle_paged_cache)
 
     p_paged_sched = subparsers.add_parser(
         "paged-cache-scheduler",
         help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
     )
-    add_paged_cache_scheduler_args(p_paged_sched)
-    p_paged_sched.set_defaults(func=handle_paged_cache_scheduler)
-
-    # 2. 支持分层命令 mini-infra verify parity <subcommand>
-    p_parity = subparsers.add_parser("parity", help="模型与特征数值对齐验证")
-    parity_subs = p_parity.add_subparsers(dest="parity_subcommand", required=True)
-
-    p_p_tf = parity_subs.add_parser("transformers", help="与 Hugging Face Transformers 对齐")
-    add_transformers_args(p_p_tf)
-    p_p_tf.set_defaults(func=handle_transformers)
-
-    p_p_cache = parity_subs.add_parser("cache", help="KV Cache 数值对齐")
-    add_cache_args(p_p_cache)
-    p_p_cache.set_defaults(func=handle_cache)
-
-    p_p_batch = parity_subs.add_parser("lockstep-batch", help="Lockstep 齐步批处理数值与请求隔离对齐")
-    add_lockstep_batch_args(p_p_batch)
-    p_p_batch.set_defaults(func=handle_lockstep_batch)
-
-    p_p_cont = parity_subs.add_parser("scheduler-batch", help="Scheduler 批处理动态请求归属与输出一致性验证")
-    add_scheduler_batch_args(p_p_cont)
-    p_p_cont.set_defaults(func=handle_scheduler_batch)
-
-    p_p_paged = parity_subs.add_parser("paged-cache", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
-    add_paged_cache_args(p_p_paged)
-    p_p_paged.set_defaults(func=handle_paged_cache)
-
-    p_p_paged_sched = parity_subs.add_parser(
-        "paged-cache-scheduler",
-        help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
-    )
-    add_paged_cache_scheduler_args(p_p_paged_sched)
-    p_p_paged_sched.set_defaults(func=handle_paged_cache_scheduler)
+    _add_paged_cache_scheduler_args(p_paged_sched)
+    p_paged_sched.set_defaults(func=_handle_paged_cache_scheduler)
 
 
-def handle_transformers(args: argparse.Namespace) -> int:
+def _handle_transformers(args: argparse.Namespace) -> int:
     return execute_compare_transformers(
         model=args.model,
         revision=args.revision,
@@ -207,7 +175,7 @@ def handle_transformers(args: argparse.Namespace) -> int:
     )
 
 
-def handle_cache(args: argparse.Namespace) -> int:
+def _handle_cache(args: argparse.Namespace) -> int:
     return execute_compare_cache(
         model=args.model,
         revision=args.revision,
@@ -219,7 +187,7 @@ def handle_cache(args: argparse.Namespace) -> int:
     )
 
 
-def handle_lockstep_batch(args: argparse.Namespace) -> int:
+def _handle_lockstep_batch(args: argparse.Namespace) -> int:
     return execute_compare_lockstep_batch(
         model=args.model,
         revision=args.revision,
@@ -231,7 +199,7 @@ def handle_lockstep_batch(args: argparse.Namespace) -> int:
     )
 
 
-def handle_scheduler_batch(args: argparse.Namespace) -> int:
+def _handle_scheduler_batch(args: argparse.Namespace) -> int:
     return execute_compare_scheduler_batch(
         model=args.model,
         revision=args.revision,
@@ -242,7 +210,7 @@ def handle_scheduler_batch(args: argparse.Namespace) -> int:
     )
 
 
-def handle_paged_cache(args: argparse.Namespace) -> int:
+def _handle_paged_cache(args: argparse.Namespace) -> int:
     return execute_compare_paged_logits(
         model=args.model,
         revision=args.revision,
@@ -255,7 +223,7 @@ def handle_paged_cache(args: argparse.Namespace) -> int:
     )
 
 
-def handle_paged_cache_scheduler(args: argparse.Namespace) -> int:
+def _handle_paged_cache_scheduler(args: argparse.Namespace) -> int:
     return execute_compare_paged_cache_scheduler(
         model=args.model,
         revision=args.revision,

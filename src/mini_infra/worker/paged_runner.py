@@ -43,18 +43,21 @@ class PagedRunner(BaseModelRunner):
         """
         padded_length = prefill_cache.length
         block_size = pool.block_size
-        rows: list[int] = []
-        positions: list[int] = []
+        token_rows: list[int] = []
+        token_positions: list[int] = []
         slots: list[int] = []
         for row_idx, (block_table, cache_length) in enumerate(zip(block_tables, cache_lengths)):
             for token_idx in range(cache_length):
-                rows.append(row_idx)
-                positions.append(padded_length - cache_length + token_idx)
+                token_rows.append(row_idx)
+                token_positions.append(padded_length - cache_length + token_idx)
                 slots.append(block_table[token_idx // block_size] * block_size + token_idx % block_size)
         # 单次 H2D：[3, num_tokens]。
-        index_tensor = torch.tensor([rows, positions, slots], dtype=torch.long, device=self.device)
+        index_tensor = torch.tensor([token_rows, token_positions, slots], dtype=torch.long, device=self.device)
         pool.write_prefill(
-            prefill_cache, row_indices=index_tensor[0], token_indices=index_tensor[1], slot_mapping=index_tensor[2]
+            prefill_cache,
+            token_rows=index_tensor[0],
+            token_positions=index_tensor[1],
+            slot_mapping=index_tensor[2],
         )
 
     def prepare_decode_inputs(

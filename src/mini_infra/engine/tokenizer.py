@@ -83,7 +83,7 @@ class Qwen3Tokenizer:
         self.unicode_to_byte = {character: byte_value for byte_value, character in self.byte_to_unicode.items()}
         self.eos_token_id = self.added_token_to_id["<|im_end|>"]
 
-    def bpe(self, byte_text: str) -> list[str]:
+    def _bpe(self, byte_text: str) -> list[str]:
         """按照 merge 优先级，把字符序列逐步合并成词表 Token。"""
         if byte_text in self.bpe_cache:
             return self.bpe_cache[byte_text]
@@ -119,7 +119,7 @@ class Qwen3Tokenizer:
         self.bpe_cache[byte_text] = pieces
         return pieces
 
-    def encode_ordinary_text(self, text: str) -> list[int]:
+    def _encode_ordinary_text(self, text: str) -> list[int]:
         """编码一段不包含 added token 的普通文本。"""
         token_ids = []
         normalized_text = unicodedata.normalize("NFC", text)
@@ -128,7 +128,7 @@ class Qwen3Tokenizer:
             utf8_bytes = text_piece.encode("utf-8")
             byte_text = "".join(self.byte_to_unicode[value] for value in utf8_bytes)
 
-            for bpe_token in self.bpe(byte_text):
+            for bpe_token in self._bpe(byte_text):
                 token_id = self.vocab.get(bpe_token)
                 if token_id is None:
                     raise ValueError("BPE 结果不在词表中: " + repr(bpe_token))
@@ -147,7 +147,7 @@ class Qwen3Tokenizer:
             if text_part in self.added_token_to_id:
                 token_ids.append(self.added_token_to_id[text_part])
             else:
-                token_ids.extend(self.encode_ordinary_text(text_part))
+                token_ids.extend(self._encode_ordinary_text(text_part))
 
         return token_ids
 

@@ -17,7 +17,7 @@ from mini_infra.verification.parity._common import (
 
 
 @torch.inference_mode()
-def compare_transformers_step_by_step(
+def _compare_transformers_step_by_step(
     handwritten_model,
     reference_model,
     input_ids,
@@ -109,7 +109,7 @@ def execute_compare_transformers(
     reference_model.config.use_cache = False
     reference_model = reference_model.to(device).eval()
 
-    result = compare_transformers_step_by_step(
+    result = _compare_transformers_step_by_step(
         handwritten_model,
         reference_model,
         input_ids,
@@ -124,6 +124,5 @@ def execute_compare_transformers(
 
 
 __all__ = [
-    "compare_transformers_step_by_step",
     "execute_compare_transformers",
 ]

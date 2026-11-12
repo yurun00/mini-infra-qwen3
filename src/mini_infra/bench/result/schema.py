@@ -191,15 +191,13 @@ class PagedCacheConfigRecord(_RecordModel):
 
 
 class CaseKeyRecord(_RecordModel):
-    """用例身份键记录。"""
+    """用例身份键记录（对应 `bench.cases.CaseKey.to_dict()`）。"""
 
     workload_id: str
-    max_running_requests: int
-    mode: str | None = None
-    paged_cache_config: PagedCacheConfigRecord | None = None
-    caching_method: str | None = None
-    batching_method: str | None = None
+    caching_method: str
+    batching_method: str
     flags: list[str] = Field(default_factory=list)
+    max_running_requests: int
     block_size: int | None = None
     num_blocks: int | None = None
     canonical_id: str | None = None

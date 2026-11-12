@@ -18,11 +18,11 @@ from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
     FeatureFlag,
-    GenerationOptions,
     GenerationResult,
     Mode,
     ScheduleResult,
 )
+from mini_infra.entrypoints import GenerationOptions
 
 CPU = torch.device("cpu")
 KV = CachingMethod.DENSE

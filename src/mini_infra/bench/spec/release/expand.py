@@ -52,7 +52,7 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
 
 
 def expand_release_scales(spec: ReleaseSpec, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
-    """把 ReleaseSpec 转换为三档运行时规格 ResolvedWorkloadSpec；seed 缺省取 default_seed。"""
+    """把 ReleaseSpec 转换为三档 ResolvedWorkloadSpec（seed 缺省取 default_seed，Test-only）。"""
     scales = resolve_release_spec(spec, seed=seed)
     return {scale: resolved.workload for scale, resolved in scales.items()}
 

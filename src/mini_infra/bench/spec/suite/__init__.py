@@ -1,6 +1,6 @@
 """Suite 领域规格声明、校验、展开与加载。"""
 
-from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec, expand_workload, resolve_workload
+from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec, expand_workload
 from mini_infra.bench.spec.suite.loader import (
     LoadedSuiteSpec,
     discover_suite_specs,
@@ -18,7 +18,6 @@ from mini_infra.bench.spec.suite.schema import (
     SuiteSpec,
     SweepSpec,
     SystemSpec,
-    SystemSweepKey,
     SystemSweepSpec,
     WorkloadTemplate,
     suite_json_schema,
@@ -37,7 +36,6 @@ __all__ = [
     "SuiteSpec",
     "SweepSpec",
     "SystemSpec",
-    "SystemSweepKey",
     "SystemSweepSpec",
     "WorkloadTemplate",
     "discover_suite_specs",
@@ -45,6 +43,5 @@ __all__ = [
     "expand_workload",
     "get_suite_spec",
     "load_suite_spec",
-    "resolve_workload",
     "suite_json_schema",
 ]

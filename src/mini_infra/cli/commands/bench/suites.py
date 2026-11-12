@@ -30,19 +30,19 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 
     list_parser = subs.add_parser("list", help="列出内置 suite")
     list_parser.add_argument("--engine", choices=_ENGINES, default=None, help="仅列出指定引擎的 suite")
-    list_parser.set_defaults(func=handle_list)
+    list_parser.set_defaults(func=_handle_list)
 
     show_parser = subs.add_parser("show", help="打印 suite 合并后的 YAML 与展开后的用例列表")
     show_parser.add_argument("target", help="内置 suite 名称，或 YAML 文件路径")
     show_parser.add_argument("--engine", choices=_ENGINES, default=None, help="名称重名时指定引擎")
-    show_parser.set_defaults(func=handle_show)
+    show_parser.set_defaults(func=_handle_show)
 
     schema_parser = subs.add_parser("schema", help="导出 suite / release YAML 的 JSON Schema（供 IDE 补全）")
     schema_parser.add_argument(
         "--kind", choices=["suite", "release"], default="suite", help="导出哪类声明的 Schema（默认: suite）"
     )
     schema_parser.add_argument("--output", type=Path, default=None, help="写入文件（默认打印到标准输出）")
-    schema_parser.set_defaults(func=handle_schema)
+    schema_parser.set_defaults(func=_handle_schema)
     return suites_parser
 
 
@@ -63,7 +63,7 @@ def _resolve_target(target: str, engine: SuiteEngine | None) -> LoadedSuiteSpec:
     return load_suite_spec(matches[0])
 
 
-def handle_list(args: argparse.Namespace) -> int:
+def _handle_list(args: argparse.Namespace) -> int:
     rows: list[tuple[str, str, int, str]] = []
     for engine in [args.engine] if args.engine else _ENGINES:
         for name, path in discover_suite_specs(engine).items():
@@ -80,7 +80,7 @@ def handle_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def handle_show(args: argparse.Namespace) -> int:
+def _handle_show(args: argparse.Namespace) -> int:
     try:
         loaded = _resolve_target(args.target, args.engine)
     except ValueError as err:
@@ -94,7 +94,7 @@ def handle_show(args: argparse.Namespace) -> int:
     return 0
 
 
-def handle_schema(args: argparse.Namespace) -> int:
+def _handle_schema(args: argparse.Namespace) -> int:
     schema = release_json_schema() if args.kind == "release" else suite_json_schema()
     text = json.dumps(schema, indent=2, ensure_ascii=False) + "\n"
     if args.output is None:

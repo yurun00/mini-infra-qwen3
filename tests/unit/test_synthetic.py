@@ -13,10 +13,9 @@ from mini_infra.bench.synthetic import (
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
-    GenerationOptions,
     Mode,
-    generate,
 )
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -154,11 +153,13 @@ def test_canonical_workloads_and_build_payload():
 
 
 def test_release_benchmark_script_dry_run(capsys):
-    from mini_infra.cli.commands.bench import release
+    from mini_infra.cli import main
 
     # Test lockstep dry-run
-    rc_lockstep = release.main(
+    rc_lockstep = main(
         [
+            "bench",
+            "release",
             "--engine",
             "lockstep",
             "--tag",
@@ -178,8 +179,10 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "-> 目标产物: benchmarks/results/history/lockstep/<commit>_v0.3.0.json" in out_lockstep
 
     # Test scheduler dry-run
-    rc_scheduler = release.main(
+    rc_scheduler = main(
         [
+            "bench",
+            "release",
             "--engine",
             "scheduler",
             "--tag",

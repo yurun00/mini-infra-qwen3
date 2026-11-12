@@ -86,11 +86,7 @@ class SchedulerCaseResult:
             "repeats": self.repeats,
             "warmup": self.warmup,
             "max_running_requests": self.key.max_running_requests,
-            "arrival_times_ms": (
-                list(self.workload.arrival_ms)
-                if isinstance(self.workload.arrival_ms, tuple)
-                else (self.workload.arrival_ms if self.workload.arrival_ms is not None else 0.0)
-            ),
+            "arrival_times_ms": list(self.workload.arrival_ms),
             "e2e_wall_ms": self.metrics.e2e_wall_ms.to_dict(),
             "e2e_model_ms": self.metrics.e2e_model_ms.to_dict(),
             "throughput_tok_s": self.metrics.throughput_tok_s.to_dict(),
@@ -165,11 +161,9 @@ class SchedulerCaseResult:
         repeat_samples = [
             {
                 "makespan_ms": r.schedule_metrics.makespan_ms,
-                "throughput_req_s": r.step_agg_metrics.throughput_req_s,
-                "throughput_tok_s": r.step_agg_metrics.throughput_tok_s,
-                "execution_slot_utilization": (
-                    r.batch_info.execution_slot_utilization if r.batch_info is not None else 0.0
-                ),
+                "throughput_req_s": r.metrics.throughput_req_s,
+                "throughput_tok_s": r.metrics.throughput_tok_s,
+                "execution_slot_utilization": (r.batch_info.slot_utilization if r.batch_info is not None else 0.0),
                 "ttft_ms_p95": r.schedule_metrics.ttft_ms_p95,
                 "itl_ms_p95": r.schedule_metrics.itl_ms_p95,
                 "cache_management_fraction": r.schedule_metrics.cache_management_fraction,
@@ -186,26 +180,22 @@ class SchedulerCaseResult:
             kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
         )
 
-        gpu_ratios = [r.step_agg_metrics.gpu_time_ratio for r in runs]
+        gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
         gpu_ratio_stat = (
             DistributionStats.from_samples([v for v in gpu_ratios if v is not None])
             if all(v is not None for v in gpu_ratios)
             else None
         )
         eff_prompt_vals = [
-            r.step_agg_metrics.effective_prompt_tok_s
-            for r in runs
-            if r.step_agg_metrics.effective_prompt_tok_s is not None
+            r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None
         ]
-        pad_prompt_vals = [
-            r.step_agg_metrics.padded_prompt_tok_s for r in runs if r.step_agg_metrics.padded_prompt_tok_s is not None
-        ]
+        pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
 
         step_agg_dist: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-            e2e_wall_ms=DistributionStats.from_samples([r.step_agg_metrics.e2e_wall_ms for r in runs]),
-            e2e_model_ms=DistributionStats.from_samples([r.step_agg_metrics.e2e_model_ms for r in runs]),
-            throughput_tok_s=DistributionStats.from_samples([r.step_agg_metrics.throughput_tok_s for r in runs]),
-            throughput_req_s=DistributionStats.from_samples([r.step_agg_metrics.throughput_req_s for r in runs]),
+            e2e_wall_ms=DistributionStats.from_samples([r.metrics.e2e_wall_ms for r in runs]),
+            e2e_model_ms=DistributionStats.from_samples([r.metrics.e2e_model_ms for r in runs]),
+            throughput_tok_s=DistributionStats.from_samples([r.metrics.throughput_tok_s for r in runs]),
+            throughput_req_s=DistributionStats.from_samples([r.metrics.throughput_req_s for r in runs]),
             gpu_time_ratio=gpu_ratio_stat,
             effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals) if eff_prompt_vals else None,
             padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals) if pad_prompt_vals else None,

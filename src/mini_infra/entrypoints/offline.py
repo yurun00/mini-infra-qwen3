@@ -56,8 +56,7 @@ def generate(
     device = torch.device(opts.device) if opts.device is not None else next(model.parameters()).device
 
     # 2. 规约输入 Prompt 与输出预算
-    tokenizer = getattr(opts, "tokenizer", None)
-    token_sequences, has_uniform_prompt_len = normalize_token_sequences(prompts, tokenizer=tokenizer)
+    token_sequences, has_uniform_prompt_len = normalize_token_sequences(prompts, tokenizer=opts.tokenizer)
     budgets = normalize_budgets(max_new_tokens, len(token_sequences))
 
     # 3. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
@@ -164,8 +163,6 @@ def _dispatch_continuous(
     paged_cache_config: PagedCacheConfig | None,
 ) -> ScheduleResult:
     """以 Continuous Batching 执行（支持自定义并发上限），直接返回 ScheduleResult。"""
-    if mode.caching_method is CachingMethod.NONE:
-        raise ValueError("continuous-batching 依赖 KV Cache，请将 caching_method 设为 CachingMethod.DENSE 或 PAGED")
     if opts.capture_logits or opts.profile:
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
     if opts.max_running_requests is not None and opts.max_running_requests < 1:
@@ -191,4 +188,5 @@ __all__ = [
     "GenerationResult",
     "PromptInput",
     "generate",
+    "resolve_paged_cache",
 ]

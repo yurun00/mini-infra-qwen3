@@ -13,14 +13,13 @@ from mini_infra.core import (
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
-    GenerationOptions,
     GenerationResult,
     Mode,
     SchedulePhase,
     ScheduleResult,
-    generate,
     run_scheduler,
 )
+from mini_infra.entrypoints import GenerationOptions, generate
 
 CPU = torch.device("cpu")
 KV_MODE = Mode(CachingMethod.DENSE)
@@ -123,23 +122,22 @@ def test_timeline_and_metric_invariants(model, method, case):
 
     assert metrics.request_count == len(requests) and metrics.max_running_requests == capacity
     assert metrics.makespan_ms == max(r.completion_ms for r in result.request_metrics) - min(arrivals)
-    assert result.step_agg_metrics.e2e_wall_ms >= result.step_agg_metrics.e2e_model_ms
-    assert result.step_agg_metrics.throughput_req_s > 0
-    assert result.step_agg_metrics.throughput_tok_s > 0
-    assert (result.step_agg_metrics.effective_prompt_tok_s or 0) > 0
-    assert (result.step_agg_metrics.padded_prompt_tok_s or 0) > 0
-    assert result.step_agg_metrics.ttft_ms is None
-    assert result.step_agg_metrics.mean_tpot_ms is None
+    assert result.metrics.e2e_wall_ms >= result.metrics.e2e_model_ms
+    assert result.metrics.throughput_req_s > 0
+    assert result.metrics.throughput_tok_s > 0
+    assert (result.metrics.effective_prompt_tok_s or 0) > 0
+    assert (result.metrics.padded_prompt_tok_s or 0) > 0
+    assert result.metrics.ttft_ms is None
+    assert result.metrics.mean_tpot_ms is None
     assert result.memory.prefill_mb is None
     assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
     assert result.batch_info is not None
-    assert result.batch_info.slot_utilization == result.batch_info.execution_slot_utilization
     assert result.batch_info.running_capacity_utilization is not None
     assert max(s.completion_step for s in result.sequences if s.completion_step is not None) == len(result.events)
     assert result.padded_output_tokens(0).tolist() == result.sequences[0].token_ids
     assert metrics.busy_ms == pytest.approx(sum(e.step_ms for e in result.events))
-    assert metrics.busy_ms == pytest.approx(result.step_agg_metrics.e2e_model_ms + metrics.cache_management_ms)
-    assert 0 < result.batch_info.execution_slot_utilization <= 1
+    assert metrics.busy_ms == pytest.approx(result.metrics.e2e_model_ms + metrics.cache_management_ms)
+    assert 0 < result.batch_info.slot_utilization <= 1
     assert 0 < result.batch_info.running_capacity_utilization <= 1
     assert 0 <= metrics.cache_management_fraction < 1
     assert metrics.ttft_ms_p50 <= metrics.ttft_ms_p95
@@ -195,8 +193,8 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     assert result.request_metrics[1].admitted_ms == 90000.0  # 空档期时钟直接跳转，没有真实 sleep
     assert result.request_metrics[1].queue_ms == 0.0
     assert result.schedule_metrics.makespan_ms > 89990.0  # 逻辑跨度包含空档期
-    assert result.step_agg_metrics.e2e_wall_ms < 5000.0  # 真实墙钟耗时不包含虚拟跳钟空档
-    assert result.step_agg_metrics.throughput_tok_s == pytest.approx(4 * 1000 / result.schedule_metrics.busy_ms)
+    assert result.metrics.e2e_wall_ms < 5000.0  # 真实墙钟耗时不包含虚拟跳钟空档
+    assert result.metrics.throughput_tok_s == pytest.approx(4 * 1000 / result.schedule_metrics.busy_ms)
 
 
 @pytest.mark.parametrize("runner", list(RUNNERS.values()))

@@ -103,11 +103,6 @@ class ScheduleResult(GenerationResult):
     caching_method: CachingMethod = CachingMethod.DENSE
 
     @property
-    def step_agg_metrics(self) -> StepAggregatedMetrics[float]:
-        """调度器视角下的步级聚合指标别名（与基类 metrics 指向同一对象，用以同 schedule_metrics 区分）。"""
-        return self.metrics
-
-    @property
     def mode(self) -> Mode:
         """运行模式。"""
         return Mode(self.caching_method, batching_method=self.batching_method)
@@ -160,7 +155,7 @@ class AggregationOptions:
     peak_reserved_mb: AggFunc | None = None
     peak_live_kv_cache_mb: AggFunc | None = None
 
-    def get_agg_fn(self, domain: str, field_name: str | None = None) -> Callable[[Sequence[float]], float]:
+    def _get_agg_fn(self, domain: str, field_name: str | None = None) -> Callable[[Sequence[float]], float]:
         """按优先级解析聚合函数：特定字段覆盖 > 域级默认。"""
         if field_name and hasattr(self, field_name):
             override = getattr(self, field_name)
@@ -198,18 +193,18 @@ def aggregate_generation_results(
     step_latencies = [x for run in runs for x in run.trace.step_latencies_ms]
     num_active_tokens = [x for run in runs for x in run.trace.num_active_tokens_per_step]
 
-    e2e_wall_ms = options.get_agg_fn("metrics", "e2e_wall_ms")([r.metrics.e2e_wall_ms for r in runs])
-    e2e_model_ms = options.get_agg_fn("metrics", "e2e_model_ms")([r.metrics.e2e_model_ms for r in runs])
+    e2e_wall_ms = options._get_agg_fn("metrics", "e2e_wall_ms")([r.metrics.e2e_wall_ms for r in runs])
+    e2e_model_ms = options._get_agg_fn("metrics", "e2e_model_ms")([r.metrics.e2e_model_ms for r in runs])
     ttft_vals = [r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]
     mean_tpot_vals = [r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]
     p50_tpot_vals = [r.metrics.p50_tpot_ms for r in runs if r.metrics.p50_tpot_ms is not None]
     p95_tpot_vals = [r.metrics.p95_tpot_ms for r in runs if r.metrics.p95_tpot_ms is not None]
-    ttft_ms = options.get_agg_fn("metrics", "ttft_ms")(ttft_vals) if ttft_vals else None
-    mean_tpot_ms = options.get_agg_fn("metrics", "mean_tpot_ms")(mean_tpot_vals) if mean_tpot_vals else None
-    p50_tpot_ms = options.get_agg_fn("metrics", "p50_tpot_ms")(p50_tpot_vals) if p50_tpot_vals else None
-    p95_tpot_ms = options.get_agg_fn("metrics", "p95_tpot_ms")(p95_tpot_vals) if p95_tpot_vals else None
-    throughput_tok_s = options.get_agg_fn("metrics", "throughput_tok_s")([r.metrics.throughput_tok_s for r in runs])
-    throughput_req_s = options.get_agg_fn("metrics", "throughput_req_s")([r.metrics.throughput_req_s for r in runs])
+    ttft_ms = options._get_agg_fn("metrics", "ttft_ms")(ttft_vals) if ttft_vals else None
+    mean_tpot_ms = options._get_agg_fn("metrics", "mean_tpot_ms")(mean_tpot_vals) if mean_tpot_vals else None
+    p50_tpot_ms = options._get_agg_fn("metrics", "p50_tpot_ms")(p50_tpot_vals) if p50_tpot_vals else None
+    p95_tpot_ms = options._get_agg_fn("metrics", "p95_tpot_ms")(p95_tpot_vals) if p95_tpot_vals else None
+    throughput_tok_s = options._get_agg_fn("metrics", "throughput_tok_s")([r.metrics.throughput_tok_s for r in runs])
+    throughput_req_s = options._get_agg_fn("metrics", "throughput_req_s")([r.metrics.throughput_req_s for r in runs])
 
     has_cuda = any(r.metrics.gpu_time_ratio is not None for r in runs)
     total_model_ms = sum(r.metrics.e2e_model_ms for r in runs)
@@ -228,11 +223,11 @@ def aggregate_generation_results(
         gpu_time_ratio=gpu_time_ratio,
     )
 
-    baseline_mb_fn = options.get_agg_fn("memory", "baseline_mb")
-    prefill_mb_fn = options.get_agg_fn("memory", "prefill_mb")
-    peak_allocated_mb_fn = options.get_agg_fn("memory", "peak_allocated_mb")
-    peak_reserved_mb_fn = options.get_agg_fn("memory", "peak_reserved_mb")
-    peak_live_kv_cache_mb_fn = options.get_agg_fn("memory", "peak_live_kv_cache_mb")
+    baseline_mb_fn = options._get_agg_fn("memory", "baseline_mb")
+    prefill_mb_fn = options._get_agg_fn("memory", "prefill_mb")
+    peak_allocated_mb_fn = options._get_agg_fn("memory", "peak_allocated_mb")
+    peak_reserved_mb_fn = options._get_agg_fn("memory", "peak_reserved_mb")
+    peak_live_kv_cache_mb_fn = options._get_agg_fn("memory", "peak_live_kv_cache_mb")
     prefill_vals = [r.memory.prefill_mb for r in runs if r.memory.prefill_mb is not None]
 
     memory = MemoryProfile(

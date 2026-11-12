@@ -109,7 +109,7 @@ class RunningQueue:
 
     @property
     def free_batch_slots(self) -> tuple[int, ...]:
-        """空闲 Batch 槽位号的只读快照（按最小堆次序，非排序结果）。"""
+        """空闲 Batch 槽位号的只读快照（按最小堆次序，非排序结果）。专供测试断言使用（Test-only）。"""
         return tuple(self._free_batch_slots)
 
     @property

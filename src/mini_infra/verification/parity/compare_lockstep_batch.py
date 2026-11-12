@@ -11,10 +11,9 @@ import torch
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
-    GenerationOptions,
     Mode,
-    generate,
 )
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -26,13 +25,13 @@ from mini_infra.verification.parity._common import (
 )
 
 
-def synthetic_sequence(length: int, vocab_size: int, salt: int) -> list[int]:
+def _synthetic_sequence(length: int, vocab_size: int, salt: int) -> list[int]:
     """生成确定性的伪随机 Token 序列（避免生成 0，0 为默认 pad_token_id）。"""
     values = torch.arange(length, dtype=torch.long)
     return ((values * (7919 + salt) + 17 + salt) % (vocab_size - 1) + 1).tolist()
 
 
-def compare_trace(
+def _compare_trace(
     reference: Any,
     candidate: Any,
     target_idx: int,
@@ -84,7 +83,7 @@ def compare_trace(
 
 
 @torch.inference_mode()
-def run_compare_lockstep_batch(
+def _run_compare_lockstep_batch(
     model: torch.nn.Module,
     target: list[int],
     vocab_size: int,
@@ -96,11 +95,11 @@ def run_compare_lockstep_batch(
     environment_metadata: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """执行 8 组变种与 2 组隔离对比，返回 (all_rows, failure_rows)。"""
-    equal_b = synthetic_sequence(len(target), vocab_size, 11)
-    equal_c = synthetic_sequence(len(target), vocab_size, 29)
-    equal_d = synthetic_sequence(len(target), vocab_size, 47)
-    short = synthetic_sequence(max(1, len(target) // 2), vocab_size, 61)
-    long = synthetic_sequence(len(target) + 17, vocab_size, 79)
+    equal_b = _synthetic_sequence(len(target), vocab_size, 11)
+    equal_c = _synthetic_sequence(len(target), vocab_size, 29)
+    equal_d = _synthetic_sequence(len(target), vocab_size, 47)
+    short = _synthetic_sequence(max(1, len(target) // 2), vocab_size, 61)
+    long = _synthetic_sequence(len(target) + 17, vocab_size, 79)
 
     variants = [
         ("single", [target], 0),
@@ -147,7 +146,7 @@ def run_compare_lockstep_batch(
             )
         )
         variant_runs[name] = candidate
-        comparison = compare_trace(reference, candidate, target_idx)
+        comparison = _compare_trace(reference, candidate, target_idx)
         comparison.update(
             {
                 "variant": name,
@@ -177,7 +176,7 @@ def run_compare_lockstep_batch(
         ("quad_order_isolation", "quad", "quad_reversed", 3),
     ]
     for name, reference_name, candidate_name, candidate_idx in isolation_pairs:
-        comparison = compare_trace(
+        comparison = _compare_trace(
             variant_runs[reference_name],
             variant_runs[candidate_name],
             candidate_idx,
@@ -228,7 +227,7 @@ def execute_compare_lockstep_batch(
         model, revision, dtype, prompt, max_new_tokens, logits_atol
     )
 
-    rows, failures = run_compare_lockstep_batch(
+    rows, failures = _run_compare_lockstep_batch(
         model=model_instance,
         target=target,
         vocab_size=len(tokenizer.vocab),
@@ -247,8 +246,5 @@ def execute_compare_lockstep_batch(
 
 
 __all__ = [
-    "compare_trace",
     "execute_compare_lockstep_batch",
-    "run_compare_lockstep_batch",
-    "synthetic_sequence",
 ]

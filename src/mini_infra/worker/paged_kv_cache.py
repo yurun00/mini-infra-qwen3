@@ -53,24 +53,24 @@ class PagedKVCachePool:
     def write_prefill(
         self,
         prefill_cache: KVCache,
-        row_indices: torch.Tensor,
-        token_indices: torch.Tensor,
+        token_rows: torch.Tensor,
+        token_positions: torch.Tensor,
         slot_mapping: torch.Tensor,
     ) -> None:
-        """把左 Padding Prefill 产生的有效 Token K/V 一次性散写入物理槽位（每层一次 index_copy_，无按请求循环）。
+        """把左 Padding Prefill 产生的有效 Token K/V 一次性散写入 slot（每层一次 index_copy_，无按请求循环）。
 
-        prefill_cache:  逐层 (key, value)，各 [batch, num_kv_heads, padded_len, head_dim]
-        row_indices:    [num_tokens] long，有效 Token 所在 batch 行
-        token_indices:  [num_tokens] long，有效 Token 在 padded_len 维的位置
-        slot_mapping:   [num_tokens] long，对应的目标物理槽位（互不重复）
+        prefill_cache:   逐层 (key, value)，各 [batch, num_kv_heads, padded_len, head_dim]
+        token_rows:      [num_tokens] long，每个有效 Token 所在的 row
+        token_positions: [num_tokens] long，每个有效 Token 在 padded_len 维的位置
+        slot_mapping:    [num_tokens] long，对应的目标 slot（互不重复）
         """
         for (key_pool, value_pool), (key, value) in zip(self.kv_pools, prefill_cache):
             # 高级索引夹着切片：结果为 [num_tokens, num_kv_heads, head_dim]（contiguous）。
             key_pool.view(-1, self.num_kv_heads, self.head_dim).index_copy_(
-                0, slot_mapping, key[row_indices, :, token_indices, :]
+                0, slot_mapping, key[token_rows, :, token_positions, :]
             )
             value_pool.view(-1, self.num_kv_heads, self.head_dim).index_copy_(
-                0, slot_mapping, value[row_indices, :, token_indices, :]
+                0, slot_mapping, value[token_rows, :, token_positions, :]
             )
 
 

@@ -194,11 +194,9 @@ def test_comparison_spec_from_yaml_is_typed():
 
 def test_scheduler_suite_case_paged_validation():
     from mini_infra.core.block_manager import PagedCacheConfig
-    from mini_infra.core.request import RequestSpec
     from mini_infra.core.request import Request
     from mini_infra.engine import CachingMethod
 
-    spec = RequestSpec(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     req = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
@@ -206,7 +204,6 @@ def test_scheduler_suite_case_paged_validation():
     # 1. Paged 模式不传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
         BenchmarkCase(
-            profile=WorkloadProfile.from_specs("test", (spec,)),
             profile=WorkloadProfile.from_requests("test", (req,)),
             mode=paged_mode,
             max_running_requests=2,
@@ -218,7 +215,6 @@ def test_scheduler_suite_case_paged_validation():
     # 2. 非 Paged 模式传 paged_cache_config 必须报错
     with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
         BenchmarkCase(
-            profile=WorkloadProfile.from_specs("test", (spec,)),
             profile=WorkloadProfile.from_requests("test", (req,)),
             mode=dense_mode,
             max_running_requests=2,
@@ -229,12 +225,10 @@ def test_scheduler_suite_case_paged_validation():
 
     # 3. workload_id 为空报错
     with pytest.raises(ValueError, match="workload_id 不能为空"):
-        WorkloadProfile.from_specs("", (spec,))
         WorkloadProfile.from_requests("", (req,))
 
     # 4. 正确传参合法构造
     case_paged = BenchmarkCase(
-        profile=WorkloadProfile.from_specs("workload_0", (spec,)),
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
         mode=paged_mode,
         max_running_requests=2,

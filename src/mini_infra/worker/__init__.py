@@ -13,7 +13,6 @@ from mini_infra.worker.paged_runner import PagedDecodeOutput, PagedRunner
 from mini_infra.worker.sampler import greedy_sample
 from mini_infra.worker.slot_runner import (
     SlotDecodeOutput,
-    SlotPrefillOutput,
     SlotRunner,
 )
 
@@ -29,7 +28,6 @@ __all__ = [
     "PagedRunner",
     "PrefillOutput",
     "SlotDecodeOutput",
-    "SlotPrefillOutput",
     "SlotRunner",
     "cache_size_bytes",
     "greedy_sample",

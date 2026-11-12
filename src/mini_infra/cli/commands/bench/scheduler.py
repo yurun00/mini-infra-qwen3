@@ -22,7 +22,7 @@ from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenize
 from mini_infra.model import load_model, resolve_model_directory
 
 
-def add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向 parser 添加 scheduler case 参数。"""
     add_common_args(p)
     p.add_argument(
@@ -71,7 +71,7 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     scheduler_subs = scheduler_parser.add_subparsers(dest="scheduler_subcommand", required=True)
 
     case_parser = scheduler_subs.add_parser("case", help="运行单用例 Scheduler 基准测试")
-    add_scheduler_case_args(case_parser)
+    _add_scheduler_case_args(case_parser)
     case_parser.set_defaults(func=handle_case)
     return scheduler_parser
 
@@ -109,7 +109,7 @@ def handle_case(args: argparse.Namespace) -> int:
     max_new_tokens: int | tuple[int, ...] = (
         tuple(args.output_budgets) if args.output_budgets is not None else args.output_budget
     )
-    arrivals: float | tuple[float, ...] | None = (
+    arrival_ms = (
         tuple(args.arrival_times_ms)
         if args.arrival_times_ms is not None
         else tuple(make_arrival_times(req_count, args.arrival_interval_ms))
@@ -119,11 +119,6 @@ def handle_case(args: argparse.Namespace) -> int:
 
     prompt_lens = (prompt_len,) * req_count if isinstance(prompt_len, int) else tuple(prompt_len)
     output_budgets = (max_new_tokens,) * req_count if isinstance(max_new_tokens, int) else tuple(max_new_tokens)
-    arrival_ms = (
-        (0.0,) * req_count
-        if arrivals is None
-        else (tuple(arrivals) if isinstance(arrivals, tuple) else (float(arrivals),) * req_count)
-    )
     workload_profile = WorkloadProfile(
         workload_id="custom",
         num_total_requests=req_count,
