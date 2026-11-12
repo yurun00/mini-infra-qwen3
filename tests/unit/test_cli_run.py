@@ -125,9 +125,10 @@ def test_run_mode_and_print_result_dense_vs_paged(diverse_model, capsys):
     assert uses_scheduler([dense_mode, paged_mode])
 
     budgets = [3, 2, 4, 1]
-    opts = make_opts(max_running_requests=2, paged_cache_config=PagedCacheConfig(block_size=4))
-    dense_res = run_mode(dense_mode, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
-    paged_res = run_mode(paged_mode, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
+    dense_opts = make_opts(max_running_requests=2)
+    paged_opts = make_opts(max_running_requests=2, kv_cache_config=PagedCacheConfig(block_size=4))
+    dense_res = run_mode(dense_mode, diverse_model, SEQS, SEQS, budgets, dense_opts, via_scheduler=True)
+    paged_res = run_mode(paged_mode, diverse_model, SEQS, SEQS, budgets, paged_opts, via_scheduler=True)
 
     assert [s.token_ids for s in dense_res.sequences] == [s.token_ids for s in paged_res.sequences]
     print_result(paged_mode, paged_res, FakeTokenizer())

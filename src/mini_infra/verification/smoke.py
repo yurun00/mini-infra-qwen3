@@ -5,7 +5,7 @@
 
 import torch
 
-from mini_infra.core import KVCacheManager, PagedCacheConfig, make_requests
+from mini_infra.core import DenseCacheConfig, KVCacheManager, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -183,13 +183,13 @@ def check_continuous_batching(model):
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     requests = make_requests(sequences, budgets)
     fixed = run_scheduler(
-        BatchingMethod.FIXED, model, requests, 2, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.FIXED, model, requests, 2, -1, device, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
     continuous = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, device, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
     serialized = run_scheduler(
-        BatchingMethod.NONE, model, requests, 1, -1, device, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.NONE, model, requests, 1, -1, device, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
@@ -219,7 +219,7 @@ def check_continuous_batching(model):
         2,
         -1,
         device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert [len(s.token_ids) for s in staggered.sequences] == [4, 2]
@@ -234,7 +234,7 @@ def check_continuous_batching(model):
         3,
         -1,
         device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     flattened_admissions = [request_idx for event in same_arrival.events for request_idx in event.admitted_request_ids]
@@ -336,7 +336,7 @@ def check_paged_kv_cache(model):
         2,
         -1,
         device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     paged = run_scheduler(
@@ -346,9 +346,8 @@ def check_paged_kv_cache(model):
         2,
         -1,
         device,
-        caching_method=CachingMethod.PAGED,
+        kv_cache_config=PagedCacheConfig(block_size=block_size),
         stop_on_eos=False,
-        paged_cache_config=PagedCacheConfig(block_size=block_size),
     )
     paged_gen = generate(
         Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS),
@@ -359,7 +358,7 @@ def check_paged_kv_cache(model):
             eos_token_id=-1,
             device=device,
             stop_on_eos=False,
-            paged_cache_config=PagedCacheConfig(block_size=block_size),
+            kv_cache_config=PagedCacheConfig(block_size=block_size),
         ),
     )
 

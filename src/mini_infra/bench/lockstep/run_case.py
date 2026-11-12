@@ -97,6 +97,7 @@ def run_case_once(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
+        kv_cache_config=case.kv_cache_config,
     )
     res = generate(
         case.mode,
@@ -139,6 +140,7 @@ def run_case(
         eos_token_id=-1,
         device=device,
         stop_on_eos=False,
+        kv_cache_config=case.kv_cache_config,
     )
     for _ in range(warmup):
         run_case_once(model, device, case, options=warmup_opts, prompts=prompts)
@@ -150,6 +152,7 @@ def run_case(
         stop_on_eos=False,
         profile=is_all_repeats_profile,
         tensorboard_options=tensorboard_options if is_all_repeats_profile else None,
+        kv_cache_config=case.kv_cache_config,
     )
     runs = [run_case_once(model, device, case, options=run_opts, prompts=prompts) for _ in range(repeats)]
 
@@ -164,6 +167,7 @@ def run_case(
             stop_on_eos=False,
             profile=True,
             tensorboard_options=tensorboard_options,
+            kv_cache_config=case.kv_cache_config,
         )
         prof_res = run_case_once(model, device, case, options=prof_opts)
         op_breakdown = prof_res.op_breakdown

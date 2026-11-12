@@ -25,6 +25,7 @@ from mini_infra.bench.suite import (
     list_benchmark_suite_names,
     load_benchmark_suite,
 )
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 FIXED_VS_CONTINUOUS = [
@@ -86,7 +87,12 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
     assert cases[0].workload_id == cases[1].workload_id
     assert cases[0].profile == cases[1].profile
     for case in cases:
-        assert case.key == CaseKey.from_mode(case.workload_id, case.mode, case.max_running_requests)
+        assert case.key == CaseKey.from_config(
+            case.workload_id,
+            batching_method=case.batching_method,
+            kv_cache_config=case.kv_cache_config,
+            max_running_requests=case.max_running_requests,
+        )
 
 
 def test_variable_output_length_suite_specs():
@@ -137,9 +143,9 @@ def test_dense_vs_paged_long_short_stress_suite():
     cases = suite.cases
     assert len(cases) == 2
     assert cases[0].profile.num_total_requests == 17  # 7 + 1 + 9
-    assert cases[0].paged_cache_config is None
-    assert cases[1].paged_cache_config is not None
-    assert cases[1].paged_cache_config.block_size == 16
+    assert isinstance(cases[0].kv_cache_config, DenseCacheConfig)
+    assert isinstance(cases[1].kv_cache_config, PagedCacheConfig)
+    assert cases[1].kv_cache_config.block_size == 16
 
     p = cases[0].profile
     short_lens = p.prompt_lens[:7]
@@ -169,7 +175,7 @@ def test_dense_vs_paged_length_ratio_suite():
         dense_case, paged_case = cases[2 * i], cases[2 * i + 1]
         assert dense_case.profile.prompt_lens[7] == long_len
         assert paged_case.profile.prompt_lens[7] == long_len
-        assert paged_case.paged_cache_config is not None and paged_case.paged_cache_config.block_size == 16
+        assert isinstance(paged_case.kv_cache_config, PagedCacheConfig) and paged_case.kv_cache_config.block_size == 16
 
 
 def test_dense_vs_paged_block_size_suite():
@@ -177,10 +183,10 @@ def test_dense_vs_paged_block_size_suite():
     assert len(cases) == 5
     assert all(c.workload_id == "block_size_sweep" for c in cases)
     assert cases[0].mode.caching_method == CachingMethod.DENSE
-    assert cases[0].paged_cache_config is None
+    assert isinstance(cases[0].kv_cache_config, DenseCacheConfig)
     for case, bs in zip(cases[1:], [8, 16, 32, 64]):
         assert case.mode.caching_method == CachingMethod.PAGED
-        assert case.paged_cache_config is not None and case.paged_cache_config.block_size == bs
+        assert isinstance(case.kv_cache_config, PagedCacheConfig) and case.kv_cache_config.block_size == bs
 
 
 def test_comparison_spec_from_yaml_is_typed():
@@ -193,57 +199,33 @@ def test_comparison_spec_from_yaml_is_typed():
 
 
 def test_scheduler_suite_case_paged_validation():
-    from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.core.request import Request
-    from mini_infra.engine import CachingMethod
 
     req = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
 
-    # 1. Paged 模式不传 paged_cache_config 必须报错
-    with pytest.raises(ValueError, match="Paged 模式 .* 必须提供 paged_cache_config"):
-        BenchmarkCase(
-            profile=WorkloadProfile.from_requests("test", (req,)),
-            mode=paged_mode,
-            max_running_requests=2,
-            paged_cache_config=None,
-            suite_name="test",
-            engine="scheduler",
-        )
-
-    # 2. 非 Paged 模式传 paged_cache_config 必须报错
-    with pytest.raises(ValueError, match="非 Paged 模式 .* 不得提供 paged_cache_config"):
-        BenchmarkCase(
-            profile=WorkloadProfile.from_requests("test", (req,)),
-            mode=dense_mode,
-            max_running_requests=2,
-            paged_cache_config=PagedCacheConfig(block_size=16),
-            suite_name="test",
-            engine="scheduler",
-        )
-
-    # 3. workload_id 为空报错
+    # 1. workload_id 为空报错
     with pytest.raises(ValueError, match="workload_id 不能为空"):
         WorkloadProfile.from_requests("", (req,))
 
-    # 4. 正确传参合法构造
+    # 2. PagedCacheConfig 通过 kv_cache_config 直接构建并派生 mode
     case_paged = BenchmarkCase(
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
-        mode=paged_mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(block_size=16),
         max_running_requests=2,
-        paged_cache_config=PagedCacheConfig(block_size=16),
         suite_name="test",
         engine="scheduler",
     )
     assert case_paged.workload_id == "workload_0"
-    assert case_paged.paged_cache_config is not None
-    assert case_paged.paged_cache_config.block_size == 16
-    assert case_paged.key == CaseKey.from_mode(
+    assert case_paged.mode == paged_mode
+    assert isinstance(case_paged.kv_cache_config, PagedCacheConfig)
+    assert case_paged.kv_cache_config.block_size == 16
+    assert case_paged.key == CaseKey.from_config(
         workload_id="workload_0",
-        mode=paged_mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(block_size=16),
         max_running_requests=2,
-        paged_cache_config=PagedCacheConfig(block_size=16),
     )
 
 
@@ -278,7 +260,6 @@ def test_compute_comparisons():
         bs: int | None = None,
         mrr: int = 8,
     ) -> SchedulerCaseResult:
-        mode = Mode(cm, batching_method=BatchingMethod.CONTINUOUS)
         workload = WorkloadProfile(
             workload_id=wid,
             num_total_requests=8,
@@ -330,12 +311,12 @@ def test_compute_comparisons():
             itl_ms_p95=dist(12.0),
             itl_ms_max=dist(15.0),
         )
-        paged_cfg = PagedCacheConfig(block_size=bs) if bs is not None else None
-        key = CaseKey.from_mode(
+        kv_cfg = PagedCacheConfig(block_size=bs) if bs is not None else cm.default_config
+        key = CaseKey.from_config(
             workload_id=wid,
-            mode=mode,
+            batching_method=BatchingMethod.CONTINUOUS,
+            kv_cache_config=kv_cfg,
             max_running_requests=mrr,
-            paged_cache_config=paged_cfg,
         )
         return SchedulerCaseResult(
             key=key,
@@ -468,16 +449,24 @@ def test_compute_comparisons():
 def test_format_table_abbreviations():
     from mini_infra.bench.cases import CaseKey
     from mini_infra.bench.scheduler.format import _abbreviate_suite_name
-    from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode
 
-    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-
     def wid_abbr(wid: str) -> str:
-        return CaseKey.from_mode(wid, dense_mode, 16).abbreviated_workload_id
+        return CaseKey.from_config(
+            wid,
+            batching_method=BatchingMethod.CONTINUOUS,
+            kv_cache_config=DenseCacheConfig(),
+            max_running_requests=16,
+        ).abbreviated_workload_id
 
     def mode_abbr(mode: Mode) -> str:
-        return CaseKey.from_mode("w", mode, 16).abbreviated_mode
+        return CaseKey.from_config(
+            "w",
+            batching_method=mode.batching_method,
+            kv_cache_config=mode.caching_method.default_config,
+            max_running_requests=16,
+            flags=mode.flags,
+        ).abbreviated_mode
 
     assert wid_abbr("variable_output_length") == "var_out_len"
     assert wid_abbr("uniform_output_length") == "uni_out_len"
@@ -500,9 +489,18 @@ def test_format_table_abbreviations():
     assert mode_abbr(Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)) == "pkc+cb"
     assert mode_abbr(Mode(CachingMethod.NONE)) == "nc"
 
-    dense_key = CaseKey.from_mode("variable_output_length", dense_mode, 16)
+    dense_key = CaseKey.from_config(
+        "variable_output_length",
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=DenseCacheConfig(),
+        max_running_requests=16,
+    )
     assert dense_key.abbreviated_display_name == "[var_out_len] | dkc+cb | mrr=16"
 
-    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    paged_key = CaseKey.from_mode("long_short_stress", paged_mode, 16, PagedCacheConfig(16, 64))
+    paged_key = CaseKey.from_config(
+        "long_short_stress",
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(16, 64),
+        max_running_requests=16,
+    )
     assert paged_key.abbreviated_display_name == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"

@@ -1,5 +1,11 @@
 """推理与 Serving 执行引擎域：包含模型执行器、批状态机、批处理调度循环、运行模式与结果类型。"""
 
+from mini_infra.core import (
+    DenseCacheConfig,
+    KVCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+)
 from mini_infra.engine.lockstep_loop import LockstepState, run_lockstep
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -44,15 +50,19 @@ __all__ = [
     "BatchScheduleInfo",
     "BatchingMethod",
     "CachingMethod",
+    "DenseCacheConfig",
     "FeatureDimension",
     "FeatureFlag",
     "GenerationResult",
     "GenerationTrace",
+    "KVCacheConfig",
     "KVCacheProfile",
     "LockstepState",
     "MemoryProfile",
     "Mode",
+    "NoCacheConfig",
     "PRE_TOKEN_PATTERN",
+    "PagedCacheConfig",
     "PagedCacheProfile",
     "Qwen3Tokenizer",
     "ScheduleEvent",

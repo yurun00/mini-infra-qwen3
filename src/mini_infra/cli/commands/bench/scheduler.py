@@ -17,7 +17,7 @@ from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.cli.commands.bench.args import add_common_args
-from mini_infra.core.block_manager import PagedCacheConfig
+from mini_infra.core import DenseCacheConfig, KVCacheConfig, PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 
@@ -86,10 +86,10 @@ def handle_case(args: argparse.Namespace) -> int:
     caching = CachingMethod(args.caching_method)
     method = BatchingMethod(args.batching_method)
     target_mode = Mode(caching, batching_method=method)
-    paged_cache_config = (
+    kv_cache_config: KVCacheConfig = (
         PagedCacheConfig(block_size=args.block_size, num_blocks=args.num_blocks)
         if caching is CachingMethod.PAGED
-        else None
+        else DenseCacheConfig()
     )
 
     correctness = check_correctness(
@@ -98,7 +98,7 @@ def handle_case(args: argparse.Namespace) -> int:
         target_mode,
         device,
         update_golden=False,
-        paged_cache_config=paged_cache_config,
+        kv_cache_config=kv_cache_config,
     )
     if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
@@ -130,14 +130,14 @@ def handle_case(args: argparse.Namespace) -> int:
 
     case = BenchmarkCase(
         profile=workload_profile,
-        mode=target_mode,
+        batching_method=method,
+        kv_cache_config=kv_cache_config,
         max_running_requests=max_running,
-        paged_cache_config=paged_cache_config,
         suite_name=case_name,
         engine="scheduler",
     )
 
-    block_info = f" block_size={paged_cache_config.block_size}" if paged_cache_config is not None else ""
+    block_info = f" block_size={kv_cache_config.block_size}" if isinstance(kv_cache_config, PagedCacheConfig) else ""
     print(
         f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} "
         f"requests={workload_profile.num_total_requests} "

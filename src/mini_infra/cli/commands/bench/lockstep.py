@@ -18,7 +18,8 @@ from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case
 from mini_infra.bench.paths import LOCKSTEP_RESULT_HISTORY_DIR
 from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
 from mini_infra.cli.commands.bench.args import add_common_args
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
+from mini_infra.core import DenseCacheConfig, NoCacheConfig
+from mini_infra.engine import BatchingMethod, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 from mini_infra.profiling import TensorBoardOptions
 
@@ -81,8 +82,8 @@ def _handle_case(args: argparse.Namespace) -> int:
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
 
-    caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
-    mode = Mode(caching_method, batching_method=args.batching_method)
+    kv_cache_config = DenseCacheConfig() if args.kv_cache else NoCacheConfig()
+    batching_method = BatchingMethod.from_str(args.batching_method)
 
     plens = (resolved_prompt_len,) * target_bs if isinstance(resolved_prompt_len, int) else resolved_prompt_len
     budgets = (
@@ -97,7 +98,8 @@ def _handle_case(args: argparse.Namespace) -> int:
     )
     case = BenchmarkCase(
         profile=profile,
-        mode=mode,
+        batching_method=batching_method,
+        kv_cache_config=kv_cache_config,
         suite_name="custom",
         engine="lockstep",
     )

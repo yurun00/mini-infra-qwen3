@@ -14,7 +14,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.types import CachingMethod, SequenceOutput
+from mini_infra.core.types import DenseCacheConfig, KVCacheConfig, PagedCacheConfig, SequenceOutput
 from mini_infra.device import PendingStepLatencies, synchronize
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -123,7 +123,7 @@ def run_lockstep(
     budgets: Sequence[int],
     device: torch.device,
     *,
-    caching_method: CachingMethod,
+    kv_cache_config: KVCacheConfig,
     pad_token_id: int = 0,
     eos_token_id: int | None = None,
     stop_on_eos: bool = True,
@@ -137,9 +137,9 @@ def run_lockstep(
     内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在 data plane 自治流转 GPU 输入与 KV Cache，
     直接构建并返回由核心共享值对象组成的 GenerationResult。
     """
-    if caching_method is CachingMethod.PAGED:
-        raise ValueError("lockstep 暂不支持 PAGED KV Cache，请使用 CachingMethod.NONE 或 CachingMethod.DENSE")
-    use_cache = caching_method is CachingMethod.DENSE
+    if isinstance(kv_cache_config, PagedCacheConfig):
+        raise ValueError("lockstep 暂不支持 PagedCacheConfig，请使用 NoCacheConfig 或 DenseCacheConfig")
+    use_cache = isinstance(kv_cache_config, DenseCacheConfig)
 
     is_cuda = device.type == "cuda"
     synchronize(device)

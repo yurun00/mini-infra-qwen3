@@ -10,10 +10,9 @@ from collections.abc import Sequence
 
 import torch
 
-from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_requests
+from mini_infra.core import KVCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.engine.lockstep_loop import run_lockstep
-from mini_infra.engine.mode import BatchingMethod, CachingMethod, Mode, validate_mode
+from mini_infra.engine.mode import BatchingMethod, Mode, validate_mode
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
     normalize_token_sequences,
@@ -27,13 +26,6 @@ from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.entrypoints.types import GenerationOptions, PromptInput
 
 
-def resolve_paged_cache(mode: Mode, opts: GenerationOptions) -> PagedCacheConfig | None:
-    """按 Mode 提取 Paged KV Cache 配置：未启用 PAGED 返回 None；启用则返回其配置（默认 PagedCacheConfig()）。"""
-    if mode.caching_method is not CachingMethod.PAGED:
-        return None
-    return opts.paged_cache_config or PagedCacheConfig()
-
-
 @torch.inference_mode()
 def generate(
     mode: Mode,
@@ -42,15 +34,20 @@ def generate(
     max_new_tokens: int | Sequence[int],
     options: GenerationOptions | None = None,
 ) -> GenerationResult:
-    """统一生成入口；mode 为 Mode 结构体对象。
+    """统一生成入口；mode 为 Mode 策略标签对象。
 
-    所有可选控制项（device、eos_token_id、stop_on_eos、profile、max_running_requests 等）
+    所有可选控制项（device、eos_token_id、stop_on_eos、profile、max_running_requests、kv_cache_config 等）
     统一通过 options（GenerationOptions 结构体）传入。
     不同 mode 对应不同的 feature 开关，但生成的 output token 完全一致。
     """
     opts = options or GenerationOptions()
     validate_mode(mode)
-    paged_cache_config = resolve_paged_cache(mode, opts)
+    if opts.kv_cache_config is not None and opts.kv_cache_config.method is not mode.caching_method:
+        raise ValueError(
+            f"options.kv_cache_config.method ({opts.kv_cache_config.method}) 与 "
+            f"mode.caching_method ({mode.caching_method}) 不一致"
+        )
+    kv_cache_config = opts.kv_cache_config if opts.kv_cache_config is not None else mode.caching_method.default_config
 
     # 1. 规约设备
     device = torch.device(opts.device) if opts.device is not None else next(model.parameters()).device
@@ -60,7 +57,7 @@ def generate(
     budgets = normalize_budgets(max_new_tokens, len(token_sequences))
 
     # 3. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
-    if mode.batching_method == BatchingMethod.CONTINUOUS or mode.caching_method is CachingMethod.PAGED:
+    if mode.batching_method == BatchingMethod.CONTINUOUS or isinstance(kv_cache_config, PagedCacheConfig):
         return _dispatch_continuous(
             mode,
             model,
@@ -68,7 +65,7 @@ def generate(
             budgets,
             device,
             opts,
-            paged_cache_config,
+            kv_cache_config,
         )
 
     # 4. 串行 baseline 分发
@@ -84,24 +81,24 @@ def generate(
 
     # 5. 齐步（Lockstep）执行（所有请求同时开始，无队列调度）
     return _dispatch_lockstep(
-        mode,
         model,
         token_sequences,
         has_uniform_prompt_len,
         budgets,
         device,
         opts,
+        kv_cache_config,
     )
 
 
 def _dispatch_lockstep(
-    mode: Mode,
     model: torch.nn.Module,
     token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
+    kv_cache_config: KVCacheConfig,
 ) -> GenerationResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
     return run_lockstep(
@@ -109,7 +106,7 @@ def _dispatch_lockstep(
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
-        caching_method=mode.caching_method,
+        kv_cache_config=kv_cache_config,
         device=device,
         pad_token_id=opts.pad_token_id,
         eos_token_id=opts.eos_token_id,
@@ -139,6 +136,7 @@ def _dispatch_serial_baseline(
         profile=opts.profile,
         top_kernels=opts.top_kernels,
         tensorboard_options=opts.tensorboard_options,
+        kv_cache_config=opts.kv_cache_config,
     )
     runs = [
         generate(
@@ -160,7 +158,7 @@ def _dispatch_continuous(
     budgets: Sequence[int],
     device: torch.device,
     opts: GenerationOptions,
-    paged_cache_config: PagedCacheConfig | None,
+    kv_cache_config: KVCacheConfig,
 ) -> ScheduleResult:
     """以 Continuous Batching 执行（支持自定义并发上限），直接返回 ScheduleResult。"""
     if opts.capture_logits or opts.profile:
@@ -176,10 +174,9 @@ def _dispatch_continuous(
         max_running_requests,
         opts.eos_token_id,
         device,
-        caching_method=mode.caching_method,
+        kv_cache_config=kv_cache_config,
         pad_token_id=opts.pad_token_id,
         stop_on_eos=opts.stop_on_eos,
-        paged_cache_config=paged_cache_config,
     )
 
 
@@ -188,5 +185,4 @@ __all__ = [
     "GenerationResult",
     "PromptInput",
     "generate",
-    "resolve_paged_cache",
 ]

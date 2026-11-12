@@ -5,11 +5,9 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
     Qwen3Tokenizer,
     run_scheduler,
 )
@@ -67,7 +65,7 @@ def run_compare_paged_cache_scheduler(
         max_running_requests=max_running_requests,
         eos_token_id=tokenizer.eos_token_id,
         device=device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     dense_token_ids = [s.token_ids for s in dense.sequences]
@@ -82,9 +80,8 @@ def run_compare_paged_cache_scheduler(
             max_running_requests=max_running_requests,
             eos_token_id=tokenizer.eos_token_id,
             device=device,
-            caching_method=CachingMethod.PAGED,
+            kv_cache_config=PagedCacheConfig(block_size=block_size),
             stop_on_eos=False,
-            paged_cache_config=PagedCacheConfig(block_size=block_size),
         )
         paged_token_ids = [s.token_ids for s in paged_run.sequences]
         matches_dense = paged_token_ids == dense_token_ids

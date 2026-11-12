@@ -13,8 +13,8 @@ from mini_infra.bench.scheduler.plan import (
     build_scheduler_run_plan,
     format_scheduler_run_plan,
 )
-from mini_infra.core.request import Request
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig, Request
+from mini_infra.engine import BatchingMethod, CachingMethod
 
 
 def make_dummy_case(
@@ -23,12 +23,12 @@ def make_dummy_case(
     suite_name: str = "test-suite",
     workload_id: str = "test_workload",
 ) -> BenchmarkCase:
-    caching_method = CachingMethod.DENSE if kv_cache else CachingMethod.NONE
-    mode = Mode(caching_method, batching_method=batching_method)
+    kv_cache_config = DenseCacheConfig() if kv_cache else NoCacheConfig()
     req = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     return BenchmarkCase(
         profile=WorkloadProfile.from_requests(workload_id, (req,)),
-        mode=mode,
+        batching_method=batching_method,
+        kv_cache_config=kv_cache_config,
         max_running_requests=2,
         suite_name=suite_name,
         engine="scheduler",
@@ -75,13 +75,11 @@ def test_case_key_dimension_value():
     assert restored_key.canonical_id == case.key.canonical_id
 
     # 验证带 block_size 与 num_blocks 时的 display_name 与恢复
-    from mini_infra.core.block_manager import PagedCacheConfig
-
-    paged_key = CaseKey.from_mode(
+    paged_key = CaseKey.from_config(
         "custom_wl",
-        Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS),
-        16,
-        PagedCacheConfig(16, 64),
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(16, 64),
+        max_running_requests=16,
     )
     assert "block=16(n=64)" in paged_key.display_name
     restored_paged = CaseKey.from_dict(paged_key.to_dict())
@@ -220,40 +218,38 @@ def test_empty_plan():
 
 
 def test_multi_workload_id_grouping_and_interleaving():
-    from mini_infra.core.block_manager import PagedCacheConfig
-
     req = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
-    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
 
     # 两个不同的 workload，每个 workload 包含 dense 和 paged 两种 caching_method
     w0_dense = BenchmarkCase(
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
-        mode=dense_mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=DenseCacheConfig(),
         max_running_requests=2,
         suite_name="test-multi-workload",
         engine="scheduler",
     )
     w0_paged = BenchmarkCase(
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
-        mode=paged_mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(block_size=16),
         max_running_requests=2,
-        paged_cache_config=PagedCacheConfig(block_size=16),
         suite_name="test-multi-workload",
         engine="scheduler",
     )
     w1_dense = BenchmarkCase(
         profile=WorkloadProfile.from_requests("workload_1", (req,)),
-        mode=dense_mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=DenseCacheConfig(),
         max_running_requests=2,
         suite_name="test-multi-workload",
         engine="scheduler",
     )
     w1_paged = BenchmarkCase(
         profile=WorkloadProfile.from_requests("workload_1", (req,)),
-        mode=paged_mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(block_size=16),
         max_running_requests=2,
-        paged_cache_config=PagedCacheConfig(block_size=16),
         suite_name="test-multi-workload",
         engine="scheduler",
     )
@@ -349,18 +345,18 @@ def test_build_scheduler_run_plan_duplicate_case_key():
 def test_build_scheduler_run_plan_inconsistent_specs():
     req1 = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     req2 = Request(request_idx=0, token_ids=[1, 2, 3], max_new_tokens=2, arrival_ms=0.0)
-    mode1 = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
-    mode2 = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     c1 = BenchmarkCase(
         profile=WorkloadProfile.from_requests("w0", (req1,)),
-        mode=mode1,
+        batching_method=BatchingMethod.FIXED,
+        kv_cache_config=DenseCacheConfig(),
         max_running_requests=2,
         suite_name="s",
         engine="scheduler",
     )
     c2 = BenchmarkCase(
         profile=WorkloadProfile.from_requests("w0", (req2,)),
-        mode=mode2,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=DenseCacheConfig(),
         max_running_requests=2,
         suite_name="s",
         engine="scheduler",

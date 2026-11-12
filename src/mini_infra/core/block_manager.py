@@ -9,29 +9,12 @@ control plane 只维护「请求 -> 物理 Block ID 列表（block table）」�
 
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from mini_infra.core.request import Request
+from mini_infra.core.types import PagedCacheConfig
 
 # vLLM 约定：block 0 为 null block，永不分配，仅用于 block table 右侧补齐，保证补齐位寻址合法。
 NULL_BLOCK_ID = 0
-
-
-@dataclass(frozen=True)
-class PagedCacheConfig:
-    """Paged KV Cache 配置。
-
-    block_size: 每块容纳的 Token 数；num_blocks: physical block pool 大小（含 null block），None 时按负载自动推导。
-    """
-
-    block_size: int = 16
-    num_blocks: int | None = None
-
-    def __post_init__(self) -> None:
-        if self.block_size < 1:
-            raise ValueError("block_size 必须大于 0")
-        if self.num_blocks is not None and self.num_blocks < 2:
-            raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
 
 
 def num_blocks_for_tokens(num_tokens: int, block_size: int) -> int:

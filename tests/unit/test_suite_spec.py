@@ -19,7 +19,7 @@ from mini_infra.bench.spec import (
     load_suite_spec,
 )
 from mini_infra.bench.suite import BenchmarkSuite, get_benchmark_suite
-from mini_infra.core.types import collapse_uniform
+from mini_infra.core import PagedCacheConfig, collapse_uniform
 from mini_infra.engine import BatchingMethod, CachingMethod
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
@@ -39,9 +39,9 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
             "mode": str(c.mode),
             "max_running_requests": c.max_running_requests,
             "paged_cache_config": (
-                None
-                if c.paged_cache_config is None
-                else {"block_size": c.paged_cache_config.block_size, "num_blocks": c.paged_cache_config.num_blocks}
+                {"block_size": c.kv_cache_config.block_size, "num_blocks": c.kv_cache_config.num_blocks}
+                if isinstance(c.kv_cache_config, PagedCacheConfig)
+                else None
             ),
             "specs": [
                 [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
@@ -168,7 +168,13 @@ def test_caching_spec_variants_in_sweep_expand_in_order(tmp_path):
         + "      - {kind: paged-kv-cache, block_size: 8}\n"
     )
     cases = load_suite_spec(_write(tmp_path, text)).cases
-    assert [(cs.mode.caching_method, cs.paged_cache_config and cs.paged_cache_config.block_size) for cs in cases] == [
+    assert [
+        (
+            cs.mode.caching_method,
+            cs.kv_cache_config.block_size if isinstance(cs.kv_cache_config, PagedCacheConfig) else None,
+        )
+        for cs in cases
+    ] == [
         (CachingMethod.DENSE, None),
         (CachingMethod.PAGED, 4),
         (CachingMethod.PAGED, 8),
@@ -418,7 +424,7 @@ def test_system_spec_caching_spec_discriminated_union():
     assert isinstance(s_paged_dict.caching_spec, PagedCacheSpec)
     assert s_paged_dict.caching_spec.block_size == 32
     assert s_paged_dict.caching_spec.num_blocks == 64
-    assert s_paged_dict.caching_spec.paged_cache_config.block_size == 32
+    assert s_paged_dict.caching_spec.kv_cache_config.block_size == 32
 
     # 4. 非法状态不可表达：dense-kv-cache 下传入 block_size 被拒绝
     with pytest.raises(ValueError):

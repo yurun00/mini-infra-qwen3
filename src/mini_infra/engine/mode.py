@@ -34,7 +34,11 @@ FeatureDimension = FeatureFlag | type[CachingMethod] | type[BatchingMethod]
 
 @dataclass(frozen=True)
 class Mode:
-    """运行模式结构体：内部存储 KV Cache 策略（CachingMethod）、批处理策略（BatchingMethod）与 FeatureFlag 集合。
+    """运行策略标签（等价类）：标识算法策略组合 `(caching_method, batching_method, flags)`。
+
+    注意：`Mode` 仅作为无参数的策略身份标签，用于正确性门禁去重（`correctness_cache`）、
+    golden 对照及可读模式标识（`str(mode)`），不承载具体策略的运行时参数（如 `PagedCacheConfig.block_size`）。
+    运行时 KV Cache 参数由 `KVCacheConfig`（`NoCacheConfig | DenseCacheConfig | PagedCacheConfig`）表达。
 
     - caching_method: 互斥的 KV Cache 策略（CachingMethod.NONE / DENSE / PAGED）。
     - batching_method: 互斥的批处理策略（BatchingMethod.NONE / FIXED / CONTINUOUS）。

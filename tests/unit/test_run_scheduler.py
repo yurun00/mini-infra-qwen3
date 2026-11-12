@@ -17,7 +17,7 @@ from mini_infra.bench.scheduler import (
     run_suite,
 )
 from mini_infra.bench.suite import load_benchmark_suite
-from mini_infra.core.request import make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -123,9 +123,9 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     tiny_model = build_tiny_model()
     captured_correctness_kwargs = {}
 
-    def fake_check_correctness(model, tokenizer, mode, device, update_golden=False, paged_cache_config=None):
+    def fake_check_correctness(model, tokenizer, mode, device, update_golden=False, kv_cache_config=None):
         captured_correctness_kwargs["mode"] = mode
-        captured_correctness_kwargs["paged_cache_config"] = paged_cache_config
+        captured_correctness_kwargs["kv_cache_config"] = kv_cache_config
         return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
 
     monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
@@ -171,7 +171,7 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     ret = sched_cmd.handle_case(args)
     assert ret == 0
     assert captured_correctness_kwargs["mode"] == Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    assert captured_correctness_kwargs["paged_cache_config"] == PagedCacheConfig(block_size=4, num_blocks=32)
+    assert captured_correctness_kwargs["kv_cache_config"] == PagedCacheConfig(block_size=4, num_blocks=32)
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     assert saved["mode"] == "paged-kv-cache+continuous-batching"
@@ -241,7 +241,8 @@ def test_run_scheduler_case_and_step_on_cpu():
     mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("test-cont-case", requests),
-        mode=mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=DenseCacheConfig(),
         max_running_requests=2,
         suite_name="test-cont-case",
         engine="scheduler",
@@ -356,8 +357,6 @@ workload:
 
 def test_run_scheduler_paged_case_on_cpu():
     """验证 run_case_once 和 run_case 支持 Paged 缓存模式并正确采集 paged_cache 画像。"""
-    from mini_infra.core.block_manager import PagedCacheConfig
-
     model = build_tiny_model()
     device = torch.device("cpu")
     requests = tuple(make_requests([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
@@ -366,9 +365,9 @@ def test_run_scheduler_paged_case_on_cpu():
 
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("stress_case", requests),
-        mode=mode,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=paged_config,
         max_running_requests=2,
-        paged_cache_config=paged_config,
         suite_name="test-paged-case",
         engine="scheduler",
     )
@@ -399,8 +398,6 @@ def test_run_scheduler_paged_case_on_cpu():
 
 def test_run_scheduler_suite_multi_workload_on_cpu():
     """验证 run_suite 在多 workload_id 情况下能正确归集每个 case 的独立测量结果。"""
-    from mini_infra.core.block_manager import PagedCacheConfig
-
     model = build_tiny_model()
     device = torch.device("cpu")
     req_w0 = tuple(make_requests([[1, 2], [3, 4]], [2, 2], [0.0, 0.0]))
@@ -413,31 +410,33 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     cases = [
         BenchmarkCase(
             profile=WorkloadProfile.from_requests("workload_0", req_w0),
-            mode=dense_mode,
+            batching_method=BatchingMethod.CONTINUOUS,
+            kv_cache_config=DenseCacheConfig(),
             max_running_requests=2,
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
         BenchmarkCase(
             profile=WorkloadProfile.from_requests("workload_0", req_w0),
-            mode=paged_mode,
-            max_running_requests=2,
-            paged_cache_config=paged_config,
-            suite_name="multi-workload-suite",
-            engine="scheduler",
-        ),
-        BenchmarkCase(
-            profile=WorkloadProfile.from_requests("workload_1", req_w1),
-            mode=dense_mode,
+            batching_method=BatchingMethod.CONTINUOUS,
+            kv_cache_config=paged_config,
             max_running_requests=2,
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
         BenchmarkCase(
             profile=WorkloadProfile.from_requests("workload_1", req_w1),
-            mode=paged_mode,
+            batching_method=BatchingMethod.CONTINUOUS,
+            kv_cache_config=DenseCacheConfig(),
             max_running_requests=2,
-            paged_cache_config=paged_config,
+            suite_name="multi-workload-suite",
+            engine="scheduler",
+        ),
+        BenchmarkCase(
+            profile=WorkloadProfile.from_requests("workload_1", req_w1),
+            batching_method=BatchingMethod.CONTINUOUS,
+            kv_cache_config=paged_config,
+            max_running_requests=2,
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),

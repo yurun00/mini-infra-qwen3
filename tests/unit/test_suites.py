@@ -335,14 +335,20 @@ def test_benchmark_case_and_suite_unification(tmp_path):
     mode = Mode(caching_method=CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
 
     # 1. 缺省 max_running_requests 自动推导为 num_total_requests
-    case = BenchmarkCase(profile=profile, mode=mode, engine="lockstep")
+    case = BenchmarkCase(profile=profile, batching_method=BatchingMethod.FIXED, engine="lockstep")
+    assert case.mode == mode
     assert case.max_running_requests == 3
     assert case.key.max_running_requests == 3
     assert case.workload_id == "test_profile"
     assert case.engine == "lockstep"
 
     # 2. 显式提供 max_running_requests
-    scheduler_case = BenchmarkCase(profile=profile, mode=mode, max_running_requests=2, engine="scheduler")
+    scheduler_case = BenchmarkCase(
+        profile=profile,
+        batching_method=BatchingMethod.FIXED,
+        max_running_requests=2,
+        engine="scheduler",
+    )
     assert scheduler_case.max_running_requests == 2
     assert scheduler_case.engine == "scheduler"
 

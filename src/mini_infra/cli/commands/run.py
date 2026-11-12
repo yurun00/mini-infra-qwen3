@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from mini_infra.core import PagedCacheConfig, make_requests
+from mini_infra.core import KVCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.device import synchronize
 from mini_infra.engine import (
     BatchingMethod,
@@ -21,7 +21,7 @@ from mini_infra.engine import (
     ScheduleResult,
     run_scheduler,
 )
-from mini_infra.entrypoints import GenerationOptions, generate, resolve_paged_cache
+from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -198,6 +198,16 @@ def uses_scheduler(modes: Sequence[Mode]) -> bool:
     return any(m.batching_method is BatchingMethod.CONTINUOUS or m.caching_method is CachingMethod.PAGED for m in modes)
 
 
+def _build_kv_cache_config(
+    caching_method: CachingMethod,
+    block_size: int = PagedCacheConfig.block_size,
+    num_blocks: int | None = None,
+) -> KVCacheConfig:
+    if caching_method is CachingMethod.PAGED:
+        return PagedCacheConfig(block_size=block_size, num_blocks=num_blocks)
+    return caching_method.default_config
+
+
 def run_mode(
     mode: Mode,
     model: torch.nn.Module,
@@ -213,6 +223,14 @@ def run_mode(
             raise ValueError("调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache")
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
+        if options.kv_cache_config is not None and options.kv_cache_config.method is not mode.caching_method:
+            raise ValueError(
+                f"options.kv_cache_config.method ({options.kv_cache_config.method}) 与 "
+                f"mode.caching_method ({mode.caching_method}) 不一致"
+            )
+        kv_cache_config = (
+            options.kv_cache_config if options.kv_cache_config is not None else mode.caching_method.default_config
+        )
         requests = make_requests(sequences, budgets)
         effective_max_running_requests = (
             options.max_running_requests if options.max_running_requests is not None else len(requests)
@@ -226,10 +244,9 @@ def run_mode(
             effective_max_running_requests,
             options.eos_token_id,
             options.device or torch.device("cuda"),
-            caching_method=mode.caching_method,
+            kv_cache_config=kv_cache_config,
             pad_token_id=options.pad_token_id,
             stop_on_eos=options.stop_on_eos,
-            paged_cache_config=resolve_paged_cache(mode, options),
         )
     return generate(mode, model, input_ids, budgets, options=options)
 
@@ -344,14 +361,13 @@ def _handle_run(args: argparse.Namespace) -> int:
     if args.max_running_requests is not None and not via_scheduler:
         print("[warn] --max-running-requests 仅对调度路径（含 continuous-batching）生效，当前对比未启用，将被忽略。")
 
-    paged_cache_config = PagedCacheConfig(block_size=args.kv_block_size, num_blocks=args.num_kv_blocks)
-    warmup_opts = GenerationOptions(
-        eos_token_id=tokenizer.eos_token_id,
-        device=device,
-        max_running_requests=args.max_running_requests,
-        paged_cache_config=paged_cache_config,
-    )
     for mode in modes:
+        warmup_opts = GenerationOptions(
+            eos_token_id=tokenizer.eos_token_id,
+            device=device,
+            max_running_requests=args.max_running_requests,
+            kv_cache_config=_build_kv_cache_config(mode.caching_method, args.kv_block_size, args.num_kv_blocks),
+        )
         for _ in range(args.warmup):
             run_mode(mode, model, input_ids, sequences, shrink_budgets(budgets, 2), warmup_opts, via_scheduler)
         synchronize(device)
@@ -382,7 +398,7 @@ def _handle_run(args: argparse.Namespace) -> int:
             top_kernels=args.top_kernels,
             tensorboard_options=tb_options,
             max_running_requests=args.max_running_requests,
-            paged_cache_config=paged_cache_config,
+            kv_cache_config=_build_kv_cache_config(mode.caching_method, args.kv_block_size, args.num_kv_blocks),
         )
         results[mode] = run_mode(mode, model, input_ids, sequences, budgets, run_opts, via_scheduler)
         print_result(mode, results[mode], tokenizer, tensorboard_dir=tb_dir)

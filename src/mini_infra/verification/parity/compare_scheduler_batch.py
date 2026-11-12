@@ -8,9 +8,8 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_requests
-from mini_infra.engine import BatchingMethod, CachingMethod, run_scheduler
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
+from mini_infra.engine import BatchingMethod, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -51,7 +50,7 @@ def run_compare_scheduler_batch(
         max_running_requests=1,
         eos_token_id=eos_token_id,
         device=device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -63,7 +62,7 @@ def run_compare_scheduler_batch(
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -75,7 +74,7 @@ def run_compare_scheduler_batch(
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -87,9 +86,8 @@ def run_compare_scheduler_batch(
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
         device=device,
-        caching_method=CachingMethod.PAGED,
+        kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
-        paged_cache_config=PagedCacheConfig(block_size=4),
     )
 
     serialized_token_ids = [s.token_ids for s in serialized.sequences]

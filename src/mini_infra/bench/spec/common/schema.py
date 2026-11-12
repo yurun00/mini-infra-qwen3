@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from mini_infra.bench.cases import CaseDimension
-from mini_infra.core.block_manager import PagedCacheConfig
+from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig
 from mini_infra.engine import BatchingMethod, CachingMethod, Mode
 
 SuiteEngine = Literal["scheduler", "lockstep"]
@@ -262,6 +262,10 @@ class NoCacheSpec(_Strict):
     def method(self) -> CachingMethod:
         return CachingMethod.NONE
 
+    @property
+    def kv_cache_config(self) -> NoCacheConfig:
+        return NoCacheConfig()
+
 
 class DenseCacheSpec(_Strict):
     """Dense KV Cache（预分配连续 batch slot）。"""
@@ -272,12 +276,16 @@ class DenseCacheSpec(_Strict):
     def method(self) -> CachingMethod:
         return CachingMethod.DENSE
 
+    @property
+    def kv_cache_config(self) -> DenseCacheConfig:
+        return DenseCacheConfig()
+
 
 class PagedCacheSpec(_Strict):
     """Paged KV Cache（physical block pool，按需动态分配）。"""
 
     kind: Literal["paged-kv-cache"] = "paged-kv-cache"
-    block_size: PositiveInt = 16
+    block_size: PositiveInt = PagedCacheConfig.block_size
     num_blocks: Annotated[int, Field(strict=True, ge=2)] | None = None
 
     @property
@@ -285,7 +293,7 @@ class PagedCacheSpec(_Strict):
         return CachingMethod.PAGED
 
     @property
-    def paged_cache_config(self) -> PagedCacheConfig:
+    def kv_cache_config(self) -> PagedCacheConfig:
         return PagedCacheConfig(block_size=self.block_size, num_blocks=self.num_blocks)
 
 

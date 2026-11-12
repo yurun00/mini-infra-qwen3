@@ -1,4 +1,4 @@
-"""control plane 基础数据结构体（CachingMethod、BatchingMethod、SequenceOutput、RequestMetrics、collapse_uniform）。
+"""control plane 基础数据结构体（CachingMethod、BatchingMethod、KVCacheConfig、SequenceOutput、RequestMetrics）。
 
 注意：此模块处于纯 CPU control plane，严禁 import torch 或引入任何 GPU 张量操作。
 """
@@ -27,8 +27,59 @@ class CachingMethod(str, Enum):
         except ValueError as err:
             raise ValueError(f"未知 KV Cache 策略: {value}，可选策略: {[m.value for m in cls]}") from err
 
+    @property
+    def default_config(self) -> "KVCacheConfig":
+        """该缓存策略对应的默认运行时 KVCacheConfig 实例。"""
+        if self is CachingMethod.NONE:
+            return NoCacheConfig()
+        if self is CachingMethod.DENSE:
+            return DenseCacheConfig()
+        return PagedCacheConfig()
+
     def __str__(self) -> str:
         return self.value
+
+
+@dataclass(frozen=True)
+class NoCacheConfig:
+    """不启用 KV Cache 的运行时配置。"""
+
+    @property
+    def method(self) -> CachingMethod:
+        return CachingMethod.NONE
+
+
+@dataclass(frozen=True)
+class DenseCacheConfig:
+    """Dense KV Cache（预分配连续 batch slot）的运行时配置。"""
+
+    @property
+    def method(self) -> CachingMethod:
+        return CachingMethod.DENSE
+
+
+@dataclass(frozen=True)
+class PagedCacheConfig:
+    """Paged KV Cache 配置。
+
+    block_size: 每块容纳的 Token 数；num_blocks: physical block pool 大小（含 null block），None 时按负载自动推导。
+    """
+
+    block_size: int = 16
+    num_blocks: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.block_size < 1:
+            raise ValueError("block_size 必须大于 0")
+        if self.num_blocks is not None and self.num_blocks < 2:
+            raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
+
+    @property
+    def method(self) -> CachingMethod:
+        return CachingMethod.PAGED
+
+
+KVCacheConfig = NoCacheConfig | DenseCacheConfig | PagedCacheConfig
 
 
 class BatchingMethod(str, Enum):
@@ -107,6 +158,10 @@ def collapse_uniform(values: Sequence[Any]) -> Any:
 __all__ = [
     "BatchingMethod",
     "CachingMethod",
+    "DenseCacheConfig",
+    "KVCacheConfig",
+    "NoCacheConfig",
+    "PagedCacheConfig",
     "RequestMetrics",
     "SequenceOutput",
     "collapse_uniform",

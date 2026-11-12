@@ -7,6 +7,7 @@ import pytest
 import torch
 
 from mini_infra.core import (
+    DenseCacheConfig,
     Request,
     make_requests,
 )
@@ -25,10 +26,10 @@ CPU = torch.device("cpu")
 KV_MODE = Mode(CachingMethod.DENSE)
 RUNNERS = {
     BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(
-        BatchingMethod.FIXED, *args, caching_method=CachingMethod.DENSE, **kwargs
+        BatchingMethod.FIXED, *args, kv_cache_config=DenseCacheConfig(), **kwargs
     ),
     BatchingMethod.CONTINUOUS: lambda *args, **kwargs: run_scheduler(
-        BatchingMethod.CONTINUOUS, *args, caching_method=CachingMethod.DENSE, **kwargs
+        BatchingMethod.CONTINUOUS, *args, kv_cache_config=DenseCacheConfig(), **kwargs
     ),
 }
 
@@ -151,7 +152,7 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
     requests = make_requests(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.FIXED, model, requests, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.FIXED, model, requests, 2, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -168,7 +169,7 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     requests = make_requests(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -186,7 +187,7 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     requests = make_requests(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     assert result.request_metrics[0].admitted_ms == 10.0  # 初始时钟取最早到达时间
@@ -214,7 +215,7 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
     requests = make_requests(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 1, -1, CPU, caching_method=CachingMethod.DENSE, stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 1, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, make_prompts([4, 6]), [2, 3])
@@ -308,7 +309,7 @@ def test_run_scheduler_dispatch(model):
         2,
         eos_token_id=-1,
         device=CPU,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert res_cont.batching_method == BatchingMethod.CONTINUOUS
@@ -322,7 +323,7 @@ def test_run_scheduler_dispatch(model):
         2,
         eos_token_id=-1,
         device=CPU,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert res_fixed.batching_method == BatchingMethod.FIXED
@@ -336,7 +337,7 @@ def test_run_scheduler_dispatch(model):
         2,
         eos_token_id=-1,
         device=CPU,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert res_none.batching_method == BatchingMethod.NONE

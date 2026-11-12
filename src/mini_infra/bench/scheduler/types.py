@@ -10,7 +10,7 @@ from mini_infra.bench.cases import (
 )
 from mini_infra.bench.efficiency import EfficiencyMetrics
 from mini_infra.bench.stats import DistributionStats
-from mini_infra.core.types import collapse_uniform
+from mini_infra.core import PagedCacheConfig, collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
@@ -123,10 +123,10 @@ class SchedulerCaseResult:
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
         }
-        if self.key.paged_cache_config is not None:
+        if isinstance(self.key.kv_cache_config, PagedCacheConfig):
             rec["paged_cache_config"] = {
-                "block_size": self.key.paged_cache_config.block_size,
-                "num_blocks": self.key.paged_cache_config.num_blocks,
+                "block_size": self.key.kv_cache_config.block_size,
+                "num_blocks": self.key.kv_cache_config.num_blocks,
             }
         if self.scale is not None:
             rec["scale"] = self.scale

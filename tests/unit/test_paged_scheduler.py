@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from mini_infra.core import PagedCacheConfig, make_requests, required_pool_blocks
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests, required_pool_blocks
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -47,9 +47,8 @@ def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, **config):
         capacity,
         eos,
         CPU,
-        caching_method=CachingMethod.PAGED,
+        kv_cache_config=PagedCacheConfig(**config),
         stop_on_eos=stop_on_eos,
-        paged_cache_config=PagedCacheConfig(**config),
     )
 
 
@@ -78,7 +77,7 @@ def test_outputs_match_serial_generate_and_dense(model, case, block_size):
         capacity,
         -1,
         CPU,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -173,8 +172,7 @@ def test_paged_scheduling_rejects_none_batching(model):
             1,
             -1,
             CPU,
-            caching_method=CachingMethod.PAGED,
-            paged_cache_config=PagedCacheConfig(),
+            kv_cache_config=PagedCacheConfig(),
         )
 
 
@@ -191,9 +189,8 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
         2,
         -1,
         CPU,
-        caching_method=CachingMethod.PAGED,
+        kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
-        paged_cache_config=PagedCacheConfig(block_size=4),
     )
     cont_res = run_scheduler(
         BatchingMethod.CONTINUOUS,
@@ -202,9 +199,8 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
         2,
         -1,
         CPU,
-        caching_method=CachingMethod.PAGED,
+        kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
-        paged_cache_config=PagedCacheConfig(block_size=4),
     )
 
     assert fixed_res.caching_method is CachingMethod.PAGED
@@ -219,7 +215,7 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
 def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
     prompts = make_prompts([4, 7, 5])
     opts = GenerationOptions(
-        eos_token_id=-1, device=CPU, stop_on_eos=False, paged_cache_config=PagedCacheConfig(block_size=4)
+        eos_token_id=-1, device=CPU, stop_on_eos=False, kv_cache_config=PagedCacheConfig(block_size=4)
     )
 
     result = generate(PAGED_MODE, model, prompts, [5, 3, 4], options=opts)

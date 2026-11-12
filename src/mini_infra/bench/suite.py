@@ -82,13 +82,12 @@ class BenchmarkSuite:
         for cs in loaded.cases:
             mrr = cs.workload.num_total_requests if engine == "lockstep" else cs.max_running_requests
             assert mrr is not None
-            paged_config = None if engine == "lockstep" else cs.paged_cache_config
             cases.append(
                 BenchmarkCase(
                     profile=cs.workload.to_profile(),
-                    mode=cs.mode,
+                    batching_method=cs.batching_method,
+                    kv_cache_config=cs.kv_cache_config,
                     max_running_requests=mrr,
-                    paged_cache_config=paged_config,
                     suite_name=loaded.spec.name,
                     engine=engine,
                 )

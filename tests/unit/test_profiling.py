@@ -7,7 +7,7 @@ import torch
 
 from mini_infra.bench.cases import BenchmarkCase, ProfilingMode, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.core.request import Request
+from mini_infra.core import NoCacheConfig, Request
 from mini_infra.engine import BatchingMethod, Mode
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.profiling import (
@@ -206,13 +206,12 @@ def test_bench_run_profiling_modes():
 
     # 2. 验证 run_case 执行逻辑
     model = build_tiny_model()
-    mode = Mode()
     device = torch.device("cpu")
 
     req = Request(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("test", (req,)),
-        mode=mode,
+        kv_cache_config=NoCacheConfig(),
         engine="lockstep",
     )
 

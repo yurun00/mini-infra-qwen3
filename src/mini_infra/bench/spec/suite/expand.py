@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from mini_infra.bench.spec.common.checks import run_check
-from mini_infra.bench.spec.common.schema import CachingSpec, PagedCacheSpec, SchedulerEngineSpec
+from mini_infra.bench.spec.common.schema import CachingSpec, SchedulerEngineSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.schema import SuiteSpec
-from mini_infra.core.block_manager import PagedCacheConfig
+from mini_infra.core import KVCacheConfig
 from mini_infra.engine import BatchingMethod, Mode
 
 
@@ -31,8 +31,8 @@ class CaseSpec:
         return Mode(self.caching_spec.method, batching_method=self.batching_method)
 
     @property
-    def paged_cache_config(self) -> PagedCacheConfig | None:
-        return self.caching_spec.paged_cache_config if isinstance(self.caching_spec, PagedCacheSpec) else None
+    def kv_cache_config(self) -> KVCacheConfig:
+        return self.caching_spec.kv_cache_config
 
 
 def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:

@@ -11,8 +11,14 @@ from enum import Enum
 from typing import Any, Literal
 
 from mini_infra.bench.format import format_lengths
-from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import Request, make_requests
+from mini_infra.core import (
+    DenseCacheConfig,
+    KVCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+    Request,
+    make_requests,
+)
 from mini_infra.engine.mode import BatchingMethod, CachingMethod, FeatureFlag, Mode
 
 DEFAULT_WARMUP = 3
@@ -99,29 +105,37 @@ class CaseKey:
         )
 
     @property
-    def paged_cache_config(self) -> PagedCacheConfig | None:
-        """派生 Paged Cache 物理显存块配置对象。"""
-        if self.caching_method is not CachingMethod.PAGED or self.block_size is None:
-            return None
-        return PagedCacheConfig(block_size=self.block_size, num_blocks=self.num_blocks)
+    def kv_cache_config(self) -> KVCacheConfig:
+        """派生运行时 KV Cache 配置对象。"""
+        if self.caching_method is CachingMethod.NONE:
+            return NoCacheConfig()
+        if self.caching_method is CachingMethod.DENSE:
+            return DenseCacheConfig()
+        return PagedCacheConfig(
+            block_size=self.block_size if self.block_size is not None else PagedCacheConfig.block_size,
+            num_blocks=self.num_blocks,
+        )
 
     @classmethod
-    def from_mode(
+    def from_config(
         cls,
         workload_id: str,
-        mode: Mode,
-        max_running_requests: int,
-        paged_cache_config: PagedCacheConfig | None = None,
+        batching_method: BatchingMethod = BatchingMethod.NONE,
+        kv_cache_config: KVCacheConfig | None = None,
+        max_running_requests: int = 1,
+        flags: frozenset[FeatureFlag] = frozenset(),
     ) -> CaseKey:
-        """便利构造器：从 Mode 与 PagedCacheConfig 构造完全展平的 CaseKey。"""
+        """从运行时配置构造完全展平的 CaseKey。"""
+        cfg = kv_cache_config if kv_cache_config is not None else DenseCacheConfig()
+        is_paged = isinstance(cfg, PagedCacheConfig)
         return cls(
             workload_id=workload_id,
-            caching_method=mode.caching_method,
-            batching_method=mode.batching_method,
+            caching_method=cfg.method,
+            batching_method=batching_method,
             max_running_requests=max_running_requests,
-            flags=mode.flags,
-            block_size=paged_cache_config.block_size if paged_cache_config is not None else None,
-            num_blocks=paged_cache_config.num_blocks if paged_cache_config is not None else None,
+            flags=flags,
+            block_size=cfg.block_size if is_paged else None,
+            num_blocks=cfg.num_blocks if is_paged else None,
         )
 
     def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
@@ -285,9 +299,10 @@ class BenchmarkCase:
     """全仓统一的评测最小单用例执行实体：包含输入负载与系统执行维度（纯 CPU，解耦具体词表与 Tensor）。"""
 
     profile: WorkloadProfile
-    mode: Mode
+    batching_method: BatchingMethod = BatchingMethod.NONE
+    kv_cache_config: KVCacheConfig = DenseCacheConfig()
     max_running_requests: int | None = None
-    paged_cache_config: PagedCacheConfig | None = None
+    flags: frozenset[FeatureFlag] = frozenset()
     suite_name: str | None = None
     engine: Literal["scheduler", "lockstep"] = "scheduler"
 
@@ -297,10 +312,13 @@ class BenchmarkCase:
         elif self.max_running_requests <= 0:
             raise ValueError(f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}")
 
-        if self.mode.caching_method is CachingMethod.PAGED and self.paged_cache_config is None:
-            raise ValueError(f"Paged 模式 (mode={self.mode}) 必须提供 paged_cache_config")
-        if self.mode.caching_method is not CachingMethod.PAGED and self.paged_cache_config is not None:
-            raise ValueError(f"非 Paged 模式 (mode={self.mode}) 不得提供 paged_cache_config")
+    @property
+    def mode(self) -> Mode:
+        return Mode(
+            caching_method=self.kv_cache_config.method,
+            batching_method=self.batching_method,
+            flags=self.flags,
+        )
 
     @property
     def workload_id(self) -> str:
@@ -309,11 +327,12 @@ class BenchmarkCase:
     @property
     def key(self) -> CaseKey:
         assert self.max_running_requests is not None
-        return CaseKey.from_mode(
+        return CaseKey.from_config(
             workload_id=self.workload_id,
-            mode=self.mode,
+            batching_method=self.batching_method,
+            kv_cache_config=self.kv_cache_config,
             max_running_requests=self.max_running_requests,
-            paged_cache_config=self.paged_cache_config,
+            flags=self.flags,
         )
 
     def format_summary(self) -> str:

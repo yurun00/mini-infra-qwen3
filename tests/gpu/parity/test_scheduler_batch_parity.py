@@ -9,8 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.core.request import make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     CachingMethod,
@@ -56,7 +55,7 @@ def test_continuous_batching_gpu_parity() -> None:
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -68,7 +67,7 @@ def test_continuous_batching_gpu_parity() -> None:
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
-        caching_method=CachingMethod.DENSE,
+        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -79,9 +78,8 @@ def test_continuous_batching_gpu_parity() -> None:
         max_running_requests=2,
         eos_token_id=eos_token_id,
         device=cuda,
-        caching_method=CachingMethod.PAGED,
+        kv_cache_config=PagedCacheConfig(block_size=16),
         stop_on_eos=False,
-        paged_cache_config=PagedCacheConfig(block_size=16),
     )
 
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth

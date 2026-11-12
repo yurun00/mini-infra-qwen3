@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.block_manager import PagedCacheConfig
+from mini_infra.core import KVCacheConfig
 from mini_infra.inputs import PromptInput
 from mini_infra.profiling import TensorBoardOptions
 
@@ -23,8 +23,7 @@ class GenerationOptions:
     top_kernels: int = 10
     tensorboard_options: TensorBoardOptions | None = None
     max_running_requests: int | None = None
-    # 仅 CachingMethod.PAGED 时生效
-    paged_cache_config: PagedCacheConfig | None = None
+    kv_cache_config: KVCacheConfig | None = None
     tokenizer: Any | None = None
 
 
