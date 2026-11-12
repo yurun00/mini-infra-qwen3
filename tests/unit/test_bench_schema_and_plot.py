@@ -270,6 +270,12 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     assert evo_png.exists()
     assert prof_png.exists()
 
+    # 4. 纯 Scheduler 历史剖析图（验证 memory.weights_mb 为空时自动回退 baseline_allocated_mb）
+    sched_records = load_results(Path("benchmarks/results/history/scheduler"))
+    sched_prof_png = tmp_path / "scheduler_profiling.png"
+    plot_profiling_and_optimization(sched_records, sched_records[-1], sched_prof_png)
+    assert sched_prof_png.exists()
+
 
 def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: Path):
     """验证含 comparisons 与 workload_id 的 Scheduler 记录在 Pydantic 与 Pandas 宽表中的往返完整性。"""

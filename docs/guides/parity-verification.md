@@ -16,9 +16,6 @@
 | **4. Scheduler 批调度** | `compare_scheduler_batch.py` | `mini-infra verify scheduler-batch` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
 | **5. Paged KV Cache 对照** | `compare_paged_cache_logits.py` / `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache` / `paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` / `-k scheduler` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token Logits 误差在容差内、Greedy 输出一致，以及 Scheduler 环境下多 Block Size 输出一致性与入场轨迹 |
 
-> [!NOTE]
-> 所有命令既支持直接平铺调用（如 `mini-infra verify cache`），也支持语义分层调用（如 `mini-infra verify parity cache`）。
-
 ---
 
 ## 二、各项验证详细指令与参数

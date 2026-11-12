@@ -68,6 +68,7 @@ mini-infra-qwen3/
 │       │   ├── results.py             # GenerationResult, ScheduleResult 引擎层结果容器与聚合
 │       │   └── metrics.py             # MemoryProfile, BatchScheduleInfo, ScheduleMetrics, GenerationTrace, ScheduleEvent 指标与统计画像
 │       ├── profiling/                 # 算子耗时剖析域
+│       │   ├── snapshot.py            # MemorySnapshot, ProfilingStepTimer, PendingStepLatencies 显存快照与双轨计时器
 │       │   ├── tracer.py              # PyTorch Profiler 打点、Scope 注入与 ProfileCollector
 │       │   ├── analyzer.py            # 耗时统计、Kernel 分类与跨 run 聚合
 │       │   └── types.py               # OpLatencyBreakdown, KernelInfo, TensorBoardOptions
@@ -76,7 +77,7 @@ mini-infra-qwen3/
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
 │       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch / paged-cache)
-│       │       └── bench/             # mini-infra bench (lockstep / scheduler / plot / check-regression / release)
+│       │       └── bench/             # mini-infra bench (lockstep / scheduler / suites / sweep / plot / check-regression / release)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
 │       │   └── parity/                # 精度与等价性对齐核心库
@@ -88,33 +89,39 @@ mini-infra-qwen3/
 │       │       ├── compare_lockstep_batch.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
 │       │       └── compare_scheduler_batch.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
 │       └── bench/                     # 性能基准测试与分析核心库
-│           ├── common.py              # 共享基准基础设施、指标计算与目录常量
-│           ├── result/                # 评测结果域：统一 Pydantic v2 Schema（schema.py）与结果构建读写（io.py）
-│           ├── suite.py               # BenchmarkSuite 评测套件统一容器实体
-│           ├── synthetic.py           # 合成 Prompt 序列载荷生成工具
+│           ├── paths.py               # 基准测试与报告标准目录常量
+│           ├── env.py                 # 硬件 GPU、宿主机与 Git 环境元数据采集
+│           ├── stats.py               # DistributionStats 多轮测量统计分布模型
+│           ├── efficiency.py          # HardwarePeakSpecs, ModelCostProfile, EfficiencyMetrics (MBU/MFU)
+│           ├── correctness.py         # Golden 输出 Token 正确性门禁检查
+│           ├── context.py             # BenchmarkExecutionContext 评测执行现场上下文
+│           ├── format.py              # 长度分布与公共终端文本格式化工具
+│           ├── cases.py               # CaseKey / CaseDimension / WorkloadProfile / BenchmarkCase
+│           ├── comparison.py          # Comparison / ComparisonResult 相对基准对比计算
+│           ├── suite.py               # BenchmarkSuite 评测套件统一不可变容器实体
 │           ├── sweep.py               # bench sweep 汇总层：顺序运行多个 suite 并汇总产物与对比
 │           ├── check_regression.py    # 性能回归质量门禁核心逻辑
-│           ├── cases.py               # CaseKey / CaseDimension / Comparison / WorkloadProfile / BenchmarkCase
+│           ├── synthetic.py           # 合成 Prompt 序列载荷生成工具
+│           ├── result/                # 评测结果域：统一 Pydantic v2 Schema（schema.py）与结果构建读写（io.py）
 │           ├── spec/                  # 声明式评测规范系统（YAML）：common / suite / release 三域架构
 │           │   ├── common/            # 跨 spec 共享的基础模型、随机分布采样与底层 YAML 加载
 │           │   ├── suite/             # Suite 声明式配置、检查守卫、笛卡尔积展开与套件加载发现
 │           │   └── release/           # Release 标准负载（small/medium/large）：YAML 声明与展开为 ResolvedWorkloadSpec
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
-│           │   ├── types.py           # LockstepCaseResult, DistributionStats 等领域模型
-│           │   ├── suites.py          # Lockstep 套件加载与发现（返回 BenchmarkSuite）
+│           │   ├── types.py           # LockstepCaseResult 领域模型与多轮聚合
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── run_case.py        # run_case_once / run_case 单用例基准测试执行引擎
 │           │   └── run_suite.py       # 预设测试套件执行引擎
 │           ├── scheduler/             # 队列调度器（Scheduler：Fixed vs Continuous Batching）基准测试
 │           │   ├── types.py           # SchedulerCaseResult 等领域模型与多轮聚合
-│           │   ├── suites.py          # Scheduler 套件加载与发现（返回 BenchmarkSuite）
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── plan.py            # 特征多维展开与基于 Feature 的 Interleave 执行计划生成器
 │           │   ├── run_case.py        # run_case_once / run_case 单用例评测执行引擎
 │           │   └── run_suite.py       # Scheduler 套件计划执行引擎
-│           └── plotting/              # 绘图工具包
+│           └── plotting/              # 绘图与报告工具包
 │               ├── tidy.py            # Pandas 宽表/长表转换与跨边界声明式绘图配置
-│               ├── history.py         # 读取 results/history/ 生成演进趋势图
+│               ├── report.py          # 跨版本演进 Markdown 汇总表与瓶颈诊断报告生成
+│               ├── history.py         # 读取 results/history/ 生成演进趋势图与深度剖析图
 │               └── compare.py         # 对比独立单用例 JSON 结果绘制多维对比图
 ├── tests/
 │   ├── unit/                          # CPU 单元测试（pytest）
@@ -122,7 +129,7 @@ mini-infra-qwen3/
 │       └── parity/                    # GPU 精度与等价性对齐测试（pytest tests/gpu/parity/）
 ├── benchmarks/
 │   ├── golden/                        # golden_output_tokens.json、reference.json（需提交）
-│   ├── specs/                         # 声明式 suite（YAML）：{lockstep,scheduler}/<name>.yaml、_bases/、release/（标准负载）与 suite.schema.json
+│   ├── specs/                         # 声明式 suite（YAML）：{lockstep,scheduler}/<name>.yaml、_bases/、release/（标准负载）与 {suite,release}.schema.json
 │   ├── results/                       # 评测输出与历史沉淀（{suites,history}/）
 │   │   ├── suites/                    # 预设多用例基准测试套件结果（{lockstep,scheduler}/<name>/）
 │   │   └── history/                   # 按 {lockstep,scheduler}/ 分域存储每个版本一份 <commit>_<tag>.json
@@ -255,7 +262,7 @@ mini-infra run \
 
 ## 性能评估与基准演进 (Benchmarks)
 
-本项目采用严格的数据驱动与时间线演进追踪，按 **齐步推理（Lockstep）** 与 **服务化队列调度（scheduler）** 两大阶段分别建立标准 Traffic 工作负载（`LOCKSTEP_WORKLOAD` 与 `SCHEDULER_WORKLOAD`）并维护演进报告：
+本项目采用严格的数据驱动与时间线演进追踪，按 **齐步推理（Lockstep）** 与 **服务化队列调度（scheduler）** 两大阶段分别建立声明式标准 Traffic 工作负载（[`benchmarks/specs/release/{lockstep,scheduler}.yaml`](./benchmarks/specs/release/)）并维护演进报告：
 
 ### 1. 服务化队列调度基准演进 (scheduler benchmarks: Fixed vs Continuous Batching)
 完整的调度器多版本评测数据表、加速比对比与轨迹剖析详见 [Scheduler SUMMARY.md](./benchmarks/reports/scheduler/SUMMARY.md)。

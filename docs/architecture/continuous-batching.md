@@ -1,6 +1,6 @@
 # 连续批处理与 Serving 基准测试指南 (Continuous Batching & Serving Benchmark Guide)
 
-在多用户、动态并发的真实在线大模型服务（LLM Serving）场景中，传统的[固定批处理 (Fixed Batching)](fixed-batching.md)存在严重的效率瓶颈。本项目在保留原生 PyTorch 简洁性与显式语义的同时，实现了工业界核心的 **Continuous Batching（连续批处理 / 迭代级调度）**，并配套了针对在线并发场景的受控评测基准套件 `mini-infra-bench-serving`。
+在多用户、动态并发的真实在线大模型服务（LLM Serving）场景中，传统的[固定批处理 (Fixed Batching)](fixed-batching.md)存在严重的效率瓶颈。本项目在保留原生 PyTorch 简洁性与显式语义的同时，实现了工业界核心的 **Continuous Batching（连续批处理 / 迭代级调度）**，并配套了针对在线并发场景的受控评测基准套件 `mini-infra bench scheduler`（及 `mini-infra bench sweep --engine scheduler`）。
 
 ---
 

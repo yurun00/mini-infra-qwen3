@@ -26,7 +26,7 @@ assignees: ""
 
 ### 4. 观测与度量指标 (Observability & Metrics)
 - 
-- 同步联动更新 `engine/metrics.py`、`bench/schema.py` 及下游 `bench/plotting/` 绘图脚本。
+- 同步联动更新 `engine/metrics.py`、`bench/result/schema.py` 及下游 `bench/plotting/` 绘图脚本。
 
 ### 5. 架构集成与 CLI 对接 (Architecture & CLI Integration)
 - 通过模式或策略抽象接入，确保既有 Baseline 路径的可运行性与单一变量可对照性。
@@ -35,6 +35,6 @@ assignees: ""
 ## Acceptance Criteria (DoD)
 - [ ] **生成一致性**：在确定性配置（float32、贪婪采样）下，新特性路径各请求生成的 Token 序列与既有 Baseline 路径及单请求独立串行生成完全逐位一致。
 - [ ] **状态机与边界自检**：扩展轻量 CPU 自检（`mini-infra verify smoke`）与单元测试（`pytest -m "not gpu"`），覆盖核心状态迁移、资源回收复用与异常边界拦截。
-- [ ] **对齐与精度校验**：扩展 GPU 等价性校验（`mini-infra verify parity` 及 `tests/gpu/parity/`），验证在 float32 与 bfloat16 下逐步 Logits 最大绝对误差在容差阈值内（float32 $\le 10^{-4}$，bfloat16 $\le 1.0$），无跨请求历史串扰或数值残留。
+- [ ] **对齐与精度校验**：扩展 GPU 等价性校验（`mini-infra verify` 及 `tests/gpu/parity/`），验证在 float32 与 bfloat16 下逐步 Logits 最大绝对误差在容差阈值内（float32 $\le 10^{-4}$，bfloat16 $\le 1.0$），无跨请求历史串扰或数值残留。
 - [ ] **基准评测与收益验证**：扩展基准评测套件（`mini-infra bench`），在受控单一变量下对比既有 Baseline，量化验证目标负载下的吞吐、时延或显存容量收益。
 

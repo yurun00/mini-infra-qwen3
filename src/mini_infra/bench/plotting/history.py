@@ -329,7 +329,10 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
             bar_scale_tags.append(scale_short.get(sc_name, sc_name[:1].upper()))
 
     bottom = [0.0] * len(wide_df)
-    wide_df["memory.weights_mb"] = wide_df["memory.weights_mb"].fillna(wide_df["memory.baseline_allocated_mb"])
+    if "memory.weights_mb" in wide_df.columns:
+        wide_df["memory.weights_mb"] = wide_df["memory.weights_mb"].fillna(wide_df["memory.baseline_allocated_mb"])
+    else:
+        wide_df["memory.weights_mb"] = wide_df["memory.baseline_allocated_mb"]
     components = [
         ("memory.weights_mb", "Resident Weights & Base", "tab:gray"),
         ("memory.dynamic_peak_mb", "Dynamic Peak (Act/KV)", "tab:blue"),

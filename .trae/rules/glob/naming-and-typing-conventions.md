@@ -75,10 +75,9 @@ description: "标识符命名与类型标注纪律：概念唯一名、索引/�
   2. 与无类型第三方库交互；
   3. 值类型确实异构、无法用 `Union` 表达；
   4. 按点分路径反射取值的通用工具。
-- 类型收窄与选择优先级（信息量由高到低）：
+- 类型收窄与选择优先级：
   精确类型/结构（标量/类/Pydantic/`TypedDict`） → 封闭变体（`Union`/`Optional`/`Literal`） → 泛型与协议（`TypeVar`/`Generic`/`Protocol`） → 顶层黑盒（`object`） → 边界逃生（`Any`）。
   - `@overload`、`TypeGuard`/`TypeIs` 与 `cast` 属类型收窄与签名分派手段，非值类型选项。
-- **`object` 绝不等于 `Any`**：`object` 是全严格检查的顶层类型，禁止未经验证访问成员，强制下游经 `isinstance` 收窄；`Any` 彻底关闭检查并向外传染。
 - `-> dict[str, Any]` 之类返回应优先收窄为具体值类型或强类型模型，不得以 `Any` 逃避声明契约。
 
 ---
