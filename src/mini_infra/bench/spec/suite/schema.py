@@ -6,7 +6,7 @@ YAML 是外部输入边界：这里一次性完成全部校验，下游（expand
 
     name / engine / description
     execution:  warmup / repeats / interleave
-    system:     max_running_requests / batching_method[] / caching_method[] / paged
+    system:     max_running_requests / batching_method[] / caching_spec[] / paged
     workload:   vars / id / (groups | 单组简写字段)
     sweep:      workload（dict-of-lists 笛卡尔积，或 list-of-dicts 显式场景）/ system
     comparison: metrics / group_by / baseline
@@ -23,6 +23,7 @@ from pydantic import Field, field_validator, model_validator
 from mini_infra.bench.cases import CaseDimension
 from mini_infra.bench.comparison import MetricKind
 from mini_infra.bench.spec.common.schema import (
+    CachingSpec,
     CheckSpec,
     ExecutionSpec,
     GroupSpec,
@@ -34,7 +35,7 @@ from mini_infra.bench.spec.common.schema import (
     SystemSpec,
     _Strict,
 )
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.engine import BatchingMethod
 
 _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
@@ -58,8 +59,7 @@ class SystemSweepSpec(_Strict):
 
     max_running_requests: Annotated[list[PositiveInt], Field(min_length=1)] | None = None
     batching_method: Annotated[list[BatchingMethod], Field(min_length=1)] | None = None
-    caching_method: Annotated[list[CachingMethod], Field(min_length=1)] | None = None
-    block_size: Annotated[list[PositiveInt], Field(min_length=1)] | None = None
+    caching_spec: Annotated[list[CachingSpec], Field(min_length=1)] | None = None
 
 
 class SweepSpec(_Strict):
@@ -138,8 +138,7 @@ class SuiteSpec(_Strict):
 
         校验项包括：
         1. sweep.workload 变量一致性：扫描的变量必须预先在 workload.vars 中声明，防止变量名拼写错误；
-        2. 缓存参数依赖：若声明了 sweep.system.block_size 扫描轴，生效的 caching_method 必须包含 paged-kv-cache；
-        3. 引擎特异性约束：
+        2. 引擎特异性约束：
            - scheduler: 必须明确指定 max_running_requests（在 system 基线或 sweep.system 中）；
            - lockstep: 严格限制仅走固定批次和 Dense 路径，禁止使用 scheduler 特性
              （如并发容量、PagedKV、Continuous Batching 等）。
@@ -157,10 +156,8 @@ class SuiteSpec(_Strict):
             raise ValueError(f"sweep.workload 引用了未在 workload.vars 中声明的变量: {sorted(unknown)}")
 
         # 2. 计算实际生效的系统维度取值集合（sweep.system 显式覆盖基线 system）
-        effective_caching_methods = (
-            self.sweep.system.caching_method
-            if self.sweep.system.caching_method is not None
-            else [self.system.caching_method.method]
+        effective_caching_specs = (
+            self.sweep.system.caching_spec if self.sweep.system.caching_spec is not None else [self.system.caching_spec]
         )
         effective_batching_methods = (
             self.sweep.system.batching_method
@@ -168,31 +165,25 @@ class SuiteSpec(_Strict):
             else [self.system.batching_method]
         )
 
-        # 3. 校验 Paged Cache 专有参数的依赖关系
-        if self.sweep.system.block_size is not None and CachingMethod.PAGED not in effective_caching_methods:
-            raise ValueError("sweep.system.block_size 要求 caching_method 包含 paged-kv-cache")
-
-        # 4. 根据引擎类别校验对应特性的支持边界
+        # 3. 根据引擎类别校验对应特性的支持边界
         if isinstance(self.system.engine_mode, SchedulerEngineSpec):
             if self.system.engine_mode.max_running_requests is None and self.sweep.system.max_running_requests is None:
                 raise ValueError(
                     "scheduler suite 必须提供 system.engine_mode.max_running_requests（或在 sweep.system 中扫描）"
                 )
         else:
-            self._check_lockstep(effective_caching_methods, effective_batching_methods)
+            self._check_lockstep(effective_caching_specs, effective_batching_methods)
         return self
 
     def _check_lockstep(
         self,
-        effective_caching_methods: list[CachingMethod],
+        effective_caching_specs: list[CachingSpec],
         effective_batching_methods: list[BatchingMethod],
     ) -> None:
         if self.sweep.system.max_running_requests is not None:
             raise ValueError("lockstep suite 不支持 max_running_requests")
-        if CachingMethod.PAGED in effective_caching_methods:
+        if any(isinstance(c, PagedCacheSpec) for c in effective_caching_specs):
             raise ValueError("lockstep suite 不支持 paged-kv-cache")
-        if self.sweep.system.block_size is not None:
-            raise ValueError("lockstep suite 不支持 sweep.system.block_size")
         if BatchingMethod.CONTINUOUS in effective_batching_methods:
             raise ValueError("lockstep suite 不支持 continuous-batching")
         if self.execution.interleave:

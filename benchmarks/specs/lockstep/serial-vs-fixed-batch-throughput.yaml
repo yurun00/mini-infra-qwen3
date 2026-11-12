@@ -9,7 +9,7 @@ execution:
 system:
   engine_mode: lockstep
   batching_method: none
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 workload:
   vars:
     num_requests: 1

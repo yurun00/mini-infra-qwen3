@@ -10,16 +10,6 @@
       "title": "BatchingMethod",
       "type": "string"
     },
-    "CachingMethod": {
-      "description": "互斥的 KV Cache 策略。",
-      "enum": [
-        "none",
-        "dense-kv-cache",
-        "paged-kv-cache"
-      ],
-      "title": "CachingMethod",
-      "type": "string"
-    },
     "CaseDimension": {
       "description": "用例身份键（CaseKey）的正交特征维度枚举。\n\n对齐工业级基准测试（如 MLPerf / Prometheus 维度标签）规范：\n所有维度完全展平为一阶标量自变量，支持全局多维投影切片。",
       "enum": [
@@ -333,7 +323,7 @@
         "batching_method": {
           "$ref": "#/$defs/BatchingMethod"
         },
-        "caching_method": {
+        "caching_spec": {
           "default": {
             "kind": "dense-kv-cache"
           },
@@ -356,7 +346,7 @@
               "$ref": "#/$defs/PagedCacheSpec"
             }
           ],
-          "title": "Caching Method"
+          "title": "Caching Spec"
         }
       },
       "required": [
@@ -403,11 +393,29 @@
           "default": null,
           "title": "Batching Method"
         },
-        "caching_method": {
+        "caching_spec": {
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/CachingMethod"
+                "discriminator": {
+                  "mapping": {
+                    "dense-kv-cache": "#/$defs/DenseCacheSpec",
+                    "none": "#/$defs/NoCacheSpec",
+                    "paged-kv-cache": "#/$defs/PagedCacheSpec"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/NoCacheSpec"
+                  },
+                  {
+                    "$ref": "#/$defs/DenseCacheSpec"
+                  },
+                  {
+                    "$ref": "#/$defs/PagedCacheSpec"
+                  }
+                ]
               },
               "minItems": 1,
               "type": "array"
@@ -417,24 +425,7 @@
             }
           ],
           "default": null,
-          "title": "Caching Method"
-        },
-        "block_size": {
-          "anyOf": [
-            {
-              "items": {
-                "exclusiveMinimum": 0,
-                "type": "integer"
-              },
-              "minItems": 1,
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Block Size"
+          "title": "Caching Spec"
         }
       },
       "title": "SystemSweepSpec",
@@ -829,8 +820,7 @@
         "workload": {},
         "system": {
           "batching_method": null,
-          "block_size": null,
-          "caching_method": null,
+          "caching_spec": null,
           "max_running_requests": null
         }
       }

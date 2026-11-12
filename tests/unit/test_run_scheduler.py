@@ -295,7 +295,7 @@ system:
     kind: scheduler
     max_running_requests: 4
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 sweep:
   system:
     batching_method: [fixed-batching, continuous-batching]

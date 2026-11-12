@@ -246,7 +246,7 @@
         "batching_method": {
           "$ref": "#/$defs/BatchingMethod"
         },
-        "caching_method": {
+        "caching_spec": {
           "default": {
             "kind": "dense-kv-cache"
           },
@@ -269,7 +269,7 @@
               "$ref": "#/$defs/PagedCacheSpec"
             }
           ],
-          "title": "Caching Method"
+          "title": "Caching Spec"
         }
       },
       "required": [

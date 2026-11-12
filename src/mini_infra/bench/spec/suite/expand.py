@@ -1,7 +1,7 @@
 """SuiteSpec 展开：sweep 笛卡尔积 / 显式场景 → 与引擎无关的 CaseSpec 列表（纯 CPU，不依赖 vocab 与 torch）。
 
 展开顺序（与历史手写 suite 的 case 顺序严格一致）：
-    workload sweep 点（外层） → max_running_requests → batching_method → caching_method → block_size（仅 paged）
+    workload sweep 点（外层） → max_running_requests → batching_method → caching_spec
 """
 
 import itertools
@@ -10,11 +10,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from mini_infra.bench.spec.common.checks import run_check
-from mini_infra.bench.spec.common.schema import PagedCacheSpec, SchedulerEngineSpec
+from mini_infra.bench.spec.common.schema import CachingSpec, PagedCacheSpec, SchedulerEngineSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.schema import SuiteSpec
 from mini_infra.core.block_manager import PagedCacheConfig
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+from mini_infra.engine import BatchingMethod, Mode
 
 
 @dataclass(frozen=True)
@@ -22,9 +22,17 @@ class CaseSpec:
     """一个展开后的用例规格：具体负载 + 具体系统配置（尚未绑定 vocab / 具体 token）。"""
 
     workload: ResolvedWorkloadSpec
-    mode: Mode
+    batching_method: BatchingMethod
+    caching_spec: CachingSpec
     max_running_requests: int | None
-    paged_cache_config: PagedCacheConfig | None
+
+    @property
+    def mode(self) -> Mode:
+        return Mode(self.caching_spec.method, batching_method=self.batching_method)
+
+    @property
+    def paged_cache_config(self) -> PagedCacheConfig | None:
+        return self.caching_spec.paged_cache_config if isinstance(self.caching_spec, PagedCacheSpec) else None
 
 
 def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:
@@ -51,8 +59,8 @@ def expand_workload(spec: SuiteSpec) -> list[ResolvedWorkloadSpec]:
 
 def _generate_system_cases(
     spec: SuiteSpec,
-) -> Iterator[tuple[int | None, Mode, PagedCacheConfig | None]]:
-    """展开系统配置维度的组合：(max_running_requests, mode, paged_cache_config)。"""
+) -> Iterator[tuple[int | None, BatchingMethod, CachingSpec]]:
+    """展开系统配置维度的组合：(max_running_requests, batching_method, caching_spec)。"""
     base_sys = spec.system
     sweep_sys = spec.sweep.system
 
@@ -67,32 +75,17 @@ def _generate_system_cases(
     batching_axis: list[BatchingMethod] = (
         list(sweep_sys.batching_method) if sweep_sys.batching_method is not None else [base_sys.batching_method]
     )
-    caching_axis: list[CachingMethod] = (
-        list(sweep_sys.caching_method) if sweep_sys.caching_method is not None else [base_sys.caching_method.method]
+    caching_axis: list[CachingSpec] = (
+        list(sweep_sys.caching_spec) if sweep_sys.caching_spec is not None else [base_sys.caching_spec]
     )
 
-    if isinstance(base_sys.caching_method, PagedCacheSpec):
-        default_block_size = base_sys.caching_method.block_size
-        default_num_blocks = base_sys.caching_method.num_blocks
-    else:
-        default_block_size = 16
-        default_num_blocks = None
-
-    block_axis: list[int] = list(sweep_sys.block_size) if sweep_sys.block_size is not None else [default_block_size]
-
-    for mrr, batch, cache in itertools.product(mrr_axis, batching_axis, caching_axis):
-        mode = Mode(cache, batching_method=batch)
-        if cache is CachingMethod.PAGED:
-            for bs in block_axis:
-                yield mrr, mode, PagedCacheConfig(block_size=bs, num_blocks=default_num_blocks)
-        else:
-            yield mrr, mode, None
+    yield from itertools.product(mrr_axis, batching_axis, caching_axis)
 
 
 def _validate_checks(
     spec: SuiteSpec,
     workloads: list[ResolvedWorkloadSpec],
-    sys_cases: list[tuple[int | None, Mode, PagedCacheConfig | None]],
+    sys_cases: list[tuple[int | None, BatchingMethod, CachingSpec]],
 ) -> None:
     if not spec.checks:
         return
@@ -117,12 +110,12 @@ def expand_suite_spec(spec: SuiteSpec) -> list[CaseSpec]:
     return [
         CaseSpec(
             workload=workload,
-            mode=mode,
+            batching_method=batch,
+            caching_spec=caching_spec,
             max_running_requests=mrr,
-            paged_cache_config=paged_config,
         )
         for workload in workloads
-        for mrr, mode, paged_config in sys_cases
+        for mrr, batch, caching_spec in sys_cases
     ]
 
 

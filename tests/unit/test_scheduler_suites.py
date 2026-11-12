@@ -63,7 +63,7 @@ def test_scheduler_suites_registry():
 def test_load_scheduler_suite_rejects_other_engine(tmp_path):
     path = tmp_path / "demo.yaml"
     path.write_text(
-        "name: demo\nsystem: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
+        "name: demo\nsystem: {engine_mode: lockstep, batching_method: fixed-batching, caching_spec: dense-kv-cache}\n"
         "workload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )

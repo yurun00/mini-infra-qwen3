@@ -124,8 +124,13 @@ def test_suite_info_is_json_serializable_and_hash_is_stable():
     assert info["spec_sha256"] == get_suite_spec("scheduler", "dense-vs-paged-block-size").sha256
     assert info["spec"]["sweep"] == {
         "system": {
-            "caching_method": ["dense-kv-cache", "paged-kv-cache"],
-            "block_size": [8, 16, 32, 64],
+            "caching_spec": [
+                "dense-kv-cache",
+                {"kind": "paged-kv-cache", "block_size": 8},
+                {"kind": "paged-kv-cache", "block_size": 16},
+                {"kind": "paged-kv-cache", "block_size": 32},
+                {"kind": "paged-kv-cache", "block_size": 64},
+            ],
         }
     }
 
@@ -139,7 +144,7 @@ system:
     kind: scheduler
     max_running_requests: 4
   batching_method: continuous-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 workload:
   id: w
   count: 2
@@ -154,10 +159,13 @@ def _write(tmp_path: Path, text: str, name: str = "demo") -> Path:
     return path
 
 
-def test_block_size_sweep_only_expands_paged_modes(tmp_path):
+def test_caching_spec_variants_in_sweep_expand_in_order(tmp_path):
     text = (
         _SCHEDULER_BASE
-        + "sweep:\n  system:\n    caching_method: [dense-kv-cache, paged-kv-cache]\n    block_size: [4, 8]\n"
+        + "sweep:\n  system:\n    caching_spec:\n"
+        + "      - dense-kv-cache\n"
+        + "      - {kind: paged-kv-cache, block_size: 4}\n"
+        + "      - {kind: paged-kv-cache, block_size: 8}\n"
     )
     cases = load_suite_spec(_write(tmp_path, text)).cases
     assert [(cs.mode.caching_method, cs.paged_cache_config and cs.paged_cache_config.block_size) for cs in cases] == [
@@ -175,7 +183,7 @@ system:
     kind: scheduler
     max_running_requests: 4
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 workload:
   vars: {n: 1, plen: 8}
   id: "w_${n}_${plen}"
@@ -212,7 +220,7 @@ name: demo
 system:
   engine_mode: lockstep
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 workload:
   id: w
   count: 2
@@ -231,7 +239,7 @@ def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
         "    kind: scheduler\n"
         "    max_running_requests: 4\n"
         "  batching_method: fixed-batching\n"
-        "  caching_method: dense-kv-cache\n"
+        "  caching_spec: dense-kv-cache\n"
         "sweep:\n"
         "  system:\n"
         "    batching_method: [fixed-batching, continuous-batching]\n",
@@ -249,7 +257,7 @@ def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
             "max_running_requests": 4,
         },
         "batching_method": "continuous-batching",
-        "caching_method": "dense-kv-cache",
+        "caching_spec": "dense-kv-cache",
     }
     assert "extends" not in raw
     assert load_suite_spec(child).spec.system.batching_method == BatchingMethod.CONTINUOUS
@@ -281,10 +289,10 @@ def test_deep_merge_does_not_mutate_inputs():
         (lambda t: t.replace("prompt_len: 8", "prompt_len: {ladder: {max: 8}}"), "count == 4"),
         (lambda t: t.replace("    max_running_requests: 4\n", ""), "max_running_requests"),
         (lambda t: t + "sweep:\n  workload:\n    nope: [1]\n", "未在 workload.vars 中声明"),
-        (lambda t: t + "sweep:\n  system:\n    block_size: []\n", "at least 1"),
+        (lambda t: t + "sweep:\n  system:\n    caching_spec: []\n", "at least 1"),
         (
             lambda t: t + "sweep:\n  system:\n    block_size: [8]\n",
-            "block_size",
+            "Extra inputs",
         ),
         (lambda t: t.replace("output_len: 4", "output_len: ${missing}"), "未定义的变量"),
         (lambda t: t + "checks:\n  - min_max_running_requests: 8\n", "要求 max_running_requests >= 8"),
@@ -324,7 +332,7 @@ name: demo
 system:
   engine_mode: lockstep
   {system_extra}batching_method: fixed-batching
-  caching_method: {caching}
+  caching_spec: {caching}
 workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
 {tail}"""
     system_extra = "max_running_requests: 4\n  " if extra == "system_mrr" else ""
@@ -372,7 +380,7 @@ def test_negative_arrival_and_unknown_length_kind_are_rejected():
         GroupSpec.model_validate({"count": 1, "prompt_len": {"zipf": 1}, "output_len": 4})
 
 
-def test_system_spec_caching_method_discriminated_union():
+def test_system_spec_caching_spec_discriminated_union():
     from mini_infra.bench.spec.common import (
         DenseCacheSpec,
         NoCacheSpec,
@@ -382,35 +390,35 @@ def test_system_spec_caching_method_discriminated_union():
 
     # 1. 默认与标量字符串简写
     s_default = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
-    assert isinstance(s_default.caching_method, DenseCacheSpec)
-    assert s_default.caching_method.method == CachingMethod.DENSE
+    assert isinstance(s_default.caching_spec, DenseCacheSpec)
+    assert s_default.caching_spec.method == CachingMethod.DENSE
 
     s_none = SystemSpec.model_validate(
-        {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_method": "none"}
+        {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_spec": "none"}
     )
-    assert isinstance(s_none.caching_method, NoCacheSpec)
-    assert s_none.caching_method.method == CachingMethod.NONE
+    assert isinstance(s_none.caching_spec, NoCacheSpec)
+    assert s_none.caching_spec.method == CachingMethod.NONE
 
     # 2. Paged 显式声明与默认参数
     s_paged_str = SystemSpec.model_validate(
-        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_method": "paged-kv-cache"}
+        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_spec": "paged-kv-cache"}
     )
-    assert isinstance(s_paged_str.caching_method, PagedCacheSpec)
-    assert s_paged_str.caching_method.block_size == 16
-    assert s_paged_str.caching_method.num_blocks is None
+    assert isinstance(s_paged_str.caching_spec, PagedCacheSpec)
+    assert s_paged_str.caching_spec.block_size == 16
+    assert s_paged_str.caching_spec.num_blocks is None
 
     # 3. Paged 字典形式定制子 field
     s_paged_dict = SystemSpec.model_validate(
         {
             "engine_mode": "scheduler",
             "batching_method": "continuous-batching",
-            "caching_method": {"kind": "paged-kv-cache", "block_size": 32, "num_blocks": 64},
+            "caching_spec": {"kind": "paged-kv-cache", "block_size": 32, "num_blocks": 64},
         }
     )
-    assert isinstance(s_paged_dict.caching_method, PagedCacheSpec)
-    assert s_paged_dict.caching_method.block_size == 32
-    assert s_paged_dict.caching_method.num_blocks == 64
-    assert s_paged_dict.caching_method.paged_cache_config.block_size == 32
+    assert isinstance(s_paged_dict.caching_spec, PagedCacheSpec)
+    assert s_paged_dict.caching_spec.block_size == 32
+    assert s_paged_dict.caching_spec.num_blocks == 64
+    assert s_paged_dict.caching_spec.paged_cache_config.block_size == 32
 
     # 4. 非法状态不可表达：dense-kv-cache 下传入 block_size 被拒绝
     with pytest.raises(ValueError):
@@ -418,7 +426,7 @@ def test_system_spec_caching_method_discriminated_union():
             {
                 "engine_mode": "scheduler",
                 "batching_method": "continuous-batching",
-                "caching_method": {"kind": "dense-kv-cache", "block_size": 32},
+                "caching_spec": {"kind": "dense-kv-cache", "block_size": 32},
             }
         )
 
@@ -428,7 +436,7 @@ def test_system_spec_caching_method_discriminated_union():
             {
                 "engine_mode": "scheduler",
                 "batching_method": "continuous-batching",
-                "caching_method": "dense-kv-cache",
+                "caching_spec": "dense-kv-cache",
                 "paged": {"block_size": 16},
             }
         )

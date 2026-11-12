@@ -8,7 +8,7 @@ execution: {warmup: 2, repeats: 5}
 system:
   engine_mode: lockstep
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 scales:
   small:
     seed_salt: 101

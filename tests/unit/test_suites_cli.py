@@ -19,7 +19,7 @@ system:
     kind: scheduler
     max_running_requests: 4
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 sweep:
   system:
     batching_method: [fixed-batching, continuous-batching]
@@ -120,7 +120,7 @@ def test_lockstep_suite_dry_run_with_spec(tmp_path, capsys):
     path = tmp_path / "demo-lockstep.yaml"
     path.write_text(
         "name: demo-lockstep\n"
-        "system: {engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}\n"
+        "system: {engine_mode: lockstep, batching_method: fixed-batching, caching_spec: dense-kv-cache}\n"
         "workload: {id: w, count: 2, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )

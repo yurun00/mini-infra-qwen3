@@ -290,7 +290,7 @@ class PagedCacheSpec(_Strict):
 
 
 def _normalize_caching(raw: Any) -> Any:
-    """归一化 caching_method 输入：将标量字符串或枚举提升为标准判别字典。"""
+    """归一化 caching_spec 输入：将标量字符串或枚举提升为标准判别字典。"""
     if isinstance(raw, str):
         return {"kind": raw}
     if isinstance(raw, CachingMethod):
@@ -308,12 +308,12 @@ CachingSpec = Annotated[
 class SystemSpec(_Strict):
     engine_mode: EngineModeSpec
     batching_method: BatchingMethod
-    caching_method: CachingSpec = DenseCacheSpec()
+    caching_spec: CachingSpec = DenseCacheSpec()
 
     @property
     def default_mode(self) -> Mode:
         """系统配置声明的默认运行模式。"""
-        return Mode(self.caching_method.method, batching_method=self.batching_method)
+        return Mode(self.caching_spec.method, batching_method=self.batching_method)
 
 
 # --------------------------------------------------------------------------- 语义检查守卫

@@ -36,7 +36,7 @@ system:
     kind: scheduler
     max_running_requests: 4
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 sweep:
   system:
     batching_method: [fixed-batching, continuous-batching]
@@ -46,7 +46,7 @@ workload: {{id: w, count: 2, prompt_len: 4, output_len: {{alternating: [2, 3]}}}
 _LOCKSTEP_YAML = """
 name: {name}
 execution: {{warmup: 0, repeats: 1}}
-system: {{engine_mode: lockstep, batching_method: fixed-batching, caching_method: dense-kv-cache}}
+system: {{engine_mode: lockstep, batching_method: fixed-batching, caching_spec: dense-kv-cache}}
 workload: {{id: w, count: 2, prompt_len: 4, output_len: 2}}
 """
 
@@ -335,7 +335,7 @@ system:
     kind: scheduler
     max_running_requests: 4
   batching_method: continuous-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 workload:
   id: w
   seed: 7
@@ -379,7 +379,7 @@ def test_seeded_distribution_validation(tmp_path, line, message):
         "    kind: scheduler\n"
         "    max_running_requests: 4\n"
         "  batching_method: continuous-batching\n"
-        "  caching_method: dense-kv-cache\n"
+        "  caching_spec: dense-kv-cache\n"
         "workload:\n  id: w\n  count: 4\n  output_len: 4\n" + line
     )
     path = tmp_path / "bad.yaml"
@@ -397,9 +397,9 @@ def test_builtin_release_specs_are_valid():
 def _release_raw(engine="scheduler", **override):
     scale = {"seed_salt": 1, "max_running_requests": 4, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
     system = (
-        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_method": "dense-kv-cache"}
+        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_spec": "dense-kv-cache"}
         if engine == "scheduler"
-        else {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_method": "dense-kv-cache"}
+        else {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_spec": "dense-kv-cache"}
     )
     raw = {
         "default_seed": 42,
@@ -421,7 +421,7 @@ def test_release_spec_validation():
     system_with_mrr = {
         "engine_mode": {"kind": "scheduler", "max_running_requests": 4},
         "batching_method": "continuous-batching",
-        "caching_method": "dense-kv-cache",
+        "caching_spec": "dense-kv-cache",
     }
     inherited = ReleaseSpec.model_validate(
         _release_raw(system=system_with_mrr, scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr})
@@ -443,7 +443,7 @@ def _write_release(
     scale = f"{{seed_salt: 1, max_running_requests: 4, workload: {workload}}}"
     path.write_text(
         f"default_seed: 42\n"
-        f"system: {{engine_mode: {name}, batching_method: continuous-batching, caching_method: dense-kv-cache}}\n"
+        f"system: {{engine_mode: {name}, batching_method: continuous-batching, caching_spec: dense-kv-cache}}\n"
         f"checks: {checks}\n"
         f"scales: {{small: {scale}, medium: {scale}, large: {scale}}}\n",
         encoding="utf-8",

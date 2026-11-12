@@ -10,10 +10,10 @@ system:
     kind: scheduler
     max_running_requests: 8
   batching_method: continuous-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 sweep:
   system:
-    caching_method: [dense-kv-cache, paged-kv-cache]
+    caching_spec: [dense-kv-cache, paged-kv-cache]
 workload:
   vars:
     long_prompt_len: 2048

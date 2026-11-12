@@ -6,4 +6,9 @@ workload:
   id: block_size_sweep
 sweep:
   system:
-    block_size: [8, 16, 32, 64]
+    caching_spec:
+      - dense-kv-cache
+      - {kind: paged-kv-cache, block_size: 8}
+      - {kind: paged-kv-cache, block_size: 16}
+      - {kind: paged-kv-cache, block_size: 32}
+      - {kind: paged-kv-cache, block_size: 64}

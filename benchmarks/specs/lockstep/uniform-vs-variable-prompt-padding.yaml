@@ -9,7 +9,7 @@ execution:
 system:
   engine_mode: lockstep
   batching_method: fixed-batching
-  caching_method: dense-kv-cache
+  caching_spec: dense-kv-cache
 workload:
   vars:
     scenario: uniform

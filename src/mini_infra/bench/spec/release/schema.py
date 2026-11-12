@@ -62,7 +62,7 @@ class ReleaseSpec(_Strict):
         if self.execution.interleave:
             raise ValueError("release 负载不支持 execution.interleave")
         if isinstance(self.system.engine_mode, LockstepEngineSpec):
-            if self.system.caching_method.method is CachingMethod.PAGED:
+            if self.system.caching_spec.method is CachingMethod.PAGED:
                 raise ValueError("lockstep release 不支持 paged-kv-cache")
             for check in self.checks:
                 if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):
