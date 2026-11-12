@@ -159,7 +159,7 @@ def test_running_queue_lifecycle_and_batch_slot_management():
     assert rq.free_batch_slots == (2,)
 
     # 尝试超量入场抛出异常
-    with pytest.raises(ValueError, match="可用 Batch 槽位不足"):
+    with pytest.raises(ValueError, match="可用 batch slot 不足"):
         rq.admit(states, clock_ms=5.0)
 
     # 释放已结束请求

@@ -192,7 +192,7 @@ mini-infra bench scheduler case \
   --max-running-requests 4 \
   --request-count 12
 
-# 4. Paged KV Cache 单用例测试（指定 physical block 大小为 32，块池自动按负载推导）
+# 4. Paged KV Cache 单用例测试（指定 physical block 大小为 32，physical block pool 自动按负载推导）
 mini-infra bench scheduler case \
   --tag dev \
   --caching-method paged-kv-cache \
@@ -218,7 +218,7 @@ mini-infra bench scheduler case \
 4. **`fixed-vs-continuous-prefill-interference`**：运行中 Decode batch slot 受新入场请求 Prefill 插入时的 ITL 抖动与打断开销。
 
 **Dense vs Paged 对比套件（默认交替维度 `interleave=(caching_method, block_size)`）**：
-5. **`dense-vs-paged-long-short-stress`**：长短 Prompt 混杂受控压力测试（long=2048），对比 Dense batch slot 与 Paged 物理块池的峰值显存、KV 读取数与调度延迟。
+5. **`dense-vs-paged-long-short-stress`**：长短 Prompt 混杂受控压力测试（long=2048），对比 Dense batch slot 与 Paged physical block pool 的峰值显存、KV 读取数与调度延迟。
 6. **`dense-vs-paged-length-ratio`**：长短 Prompt 长度比扫描（长 Prompt 取 128 / 512 / 2048 / 3072），评估非均匀 Prompt 长度分布下 Paged KV Cache 的显存与吞吐收益变化趋势。
 7. **`dense-vs-paged-block-size`**：Paged 物理块大小扫描（8 / 16 / 32 / 64），对比不同 block size 下的显存开销与调度吞吐，共用同一 Dense 基线。
 

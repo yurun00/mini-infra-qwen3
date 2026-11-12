@@ -362,7 +362,7 @@
           "makespan_ms": 4521.323402404785,
           "throughput_req_s": 3.5387868940076213,
           "throughput_tok_s": 60.601725559880514,
-          "execution_slot_utilization": 0.6523809523809524,
+          "slot_utilization": 0.6523809523809524,
           "ttft_ms_p95": 3461.1885154724123,
           "itl_ms_p95": 43.672576904296875,
           "cache_management_fraction": 0.0
@@ -371,7 +371,7 @@
           "makespan_ms": 4570.365695953369,
           "throughput_req_s": 3.5008139532831044,
           "throughput_tok_s": 59.95143894997316,
-          "execution_slot_utilization": 0.6523809523809524,
+          "slot_utilization": 0.6523809523809524,
           "ttft_ms_p95": 3436.5990760803224,
           "itl_ms_p95": 52.91312026977539,
           "cache_management_fraction": 0.0
@@ -380,7 +380,7 @@
           "makespan_ms": 4717.005359649658,
           "throughput_req_s": 3.3919825779439763,
           "throughput_tok_s": 58.087701647290594,
-          "execution_slot_utilization": 0.6523809523809524,
+          "slot_utilization": 0.6523809523809524,
           "ttft_ms_p95": 3533.4425971984865,
           "itl_ms_p95": 53.217281341552734,
           "cache_management_fraction": 0.0
@@ -389,7 +389,7 @@
           "makespan_ms": 4617.806522369385,
           "throughput_req_s": 3.4648484994972115,
           "throughput_tok_s": 59.33553055388975,
-          "execution_slot_utilization": 0.6523809523809524,
+          "slot_utilization": 0.6523809523809524,
           "ttft_ms_p95": 3496.081147003174,
           "itl_ms_p95": 50.760704040527344,
           "cache_management_fraction": 0.0
@@ -398,7 +398,7 @@
           "makespan_ms": 4727.526218414307,
           "throughput_req_s": 3.3844339006895394,
           "throughput_tok_s": 57.95843054930837,
-          "execution_slot_utilization": 0.6523809523809524,
+          "slot_utilization": 0.6523809523809524,
           "ttft_ms_p95": 3645.807465362549,
           "itl_ms_p95": 50.45862579345703,
           "cache_management_fraction": 0.0
@@ -2081,7 +2081,7 @@
           "makespan_ms": 14203.257968902588,
           "throughput_req_s": 2.25300421002439,
           "throughput_tok_s": 131.02627608923095,
-          "execution_slot_utilization": 0.7092225609756098,
+          "slot_utilization": 0.7092225609756098,
           "ttft_ms_p95": 8092.530838012695,
           "itl_ms_p95": 44.94643020629883,
           "cache_management_fraction": 0.0
@@ -2090,7 +2090,7 @@
           "makespan_ms": 14492.43307876587,
           "throughput_req_s": 2.2080488366640103,
           "throughput_tok_s": 128.41184015724136,
-          "execution_slot_utilization": 0.7092225609756098,
+          "slot_utilization": 0.7092225609756098,
           "ttft_ms_p95": 8263.921203613281,
           "itl_ms_p95": 48.635902404785156,
           "cache_management_fraction": 0.0
@@ -2099,7 +2099,7 @@
           "makespan_ms": 14385.384777069092,
           "throughput_req_s": 2.2244799493308895,
           "throughput_tok_s": 129.36741205327453,
-          "execution_slot_utilization": 0.7092225609756098,
+          "slot_utilization": 0.7092225609756098,
           "ttft_ms_p95": 8224.851348876953,
           "itl_ms_p95": 46.01548767089844,
           "cache_management_fraction": 0.0
@@ -2108,7 +2108,7 @@
           "makespan_ms": 14532.737934112549,
           "throughput_req_s": 2.2019250704911375,
           "throughput_tok_s": 128.0557048807502,
-          "execution_slot_utilization": 0.7092225609756098,
+          "slot_utilization": 0.7092225609756098,
           "ttft_ms_p95": 8208.694980621338,
           "itl_ms_p95": 49.63840103149414,
           "cache_management_fraction": 0.0
@@ -2117,7 +2117,7 @@
           "makespan_ms": 14829.622619628906,
           "throughput_req_s": 2.157843177859691,
           "throughput_tok_s": 125.49206731240268,
-          "execution_slot_utilization": 0.7092225609756098,
+          "slot_utilization": 0.7092225609756098,
           "ttft_ms_p95": 8479.553577423096,
           "itl_ms_p95": 52.0447998046875,
           "cache_management_fraction": 0.0
@@ -6620,7 +6620,7 @@
           "makespan_ms": 56093.183612823486,
           "throughput_req_s": 1.140958595642429,
           "throughput_tok_s": 132.7968840459446,
-          "execution_slot_utilization": 0.6439315352697096,
+          "slot_utilization": 0.6439315352697096,
           "ttft_ms_p95": 37268.413820648195,
           "itl_ms_p95": 72.97433471679688,
           "cache_management_fraction": 0.0
@@ -6629,7 +6629,7 @@
           "makespan_ms": 56063.47145462036,
           "throughput_req_s": 1.14156327354441,
           "throughput_tok_s": 132.86726288487984,
-          "execution_slot_utilization": 0.6439315352697096,
+          "slot_utilization": 0.6439315352697096,
           "ttft_ms_p95": 37241.835459136964,
           "itl_ms_p95": 72.98662567138672,
           "cache_management_fraction": 0.0
@@ -6638,7 +6638,7 @@
           "makespan_ms": 56038.92617034912,
           "throughput_req_s": 1.142063283037411,
           "throughput_tok_s": 132.92545930227615,
-          "execution_slot_utilization": 0.6439315352697096,
+          "slot_utilization": 0.6439315352697096,
           "ttft_ms_p95": 37235.075704956056,
           "itl_ms_p95": 72.76850891113281,
           "cache_management_fraction": 0.0
@@ -6647,7 +6647,7 @@
           "makespan_ms": 56027.83882141113,
           "throughput_req_s": 1.1422892859387304,
           "throughput_tok_s": 132.95176392121255,
-          "execution_slot_utilization": 0.6439315352697096,
+          "slot_utilization": 0.6439315352697096,
           "ttft_ms_p95": 37216.27654876709,
           "itl_ms_p95": 72.8268814086914,
           "cache_management_fraction": 0.0
@@ -6656,7 +6656,7 @@
           "makespan_ms": 56081.05902862549,
           "throughput_req_s": 1.14120526802699,
           "throughput_tok_s": 132.82559439895388,
-          "execution_slot_utilization": 0.6439315352697096,
+          "slot_utilization": 0.6439315352697096,
           "ttft_ms_p95": 37262.48560943604,
           "itl_ms_p95": 72.83609771728516,
           "cache_management_fraction": 0.0

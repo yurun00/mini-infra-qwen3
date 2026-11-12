@@ -1,6 +1,6 @@
-"""连续批处理槽位调度专职执行器。
+"""连续批处理 batch slot 调度专职执行器。
 
-负责管理基于 DenseSlotCache 槽位池的 Prefill 与增量 Decode 模型前向计算与计时。
+负责管理基于 DenseSlotCache 的 Prefill 与增量 Decode 模型前向计算与计时。
 """
 
 from collections.abc import Sequence
@@ -16,7 +16,7 @@ from mini_infra.worker.sampler import greedy_sample
 
 
 class SlotDecodeOutput(NamedTuple):
-    """一步槽位 Decode 的产出：按 Batch 槽位索引的下一个 Token ID 列表与模型耗时（ms）。"""
+    """一步 batch slot Decode 的产出：按 batch slot 索引排列的下一个 Token ID 列表与模型耗时（ms）。"""
 
     batch_slot_tokens: list[int]
     model_ms: float
@@ -31,7 +31,12 @@ def _prepare_decode_inputs(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """构造 capacity 行的单步 Decode 输入（纯组装，不 sync、不计时）。
 
-    空闲/已结束槽位填 Padding 并整行 mask；先在 Host 侧组装列表再一次性传输，避免逐槽位的小 kernel。
+    空闲/已结束 batch slot 填 Padding 并整行 mask；先在 Host 侧组装列表再一次性传输，避免逐 batch slot 的小 kernel。
+
+    Returns:
+        input_ids:      [capacity, 1],            long, contiguous
+        position_ids:   [capacity, 1],            long, contiguous
+        attention_mask: [capacity, past_len + 1], bool, contiguous
     """
     if slot_cache.history_mask is None:
         raise RuntimeError("Cache 尚未分配，无法构造 Decode 输入")
@@ -50,7 +55,7 @@ def _prepare_decode_inputs(
 
 
 class SlotRunner(BaseModelRunner):
-    """连续批处理槽位调度场景专职执行器：无状态，驱动 DenseSlotCache 完成 Prefill 与 Decode。"""
+    """连续批处理 batch slot 调度场景专职执行器：无状态，驱动 DenseSlotCache 完成 Prefill 与 Decode。"""
 
     def prepare_decode_inputs(
         self,
@@ -59,7 +64,13 @@ class SlotRunner(BaseModelRunner):
         last_tokens: Sequence[int],
         positions: Sequence[int],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """构造单步 Decode 输入（纯组装，不 sync、不计时，供 engine 在测量区间边界自行计时）。"""
+        """构造单步 Decode 输入（纯组装，不 sync、不计时，供 engine 在测量区间边界自行计时）。
+
+        Returns:
+            input_ids:      [capacity, 1],            long, contiguous
+            position_ids:   [capacity, 1],            long, contiguous
+            attention_mask: [capacity, past_len + 1], bool, contiguous
+        """
         return _prepare_decode_inputs(
             slot_cache=dense_slot_cache,
             running_batch_slot_indices=running_batch_slot_indices,
@@ -75,7 +86,12 @@ class SlotRunner(BaseModelRunner):
         position_ids: torch.Tensor,
         dense_slot_cache: DenseSlotCache,
     ) -> SlotDecodeOutput:
-        """执行一步 Decode 前向与采样，并把新 KV 与本步 attention_mask 写回槽位。"""
+        """执行一步 Decode 前向与采样，并把新 KV 与本步 attention_mask 写回 batch slot。
+
+        input_ids:      [capacity, 1],            long, contiguous
+        attention_mask: [capacity, past_len + 1], bool, contiguous
+        position_ids:   [capacity, 1],            long, contiguous
+        """
         with StepTimer(self.device) as timer:
             logits, present_key_values = self.model(
                 input_ids,

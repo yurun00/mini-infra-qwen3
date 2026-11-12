@@ -48,7 +48,7 @@ class DenseScheduleBackend(ScheduleBackend):
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
         prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in admitted])
         self.snapshot_tracker.record_stage("02_dense_prefill_forward_done")
-        batch_slot_indices = [s.batch_slot_idx for s in admitted if s.batch_slot_idx is not None]
+        batch_slot_indices = [s.batch_slot_idx for s in admitted]
         cache_lengths = [s.cache_length for s in admitted]
         if self.is_continuous:
             synchronize(self.device)
@@ -79,7 +79,7 @@ class DenseScheduleBackend(ScheduleBackend):
         )
 
     def execute_decode(self, running_queue: RunningQueue) -> ScheduleStepOutput:
-        batch_slot_indices = [s.batch_slot_idx for s in running_queue if s.batch_slot_idx is not None]
+        batch_slot_indices = [s.batch_slot_idx for s in running_queue]
         last_tokens = [s.generated[-1] for s in running_queue]
         positions = [s.cache_length for s in running_queue]
         synchronize(self.device)
@@ -109,8 +109,8 @@ class DenseScheduleBackend(ScheduleBackend):
 
     def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
         for state in finished:
-            if state.batch_slot_idx is not None:
-                self.dense_slot_cache.release(state.batch_slot_idx)
+            assert state.batch_slot_idx is not None
+            self.dense_slot_cache.release(state.batch_slot_idx)
         running_queue.retire(finished)
         if not running_queue:
             self.dense_slot_cache.reset()

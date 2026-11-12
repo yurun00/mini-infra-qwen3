@@ -1,6 +1,6 @@
-"""控制面基础数据结构体（CachingMethod、BatchingMethod、SequenceOutput、RequestMetrics、collapse_uniform）。
+"""control plane 基础数据结构体（CachingMethod、BatchingMethod、SequenceOutput、RequestMetrics、collapse_uniform）。
 
-注意：此模块处于纯 CPU 控制面，严禁 import torch 或引入任何 GPU 张量操作。
+注意：此模块处于纯 CPU control plane，严禁 import torch 或引入任何 GPU 张量操作。
 """
 
 from collections.abc import Sequence

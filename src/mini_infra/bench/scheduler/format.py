@@ -46,7 +46,7 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
         "makespan_ms_mean",
         "throughput_req_s_mean",
         "throughput_tok_s_mean",
-        "execution_slot_utilization_mean",
+        "slot_utilization_mean",
         "ttft_ms_p95_mean",
         "itl_ms_p95_mean",
         "cache_management_fraction_mean",

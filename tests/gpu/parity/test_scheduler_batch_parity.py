@@ -48,7 +48,7 @@ def test_continuous_batching_gpu_parity() -> None:
 
     eos_token_id = tokenizer.eos_token_id or -1
 
-    # 1. 运行连续批处理（容量 2，测试槽位复用）
+    # 1. 运行连续批处理（容量 2，测试 batch slot 复用）
     cont_result = run_scheduler(
         BatchingMethod.CONTINUOUS,
         model,

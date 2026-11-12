@@ -58,7 +58,7 @@ def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) 
 
 
 CASES = {
-    # 混合预算，全部同时到达，并发上限小于请求数：槽位会被反复回收复用
+    # 混合预算，全部同时到达，并发上限小于请求数：batch slot 会被反复回收复用
     "mixed_budgets": ([4, 9, 6, 3, 7], [2, 6, 3, 5, 1], [0.0] * 5, 2),
     # 错峰到达，含长时间空档（时钟跳转）
     "staggered": ([5, 5, 5, 5], [4, 6, 4, 6], [0.0, 1.0, 2.0, 5000.0], 3),
@@ -158,7 +158,7 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
     assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
     # 第二波只在第一波（预算最大的请求 1，共 6 步）全部结束后才开始
     assert result.request_metrics[2].admitted_ms >= result.request_metrics[1].completion_ms
-    # 已结束的短请求槽位空转：第一波 6 步均以 2 行执行
+    # 已结束的短请求 batch slot 空转：第一波 6 步均以 2 行执行
     assert [e.physical_batch_size for e in result.events[:6]] == [2] * 6
     assert [e.num_active_requests for e in result.events[:6]] == [2, 2, 1, 1, 1, 1]
     assert result.schedule_metrics.cache_management_ms == 0.0
@@ -268,7 +268,7 @@ class TestGenerateDispatch:
         prompts = make_prompts([3, 5, 4, 6])
         budgets = [3, 2, 4, 1]
         continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-        # 4 个离线请求，并发上限限制为 2，触发槽位排队复用
+        # 4 个离线请求，并发上限限制为 2，触发 batch slot 排队复用
         result = generate(
             continuous,
             model,

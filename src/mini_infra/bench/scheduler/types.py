@@ -53,7 +53,7 @@ class SchedulerCaseResult:
         return self.key.workload_id
 
     def format_summary(self) -> str:
-        """格式化单用例的延迟/吞吐/槽位利用率摘要行（与 lockstep 对齐）。"""
+        """格式化单用例的延迟/吞吐/slot_utilization 摘要行（与 lockstep 对齐）。"""
         cache_frac = self.schedule_metrics.cache_management_fraction.mean
         cache_info = f" | cache {cache_frac * 100:.1f}%" if cache_frac > 0 else ""
         slot_util = self.packing.slot_utilization.mean if self.packing is not None else 0.0
@@ -163,7 +163,7 @@ class SchedulerCaseResult:
                 "makespan_ms": r.schedule_metrics.makespan_ms,
                 "throughput_req_s": r.metrics.throughput_req_s,
                 "throughput_tok_s": r.metrics.throughput_tok_s,
-                "execution_slot_utilization": (r.batch_info.slot_utilization if r.batch_info is not None else 0.0),
+                "slot_utilization": (r.batch_info.slot_utilization if r.batch_info is not None else 0.0),
                 "ttft_ms_p95": r.schedule_metrics.ttft_ms_p95,
                 "itl_ms_p95": r.schedule_metrics.itl_ms_p95,
                 "cache_management_fraction": r.schedule_metrics.cache_management_fraction,

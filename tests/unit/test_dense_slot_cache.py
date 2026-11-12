@@ -1,4 +1,4 @@
-"""DenseSlotCache 的单元测试（CPU，tiny 模型）：入场写槽位、左侧扩容、Decode 输入与释放。"""
+"""DenseSlotCache 的单元测试（CPU，tiny 模型）：入场写 batch slot、左侧扩容、Decode 输入与释放。"""
 
 import pytest
 import torch
@@ -28,7 +28,7 @@ def prefill(model, prompts: list[list[int]]) -> KVCache:
 def assert_slot_matches_single_request(
     dense_slot_cache: DenseSlotCache, model, batch_slot_idx: int, prompt: list[int]
 ) -> None:
-    """槽位中右对齐的有效历史必须与该请求单独 Prefill 的 Cache 完全一致，且左侧空位被 mask。"""
+    """batch slot 中右对齐的有效历史必须与该请求单独 Prefill 的 Cache 完全一致，且左侧空位被 mask。"""
     reference = prefill(model, [prompt])
     length, total = len(prompt), dense_slot_cache.length
     assert dense_slot_cache.history_mask[batch_slot_idx].tolist() == [False] * (total - length) + [True] * length
@@ -53,7 +53,7 @@ def test_absorb_prefill_allocates_and_writes_right_aligned_slots(model):
     assert tuple(dense_slot_cache.kv_cache[0][0].shape) == (4, config.num_key_value_heads, 4, config.head_dim)
     for batch_slot_idx, prompt in zip(batch_slot_indices, prompts):
         assert_slot_matches_single_request(dense_slot_cache, model, batch_slot_idx, prompt)
-    # 未使用的槽位整行被 mask
+    # 未使用的 batch slot 整行被 mask
     assert dense_slot_cache.history_mask[0].tolist() == [False] * 4
     assert dense_slot_cache.history_mask[2].tolist() == [False] * 4
 

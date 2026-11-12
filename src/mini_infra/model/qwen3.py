@@ -416,7 +416,11 @@ class Qwen3Model(nn.Module):
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
     def _validate_past_key_values(self, past_key_values: Sequence[PastKeyValue] | None, batch_size: int) -> int:
-        """校验历史键值的层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度 past_len。"""
+        """校验历史键值的层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度 past_len。
+
+        past_key_values: 逐层 (key, value) 元组序列（None 时 past_len = 0），
+                         各 [batch_size, num_key_value_heads, past_len, head_dim], model_dtype, contiguous
+        """
         if past_key_values is None:
             return 0
         if len(past_key_values) != len(self.layers):

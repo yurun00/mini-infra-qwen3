@@ -99,7 +99,7 @@ def check_kv_cache_correctness(model):
 
 
 def check_fixed_batching(model):
-    """验证左 Padding、请求隔离、完成槽位指标与非法 Mask 拒绝。"""
+    """验证左 Padding、请求隔离、completion_step 指标与非法 Mask 拒绝。"""
     device = torch.device("cpu")
     config = model.config
     request_a = [3, 5, 7, 9]
@@ -131,7 +131,7 @@ def check_fixed_batching(model):
     assert abs(batched.batch_info.slot_utilization - 0.75) < 1e-12
     expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
     assert abs(batched.memory.kv_cache.peak_live_kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
-    print("Batched KV Cache、完成槽位和利用率检查通过")
+    print("Batched KV Cache、completion_step 和利用率检查通过")
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。
     serial = generate(
@@ -195,13 +195,13 @@ def check_continuous_batching(model):
     assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
     assert [s.token_ids for s in continuous.sequences] == [s.token_ids for s in serialized.sequences]
 
-    # 3. 动态退场与槽位插队轨迹 (Dynamic Admission Trace)：Req 0 完成后 Req 2 动态插队，随后 Req 3 插队
+    # 3. 动态退场与 batch slot 插队轨迹 (Dynamic Admission Trace)：Req 0 完成后 Req 2 动态插队，随后 Req 3 插队
     prefill_admissions = [list(e.admitted_request_ids) for e in continuous.events if e.phase == SchedulePhase.PREFILL]
     assert prefill_admissions[0] == [0, 1]
     assert prefill_admissions[1] == [2]
     assert prefill_admissions[2] == [3]
 
-    # 4. 槽位有效利用率优势对比
+    # 4. batch slot 有效利用率优势对比
     assert continuous.batch_info.slot_utilization > fixed.batch_info.slot_utilization
 
     # 5. 请求时序指标逻辑自洽性校验 (queue_ms >= 0, ttft_ms >= queue_ms, end_to_end_ms >= ttft_ms)

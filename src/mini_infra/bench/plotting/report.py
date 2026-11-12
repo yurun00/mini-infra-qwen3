@@ -46,8 +46,8 @@ def markdown_table(records: Sequence[RecordInput], base: RecordInput) -> str:
         lines.extend(
             [
                 "| 版本 | Scale | commit | total_requests | prompt | max_new_tokens | Makespan (ms) "
-                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) | KV 块池 (MiB) "
-                "| batch slot 利用率 | 正确性 |",
+                "| TTFT P50 (ms) | ITL P95 (ms) | 吞吐 (tok/s) | 峰值显存 (MiB) | 活跃 KV (MiB) "
+                "| KV physical block pool (MiB) | batch slot 利用率 | 正确性 |",
                 "| :--- | :-: | :--- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |",
             ]
         )

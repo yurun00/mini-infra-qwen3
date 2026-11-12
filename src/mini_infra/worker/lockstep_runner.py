@@ -28,7 +28,14 @@ def _prepare_prefill_inputs(
     pad_token_id: int,
     device: torch.device,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """构建 Prefill 阶段直接喂给模型的初始输入张量（内部物理张量辅助函数）。"""
+    """构建 Prefill 阶段直接喂给模型的初始输入张量（内部物理张量辅助函数）。
+
+    Returns:
+        input_ids:      [B, L], long, contiguous
+        attention_mask: [B, L], bool, contiguous
+        position_ids:   [B, L], long, contiguous / expand 视图
+        prompt_lengths: [B],    long, contiguous
+    """
     if has_uniform_prompt_len:
         input_ids_tensor = torch.as_tensor(token_sequences, dtype=torch.long, device=device)
         if input_ids_tensor.ndim == 1:
@@ -62,7 +69,14 @@ class LockstepInputBatch:
     def get_model_inputs(
         self, use_cache: bool
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Sequence[tuple[torch.Tensor, torch.Tensor]] | None]:
-        """获取当前前向所需的 (input_ids, attention_mask, position_ids, past_key_values)。"""
+        """获取当前前向所需的 (input_ids, attention_mask, position_ids, past_key_values)。
+
+        Returns:
+            model_input:    [B, query_len],            long, contiguous
+            attention_mask: [B, past_len + query_len], bool, contiguous
+            position_ids:   [B, query_len],            long, contiguous / expand 视图
+            past_kvs:       逐层 [B, H_kv, past_len, D], model_dtype, contiguous（无 Cache 时为 None）
+        """
         model_input = self.curr_input_ids if use_cache else self.full_input_ids
         position_ids = self.curr_position_ids if use_cache else self.full_position_ids
         past_kvs = self.kv_cache.past_key_values if (use_cache and self.kv_cache is not None) else None
@@ -134,7 +148,12 @@ class LockstepRunner(BaseModelRunner):
         next_tokens: Sequence[int],
         use_cache: bool = True,
     ) -> None:
-        """根据当前槽位活跃状态与生成结果，为齐步批次准备下一步的模型输入张量。"""
+        """根据当前各 batch slot 活跃状态与生成结果，为齐步批次准备下一步的模型输入张量。
+
+        更新后 batch.attention_mask 形状为 [B, S_prev + 1]（bool, contiguous）；
+        use_cache=True 时 curr_input_ids / curr_position_ids 为 [B, 1]（long, contiguous），
+        use_cache=False 时 full_input_ids / full_position_ids 为 [B, S_prev + 1]（long, contiguous）。
+        """
         active_tensor = torch.tensor(curr_active, dtype=torch.bool, device=self.device).unsqueeze(1)
         step_tokens = torch.tensor(next_tokens, dtype=torch.long, device=self.device).unsqueeze(1)
         pos_tensor = torch.tensor(next_positions, dtype=torch.long, device=self.device).unsqueeze(1)

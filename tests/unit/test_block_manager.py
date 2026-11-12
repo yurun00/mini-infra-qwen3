@@ -1,4 +1,4 @@
-"""Paged KV Cache 逻辑块管理（FreeKVCacheBlockQueue / KVCacheManager）的单元测试（纯 CPU 控制面，无 torch）。"""
+"""Paged KV Cache 逻辑块管理（FreeKVCacheBlockQueue / KVCacheManager）的单元测试（纯 CPU control plane，无 torch）。"""
 
 import pytest
 

@@ -26,12 +26,10 @@ from mini_infra.engine.results import GenerationResult
 from mini_infra.profiling import profile_scope
 from mini_infra.worker import LockstepRunner
 
-__all__ = ["run_lockstep"]
-
 
 @dataclass
 class LockstepState:
-    """管理一次齐步（Lockstep）生成中所有槽位的生命周期与完成判定（纯 CPU 列表状态机）。"""
+    """管理一次齐步（Lockstep）生成中所有 batch slot 的生命周期与完成判定（纯 CPU 列表状态机）。"""
 
     batch_size: int
     padded_prompt_length: int
@@ -39,7 +37,7 @@ class LockstepState:
     budgets: list[int]
     max_steps: int
 
-    # 动态槽位生命周期与跟踪
+    # 动态 batch slot 生命周期与跟踪
     generated_counts: list[int]
     curr_active: list[bool]
     active_counts_per_step: list[int]
@@ -77,7 +75,7 @@ class LockstepState:
         eos_token_id: int | None,
         stop_on_eos: bool,
     ) -> bool:
-        """更新槽位输出 Token、预算/EOS 判定并返回是否所有槽位均已完成（纯 CPU 列表操作）。"""
+        """更新各 batch slot 输出 Token、预算/EOS 判定并返回是否所有 batch slot 均已完成（纯 CPU 列表操作）。"""
         num_active = sum(1 for a in self.curr_active if a)
         self.active_counts_per_step.append(num_active)
 
@@ -99,7 +97,7 @@ class LockstepState:
         return not any(self.curr_active)
 
     def _next_positions(self) -> list[int]:
-        """计算当前活跃槽位在 Decode 阶段的 position_id（即已生成的总长度 - 1）。"""
+        """计算当前活跃 batch slot 在 Decode 阶段的 position_id（即已生成的总长度 - 1）。"""
         return [self.prompt_lengths[i] + self.generated_counts[i] - 1 for i in range(self.batch_size)]
 
     def _compute_batch_metrics(self, step_latencies_ms: list[float]) -> BatchScheduleInfo[float]:
@@ -117,6 +115,7 @@ class LockstepState:
         )
 
 
+@torch.inference_mode()
 def run_lockstep(
     model: torch.nn.Module,
     token_sequences: Sequence[Sequence[int]],
@@ -135,7 +134,7 @@ def run_lockstep(
 ) -> GenerationResult:
     """执行齐步（Lockstep）自回归生成迭代循环（所有请求同时开始，含 step 0 Prefill 与后续 Decode 步）。
 
-    内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在数据面自治流转 GPU 输入与 KV Cache，
+    内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在 data plane 自治流转 GPU 输入与 KV Cache，
     直接构建并返回由核心共享值对象组成的 GenerationResult。
     """
     if caching_method is CachingMethod.PAGED:

@@ -69,7 +69,7 @@
 
 | 规范名 | 代码锚点 | 定义 |
 |---|---|---|
-| batch slot | `RequestState.batch_slot_idx`、`RunningQueue.free_batch_slots`、`DenseSlotCache` 首维 | Dense 路径的请求级常驻并发位：并发容量（`capacity`）空间里的一个 batch 行，一个活跃请求独占一个 |
+| batch slot | `RequestState.batch_slot_idx`、`RunningQueue.free_batch_slots`、`DenseSlotCache` 首维、`LockstepState` | Dense / Lockstep 路径的请求级常驻并发位：并发容量空间里的一个常驻 batch 行，一个活跃请求独占一个 |
 | slot（physical slot） | `PagedAttentionMetadata.slot_mapping`、`physical_block_id * block_size + offset` | Paged 路径的 token 级物理存储位：展平 physical block pool 的行号，本步新 token K/V 的写入地址 |
 | physical block pool | `PagedKVCachePool` | 逐层 `(key_pool, value_pool)` 物理块张量池，布局 `[num_blocks, block_size, H_kv, D]` |
 | free block queue | `FreeKVCacheBlockQueue` | 物理块 ID 的 FIFO 空闲队列；只存整数 ID，不持有显存张量 |

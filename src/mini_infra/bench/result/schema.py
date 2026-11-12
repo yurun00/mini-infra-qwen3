@@ -70,7 +70,7 @@ class DistributionStatsRecord(_RecordModel):
 
 
 class PagedCacheProfileRecord(_RecordModel):
-    """Paged KV Cache 专属块池画像 Schema（对应 `engine.metrics.PagedCacheProfile.to_dict()`）。"""
+    """Paged KV Cache 专属 physical block pool 画像 Schema（对应 `engine.metrics.PagedCacheProfile.to_dict()`）。"""
 
     block_size: int = 0
     bytes_per_block: int = 0
@@ -105,7 +105,7 @@ class MemoryProfileRecord(_RecordModel):
 
 
 class PackingInfoRecord(_RecordModel):
-    """批处理打包（Padding 效率）与槽位利用率 Schema（对应 `engine.metrics.BatchScheduleInfo[DistributionStats]`）。"""
+    """批处理打包（Padding 效率）与 slot_utilization Schema（对应 `BatchScheduleInfo[DistributionStats]`）。"""
 
     padding_efficiency: DistributionStatsRecord
     slot_utilization: DistributionStatsRecord

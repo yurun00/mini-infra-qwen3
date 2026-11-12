@@ -1,7 +1,7 @@
 """Paged KV Cache Continuous Batching 的端到端正确性测试（CPU，tiny 模型，float32，贪心解码）。
 
 核心判据与 test_continuous.py 一致：每个请求的输出 Token 必须与该请求单独串行 generate 逐位一致，
-并与 Dense 槽位路径逐位一致；此外校验块池的生命周期不变量。
+并与 Dense batch slot 路径逐位一致；此外校验 physical block pool 的生命周期不变量。
 """
 
 import pytest
@@ -114,7 +114,7 @@ def test_timeline_and_event_invariants(model):
     assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
     assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(requests)))
     assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(requests)))
-    # Paged Decode 只执行活跃请求：无 Padding 行，执行槽位利用率恒为 1
+    # Paged Decode 只执行活跃请求：无 Padding 行，slot_utilization 恒为 1
     assert all(e.physical_batch_size == e.num_active_requests for e in decode_events)
     assert result.batch_info.slot_utilization == pytest.approx(1.0)
     assert result.schedule_metrics.busy_ms == pytest.approx(sum(e.step_ms for e in result.events))
@@ -137,7 +137,7 @@ def test_live_kv_bytes_track_used_blocks_and_stay_within_pool(model):
 
 
 def test_small_pool_gates_admission_and_still_matches_serial(model):
-    """块池小于「全并发」所需：入场受限于空闲块，请求排队等待块被归还，输出仍与串行一致。"""
+    """physical block pool 小于「全并发」所需：入场受限于空闲块，请求排队等待块被归还，输出仍与串行一致。"""
     prompts = make_prompts([6, 6, 6])
     budgets = [3, 3, 3]
     requests = make_requests(prompts, budgets)
@@ -157,7 +157,7 @@ def test_pool_that_cannot_hold_one_request_is_rejected(model):
 
 
 def test_concurrent_growth_exhaustion_fails_loudly(model):
-    """Prompt 刚好能入场、但并发增长耗尽块池：显式报错（未实现抢占），而不是静默产出错误结果。"""
+    """Prompt 刚好能入场、但并发增长耗尽 physical block pool：显式报错（未实现抢占），而不是静默产出错误结果。"""
     requests = make_requests(make_prompts([4, 4]), [6, 6])  # 块大小 4：Prompt 各 1 块，增长至 9 Token 需 3 块
     with pytest.raises(RuntimeError, match="物理块已耗尽"):
         run_paged(model, requests, 2, block_size=4, num_blocks=5)

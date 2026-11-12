@@ -264,7 +264,7 @@ class NoCacheSpec(_Strict):
 
 
 class DenseCacheSpec(_Strict):
-    """Dense KV Cache（预分配连续槽位）。"""
+    """Dense KV Cache（预分配连续 batch slot）。"""
 
     kind: Literal["dense-kv-cache"] = "dense-kv-cache"
 
@@ -274,7 +274,7 @@ class DenseCacheSpec(_Strict):
 
 
 class PagedCacheSpec(_Strict):
-    """Paged KV Cache（物理显存块池，按需动态分配）。"""
+    """Paged KV Cache（physical block pool，按需动态分配）。"""
 
     kind: Literal["paged-kv-cache"] = "paged-kv-cache"
     block_size: PositiveInt = 16

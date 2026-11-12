@@ -37,7 +37,7 @@ def _compare_trace(
     target_idx: int,
     reference_idx: int = 0,
 ) -> dict[str, Any]:
-    """逐步对比两个运行轨迹中指定槽位的 Logits 误差、生成 Token 与 Top-1/Top-2 Margin。"""
+    """逐步对比两个运行轨迹中指定 batch slot 的 Logits 误差、生成 Token 与 Top-1/Top-2 Margin。"""
     ref_trace = reference.trace.logits_trace
     cand_trace = candidate.trace.logits_trace
     step_count = min(len(ref_trace), len(cand_trace))

@@ -72,7 +72,7 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--num-kv-blocks",
         type=int,
         default=None,
-        help="Paged KV Cache 物理块池大小（含 null block），默认按工作负载自动推导为不会耗尽的最小值",
+        help="Paged KV Cache physical block pool 大小（含 null block），默认按工作负载自动推导为不会耗尽的最小值",
     )
     parser.add_argument(
         "--batching-method",
@@ -268,7 +268,7 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         print("P95 Decode 延迟: %.2f ms" % result.metrics.p95_tpot_ms)
     if mode.is_batch and result.batch_info is not None:
         print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
-        print("槽位利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
+        print("batch slot 利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
     if isinstance(result, ScheduleResult):
         _print_schedule_metrics(result)
     kv_profile = result.memory.kv_cache
@@ -278,7 +278,10 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         print("峰值 KV Cache Pool: %.2f MiB" % kv_profile.peak_kv_cache_pool_mb)
     if kv_profile.paged_cache is not None:
         pc = kv_profile.paged_cache
-        print("Paged 物理块池: block_size=%d, 峰值使用块=%d/%d" % (pc.block_size, pc.peak_used_blocks, pc.num_blocks))
+        print(
+            "Paged physical block pool: block_size=%d, 峰值使用块=%d/%d"
+            % (pc.block_size, pc.peak_used_blocks, pc.num_blocks)
+        )
     decode_times = result.trace.step_latencies_ms[1:]
     if decode_times:
         print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])

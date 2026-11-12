@@ -130,7 +130,7 @@ def _resolve_agg_fn(agg: AggFunc) -> Callable[[Sequence[float]], float]:
 
 @dataclass(frozen=True)
 class AggregationOptions:
-    """GenerationResult 聚合策略配置。
+    """GenerationResult 聚合策略配置。自定义字段覆盖能力专供测试使用（Test-only）。
 
     支持双层配置：
     - 域级默认聚合：metrics, memory。

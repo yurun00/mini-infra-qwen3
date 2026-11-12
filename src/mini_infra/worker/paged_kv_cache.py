@@ -1,7 +1,7 @@
-"""Paged KV Cache 物理块池：持有逐层 K/V 物理张量，只认 physical_block_id / slot 物理索引。
+"""Paged KV Cache physical block pool：持有逐层 K/V 物理张量，只认 physical_block_id / slot 物理索引。
 
-注意：本模块处于纯 GPU 数据面，严禁 import RequestState、KVCacheManager 等控制面对象；
-请求到物理块的映射（Block Table）由 core/block_manager.py 维护，并由 PagedRunner 在 Host 侧组装为张量后下发。
+注意：本模块处于纯 GPU data plane，严禁 import RequestState、KVCacheManager 等 control plane 对象；
+请求到物理块的映射（block table）由 core/block_manager.py 维护，并由 PagedRunner 在 Host 侧组装为张量后下发。
 """
 
 import math
@@ -12,11 +12,11 @@ from mini_infra.worker.kv_cache import KVCache
 
 
 class PagedKVCachePool:
-    """逐层物理块池，布局对齐 vLLM：每层 (key_pool, value_pool)，形状 [num_blocks, block_size, num_kv_heads, head_dim]。
+    """逐层 physical block pool：每层 (key_pool, value_pool) 为 [num_blocks, block_size, num_kv_heads, head_dim]。
 
     - block 0 为 null block（永不分配），整池以 0 初始化：释放的块不清零（读取经 context_lens 屏蔽），
       但所有位置恒为有限值，避免 0 概率 × 未初始化 NaN 污染 Attention 输出。
-    - 物理槽位 slot = physical_block_id * block_size + offset，即 [num_blocks * block_size, ...] 展平视图的行号。
+    - slot = physical_block_id * block_size + offset，即 [num_blocks * block_size, ...] 展平视图的行号。
     """
 
     def __init__(
@@ -47,7 +47,7 @@ class PagedKVCachePool:
 
     @property
     def total_bytes(self) -> int:
-        """整个物理块池（含 null block）占用的显存字节数。"""
+        """整个 physical block pool（含 null block）占用的显存字节数。"""
         return self.num_blocks * self.bytes_per_block
 
     def write_prefill(

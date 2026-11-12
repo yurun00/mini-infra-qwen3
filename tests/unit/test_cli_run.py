@@ -133,7 +133,7 @@ def test_run_mode_and_print_result_dense_vs_paged(diverse_model, capsys):
     print_result(paged_mode, paged_res, FakeTokenizer())
     out = capsys.readouterr().out
     assert "峰值 KV Cache Pool" in out
-    assert "Paged 物理块池: block_size=4" in out
+    assert "Paged physical block pool: block_size=4" in out
 
 
 def test_print_result_lockstep_has_no_schedule_metrics(diverse_model, capsys):

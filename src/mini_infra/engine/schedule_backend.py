@@ -75,9 +75,9 @@ class ScheduleBackend(abc.ABC):
 
     @abc.abstractmethod
     def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
-        """回收已结束请求的槽位或物理块资源，并在空闲时执行重置。"""
+        """回收已结束请求的 batch slot 或物理块资源，并在空闲时执行重置。"""
         ...
 
     def collect_paged_cache_profile(self) -> PagedCacheProfile | None:
-        """运行结束后采集 Paged 物理块池画像（Dense 后端无块池，返回 None）。"""
+        """运行结束后采集 Paged physical block pool 画像（Dense 后端无 physical block pool，返回 None）。"""
         return None

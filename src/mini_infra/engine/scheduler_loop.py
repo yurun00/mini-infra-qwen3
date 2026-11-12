@@ -1,7 +1,7 @@
 """核心批处理调度循环（Core Scheduler Loop）。
 
-作为底座引擎核心，串联三类组件驱动“调度 → 执行 → 槽位/块表更新”的迭代循环：
-- 调度后端（入场、槽位/块表分配、退场与 EOS/预算判定）：engine/{dense,paged}_schedule_backend.py
+作为底座引擎核心，串联三类组件驱动“调度 → 执行 → batch slot / block table 更新”的迭代循环：
+- 调度后端（入场、batch slot / block table 分配、退场与 EOS/预算判定）：engine/{dense,paged}_schedule_backend.py
 - 模型执行（单步 Prefill / Decode 前向与计时）：worker/slot_runner.py 与 worker/paged_runner.py
 - KV Cache 物理显存管理：worker/dense_slot_cache.py (DenseSlotCache) 与 worker/paged_kv_cache.py (PagedKVCachePool)
 
@@ -11,7 +11,7 @@ Dense / Paged 两个具体实现分别位于 engine/dense_schedule_backend.py �
 本模块只保留调度主循环（_run_schedule_loop）与统一入口（run_scheduler），对外通过 run_scheduler 驱动三类批处理调度策略：
 - CONTINUOUS（连续批处理 Dense 路径）：有空闲 batch slot 即准入，并将 Prefill Cache 拷入持久化 batch slot；
 - FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空时准入下一波请求，零拷贝直接接管波次 Cache；
-- PAGED（连续批处理 Paged 路径）：以物理块池与 Block Table 映射驱动，按需按块分配，消除最长序列预留碎片。
+- PAGED（连续批处理 Paged 路径）：以 physical block pool 与 block table 映射驱动，按需按块分配，消除最长序列预留碎片。
 """
 
 import time

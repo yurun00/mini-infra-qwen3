@@ -362,7 +362,7 @@
           "makespan_ms": 3630.345617857798,
           "throughput_req_s": 4.407293873425008,
           "throughput_tok_s": 75.47490758240326,
-          "execution_slot_utilization": 0.9256756756756757,
+          "slot_utilization": 0.9256756756756757,
           "ttft_ms_p95": 2439.4947773852996,
           "itl_ms_p95": 88.77744168773643,
           "cache_management_fraction": 0.0101387707611776
@@ -371,7 +371,7 @@
           "makespan_ms": 3610.4917366087684,
           "throughput_req_s": 4.431529322659063,
           "throughput_tok_s": 75.88993965053646,
-          "execution_slot_utilization": 0.9256756756756757,
+          "slot_utilization": 0.9256756756756757,
           "ttft_ms_p95": 2410.825061486788,
           "itl_ms_p95": 88.08986073960114,
           "cache_management_fraction": 0.010205508469683874
@@ -380,7 +380,7 @@
           "makespan_ms": 3588.500269712422,
           "throughput_req_s": 4.458687138759006,
           "throughput_tok_s": 76.35501725124799,
-          "execution_slot_utilization": 0.9256756756756757,
+          "slot_utilization": 0.9256756756756757,
           "ttft_ms_p95": 2401.251835490855,
           "itl_ms_p95": 86.93530928951805,
           "cache_management_fraction": 0.010316248910452177
@@ -389,7 +389,7 @@
           "makespan_ms": 3571.5610533569343,
           "throughput_req_s": 4.479833820833468,
           "throughput_tok_s": 76.71715418177314,
-          "execution_slot_utilization": 0.9256756756756757,
+          "slot_utilization": 0.9256756756756757,
           "ttft_ms_p95": 2388.4210703218646,
           "itl_ms_p95": 86.7024353970919,
           "cache_management_fraction": 0.010204248915161645
@@ -398,7 +398,7 @@
           "makespan_ms": 3594.6344216931902,
           "throughput_req_s": 4.45107850284911,
           "throughput_tok_s": 76.22471936129101,
-          "execution_slot_utilization": 0.9256756756756757,
+          "slot_utilization": 0.9256756756756757,
           "ttft_ms_p95": 2409.7335274298252,
           "itl_ms_p95": 87.1938451073147,
           "cache_management_fraction": 0.010253204268830439
@@ -1826,7 +1826,7 @@
           "makespan_ms": 12605.30932383181,
           "throughput_req_s": 2.538612831935846,
           "throughput_tok_s": 147.63620250726905,
-          "execution_slot_utilization": 0.861574074074074,
+          "slot_utilization": 0.861574074074074,
           "ttft_ms_p95": 6281.847378166223,
           "itl_ms_p95": 87.20535334473243,
           "cache_management_fraction": 0.0073338687393801815
@@ -1835,7 +1835,7 @@
           "makespan_ms": 12803.977743405994,
           "throughput_req_s": 2.499223338347327,
           "throughput_tok_s": 145.34545727076173,
-          "execution_slot_utilization": 0.861574074074074,
+          "slot_utilization": 0.861574074074074,
           "ttft_ms_p95": 6404.443201802822,
           "itl_ms_p95": 89.26047411682521,
           "cache_management_fraction": 0.007561164267999118
@@ -1844,7 +1844,7 @@
           "makespan_ms": 12566.73409574318,
           "throughput_req_s": 2.54640543487266,
           "throughput_tok_s": 148.08939107181314,
-          "execution_slot_utilization": 0.861574074074074,
+          "slot_utilization": 0.861574074074074,
           "ttft_ms_p95": 6229.656910544798,
           "itl_ms_p95": 87.4003332547436,
           "cache_management_fraction": 0.007423618602095673
@@ -1853,7 +1853,7 @@
           "makespan_ms": 12500.96156898392,
           "throughput_req_s": 2.559803085819819,
           "throughput_tok_s": 148.86854820970885,
-          "execution_slot_utilization": 0.861574074074074,
+          "slot_utilization": 0.861574074074074,
           "ttft_ms_p95": 6201.929805259764,
           "itl_ms_p95": 87.3416326836741,
           "cache_management_fraction": 0.007376038594075673
@@ -1862,7 +1862,7 @@
           "makespan_ms": 12562.47902524066,
           "throughput_req_s": 2.5472679345935845,
           "throughput_tok_s": 148.13955082120813,
-          "execution_slot_utilization": 0.861574074074074,
+          "slot_utilization": 0.861574074074074,
           "ttft_ms_p95": 6271.395622151691,
           "itl_ms_p95": 86.95851154721458,
           "cache_management_fraction": 0.0076167288170248095
@@ -5913,7 +5913,7 @@
           "makespan_ms": 44038.65894658676,
           "throughput_req_s": 1.4532685947050246,
           "throughput_tok_s": 169.14684003058952,
-          "execution_slot_utilization": 0.8558134191176471,
+          "slot_utilization": 0.8558134191176471,
           "ttft_ms_p95": 21241.548628415934,
           "itl_ms_p95": 121.21865013212664,
           "cache_management_fraction": 0.0046441505685939225
@@ -5922,7 +5922,7 @@
           "makespan_ms": 43996.6573697896,
           "throughput_req_s": 1.45465596311291,
           "throughput_tok_s": 169.30831670668854,
-          "execution_slot_utilization": 0.8558134191176471,
+          "slot_utilization": 0.8558134191176471,
           "ttft_ms_p95": 21229.511776114356,
           "itl_ms_p95": 121.62749114242615,
           "cache_management_fraction": 0.0045511514052139525
@@ -5931,7 +5931,7 @@
           "makespan_ms": 44000.88021079524,
           "throughput_req_s": 1.454516357250011,
           "throughput_tok_s": 169.2920678930521,
-          "execution_slot_utilization": 0.8558134191176471,
+          "slot_utilization": 0.8558134191176471,
           "ttft_ms_p95": 21233.764162699517,
           "itl_ms_p95": 121.42889012275555,
           "cache_management_fraction": 0.004587417729886151
@@ -5940,7 +5940,7 @@
           "makespan_ms": 44055.81286309283,
           "throughput_req_s": 1.452702738657562,
           "throughput_tok_s": 169.0809796915653,
-          "execution_slot_utilization": 0.8558134191176471,
+          "slot_utilization": 0.8558134191176471,
           "ttft_ms_p95": 21268.45977138298,
           "itl_ms_p95": 121.57360155423521,
           "cache_management_fraction": 0.004646205340203655
@@ -5949,7 +5949,7 @@
           "makespan_ms": 44068.20677556165,
           "throughput_req_s": 1.45229417493547,
           "throughput_tok_s": 169.0334267045987,
-          "execution_slot_utilization": 0.8558134191176471,
+          "slot_utilization": 0.8558134191176471,
           "ttft_ms_p95": 21276.53763035796,
           "itl_ms_p95": 121.94767034365941,
           "cache_management_fraction": 0.004708158243153176

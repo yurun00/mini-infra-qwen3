@@ -38,7 +38,7 @@ class GenerationTrace:
 
 @dataclass(frozen=True)
 class PagedCacheProfile:
-    """Paged KV Cache 专属块池画像。"""
+    """Paged KV Cache 专属 physical block pool 画像。"""
 
     block_size: int = 0
     bytes_per_block: int = 0
@@ -62,7 +62,7 @@ class PagedCacheProfile:
 
 @dataclass(frozen=True)
 class KVCacheProfile:
-    """KV Cache 画像：活跃/池容量、扩容搬移、带宽访问，及 Paged 专属块池明细。"""
+    """KV Cache 画像：活跃/池容量、扩容搬移、带宽访问，及 Paged 专属 physical block pool 明细。"""
 
     peak_live_kv_cache_mb: float = 0.0
     peak_kv_cache_pool_mb: float = 0.0
@@ -136,7 +136,7 @@ def build_memory_profile(
 
 
 def summarize_repeated_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) -> PagedCacheProfile | None:
-    """汇总同一 Case 多轮重复运行的 Paged 物理块池画像：固定配置保持一致，峰值取 max，计数取 sum。"""
+    """汇总同一 Case 多轮重复运行的 Paged physical block pool 画像：固定配置保持一致，峰值取 max，计数取 sum。"""
     if not paged:
         return None
     first = paged[0]
@@ -175,7 +175,7 @@ def summarize_repeated_kv_cache_profiles(profiles: Sequence[KVCacheProfile]) -> 
 
 @dataclass(frozen=True)
 class BatchScheduleInfo(Generic[_MetricT]):
-    """批处理打包（Padding 效率）与槽位利用率明细（支持单次运行标量 float 或多轮评测统计分布 DistributionStats）。"""
+    """批处理打包（Padding 效率）与 slot_utilization 明细（支持标量 float 或统计分布 DistributionStats）。"""
 
     padding_efficiency: _MetricT
     slot_utilization: _MetricT
@@ -282,8 +282,8 @@ class ScheduleEvent:
     phase: SchedulePhase
     admitted_request_ids: tuple[int, ...]  # 本事件入场的 request_idx
     finished_request_ids: tuple[int, ...]  # 本事件结束的 request_idx
-    physical_batch_size: int  # 模型实际执行的行数（含空槽位/已结束槽位）
-    num_active_requests: int  # 事件期间仍在占用槽位的请求数
+    physical_batch_size: int  # 模型实际执行的行数（含空闲/已结束 batch slot）
+    num_active_requests: int  # 事件期间仍在占用 batch slot 的请求数
     num_generated_tokens: int  # 本事件产出的有效 Token 数
     step_ms: float
     model_ms: float
@@ -354,7 +354,7 @@ def summarize_schedule(
     itls = [itl for r in requests for itl in r.inter_token_latencies_ms]
     mib = 1024**2
 
-    execution_slot_util = num_output_tokens / total_executed_slots if total_executed_slots else 0.0
+    slot_util = num_output_tokens / total_executed_slots if total_executed_slots else 0.0
     running_capacity_util = capacity_area / (max_running_requests * busy_ms) if busy_ms else 0.0
     peak_live_kv_cache_mb = max((e.live_kv_cache_bytes for e in events), default=0) / mib
     peak_kv_cache_pool_mb = max((e.kv_cache_pool_bytes for e in events), default=0) / mib
@@ -401,7 +401,7 @@ def summarize_schedule(
     )
     batch_info: BatchScheduleInfo[float] = BatchScheduleInfo(
         padding_efficiency=padding_efficiency,
-        slot_utilization=execution_slot_util,
+        slot_utilization=slot_util,
         running_capacity_utilization=running_capacity_util,
     )
     schedule_metrics: ScheduleMetrics[float] = ScheduleMetrics(

@@ -1,10 +1,10 @@
 """Paged KV Cache 的逻辑块管理（Logical Block Allocator）：FreeKVCacheBlockQueue 与 KVCacheManager。
 
 对标 vLLM V1 的 FreeKVCacheBlockQueue 与 KVCacheManager：
-控制面只维护「请求 -> 物理 Block ID 列表（Block Table）」与空闲块队列，
+control plane 只维护「请求 -> 物理 Block ID 列表（block table）」与 free block queue，
 物理显存（K/V 张量）由 worker/paged_kv_cache.py 持有，二者仅通过整数 physical_block_id 对接。
 
-注意：本模块处于纯 CPU 控制面，严禁 import torch 或持有任何 GPU 张量。
+注意：本模块处于纯 CPU control plane，严禁 import torch 或持有任何 GPU 张量。
 """
 
 from collections import deque
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from mini_infra.core.request import Request
 
-# vLLM 约定：block 0 为 null block，永不分配，仅用于 Block Table 右侧补齐，保证补齐位寻址合法。
+# vLLM 约定：block 0 为 null block，永不分配，仅用于 block table 右侧补齐，保证补齐位寻址合法。
 NULL_BLOCK_ID = 0
 
 
@@ -21,7 +21,7 @@ NULL_BLOCK_ID = 0
 class PagedCacheConfig:
     """Paged KV Cache 配置。
 
-    block_size: 每块容纳的 Token 数；num_blocks: 物理块池大小（含 null block），None 表示按工作负载自动推导。
+    block_size: 每块容纳的 Token 数；num_blocks: physical block pool 大小（含 null block），None 时按负载自动推导。
     """
 
     block_size: int = 16
@@ -40,7 +40,7 @@ def num_blocks_for_tokens(num_tokens: int, block_size: int) -> int:
 
 
 def required_pool_blocks(requests: Sequence[Request], max_running_requests: int, block_size: int) -> int:
-    """保证任意 max_running_requests 个请求并发都不会耗尽的物理块池大小（含 null block）。
+    """保证任意 max_running_requests 个请求并发都不会耗尽的 physical block pool 大小（含 null block）。
 
     请求生命周期内 KV Cache 最多持有 prompt_len + max_new_tokens - 1 个 Token：
     最后一个生成的 Token 不会再被前向消费，其 K/V 永远不会写入。取最长的 max_running_requests 个请求求和即为上界。
@@ -94,16 +94,16 @@ class FreeKVCacheBlockQueue:
 
 
 class KVCacheManager:
-    """请求级 Block Table 管理：按 Token 数按需追加物理块，请求结束时整体归还。"""
+    """请求级 block table 管理：按 Token 数按需追加物理块，请求结束时整体归还。"""
 
     def __init__(self, block_size: int, num_blocks: int):
         if block_size < 1:
             raise ValueError("block_size 必须大于 0")
-        # 每个物理块容纳的 Token 数（如 16），决定逻辑块划分粒度与物理槽位偏移计算
+        # 每个物理块容纳的 Token 数（如 16），决定逻辑块划分粒度与 slot 偏移计算
         self.block_size = block_size
         # 物理块 ID 空闲队列，负责可用物理块（physical_block_id）的分配与回收
         self.free_block_queue = FreeKVCacheBlockQueue(num_blocks)
-        # 请求级块表映射（request_idx -> 物理块号列表），列表下标即为逻辑块号（logical_block_idx）
+        # 请求级 block table 映射（request_idx -> 物理块号列表），列表下标即为逻辑块号（logical_block_idx）
         self._block_tables: dict[int, list[int]] = {}
         # 请求已分配缓存的有效 Token 总数（request_idx -> total_tokens），用于判断追加 Token 时是否跨越块边界
         self._num_tokens_by_request_idx: dict[int, int] = {}

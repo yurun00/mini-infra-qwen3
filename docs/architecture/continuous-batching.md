@@ -28,7 +28,7 @@
 与单次生成的单体 [`KVCache`](kv-cache.md) 不同，Continuous Batching 需要在一个固定的并发容量（`max_running_requests`）下管理多个动态进出的请求：
 
 * **静态 batch slot 预分配**：在初始化时预分配 `[capacity, num_kv_heads, length, head_dim]` 的稠密 Key/Value 缓存张量，避免自回归过程中发生频繁的动态内存申请与显存碎片化。
-* **右对齐与历史掩码（Right-Aligned & History Mask）**：
+* **右对齐与 history mask（Right-Aligned & History Mask）**：
   * 请求进场时，其 Prompt 的 KV 被放置在 batch slot 右侧，并由 `DenseSlotCache.history_mask` 统一管理历史有效位置（类似因果掩码的批扩展）。
   * 当更长 Prompt 入场导致 batch slot 全局长度扩展时，自动对所有活动 batch slot 的 history mask 左侧补 0，无需搬移 KV Cache 本身。
 * **batch slot 即时复用**：请求结束后，`dense_slot_cache.release(batch_slot_idx)` 在常数时间内清空该 batch slot 的掩码与状态，使得后续请求可以立即无缝复用该物理空间。

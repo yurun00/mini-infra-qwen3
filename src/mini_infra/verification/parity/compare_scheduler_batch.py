@@ -43,7 +43,7 @@ def run_compare_scheduler_batch(
     """运行单请求隔离、固定批处理、连续批处理与 Paged KV Cache 连续批处理对比，返回比对统计结果字典。"""
     requests = make_requests(sequences, budgets)
 
-    # 1. 串行调度基准（serialized baseline，并发槽位为 1）
+    # 1. 串行调度基准（serialized baseline，并发 batch slot 为 1）
     serialized = run_scheduler(
         BatchingMethod.NONE,
         model,

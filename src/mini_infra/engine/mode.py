@@ -41,6 +41,7 @@ class Mode:
     - flags: 正交的布尔型功能开关集合。
     """
 
+    # 专供测试使用（Test-only）
     FEATURE_DIMENSIONS: ClassVar[tuple[FeatureDimension, ...]] = (
         *FeatureFlag,
         CachingMethod,

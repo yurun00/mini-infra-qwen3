@@ -15,7 +15,7 @@ from mini_infra.worker.kv_cache import KVCache
 from mini_infra.worker.paged_kv_cache import PagedKVCachePool
 from mini_infra.worker.sampler import greedy_sample
 
-# 与控制面 FreeKVCacheBlockQueue 的约定：block 0 为 null block（永不分配），用于 Block Table 右侧补齐。
+# 与 control plane FreeKVCacheBlockQueue 的约定：block 0 为 null block（永不分配），用于 block table 右侧补齐。
 _NULL_BLOCK_ID = 0
 
 
@@ -72,7 +72,9 @@ class PagedRunner(BaseModelRunner):
         只包含活跃请求（无 Padding 行）。block_tables 须已覆盖本步新 Token 的位置；positions[i] 为新 Token 的逻辑位置。
 
         Returns:
-            input_ids [B, 1], position_ids [B, 1]（long）与 PagedAttentionMetadata。
+            input_ids:    [B, 1], long, non-contiguous 列切片视图
+            position_ids: [B, 1], long, non-contiguous 列切片视图
+            metadata:     PagedAttentionMetadata（slot_mapping [B], block_tables [B, max_blocks], context_lens [B]）
         """
         max_blocks = max(len(table) for table in block_tables)
         # [B, 4 + max_blocks]
@@ -95,7 +97,12 @@ class PagedRunner(BaseModelRunner):
         metadata: PagedAttentionMetadata,
         pool: PagedKVCachePool,
     ) -> PagedDecodeOutput:
-        """执行一步 Paged Decode 前向与采样（新 K/V 由模型就地写入 physical block pool，耗时由 StepTimer 当场结算）。"""
+        """执行一步 Paged Decode 前向与采样（新 K/V 由模型就地写入 physical block pool，耗时由 StepTimer 当场结算）。
+
+        input_ids:    [B, 1], long, contiguous / 列切片视图
+        position_ids: [B, 1], long, contiguous / 列切片视图
+        metadata:     PagedAttentionMetadata（slot_mapping [B], block_tables [B, max_blocks], context_lens [B]）
+        """
         with StepTimer(self.device) as timer:
             attn_metadata = metadata._replace(kv_pools=tuple(pool.kv_pools))
             logits, _ = self.model(

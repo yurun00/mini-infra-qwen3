@@ -6,7 +6,7 @@
 在大模型推理系统（如 Paged KV Cache）中，显存指标往往呈现“常驻池显存”、“增量活跃 KV Cache”
 与“单步前向激活值（Activation）”多重交织的现象。常见疑难问题包括：
 1. 为什么使用了 Paged KV Cache 消除碎片后，全局峰值显存（peak allocated memory）反而变高了？
-2. Prefill 阶段与常驻物理块池是否存在时空叠加？
+2. Prefill 阶段与常驻 physical block pool 是否存在时空叠加？
 3. 请求退场后是否存在物理块泄漏或未释放的中间张量？
 
 PyTorch Memory Snapshot 是定位 GPU 显存物理分配与生命周期最精确的武器。本模块提供针对
@@ -17,14 +17,14 @@ PyTorch Memory Snapshot 是定位 GPU 显存物理分配与生命周期最精确
 二、核心生命周期阶段点位（6 大关键节点）
 ================================================================================
 在 PagedScheduleBackend 等调度后端中，内置了以下细粒度阶段快照：
-1. `00_paged_before_pool_init`：模型加载完毕，尚未分配物理块池（基准模型权重显存）；
-2. `01_paged_pool_allocated`：PagedKVCachePool 物理块池分配完成（记录常驻显存定格点）；
+1. `00_paged_before_pool_init`：模型加载完毕，尚未分配 physical block pool（基准模型权重显存）；
+2. `01_paged_pool_allocated`：PagedKVCachePool physical block pool 分配完成（记录常驻显存定格点）；
 3. `02_paged_prefill_forward_done`：Prefill 前向计算结束，prefill_cache（稠密 KV 张量）生成，
    单步前向激活值（Attention Logits、MLP 中间层）达到瞬时全局最高峰；
-4. `03_paged_prefill_stored_dual_kv`：物理块表散写（store_prefill）完成。此时 self.pool 与
+4. `03_paged_prefill_stored_dual_kv`：按 block table 散写（store_prefill）完成。此时 self.pool 与
    prefill_cache 均存活，处于双份 KV Cache 在显存中并存的关键时刻；
 5. `04_paged_prefill_cleaned`：显式执行 del prefill_out 后，临时稠密 KV 显存被回收，显存回落；
-6. `05_paged_decode_step`：单步增量 Decode（观察 Gather 拷贝与块表扩展）；
+6. `05_paged_decode_step`：单步增量 Decode（观察 Gather 拷贝与 block table 扩展）；
 7. `snapshot_full.pickle`：全生命周期连续时间线快照。
 
 ================================================================================

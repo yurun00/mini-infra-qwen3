@@ -1,6 +1,6 @@
-"""Dense 槽位 KV Cache：Continuous Batching 与固定批次的持久化批量 Cache。
+"""Dense batch slot KV Cache：Continuous Batching 与固定批次的持久化批量 Cache。
 
-注意：本模块处于纯 GPU 数据面，只认整数槽位索引与裸张量，严禁 import RequestState 等控制面生命周期对象。
+注意：本模块处于纯 GPU data plane，只认整数 batch slot 索引与裸张量，严禁 import RequestState 等 control plane 对象。
 """
 
 from collections.abc import Sequence
@@ -11,9 +11,9 @@ from mini_infra.worker.kv_cache import KVCache, cache_size_bytes
 
 
 class DenseSlotCache:
-    """持有 [capacity, kv_heads, length, head_dim] 形状的批量 KVCache 与对应的历史 Mask。
+    """持有 [capacity, kv_heads, length, head_dim] 形状的批量 KVCache 与对应的 history mask（history_mask）。
 
-    序列维采用“右对齐”布局：各槽位真实历史位于序列维末尾，左侧为被 mask 的空位；
+    序列维采用“右对齐”布局：各 batch slot 真实历史位于序列维末尾，左侧为被 mask 的空位；
     Decode 时模型把新 Token 的 Key/Value 拼在序列维最右侧后整体返回，由 commit_decode_step 写回容器。
     """
 
@@ -48,10 +48,14 @@ class DenseSlotCache:
         cache_lengths: Sequence[int],
         prefill_cache: KVCache,
     ) -> int:
-        """把一批新请求的 Prefill Cache 写入指定 Batch 槽位，必要时分配/左侧扩容（不 sync、不计时，计时由调用方负责）。
+        """把一批新请求的 Prefill Cache 写入指定 batch slot，必要时分配/左侧扩容（不 sync、不计时，计时由调用方负责）。
+
+        prefill_cache: 逐层 (key, value) 均为 [B_admit, H_kv, L_prefill, D], model_dtype, contiguous；
+                       写入后本池 key/value 为 [capacity, H_kv, target_length, D], model_dtype, contiguous，
+                       history_mask 为 [capacity, target_length], bool, contiguous。
 
         Args:
-            batch_slot_indices: 本次入场请求绑定的 Batch 槽位索引列表。
+            batch_slot_indices: 本次入场请求绑定的 batch slot 索引列表。
             cache_lengths: 各入场请求的 Prefill 缓存长度（Token 数）。
             prefill_cache: 左 Padding Prefill 产生的 Cache，各行真实 Token 位于序列维末尾 cache_length 个位置。
 
@@ -87,7 +91,7 @@ class DenseSlotCache:
         """零拷贝接管当前波次左 Padding Prefill 产生的 Cache（Fixed Batching 路径），搬移耗时恒为 0。
 
         与 absorb_prefill 的拷贝语义相对：不分配、不复制，直接引用传入张量，仅按波次大小重置 capacity
-        并重建 history_mask。接管后调用方应释放其引用，由本类独占持有。
+        并重建 history_mask（[capacity, L_prefill], bool, contiguous）。接管后调用方应释放其引用，由本类独占持有。
         """
         self.capacity = len(batch_slot_indices)
         self.kv_cache = prefill_cache
@@ -99,17 +103,21 @@ class DenseSlotCache:
     def commit_decode_step(
         self, attention_mask: torch.Tensor, present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]]
     ) -> None:
-        """Decode 单步后，把模型返回的 present_key_values 写回批量 Cache，并将本步 Mask 记为新的历史 Mask。"""
+        """Decode 单步后，把模型返回的 present_key_values 写回批量 Cache，并将本步 Mask 记为新的 history mask。
+
+        attention_mask:     [capacity, L_new], bool, contiguous
+        present_key_values: 逐层 (key, value) 均为 [capacity, H_kv, L_new, D], model_dtype, contiguous
+        """
         self.kv_cache = KVCache(present_key_values)
         self.history_mask = attention_mask
 
     def release(self, batch_slot_idx: int) -> None:
-        """释放已结束请求的 Batch 槽位：只清 mask，K/V 数据留待下次入场时覆盖。"""
+        """释放已结束请求的 batch slot：只清 mask，K/V 数据留待下次入场时覆盖。"""
         if self.history_mask is not None:
             self.history_mask[batch_slot_idx].zero_()
 
     def reset(self) -> None:
-        """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始槽位容量。"""
+        """没有任何运行中请求时丢弃整块 Cache，回收显存并恢复初始 batch slot 容量。"""
         self.capacity = self._initial_capacity
         self.kv_cache = None
         self.history_mask = None

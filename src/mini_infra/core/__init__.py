@@ -1,4 +1,4 @@
-"""调度核心领域包（纯 CPU 控制面）：包含请求模型、三级调度队列、Paged KV Cache 逻辑块管理与基础状态/输出类型。"""
+"""调度核心领域包（纯 CPU control plane）：包含请求模型、三级调度队列、Paged KV Cache 逻辑块管理与基础状态/输出类型。"""
 
 from mini_infra.core.block_manager import (
     NULL_BLOCK_ID,

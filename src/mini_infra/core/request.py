@@ -51,7 +51,7 @@ class Request:
 
 @dataclass
 class RequestState:
-    """请求在调度过程中的可变运行态（Batch 槽位、已生成 Token 与关键时间戳）。"""
+    """请求在调度过程中的可变运行态（batch slot、已生成 Token 与关键时间戳）。"""
 
     request: Request
     status: RequestStatus = RequestStatus.WAITING

@@ -2,8 +2,8 @@
 
 本模块只负责调度状态机的纯逻辑转移，不执行模型前向，也不管理显存：
 - ArrivalQueue：外部到达流（arrival_ms > clock_ms 的未来请求，按到达时间排序）；
-- WaitingQueue：已到达但未分配槽位的就绪等待队列（RequestStatus.WAITING）；
-- RunningQueue：已分配槽位并在计算中的活跃队列（RequestStatus.RUNNING，槽位池上限为 capacity）。
+- WaitingQueue：已到达但未分配 batch slot 的就绪等待队列（RequestStatus.WAITING）；
+- RunningQueue：已分配 batch slot 并在计算中的活跃队列（RequestStatus.RUNNING，batch slot 池上限为 capacity）。
 """
 
 import heapq
@@ -50,7 +50,7 @@ class ArrivalQueue:
 
 
 class WaitingQueue:
-    """已到达但尚未分配槽位的就绪等待队列（FCFS 次序）。"""
+    """已到达但尚未分配 batch slot 的就绪等待队列（FCFS 次序）。"""
 
     def __init__(self, states: Iterable[RequestState] | None = None):
         self._requests: deque[RequestState] = deque()
@@ -88,7 +88,7 @@ class WaitingQueue:
 
 
 class RunningQueue:
-    """正在占用 Batch 槽位进行计算的活跃请求队列。"""
+    """正在占用 batch slot 进行计算的活跃请求队列。"""
 
     def __init__(self, capacity: int):
         if capacity < 1:
@@ -109,7 +109,7 @@ class RunningQueue:
 
     @property
     def free_batch_slots(self) -> tuple[int, ...]:
-        """空闲 Batch 槽位号的只读快照（按最小堆次序，非排序结果）。专供测试断言使用（Test-only）。"""
+        """空闲 batch slot 号的只读快照（按最小堆次序，非排序结果）。专供测试断言使用（Test-only）。"""
         return tuple(self._free_batch_slots)
 
     @property
@@ -125,9 +125,9 @@ class RunningQueue:
         return bool(self._free_batch_slots)
 
     def admit(self, states: Sequence[RequestState], clock_ms: float) -> list[RequestState]:
-        """将就绪请求分配最小空闲 Batch 槽位并标记 RUNNING 状态，加入运行中队列。"""
+        """将就绪请求分配最小空闲 batch slot 并标记 RUNNING 状态，加入运行中队列。"""
         if len(states) > len(self._free_batch_slots):
-            raise ValueError(f"可用 Batch 槽位不足：需要 {len(states)}，剩余 {len(self._free_batch_slots)}")
+            raise ValueError(f"可用 batch slot 不足：需要 {len(states)}，剩余 {len(self._free_batch_slots)}")
         for state in states:
             state.status = RequestStatus.RUNNING
             state.admitted_ms = clock_ms
@@ -156,11 +156,11 @@ class RunningQueue:
         return finished
 
     def retire(self, finished: Sequence[RequestState]) -> None:
-        """释放已结束请求的 Batch 槽位，标记 FINISHED 状态并从活跃队列中移出。"""
+        """释放已结束请求的 batch slot，标记 FINISHED 状态并从活跃队列中移出。"""
         for state in finished:
             state.status = RequestStatus.FINISHED
-            if state.batch_slot_idx is not None:
-                heapq.heappush(self._free_batch_slots, state.batch_slot_idx)
+            assert state.batch_slot_idx is not None
+            heapq.heappush(self._free_batch_slots, state.batch_slot_idx)
         self._requests = [s for s in self._requests if s.status is RequestStatus.RUNNING]
 
 

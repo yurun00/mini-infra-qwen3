@@ -46,7 +46,7 @@ class LockstepCaseResult:
     seed: int | None = None
 
     def to_record_dict(self) -> dict[str, Any]:
-        """导出为标准评测记录字典格式（批处理打包与槽位利用率统一序列化至 'packing' 字段）。"""
+        """导出为标准评测记录字典格式（批处理打包与 slot_utilization 统一序列化至 'packing' 字段）。"""
         pl = collapse_uniform(self.workload.prompt_lens)
         mn = collapse_uniform(self.workload.output_budgets)
         rec: dict[str, Any] = {
