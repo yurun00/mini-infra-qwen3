@@ -22,11 +22,19 @@ from mini_infra.entrypoints import GenerationOptions, generate
 
 KV_CONFIG = EngineConfig(DenseCacheConfig())
 RUNNERS = {
-    BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(
-        BatchingMethod.FIXED, *args, kv_cache_config=DenseCacheConfig(), **kwargs
+    BatchingMethod.FIXED: lambda model, requests, capacity, eos=-1, **kwargs: run_scheduler(
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=capacity),
+        model,
+        requests,
+        eos,
+        **kwargs,
     ),
-    BatchingMethod.CONTINUOUS: lambda *args, **kwargs: run_scheduler(
-        BatchingMethod.CONTINUOUS, *args, kv_cache_config=DenseCacheConfig(), **kwargs
+    BatchingMethod.CONTINUOUS: lambda model, requests, capacity, eos=-1, **kwargs: run_scheduler(
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=capacity),
+        model,
+        requests,
+        eos,
+        **kwargs,
     ),
 }
 
@@ -149,7 +157,11 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
     requests = make_requests(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.FIXED, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -166,7 +178,11 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     requests = make_requests(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -184,7 +200,11 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     requests = make_requests(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
 
     assert result.request_metrics[0].admitted_ms == 10.0  # 初始时钟取最早到达时间
@@ -212,7 +232,11 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
     requests = make_requests(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 1, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=1),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, make_prompts([4, 6]), [2, 3])
@@ -291,12 +315,10 @@ def test_run_scheduler_dispatch(model):
 
     # 1. 验证枚举分发 CONTINUOUS
     res_cont = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
         model,
         requests,
-        2,
         eos_token_id=-1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert res_cont.batching_method == BatchingMethod.CONTINUOUS
@@ -304,12 +326,10 @@ def test_run_scheduler_dispatch(model):
 
     # 2. 验证枚举分发 FIXED
     res_fixed = run_scheduler(
-        BatchingMethod.FIXED,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
         model,
         requests,
-        2,
         eos_token_id=-1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert res_fixed.batching_method == BatchingMethod.FIXED
@@ -317,12 +337,10 @@ def test_run_scheduler_dispatch(model):
 
     # 3. 验证枚举分发 NONE（自动约束并发为 1，逐请求串行调度）
     res_none = run_scheduler(
-        BatchingMethod.NONE,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=2),
         model,
         requests,
-        2,
         eos_token_id=-1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert res_none.batching_method == BatchingMethod.NONE

@@ -87,11 +87,11 @@ def _dispatch_lockstep(
 ) -> GenerationResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
     return run_lockstep(
+        config=config,
         model=model,
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
-        kv_cache_config=config.kv_cache_config,
         pad_token_id=opts.pad_token_id,
         eos_token_id=opts.eos_token_id,
         stop_on_eos=opts.stop_on_eos,
@@ -134,14 +134,11 @@ def _dispatch_continuous(
     if opts.capture_logits or opts.profile:
         raise ValueError("continuous-batching 暂不支持 capture_logits/profile")
     requests = make_requests(token_sequences, budgets)
-    max_running_requests = config.max_running_requests if config.max_running_requests is not None else len(requests)
     return run_scheduler(
-        config.batching_method,
+        config,
         model,
         requests,
-        max_running_requests,
         opts.eos_token_id,
-        kv_cache_config=config.kv_cache_config,
         pad_token_id=opts.pad_token_id,
         stop_on_eos=opts.stop_on_eos,
     )

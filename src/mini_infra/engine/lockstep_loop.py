@@ -14,8 +14,9 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.types import DenseCacheConfig, KVCacheConfig, PagedCacheConfig, SequenceOutput
+from mini_infra.core.types import DenseCacheConfig, PagedCacheConfig, SequenceOutput
 from mini_infra.device import PendingStepLatencies, synchronize
+from mini_infra.engine.config import EngineConfig
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     GenerationTrace,
@@ -117,12 +118,12 @@ class LockstepState:
 
 @torch.inference_mode()
 def run_lockstep(
+    config: EngineConfig,
     model: torch.nn.Module,
     token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
     *,
-    kv_cache_config: KVCacheConfig,
     pad_token_id: int = 0,
     eos_token_id: int | None = None,
     stop_on_eos: bool = True,
@@ -136,6 +137,7 @@ def run_lockstep(
     内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在 data plane 自治流转 GPU 输入与 KV Cache，
     直接构建并返回由核心共享值对象组成的 GenerationResult。
     """
+    kv_cache_config = config.kv_cache_config
     if isinstance(kv_cache_config, PagedCacheConfig):
         raise ValueError("lockstep 暂不支持 PagedCacheConfig，请使用 NoCacheConfig 或 DenseCacheConfig")
     use_cache = isinstance(kv_cache_config, DenseCacheConfig)

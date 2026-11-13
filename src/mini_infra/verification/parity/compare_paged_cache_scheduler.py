@@ -8,6 +8,7 @@ import torch
 from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
+    EngineConfig,
     Qwen3Tokenizer,
     run_scheduler,
 )
@@ -59,12 +60,14 @@ def run_compare_paged_cache_scheduler(
 
     # 1. Dense KV Cache 连续批处理基准
     dense = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=max_running_requests,
+        ),
         model,
         requests,
-        max_running_requests=max_running_requests,
         eos_token_id=tokenizer.eos_token_id,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     dense_token_ids = [s.token_ids for s in dense.sequences]
@@ -73,12 +76,14 @@ def run_compare_paged_cache_scheduler(
     paged_results: dict[str, Any] = {}
     for block_size in block_sizes:
         paged_run = run_scheduler(
-            BatchingMethod.CONTINUOUS,
+            EngineConfig(
+                PagedCacheConfig(block_size=block_size),
+                batching_method=BatchingMethod.CONTINUOUS,
+                max_running_requests=max_running_requests,
+            ),
             model,
             requests,
-            max_running_requests=max_running_requests,
             eos_token_id=tokenizer.eos_token_id,
-            kv_cache_config=PagedCacheConfig(block_size=block_size),
             stop_on_eos=False,
         )
         paged_token_ids = [s.token_ids for s in paged_run.sequences]

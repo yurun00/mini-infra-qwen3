@@ -25,11 +25,9 @@ def run_case_once(
     """执行单一 BenchmarkCase 的单次调度运行（原子操作）。"""
     reqs = requests or case.profile.to_payload(model.config.vocab_size)
     res = run_scheduler(
-        batching_method=case.batching_method,
-        kv_cache_config=case.kv_cache_config,
+        config=case.engine_config,
         model=model,
         requests=reqs,
-        max_running_requests=case.max_running_requests,
         eos_token_id=-1,
         stop_on_eos=False,
     )

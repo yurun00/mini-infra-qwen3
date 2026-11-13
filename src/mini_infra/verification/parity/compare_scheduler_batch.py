@@ -9,7 +9,7 @@ from typing import Any
 import torch
 
 from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
-from mini_infra.engine import BatchingMethod, run_scheduler
+from mini_infra.engine import BatchingMethod, EngineConfig, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -44,45 +44,49 @@ def run_compare_scheduler_batch(
 
     # 1. 串行调度基准（serialized baseline，并发 batch slot 为 1）
     serialized = run_scheduler(
-        BatchingMethod.NONE,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=1),
         model,
         requests,
-        max_running_requests=1,
         eos_token_id=eos_token_id,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
     # 2. 固定批处理 (Fixed Batching)
     fixed = run_scheduler(
-        BatchingMethod.FIXED,
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.FIXED,
+            max_running_requests=max_running_requests,
+        ),
         model,
         requests,
-        max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
     # 3. 连续批处理 (Continuous Batching)
     continuous = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=max_running_requests,
+        ),
         model,
         requests,
-        max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
     # 4. 连续批处理 + Paged KV Cache（块大小取 4，使短序列也会跨块、块被回收复用）
     paged = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(
+            PagedCacheConfig(block_size=4),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=max_running_requests,
+        ),
         model,
         requests,
-        max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
-        kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
     )
 

@@ -38,12 +38,14 @@ def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) 
 
 def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, **config):
     return run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(
+            PagedCacheConfig(**config),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=capacity,
+        ),
         model,
         requests,
-        capacity,
         eos,
-        kv_cache_config=PagedCacheConfig(**config),
         stop_on_eos=stop_on_eos,
     )
 
@@ -67,12 +69,10 @@ def test_outputs_match_serial_generate_and_dense(model, case, block_size):
 
     paged = run_paged(model, requests, capacity, block_size=block_size)
     dense = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=capacity),
         model,
         requests,
-        capacity,
         -1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
@@ -161,12 +161,10 @@ def test_paged_scheduling_rejects_none_batching(model):
     requests = make_requests(make_prompts([4]), [2])
     with pytest.raises(ValueError, match="仅支持"):
         run_scheduler(
-            BatchingMethod.NONE,
+            EngineConfig(PagedCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=1),
             model,
             requests,
-            1,
             -1,
-            kv_cache_config=PagedCacheConfig(),
         )
 
 
@@ -177,21 +175,17 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
     requests = make_requests(prompts, budgets)
 
     fixed_res = run_scheduler(
-        BatchingMethod.FIXED,
+        EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.FIXED, max_running_requests=2),
         model,
         requests,
-        2,
         -1,
-        kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
     )
     cont_res = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
         model,
         requests,
-        2,
         -1,
-        kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
     )
 

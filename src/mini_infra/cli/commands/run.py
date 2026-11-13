@@ -237,16 +237,11 @@ def run_config(
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
         requests = make_requests(sequences, budgets)
-        effective_max_running_requests = (
-            config.max_running_requests if config.max_running_requests is not None else len(requests)
-        )
         return run_scheduler(
-            config.batching_method,
+            config,
             model,
             requests,
-            effective_max_running_requests,
             options.eos_token_id,
-            kv_cache_config=config.kv_cache_config,
             pad_token_id=options.pad_token_id,
             stop_on_eos=options.stop_on_eos,
         )

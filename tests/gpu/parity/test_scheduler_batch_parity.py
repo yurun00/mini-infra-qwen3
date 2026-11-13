@@ -47,33 +47,31 @@ def test_continuous_batching_gpu_parity() -> None:
 
     # 1. 运行连续批处理（容量 2，测试 batch slot 复用）
     cont_result = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
         model,
         requests,
-        max_running_requests=2,
         eos_token_id=eos_token_id,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
     # 2. 运行固定批处理作为对比
     fixed_result = run_scheduler(
-        BatchingMethod.FIXED,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
         model,
         requests,
-        max_running_requests=2,
         eos_token_id=eos_token_id,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
 
     paged_result = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(
+            PagedCacheConfig(block_size=16),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=2,
+        ),
         model,
         requests,
-        max_running_requests=2,
         eos_token_id=eos_token_id,
-        kv_cache_config=PagedCacheConfig(block_size=16),
         stop_on_eos=False,
     )
 

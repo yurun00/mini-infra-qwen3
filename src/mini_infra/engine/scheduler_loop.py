@@ -20,7 +20,6 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core import (
-    KVCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
     Request,
@@ -30,6 +29,7 @@ from mini_infra.core import (
 )
 from mini_infra.core.types import BatchingMethod
 from mini_infra.device import peak_memory_mb, synchronize
+from mini_infra.engine.config import EngineConfig
 from mini_infra.engine.dense_schedule_backend import DenseScheduleBackend
 from mini_infra.engine.metrics import ScheduleEvent, SchedulePhase, summarize_schedule
 from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
@@ -141,34 +141,33 @@ def _run_schedule_loop(
 
 @torch.inference_mode()
 def run_scheduler(
-    batching_method: BatchingMethod,
+    config: EngineConfig,
     model: torch.nn.Module,
     requests: Sequence[Request],
-    max_running_requests: int,
-    eos_token_id: int | None,
+    eos_token_id: int | None = None,
     *,
-    kv_cache_config: KVCacheConfig,
     pad_token_id: int = 0,
     stop_on_eos: bool = True,
 ) -> ScheduleResult:
     """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
     Args:
-        batching_method: 批处理策略（BatchingMethod.CONTINUOUS / FIXED / NONE）。
+        config: 引擎运行配置（包含 kv_cache_config、batching_method 与 max_running_requests）。
         model: 因果语言模型。
         requests: 待调度的请求列表。
-        max_running_requests: 调度队列最大并发数（NONE 模式下自动约束为 1）。
         eos_token_id: 结束 Token ID。
-        kv_cache_config: 运行时 KV Cache 配置（DenseCacheConfig 或 PagedCacheConfig；NoCacheConfig 不支持）。
         pad_token_id: 填充 Token ID。
         stop_on_eos: 命中 EOS 时是否提前停止生成。
 
     Returns:
         ScheduleResult: 调度阶段事件、指标统计与各请求结果。
     """
-    if max_running_requests < 1:
-        raise ValueError("max_running_requests 必须大于 0")
+    if not requests:
+        raise ValueError("requests 不能为空")
+    max_running_requests = config.max_running_requests if config.max_running_requests is not None else len(requests)
 
+    batching_method = config.batching_method
+    kv_cache_config = config.kv_cache_config
     if isinstance(kv_cache_config, NoCacheConfig):
         raise ValueError("scheduler 不支持无 KV Cache，请改用 DenseCacheConfig 或 PagedCacheConfig")
 

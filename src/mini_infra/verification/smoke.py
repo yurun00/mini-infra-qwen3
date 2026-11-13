@@ -181,13 +181,25 @@ def check_continuous_batching(model):
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     requests = make_requests(sequences, budgets)
     fixed = run_scheduler(
-        BatchingMethod.FIXED, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
     continuous = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
     serialized = run_scheduler(
-        BatchingMethod.NONE, model, requests, 1, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=1),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
 
     assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
@@ -212,12 +224,10 @@ def check_continuous_batching(model):
     # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)
     staggered_requests = make_requests(sequences[:2], [4, 2], arrival_times_ms=[0.0, 5.0])
     staggered = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
         model,
         staggered_requests,
-        2,
         -1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     assert [len(s.token_ids) for s in staggered.sequences] == [4, 2]
@@ -226,12 +236,10 @@ def check_continuous_batching(model):
     # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
     same_arrival_requests = make_requests([sequences[0]] * 12, 1)
     same_arrival = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=3),
         model,
         same_arrival_requests,
-        3,
         -1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     flattened_admissions = [request_idx for event in same_arrival.events for request_idx in event.admitted_request_ids]
@@ -327,21 +335,21 @@ def check_paged_kv_cache(model):
     arrivals = [0.0, 0.0, 0.1, 0.2]
     requests = make_requests(sequences, budgets, arrivals)
     dense = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
         model,
         requests,
-        2,
         -1,
-        kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
     paged = run_scheduler(
-        BatchingMethod.CONTINUOUS,
+        EngineConfig(
+            PagedCacheConfig(block_size=block_size),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=2,
+        ),
         model,
         requests,
-        2,
         -1,
-        kv_cache_config=PagedCacheConfig(block_size=block_size),
         stop_on_eos=False,
     )
     paged_gen = generate(
