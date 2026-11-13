@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from mini_infra.verification.parity.compare_scheduler_batch import (
+from mini_infra.verification.parity.compare_batch_scheduler import (
     DEFAULT_PROMPTS,
     execute_compare_scheduler_batch,
     run_compare_scheduler_batch,

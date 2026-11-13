@@ -32,11 +32,11 @@ pytestmark = pytest.mark.gpu
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
 def test_compare_paged_cache_logits_cli() -> None:
-    """通过 CLI 入口验证 mini-infra verify paged-cache 的端到端执行。"""
+    """通过 CLI 入口验证 mini-infra verify paged-cache-logits 的端到端执行。"""
     exit_code = main(
         [
             "verify",
-            "paged-cache",
+            "paged-cache-logits",
             "--prompts",
             "用一句话解释 Paged KV Cache。",
             "--max-new-tokens",

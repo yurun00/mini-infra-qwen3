@@ -88,7 +88,7 @@ $$M_{i, j, k} = \begin{cases} 0, & \text{if } j \ge k \text{ 且 } \text{mask}_{
 请求 $A$ 的 Key/Value 只能被请求 $A$ 自身的 Query 看到，彻底杜绝批内跨请求的信息泄露。
 
 ### 2. 排列不变性（Permutation Invariance）验证
-在 [`src/mini_infra/verification/parity/compare_lockstep_batch.py`](../../src/mini_infra/verification/parity/compare_lockstep_batch.py) 中，系统针对请求隔离进行了完备验证：
+在 [`src/mini_infra/verification/parity/compare_batch_lockstep.py`](../../src/mini_infra/verification/parity/compare_batch_lockstep.py) 中，系统针对请求隔离进行了完备验证：
 * 将单请求独立执行结果作为 **Golden Truth**；
 * 将请求 $A$ 分别放置在 Batch 的第 0 行、第 1 行；
 * 将请求 $A$ 分别与极短 Prompt、极长 Prompt 混批运行；

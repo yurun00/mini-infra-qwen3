@@ -1,6 +1,6 @@
 """检查 Lockstep 齐步批处理中 Batch Size、排列、同批内容和 Padding 对输出的影响。
 
-入口：mini-infra verify lockstep-batch。
+入口：mini-infra verify batch-lockstep。
 """
 
 from dataclasses import asdict

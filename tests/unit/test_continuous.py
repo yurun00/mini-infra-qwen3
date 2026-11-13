@@ -9,6 +9,7 @@ from mini_infra.core import (
     DenseCacheConfig,
     Request,
     SchedulePhase,
+    TokenBudgetConfig,
     make_requests,
 )
 from mini_infra.engine import (
@@ -305,6 +306,122 @@ def test_prefill_first_event_trajectories(model):
         (SchedulePhase.DECODE, (), ()),
         (SchedulePhase.DECODE, (), (2,)),
     ]
+
+
+def run_token_budget(model, requests, capacity, token_budget, eos=-1, **kwargs):
+    return run_scheduler(
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            max_running_requests=capacity,
+            scheduler_config=TokenBudgetConfig(token_budget),
+        ),
+        model,
+        requests,
+        eos,
+        **kwargs,
+    )
+
+
+@pytest.mark.parametrize("budget_floor", [1, 12, 1000])  # 1 取到下限 token_budget = capacity，必然触发 oversize prefill
+@pytest.mark.parametrize("case", list(CASES))
+def test_token_budget_outputs_match_serial_and_keep_invariants(
+    model, case, budget_floor, assert_token_budget_invariants
+):
+    lengths, budgets, arrivals, capacity = CASES[case]
+    prompts = make_prompts(lengths)
+    token_budget = max(capacity, budget_floor)
+
+    result = run_token_budget(
+        model, make_requests(prompts, budgets, arrivals), capacity, token_budget, stop_on_eos=False
+    )
+
+    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
+    assert_token_budget_invariants(result, token_budget)
+
+
+def test_token_budget_eos_stops_request_and_matches_serial(model, assert_token_budget_invariants):
+    prompts = make_prompts([4, 6, 5])
+    budgets = [8, 8, 8]
+    eos = serial_outputs(model, prompts, budgets)[0][2]
+
+    result = run_token_budget(model, make_requests(prompts, budgets), 2, 6, eos, stop_on_eos=True)
+
+    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets, eos, stop_on_eos=True)
+    assert result.sequences[0].finish_reason == "stop"
+    assert_token_budget_invariants(result, 6)
+
+
+def test_token_budget_event_trajectories(model):
+    """锁定 token-budget 在 Prefill burst 拆分、decode protection 与 batch slot 复用下的完整事件轨迹。"""
+
+    def event_trace(events):
+        return [(e.phase, e.admitted_request_ids, e.finished_request_ids, e.num_scheduled_tokens) for e in events]
+
+    # 1. 同时到达的 6 个 3-token 请求：预算 6 每次只放 2 个，且每次 Prefill 后强制一步 Decode
+    burst = run_token_budget(model, make_requests(make_prompts([3] * 6), 4), 4, 6, stop_on_eos=False)
+    assert event_trace(burst.events) == [
+        (SchedulePhase.PREFILL, (0, 1), (), 6),
+        (SchedulePhase.DECODE, (), (), 2),
+        (SchedulePhase.PREFILL, (2, 3), (), 6),
+        (SchedulePhase.DECODE, (), (), 4),
+        (SchedulePhase.DECODE, (), (0, 1), 4),
+        (SchedulePhase.PREFILL, (4, 5), (), 6),
+        (SchedulePhase.DECODE, (), (2, 3), 4),
+        (SchedulePhase.DECODE, (), (), 2),
+        (SchedulePhase.DECODE, (), (4, 5), 2),
+    ]
+
+    # 2. 混合长度：[4, 9] 计 2 × 9 = 18 > 10，只入场队头；请求 4 在 Prefill 当步结束（RunningQueue 仍非空）
+    lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
+    mixed = run_token_budget(
+        model, make_requests(make_prompts(lengths), budgets, arrivals), capacity, 10, stop_on_eos=False
+    )
+    assert event_trace(mixed.events) == [
+        (SchedulePhase.PREFILL, (0,), (), 4),
+        (SchedulePhase.DECODE, (), (0,), 1),
+        (SchedulePhase.PREFILL, (1,), (), 9),
+        (SchedulePhase.DECODE, (), (), 1),
+        (SchedulePhase.PREFILL, (2,), (), 6),
+        (SchedulePhase.DECODE, (), (), 2),
+        (SchedulePhase.DECODE, (), (2,), 2),
+        (SchedulePhase.PREFILL, (3,), (), 3),
+        (SchedulePhase.DECODE, (), (), 2),
+        (SchedulePhase.DECODE, (), (1,), 2),
+        (SchedulePhase.PREFILL, (4,), (4,), 7),
+        (SchedulePhase.DECODE, (), (), 1),
+        (SchedulePhase.DECODE, (), (3,), 1),
+    ]
+
+
+def test_token_budget_padding_efficiency_uses_scheduled_tokens(model):
+    """summarize_schedule 的 padded prompt token 数来自 PREFILL 事件的 num_scheduled_tokens。"""
+    lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
+    requests = make_requests(make_prompts(lengths), budgets, arrivals)
+    prefill_first = RUNNERS[BatchingMethod.CONTINUOUS](model, requests, capacity, -1, stop_on_eos=False)
+    budgeted = run_token_budget(model, requests, capacity, 10, stop_on_eos=False)
+
+    for result in (prefill_first, budgeted):
+        num_padded = sum(e.num_scheduled_tokens for e in result.events if e.phase is SchedulePhase.PREFILL)
+        assert result.batch_info.padding_efficiency == pytest.approx(sum(lengths) / num_padded)
+    # 预算把 [4, 9] 拆成两次单请求 Prefill，消除了 4-token 请求的左 Padding
+    assert budgeted.batch_info.padding_efficiency > prefill_first.batch_info.padding_efficiency
+
+
+def test_run_scheduler_rejects_invalid_token_budget(model):
+    requests = make_requests(make_prompts([3, 4, 5]), 2)
+    with pytest.raises(ValueError, match="仅支持 continuous-batching"):
+        run_scheduler(
+            EngineConfig(
+                DenseCacheConfig(), batching_method=BatchingMethod.FIXED, scheduler_config=TokenBudgetConfig(8)
+            ),
+            model,
+            requests,
+        )
+    # max_running_requests=None 时按请求总数 3 推导，预算 2 小于实际并发上限
+    with pytest.raises(ValueError, match="不能小于 max_running_requests=3"):
+        run_token_budget(model, requests, None, 2)
 
 
 class TestGenerateDispatch:

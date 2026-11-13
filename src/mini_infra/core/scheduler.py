@@ -1,9 +1,10 @@
-"""FCFS 调度策略：三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）与入场退场管理。
+"""FCFS 调度策略：三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）、入场退场管理与迭代级 Scheduler。
 
 本模块只负责调度状态机的纯逻辑转移，不执行模型前向，也不管理显存：
 - ArrivalQueue：外部到达流（arrival_ms > clock_ms 的未来请求，按到达时间排序）；
 - WaitingQueue：已到达但未分配 batch slot 的就绪等待队列（RequestStatus.WAITING）；
-- RunningQueue：已分配 batch slot 并在计算中的活跃队列（RequestStatus.RUNNING，batch slot 池上限为 capacity）。
+- RunningQueue：已分配 batch slot 并在计算中的活跃队列（RequestStatus.RUNNING，batch slot 池上限为 capacity）；
+- IterationScheduler：按 SchedulerConfig（prefill-first / token-budget）逐步产出 SchedulerOutput。
 """
 
 import heapq
@@ -12,12 +13,14 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
+from mini_infra.core.block_manager import KVCacheManager
 from mini_infra.core.request import (
     Request,
     RequestState,
     RequestStatus,
     validate_requests,
 )
+from mini_infra.core.types import BatchingMethod, PrefillFirstConfig, SchedulerConfig
 
 
 class ArrivalQueue:
@@ -189,30 +192,115 @@ class SchedulePhase(str, Enum):
 
 @dataclass(frozen=True)
 class SchedulerOutput:
-    """单步迭代调度的决策产出：承载本步执行阶段与被选中请求快照。"""
+    """单步迭代调度的决策产出：承载本步执行阶段、被选中请求快照与本步计费 Token 数。
+
+    num_scheduled_tokens：PREFILL 为左 Padding 后实际送入模型的 padded prompt token 数
+    （len(scheduled_requests) × max(prompt_len)）；DECODE 为运行中请求数（每请求 1 个 Token）。
+    """
 
     phase: SchedulePhase
     scheduled_requests: tuple[RequestState, ...]
+    num_scheduled_tokens: int
 
 
-class Scheduler:
-    """迭代级请求调度器：在每个调度步决策执行一次 Prefill batch 或一次 Decode batch。"""
+def _num_padded_prompt_tokens(states: Sequence[RequestState]) -> int:
+    """左 Padding Batched Prefill 实际送入模型的 Token 数：batch 行数 × 最长 Prompt 长度。"""
+    return len(states) * max(state.request.prompt_len for state in states)
 
-    def schedule(
+
+def _select_within_budget(candidates: tuple[RequestState, ...], token_budget: int) -> tuple[RequestState, ...]:
+    """按 FCFS 取 padded prompt token 数不超过 token_budget 的最长前缀；队头放不下即停，不向后跳选。
+
+    无 Chunked Prefill 时长 Prompt 无法拆分：若队头请求单独已超预算，则让它独自执行（oversize prefill），
+    避免其永久阻塞 FCFS 队列。
+    """
+    num_selected = 0
+    max_prompt_len = 0
+    for state in candidates:
+        next_max_prompt_len = max(max_prompt_len, state.request.prompt_len)
+        if (num_selected + 1) * next_max_prompt_len > token_budget:
+            break
+        num_selected += 1
+        max_prompt_len = next_max_prompt_len
+    return candidates[: max(num_selected, 1)]
+
+
+class IterationScheduler:
+    """迭代级请求调度器：在每个调度步决策执行一次 Prefill batch 或一次 Decode batch。
+
+    入场决策全部收敛于此，依次取 WaitingQueue FCFS 前缀的交集（均为前缀截断，可交换、可组合）：
+    1. batching 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等
+       RunningQueue 完全排空（wave barrier）；
+    2. batch slot 约束：至多 RunningQueue.num_free_batch_slots 个；
+    3. KV 显存约束（仅 Paged）：KVCacheManager 空闲 physical block 可容纳的前缀；
+    4. 策略约束：PrefillFirstConfig 不再截断；TokenBudgetConfig 按 token budget 截断，且 RunningQueue
+       非空时禁止连续两步 PREFILL（decode protection），以限制 Prefill burst 对在途请求 ITL 的冲击。
+    """
+
+    def __init__(
         self,
-        waiting_queue: WaitingQueue,
-        running_queue: RunningQueue,
-        max_num_admissions: int,
-    ) -> SchedulerOutput | None:
-        """根据就绪队列、运行队列与资源准入上限生成本步调度计划；空闲时返回 None。"""
-        if max_num_admissions > 0 and waiting_queue:
-            return SchedulerOutput(
-                phase=SchedulePhase.PREFILL,
-                scheduled_requests=waiting_queue.requests[:max_num_admissions],
-            )
+        scheduler_config: SchedulerConfig,
+        batching_method: BatchingMethod,
+        kv_cache_manager: KVCacheManager | None = None,
+    ) -> None:
+        self.scheduler_config = scheduler_config
+        self.batching_method = batching_method
+        # Paged 路径的逻辑块管理器（只读查询空闲块）；Dense 路径为 None，不受 KV 显存约束
+        self.kv_cache_manager = kv_cache_manager
+        self._last_phase: SchedulePhase | None = None
+
+    def schedule(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> SchedulerOutput | None:
+        """根据就绪队列与运行队列生成本步调度计划；空闲（两队列均为空）时返回 None。
+
+        waiting_queue 只含已到达请求（到达过滤由 engine 主循环按逻辑时钟完成），故无需传入 clock_ms。
+        """
+        output = self._decide(waiting_queue, running_queue)
+        if output is not None:
+            self._last_phase = output.phase
+        return output
+
+    def _admission_candidates(
+        self, waiting_queue: WaitingQueue, running_queue: RunningQueue
+    ) -> tuple[RequestState, ...]:
+        """batching、batch slot 与 KV 显存约束下可入场的 WaitingQueue FCFS 前缀。"""
+        is_continuous = self.batching_method is BatchingMethod.CONTINUOUS
+        can_admit = running_queue.can_admit() if is_continuous else not running_queue
+        if not can_admit:
+            return ()
+        candidates = waiting_queue.requests[: running_queue.num_free_batch_slots]
+        if self.kv_cache_manager is not None:
+            num_admissible = self.kv_cache_manager.num_admissible([s.request.prompt_len for s in candidates])
+            candidates = candidates[:num_admissible]
+        return candidates
+
+    def _prefill_output(self, selected: tuple[RequestState, ...]) -> SchedulerOutput:
+        return SchedulerOutput(
+            phase=SchedulePhase.PREFILL,
+            scheduled_requests=selected,
+            num_scheduled_tokens=_num_padded_prompt_tokens(selected),
+        )
+
+    def _decode_output(self, running_queue: RunningQueue) -> SchedulerOutput:
+        return SchedulerOutput(
+            phase=SchedulePhase.DECODE,
+            scheduled_requests=running_queue.requests,
+            num_scheduled_tokens=len(running_queue),
+        )
+
+    def _decide(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> SchedulerOutput | None:
+        config = self.scheduler_config
+        admission_candidates = self._admission_candidates(waiting_queue, running_queue)
+        if isinstance(config, PrefillFirstConfig):
+            if admission_candidates:
+                return self._prefill_output(admission_candidates)
+            if running_queue:
+                return self._decode_output(running_queue)
+            return None
+
+        if running_queue and self._last_phase is SchedulePhase.PREFILL:
+            return self._decode_output(running_queue)
+        if admission_candidates:
+            return self._prefill_output(_select_within_budget(admission_candidates, config.token_budget))
         if running_queue:
-            return SchedulerOutput(
-                phase=SchedulePhase.DECODE,
-                scheduled_requests=running_queue.requests,
-            )
+            return self._decode_output(running_queue)
         return None

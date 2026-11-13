@@ -6,7 +6,7 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core.request import RequestState
-from mini_infra.core.scheduler import RunningQueue, WaitingQueue
+from mini_infra.core.scheduler import RunningQueue
 from mini_infra.core.types import BatchingMethod, DenseCacheConfig, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
@@ -37,12 +37,6 @@ class DenseScheduleBackend(ScheduleBackend):
     @property
     def kv_cache_config(self) -> KVCacheConfig:
         return DenseCacheConfig()
-
-    def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
-        can_admit = running_queue.can_admit() if self.is_continuous else not running_queue
-        if can_admit and waiting_queue:
-            return min(len(waiting_queue), running_queue.num_free_batch_slots)
-        return 0
 
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
         prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in admitted])

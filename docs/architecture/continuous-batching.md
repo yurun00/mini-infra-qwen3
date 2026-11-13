@@ -36,7 +36,7 @@
 ### 2. 调度器与时钟模拟：`ArrivalQueue` & `run_scheduler`
 
 * **FCFS 就绪队列**：维护逻辑时间线 `arrival_ms`。队列中的请求在 `clock_ms >= arrival_ms` 时就绪，严格按照先来先服务（First-Come-First-Served）原则出队。
-* **Prefill 优先级策略**：
+* **Prefill 优先级策略**（默认 `prefill-first`，可切换为 `token-budget`，详见 [迭代级调度策略](iteration-scheduling.md)）：
   * 若当前有 free batch slot 且队列中有就绪请求，优先执行新请求的 Prefill（可多请求拼接左 Padding 批处理），将其写入 `DenseSlotCache`，并产生第 1 个输出 Token。
   * 若当前没有 free batch slot 或无就绪请求，则针对所有活跃 batch slot 并发执行一步单 Token Decode。
 * **零静默回退（Zero Silent Fallback）**：
@@ -119,6 +119,6 @@ mini-infra bench sweep --engine scheduler --tag v0.3.0 --suite fixed-vs-continuo
    * `pytest tests/unit/test_dense_slot_cache.py`：验证 batch slot 分配、右对齐扩展、掩码更新与释放。
    * `pytest tests/unit/test_continuous.py`：在随机小模型上验证与串行 `generate` 逐位一致，覆盖变长 Prompt、EOS 提前截断、容量溢出排队等边缘场景。
 2. **GPU 真实权重等价性测试**：
-   * `pytest tests/gpu/parity/test_scheduler_batch_parity.py` 或 `mini-infra verify scheduler-batch`：在真实的 Qwen3-0.6B 权重上，验证 Continuous Batching 和 Fixed Batching 的生成结果与单请求串行生成 100% 逐 Token 严格对齐（详见 [docs/guides/parity-verification.md](../guides/parity-verification.md)）。
+   * `pytest tests/gpu/parity/test_scheduler_batch_parity.py` 或 `mini-infra verify batch-scheduler`：在真实的 Qwen3-0.6B 权重上，验证 Continuous Batching 和 Fixed Batching 的生成结果与单请求串行生成 100% 逐 Token 严格对齐（详见 [docs/guides/parity-verification.md](../guides/parity-verification.md)）。
 3. **Smoke 快速冒烟**：
    * `mini-infra verify smoke` 已集成 `check_continuous_batching`，数秒内完成 CPU 端全链路自检。

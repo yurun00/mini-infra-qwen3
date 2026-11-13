@@ -12,7 +12,7 @@ from mini_infra.core.block_manager import (
     required_pool_blocks,
 )
 from mini_infra.core.request import Request, RequestState
-from mini_infra.core.scheduler import RunningQueue, WaitingQueue
+from mini_infra.core.scheduler import RunningQueue
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
@@ -49,7 +49,6 @@ class PagedScheduleBackend(ScheduleBackend):
                 "个物理块（另需 1 个 null block）"
             )
         super().__init__(model, max_running_requests, batching_method)
-        self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
         config = model.config  # type: ignore[attr-defined]
         self.runner = PagedRunner(model, pad_token_id)
         self.snapshot_tracker = MemorySnapshotTracker()
@@ -70,13 +69,6 @@ class PagedScheduleBackend(ScheduleBackend):
     @property
     def kv_cache_config(self) -> KVCacheConfig:
         return self.paged_cache_config
-
-    def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
-        can_admit = running_queue.can_admit() if self.is_continuous else not running_queue
-        if can_admit and waiting_queue:
-            candidates = waiting_queue.requests[: running_queue.num_free_batch_slots]
-            return self.kv_cache_manager.num_admissible([s.request.prompt_len for s in candidates])
-        return 0
 
     def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
         prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in admitted])

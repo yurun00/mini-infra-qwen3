@@ -1,4 +1,4 @@
-"""control plane 基础数据结构体（BatchingMethod、KVCacheConfig、SequenceOutput、RequestMetrics）。
+"""control plane 基础数据结构体（BatchingMethod、KVCacheConfig、SchedulerConfig、SequenceOutput、RequestMetrics）。
 
 注意：此模块处于纯 CPU control plane，严禁 import torch 或引入任何 GPU 张量操作。
 """
@@ -87,6 +87,60 @@ def kv_cache_config_from_str(
     )
 
 
+SchedulingPolicyKind = Literal["prefill-first", "token-budget"]
+SCHEDULING_POLICY_KINDS: tuple[SchedulingPolicyKind, ...] = ("prefill-first", "token-budget")
+
+
+def parse_scheduling_policy_kind(value: str | None) -> SchedulingPolicyKind:
+    """将字符串解析为合法的 SchedulingPolicyKind（None 视为默认的 prefill-first）。"""
+    if value is None or value == "prefill-first":
+        return "prefill-first"
+    if value == "token-budget":
+        return "token-budget"
+    raise ValueError(f"未知调度策略: {value}，可选策略: {list(SCHEDULING_POLICY_KINDS)}")
+
+
+@dataclass(frozen=True)
+class PrefillFirstConfig:
+    """prefill-first 调度策略（默认）：WaitingQueue 有可入场请求即整批 Prefill，否则 Decode。"""
+
+    kind: ClassVar[SchedulingPolicyKind] = "prefill-first"
+
+    def __str__(self) -> str:
+        return self.kind
+
+
+@dataclass(frozen=True)
+class TokenBudgetConfig:
+    """token-budget 调度策略：以 padded prompt token 数限制单次 Batched Prefill 规模，并启用 decode protection。
+
+    token_budget: 单次 Prefill 允许的 padded prompt token 上限（软预算：队头请求单独超预算时仍放行）。
+    """
+
+    kind: ClassVar[SchedulingPolicyKind] = "token-budget"
+    token_budget: int
+
+    def __post_init__(self) -> None:
+        if self.token_budget < 1:
+            raise ValueError("token_budget 必须大于 0")
+
+    def __str__(self) -> str:
+        return f"{self.kind}(token_budget={self.token_budget})"
+
+
+SchedulerConfig = PrefillFirstConfig | TokenBudgetConfig
+
+
+def scheduler_config_from_str(kind: str | None, *, token_budget: int | None = None) -> SchedulerConfig:
+    """根据策略标识与可选预算构造对应的 SchedulerConfig 实例（prefill-first 忽略 token_budget）。"""
+    parsed = parse_scheduling_policy_kind(kind)
+    if parsed == "prefill-first":
+        return PrefillFirstConfig()
+    if token_budget is None:
+        raise ValueError("token-budget 调度策略必须指定 token_budget")
+    return TokenBudgetConfig(token_budget)
+
+
 class BatchingMethod(str, Enum):
     """互斥的批处理策略。"""
 
@@ -162,15 +216,22 @@ def collapse_uniform(values: Sequence[Any]) -> Any:
 
 __all__ = [
     "KV_CACHE_KINDS",
+    "SCHEDULING_POLICY_KINDS",
     "BatchingMethod",
     "DenseCacheConfig",
     "KVCacheConfig",
     "KVCacheKind",
     "NoCacheConfig",
     "PagedCacheConfig",
+    "PrefillFirstConfig",
     "RequestMetrics",
+    "SchedulerConfig",
+    "SchedulingPolicyKind",
     "SequenceOutput",
+    "TokenBudgetConfig",
     "collapse_uniform",
     "kv_cache_config_from_str",
     "parse_kv_cache_kind",
+    "parse_scheduling_policy_kind",
+    "scheduler_config_from_str",
 ]

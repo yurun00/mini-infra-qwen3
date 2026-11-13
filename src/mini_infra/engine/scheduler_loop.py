@@ -12,6 +12,9 @@ Dense / Paged 两个具体实现分别位于 engine/dense_schedule_backend.py �
 - CONTINUOUS（连续批处理 Dense 路径）：有空闲 batch slot 即准入，并将 Prefill Cache 拷入持久化 batch slot；
 - FIXED（固定批次/波次基准）：仅当 RunningQueue 完全排空时准入下一波请求，零拷贝直接接管波次 Cache；
 - PAGED（连续批处理 Paged 路径）：以 physical block pool 与 block table 映射驱动，按需按块分配，消除最长序列预留碎片。
+
+每步「Prefill 还是 Decode、哪些请求入场」由 core.IterationScheduler 按 EngineConfig.scheduler_config 决策
+（prefill-first / token-budget，含 batching、batch slot 与 KV 显存准入），后端只负责执行与资源回收。
 """
 
 import time
@@ -20,18 +23,19 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core import (
+    IterationScheduler,
     NoCacheConfig,
     PagedCacheConfig,
     Request,
     RunningQueue,
     SchedulePhase,
-    Scheduler,
+    SchedulerConfig,
     WaitingQueue,
     prepare_schedule,
 )
 from mini_infra.core.types import BatchingMethod
 from mini_infra.device import peak_memory_mb, synchronize
-from mini_infra.engine.config import EngineConfig
+from mini_infra.engine.config import EngineConfig, validate_engine_config
 from mini_infra.engine.dense_schedule_backend import DenseScheduleBackend
 from mini_infra.engine.metrics import ScheduleEvent, summarize_schedule
 from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
@@ -46,6 +50,7 @@ def _run_schedule_loop(
     backend: ScheduleBackend,
     requests: Sequence[Request],
     max_running_requests: int,
+    scheduler_config: SchedulerConfig,
     eos_token_id: int | None,
     stop_on_eos: bool = True,
 ) -> ScheduleResult:
@@ -54,7 +59,7 @@ def _run_schedule_loop(
     states, arrival_queue, clock_ms = prepare_schedule(requests, max_running_requests)
     waiting_queue = WaitingQueue()
     running_queue = RunningQueue(max_running_requests)
-    scheduler = Scheduler()
+    scheduler = IterationScheduler(scheduler_config, backend.batching_method, backend.kv_cache_manager)
     events: list[ScheduleEvent] = []
     wall_start = time.perf_counter()
 
@@ -63,9 +68,8 @@ def _run_schedule_loop(
         arrived = arrival_queue.pop_arrived(clock_ms)
         waiting_queue.extend(arrived)
 
-        # 2. 迭代调度决策：结合后端资源准入上限生成本步执行计划
-        max_num_admissions = backend.determine_admission(waiting_queue, running_queue)
-        output = scheduler.schedule(waiting_queue, running_queue, max_num_admissions)
+        # 2. 迭代调度决策：batching / batch slot / KV 显存 / 策略约束全部由 IterationScheduler 统一决策
+        output = scheduler.schedule(waiting_queue, running_queue)
         if output is None:
             # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）
             clock_ms = arrival_queue.next_arrival_ms()
@@ -88,6 +92,7 @@ def _run_schedule_loop(
                     physical_batch_size=step_output.physical_batch_size,
                     num_active_requests=len(running_queue),
                     num_generated_tokens=len(admitted),
+                    num_scheduled_tokens=output.num_scheduled_tokens,
                     step_ms=step_ms,
                     model_ms=step_output.model_ms,
                     cache_management_ms=step_output.cache_ms,
@@ -116,6 +121,7 @@ def _run_schedule_loop(
                 physical_batch_size=step_output.physical_batch_size,
                 num_active_requests=active_before,
                 num_generated_tokens=active_before,
+                num_scheduled_tokens=output.num_scheduled_tokens,
                 step_ms=step_ms,
                 model_ms=step_output.model_ms,
                 cache_management_ms=step_output.cache_ms,
@@ -157,7 +163,7 @@ def run_scheduler(
     """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
     Args:
-        config: 引擎运行配置（包含 kv_cache_config、batching_method 与 max_running_requests）。
+        config: 引擎运行配置（包含 kv_cache_config、batching_method、max_running_requests 与 scheduler_config）。
         model: 因果语言模型。
         requests: 待调度的请求列表。
         eos_token_id: 结束 Token ID。
@@ -175,6 +181,8 @@ def run_scheduler(
     kv_cache_config = config.kv_cache_config
     if isinstance(kv_cache_config, NoCacheConfig):
         raise ValueError("scheduler 不支持无 KV Cache，请改用 DenseCacheConfig 或 PagedCacheConfig")
+    # 按实际生效的并发上限校验配置：max_running_requests=None 时已推导为请求总数
+    validate_engine_config(config.with_max_running_requests(max_running_requests))
 
     backend: ScheduleBackend
     if isinstance(kv_cache_config, PagedCacheConfig):
@@ -207,6 +215,7 @@ def run_scheduler(
         backend=backend,
         requests=requests,
         max_running_requests=effective_max_running_requests,
+        scheduler_config=config.scheduler_config,
         eos_token_id=eos_token_id,
         stop_on_eos=stop_on_eos,
     )

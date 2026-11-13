@@ -3,12 +3,22 @@
 入口：mini-infra verify smoke。同一份逻辑也被 tests/unit/test_model_smoke.py 复用。
 """
 
+from collections.abc import Sequence
+
 import torch
 
-from mini_infra.core import DenseCacheConfig, KVCacheManager, PagedCacheConfig, SchedulePhase, make_requests
+from mini_infra.core import (
+    DenseCacheConfig,
+    KVCacheManager,
+    PagedCacheConfig,
+    SchedulePhase,
+    TokenBudgetConfig,
+    make_requests,
+)
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
+    ScheduleEvent,
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
@@ -376,6 +386,51 @@ def check_paged_kv_cache(model):
     print("Dense 与 Paged Continuous Batching 输出一致")
 
 
+def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
+    longest = streak = 0
+    for event in events:
+        streak = streak + 1 if event.phase is SchedulePhase.PREFILL else 0
+        longest = max(longest, streak)
+    return longest
+
+
+def _num_padded_prompt_tokens(events: Sequence[ScheduleEvent]) -> int:
+    return sum(e.num_scheduled_tokens for e in events if e.phase is SchedulePhase.PREFILL)
+
+
+def check_token_budget_scheduling(model):
+    """验证 token-budget 调度：与 prefill-first 逐请求输出一致，Prefill burst 被预算拆分并由 decode protection 隔开。"""
+    token_budget = 6
+    sequences = [
+        [3, 5, 7],
+        [11, 13, 17, 19],
+        [23, 29, 31, 37, 41, 43],
+        [47, 53],
+        [59, 61, 67, 71, 73],
+    ]
+    requests = make_requests(sequences, [5, 5, 1, 1, 3], [0.0, 0.0, 0.1, 0.1, 0.1])
+    base_config = EngineConfig(
+        PagedCacheConfig(block_size=4),
+        batching_method=BatchingMethod.CONTINUOUS,
+        max_running_requests=4,
+    )
+    prefill_first = run_scheduler(base_config, model, requests, -1, stop_on_eos=False)
+    token_budget_run = run_scheduler(
+        base_config.with_scheduler_config(TokenBudgetConfig(token_budget)), model, requests, -1, stop_on_eos=False
+    )
+
+    assert [s.token_ids for s in token_budget_run.sequences] == [s.token_ids for s in prefill_first.sequences]
+    assert _max_consecutive_prefill_steps(prefill_first.events) > 1
+    assert _max_consecutive_prefill_steps(token_budget_run.events) == 1
+    budget_prefills = [e for e in token_budget_run.events if e.phase is SchedulePhase.PREFILL]
+    assert all(e.num_scheduled_tokens <= token_budget for e in budget_prefills)  # 本负载不触发 oversize prefill
+    assert _num_padded_prompt_tokens(token_budget_run.events) <= _num_padded_prompt_tokens(prefill_first.events)
+    paged_profile = token_budget_run.memory.kv_cache.paged_cache
+    assert paged_profile is not None and paged_profile.block_reuse_count > 0
+
+    print("token-budget 调度：预算拆分、decode protection 与 prefill-first 输出一致性检查通过")
+
+
 def run_smoke_test():
     model = build_tiny_model()
     check_output_shape_and_tied_weights(model)
@@ -384,6 +439,7 @@ def run_smoke_test():
     check_fixed_batching(model)
     check_continuous_batching(model)
     check_paged_kv_cache(model)
+    check_token_budget_scheduling(model)
 
 
 __all__ = [
@@ -394,6 +450,7 @@ __all__ = [
     "check_kv_cache_correctness",
     "check_output_shape_and_tied_weights",
     "check_paged_kv_cache",
+    "check_token_budget_scheduling",
     "run_smoke_test",
 ]
 

@@ -6,17 +6,20 @@
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import torch
 
 from mini_infra.core import (
     KV_CACHE_KINDS,
+    SCHEDULING_POLICY_KINDS,
     DenseCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
+    PrefillFirstConfig,
     kv_cache_config_from_str,
     make_requests,
-    parse_kv_cache_kind,
+    scheduler_config_from_str,
 )
 from mini_infra.device import synchronize
 from mini_infra.engine import (
@@ -38,6 +41,59 @@ from mini_infra.model import (
 from mini_infra.profiling import TensorBoardOptions
 
 
+def _parse_feature_flags(value: str) -> frozenset[FeatureFlag]:
+    """解析逗号分隔的 FeatureFlag 列表；空串或 none 表示不启用任何特性。"""
+    if value in ("", "none"):
+        return frozenset()
+    return frozenset(FeatureFlag.from_str(item) for item in value.split(","))
+
+
+# 合成 EngineConfig 的全部 CLI 参数（flag -> argparse kwargs），也是 --compare-feature 可选的对比维度。
+# 新增 EngineConfig 字段时只需在此登记并在 build_engine_config 中消费，对比能力自动获得。
+_ENGINE_CONFIG_ARGS: dict[str, dict[str, Any]] = {
+    "--caching-method": {
+        "default": DenseCacheConfig.kind,
+        "choices": list(KV_CACHE_KINDS),
+        "help": "指定基准 KV Cache 策略（默认: %(default)s）",
+    },
+    "--kv-block-size": {
+        "type": int,
+        "default": PagedCacheConfig.block_size,
+        "help": "Paged KV Cache 每个物理块容纳的 Token 数，仅在 paged-kv-cache 策略下生效（默认: %(default)s）",
+    },
+    "--num-kv-blocks": {
+        "type": int,
+        "default": None,
+        "help": "Paged KV Cache physical block pool 大小（含 null block），默认按工作负载自动推导为不会耗尽的最小值",
+    },
+    "--batching-method": {
+        "default": BatchingMethod.NONE.value,
+        "choices": [m.value for m in BatchingMethod],
+        "help": "指定基准批处理策略（默认: %(default)s）",
+    },
+    "--max-running-requests": {
+        "type": int,
+        "default": None,
+        "help": "调度器最大并发请求数，仅对 fixed/continuous 调度路径生效（默认: 不限，即 prompt 数量）",
+    },
+    "--scheduling-policy": {
+        "default": PrefillFirstConfig.kind,
+        "choices": list(SCHEDULING_POLICY_KINDS),
+        "help": "迭代级调度策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
+    },
+    "--token-budget": {
+        "type": int,
+        "default": None,
+        "help": "token-budget 策略下单次 Prefill 的 padded prompt token 上限，须不小于并发上限",
+    },
+    "--feature-flags": {
+        "type": _parse_feature_flags,
+        "default": frozenset(),
+        "help": f"逗号分隔的启用特性标志，可选: {[f.value for f in FeatureFlag]}（默认: 不启用）",
+    },
+}
+
+
 def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     """向指定 parser 添加 run 命令的所有参数。"""
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
@@ -56,46 +112,18 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         metavar="N",
         help="输出 Token 预算：提供 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算（默认: 32）",
     )
-    parser.add_argument(
-        "--max-running-requests",
-        type=int,
-        default=None,
-        help="调度器最大并发请求数，仅对 fixed/continuous 调度路径生效（默认: 不限，即 prompt 数量）",
-    )
     parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument(
-        "--caching-method",
-        default=DenseCacheConfig.kind,
-        choices=list(KV_CACHE_KINDS),
-        help="指定基准 KV Cache 策略（默认: %(default)s）",
-    )
-    parser.add_argument(
-        "--kv-block-size",
-        type=int,
-        default=PagedCacheConfig.block_size,
-        help="Paged KV Cache 每个物理块容纳的 Token 数，仅在 paged-kv-cache 策略下生效（默认: %(default)s）",
-    )
-    parser.add_argument(
-        "--num-kv-blocks",
-        type=int,
-        default=None,
-        help="Paged KV Cache physical block pool 大小（含 null block），默认按工作负载自动推导为不会耗尽的最小值",
-    )
-    parser.add_argument(
-        "--batching-method",
-        default=BatchingMethod.NONE.value,
-        choices=[m.value for m in BatchingMethod],
-        help="指定基准批处理策略（默认: none）",
-    )
+    for flag, kwargs in _ENGINE_CONFIG_ARGS.items():
+        parser.add_argument(flag, **kwargs)
     parser.add_argument(
         "--compare-feature",
-        nargs="+",
+        nargs=3,
         default=None,
-        metavar="FEATURE",
+        metavar=("ARG", "VALUE1", "VALUE2"),
         help=(
-            "指定单个对比项：1 个 FeatureFlag 值（对比 disable vs enable），"
-            "或维度名（KVCacheConfig / BatchingMethod）加 2 个取值"
-            "（如 BatchingMethod fixed-batching continuous-batching）"
+            "对比单个 EngineConfig 参数的两个取值：其余参数保持不变，分别合成两个 EngineConfig 后对照。"
+            f"ARG 可选: {[flag.removeprefix('--') for flag in _ENGINE_CONFIG_ARGS]}；"
+            "默认值为不限的整型参数可传 none（如 max-running-requests none 2）"
         ),
     )
     parser.add_argument(
@@ -127,69 +155,53 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     return parser
 
 
-_COMPARE_DIMENSIONS = ("KVCacheConfig", "BatchingMethod")
+def build_engine_config(args: argparse.Namespace) -> EngineConfig:
+    """由扁平的 CLI 参数合成嵌套的 EngineConfig（CLI 参数到配置结构的唯一映射点）。"""
+    return EngineConfig(
+        kv_cache_config_from_str(args.caching_method, block_size=args.kv_block_size, num_blocks=args.num_kv_blocks),
+        batching_method=BatchingMethod.from_str(args.batching_method),
+        max_running_requests=args.max_running_requests,
+        flags=args.feature_flags,
+        scheduler_config=scheduler_config_from_str(args.scheduling_policy, token_budget=args.token_budget),
+    )
+
+
+def _parse_engine_arg_value(flag: str, raw: str) -> Any:
+    """按参数登记的 type / choices 解析对比取值；默认值为 None 的参数接受 none 表示不设置。"""
+    kwargs = _ENGINE_CONFIG_ARGS[flag]
+    if raw == "none" and kwargs["default"] is None:
+        return None
+    value = kwargs.get("type", str)(raw)
+    choices = kwargs.get("choices")
+    if choices is not None and value not in choices:
+        raise ValueError(f"--compare-feature {flag.removeprefix('--')} 的取值 '{raw}' 非法，可选: {choices}")
+    return value
 
 
 def resolve_compare_feature(
-    base_config: EngineConfig,
-    raw_args: Sequence[str],
-    *,
-    block_size: int = PagedCacheConfig.block_size,
-    num_blocks: int | None = None,
+    args: argparse.Namespace,
 ) -> tuple[tuple[EngineConfig, EngineConfig], str]:
-    """解析 --compare-feature 参数并返回对比的 (config1, config2) 与特性描述名称。
+    """解析 --compare-feature ARG VALUE1 VALUE2：ARG 分别取两个值、其余参数不变，合成两个 EngineConfig。
 
-    raw_args 接受以下两种格式之一：
-    1. 单个 FeatureFlag 值（长度为 1）：
-       例如: ["placeholder"]
-       语义: 对比该特性的 disable 与 enable 两种配置。
-    2. 维度名后跟随两个合法取值（长度为 3）：
-       例如: ["KVCacheConfig", "dense-kv-cache", "paged-kv-cache"]
-       或:   ["BatchingMethod", "fixed-batching", "continuous-batching"]
-       语义: 对比指定维度对应的两个取值配置。
+    返回 ((config1, config2), 对比描述)。若两个取值在当前其余参数下合成出相同配置（如 dense-kv-cache 下
+    对比 kv-block-size），说明该参数不生效，直接报错而非输出无意义的对照。
     """
-    if not raw_args:
-        raise ValueError("--compare-feature 不能为空")
-
-    head = raw_args[0]
-    if head in _COMPARE_DIMENSIONS:
-        if len(raw_args) != 3:
-            raise ValueError(f"--compare-feature 指定 {head} 时必须紧跟 2 个枚举值，当前传入: {list(raw_args)}")
-        if head == "KVCacheConfig":
-            kind1 = parse_kv_cache_kind(raw_args[1])
-            kind2 = parse_kv_cache_kind(raw_args[2])
-            if kind1 == kind2:
-                raise ValueError(f"--compare-feature 传入了两个相同的枚举值: '{kind1}'")
-            configs = (
-                base_config.with_kv_cache_config(
-                    kv_cache_config_from_str(kind1, block_size=block_size, num_blocks=num_blocks)
-                ),
-                base_config.with_kv_cache_config(
-                    kv_cache_config_from_str(kind2, block_size=block_size, num_blocks=num_blocks)
-                ),
-            )
-            return configs, f"{kind1} vs {kind2}"
-        val1 = BatchingMethod.from_str(raw_args[1])
-        val2 = BatchingMethod.from_str(raw_args[2])
-        if val1 == val2:
-            raise ValueError(f"--compare-feature 传入了两个相同的枚举值: '{val1.value}'")
-        configs = (base_config.with_batching_method(val1), base_config.with_batching_method(val2))
-        return configs, f"{val1.value} vs {val2.value}"
-
-    try:
-        flag = FeatureFlag.from_str(head)
-    except ValueError as err:
-        valid_flags = [f.value for f in FeatureFlag]
-        valid_dims = list(_COMPARE_DIMENSIONS)
+    arg_name, raw1, raw2 = args.compare_feature
+    flag = f"--{arg_name}"
+    if flag not in _ENGINE_CONFIG_ARGS:
+        valid = [f.removeprefix("--") for f in _ENGINE_CONFIG_ARGS]
+        raise ValueError(f"--compare-feature 参数 '{arg_name}' 不是 EngineConfig 参数，可选: {valid}")
+    dest = arg_name.replace("-", "_")
+    config1, config2 = (
+        build_engine_config(argparse.Namespace(**{**vars(args), dest: _parse_engine_arg_value(flag, raw)}))
+        for raw in (raw1, raw2)
+    )
+    if config1 == config2:
         raise ValueError(
-            f"--compare-feature 参数 '{head}' 未知。可选 FeatureFlag: {valid_flags}，或维度名: {valid_dims}"
-        ) from err
-
-    if len(raw_args) != 1:
-        raise ValueError(
-            f"--compare-feature 指定 FeatureFlag '{flag.value}' 时不接受额外参数，当前传入: {list(raw_args)}"
+            f"--compare-feature {arg_name} 的两个取值 '{raw1}' / '{raw2}' "
+            f"在当前其余参数下合成了相同的 EngineConfig（{config1}），该参数不生效"
         )
-    return (base_config.with_flag(flag, False), base_config.with_flag(flag, True)), flag.value
+    return (config1, config2), f"{arg_name}: {raw1} vs {raw2}"
 
 
 def resolve_budgets(max_new_tokens: Sequence[int], num_prompts: int) -> int | list[int]:
@@ -329,6 +341,12 @@ def _handle_run(args: argparse.Namespace) -> int:
         raise ValueError("--max-running-requests 必须大于 0")
     if args.warmup < 0:
         raise ValueError("--warmup 不能小于 0")
+    # 先合成配置再加载模型：非法参数组合在加载权重前即报错
+    compare_feature_name = None
+    if args.compare_feature:
+        configs, compare_feature_name = resolve_compare_feature(args)
+    else:
+        configs = (build_engine_config(args),)
     if not torch.cuda.is_available():
         raise RuntimeError("本实验需要可用的 NVIDIA GPU")
 
@@ -345,23 +363,6 @@ def _handle_run(args: argparse.Namespace) -> int:
 
     budgets = resolve_budgets(args.max_new_tokens, len(sequences))
     model = load_model(model_directory, device)
-
-    base_config = EngineConfig(
-        kv_cache_config_from_str(args.caching_method, block_size=args.kv_block_size, num_blocks=args.num_kv_blocks),
-        batching_method=BatchingMethod.from_str(args.batching_method),
-        max_running_requests=args.max_running_requests,
-    )
-
-    compare_feature_name = None
-    if args.compare_feature:
-        configs, compare_feature_name = resolve_compare_feature(
-            base_config,
-            args.compare_feature,
-            block_size=args.kv_block_size,
-            num_blocks=args.num_kv_blocks,
-        )
-    else:
-        configs = (base_config,)
 
     via_scheduler = uses_scheduler(configs)
     if args.max_running_requests is not None and not via_scheduler:
@@ -423,6 +424,7 @@ def _handle_run(args: argparse.Namespace) -> int:
 
 __all__ = [
     "add_run_args",
+    "build_engine_config",
     "print_result",
     "register_parser",
     "resolve_budgets",

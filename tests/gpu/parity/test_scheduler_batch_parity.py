@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, TokenBudgetConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
@@ -75,6 +75,24 @@ def test_continuous_batching_gpu_parity() -> None:
         stop_on_eos=False,
     )
 
+    # token-budget 调度：预算 2（= 并发上限）使每次 Prefill 都是 oversize prefill；预算 32 可入场多请求
+    token_budget_results = {
+        (kv_cache_config.kind, token_budget): run_scheduler(
+            EngineConfig(
+                kv_cache_config,
+                batching_method=BatchingMethod.CONTINUOUS,
+                max_running_requests=2,
+                scheduler_config=TokenBudgetConfig(token_budget),
+            ),
+            model,
+            requests,
+            eos_token_id=eos_token_id,
+            stop_on_eos=False,
+        )
+        for kv_cache_config in (DenseCacheConfig(), PagedCacheConfig(block_size=16))
+        for token_budget in (2, 32)
+    }
+
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
     single_config = EngineConfig(DenseCacheConfig())
     single_opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=False)
@@ -102,6 +120,10 @@ def test_continuous_batching_gpu_parity() -> None:
         assert fixed_tokens == expected, (
             f"Fixed batching output divergence for req {request_idx}: got {fixed_tokens}, expected {expected}"
         )
+        for key, budgeted in token_budget_results.items():
+            assert budgeted.sequences[request_idx].token_ids == expected, (
+                f"token-budget {key} output divergence for req {request_idx}"
+            )
 
     # 5. 指标健康检查
     assert cont_result.metrics.e2e_wall_ms > 0
@@ -117,4 +139,25 @@ def test_continuous_batching_gpu_parity() -> None:
 def test_compare_scheduler_batch_cli():
     from mini_infra.cli import main
 
-    assert main(["verify", "scheduler-batch", "--max-new-tokens", "4"]) == 0
+    assert main(["verify", "batch-scheduler", "--max-new-tokens", "4"]) == 0
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
+def test_compare_schedulers_cli():
+    from mini_infra.cli import main
+
+    assert (
+        main(
+            [
+                "verify",
+                "schedulers-token-budget",
+                "--max-new-tokens",
+                "4",
+                "--token-budget",
+                "64",
+                "--block-size",
+                "16",
+            ]
+        )
+        == 0
+    )

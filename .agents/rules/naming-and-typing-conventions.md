@@ -49,7 +49,7 @@ description: "标识符命名与类型标注纪律：概念唯一名、索引/�
 
 - 进入 **JSON schema、Pydantic 字段、CLI flag / argparse dest、绘图取值 key** 的名字属对外契约，改名时必须先 grep `benchmarks/**/*.json` 与 `src/mini_infra/bench/plotting/`，连同全部读写点与已落盘数据一次改全（见 `AGENTS.md` §一.4）：
   - 有下游读者 / 历史产物 → 读写点与历史 JSON 联动全改（如 `tidy.py` 写入、`history.py` 读取的 `"order_idx"` / `"release_idx"`）；
-  - 零读者且零历史产物 → 随内部标识符直接改（如 `compare_lockstep_batch.py` 诊断输出的 `"target_idx"`）。
+  - 零读者且零历史产物 → 随内部标识符直接改（如 `compare_batch_lockstep.py` 诊断输出的 `"target_idx"`）。
 - CLI 的 `--prompt-lens`（dest `prompt_lens`）与 engine 内部局部变量同名但非同一成员：**严禁全局替换**，逐点修改内部变量。
 
 ## 八、命名尽量简短；方法名不重复参数语义

@@ -11,8 +11,9 @@ from dataclasses import dataclass
 
 import torch
 
+from mini_infra.core.block_manager import KVCacheManager
 from mini_infra.core.request import RequestState
-from mini_infra.core.scheduler import RunningQueue, WaitingQueue
+from mini_infra.core.scheduler import RunningQueue
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import allocated_memory_mb, reset_peak_memory, synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
@@ -47,6 +48,8 @@ class ScheduleBackend(abc.ABC):
         self.device = next(model.parameters()).device
         self.max_running_requests = max_running_requests
         self.batching_method = batching_method
+        # Paged 后端持有的逻辑块管理器，交给 core.IterationScheduler 做 KV 显存准入；Dense 后端为 None
+        self.kv_cache_manager: KVCacheManager | None = None
         synchronize(self.device)
         self.baseline_mb = allocated_memory_mb(self.device)
         reset_peak_memory(self.device)
@@ -55,11 +58,6 @@ class ScheduleBackend(abc.ABC):
     @abc.abstractmethod
     def kv_cache_config(self) -> KVCacheConfig:
         """该后端采用的运行时 KV Cache 配置（DenseCacheConfig 或 PagedCacheConfig）。"""
-        ...
-
-    @abc.abstractmethod
-    def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
-        """评估当前时刻在资源（batch slot / physical block）与批处理屏障约束下可从 waiting_queue 准入的最大请求数。"""
         ...
 
     @abc.abstractmethod

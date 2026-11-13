@@ -10,7 +10,7 @@
 - **手写 Qwen3-0.6B 模型架构**：基于纯原生 PyTorch 实现完整前向计算，不依赖 Transformers 模型代码，不引入黑盒优化，清晰展示每一层计算逻辑。
 - **轻量原生 Tokenizer**：纯 Python + regex 实现的 Byte-level BPE Tokenizer，直接解析权重目录下的 `tokenizer.json`，内建 non-thinking Chat Template，不依赖 tokenizers / Transformers。
 - **KV Cache 显存与计算优化**：实现原生显式 `KVCache` 容器，Prefill 阶段建立缓存，自回归 Decode 每步只计算增量 Token，消除历史重复前向计算；支持精确显存占用统计与逐步延迟分位数（P50/P95）分析。
-- **单请求与固定批处理（Fixed Batching）自回归推理**：支持 greedy decoding 逐 Token 生成与左填充（Left Padding）对齐，支持 `--compare-feature` 对比 KV Cache 策略（如 `dense-kv-cache`）或批处理策略（如 `fixed-batching`）并自动计算加速比。
+- **单请求与固定批处理（Fixed Batching）自回归推理**：支持 greedy decoding 逐 Token 生成与左填充（Left Padding）对齐，支持 `--compare-feature ARG VALUE1 VALUE2` 对比任意一个 EngineConfig 参数（如 `caching-method`、`batching-method`、`scheduling-policy`、`token-budget`）的两个取值并自动计算加速比。
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
 - **Continuous Batching 调度与并发调度基准**：实现原生 `DenseSlotCache` batch slot 管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占 free batch slot，消除队头阻塞；内建 `mini-infra bench scheduler` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
@@ -51,8 +51,8 @@ mini-infra-qwen3/
 │       ├── core/                      # 调度与请求核心 control plane（纯 CPU 逻辑，无 GPU/模型依赖）
 │       │   ├── block_manager.py       # FreeKVCacheBlockQueue（free block queue）、KVCacheManager（请求级 block table）与 PagedCacheConfig
 │       │   ├── request.py             # Request, RequestState (append_token), RequestStatus 请求生命周期模型
-│       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）
-│       │   └── types.py               # KVCacheConfig (NoCacheConfig / DenseCacheConfig / PagedCacheConfig), BatchingMethod, SequenceOutput, RequestMetrics 基础 control plane 类型
+│       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）与 IterationScheduler / SchedulerOutput
+│       │   └── types.py               # KVCacheConfig, SchedulerConfig, BatchingMethod, SequenceOutput, RequestMetrics 基础 control plane 类型
 │       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）
 │       │   ├── offline.py             # 离线文本生成薄入口（Offline Entrypoint）：generate
 │       │   └── types.py               # GenerationOptions 专用配置结构体
@@ -63,7 +63,7 @@ mini-infra-qwen3/
 │       │   ├── schedule_backend.py    # 调度后端抽象基类（ScheduleBackend）与单步产出（ScheduleStepOutput）
 │       │   ├── dense_schedule_backend.py # 稠密 batch slot 调度后端（DenseScheduleBackend）
 │       │   ├── paged_schedule_backend.py # 分页 KV Cache 调度后端（PagedScheduleBackend）
-│       │   ├── config.py              # EngineConfig、FeatureFlag 与 BatchingMethod 引擎配置定义
+│       │   ├── config.py              # EngineConfig（含 SchedulerConfig）、FeatureFlag 与 BatchingMethod 引擎配置定义
 │       │   ├── preprocessing.py       # Prompt 规约、左填充（Left Padding）与 Batch 张量初始化
 │       │   ├── results.py             # GenerationResult, ScheduleResult 引擎层结果容器与聚合
 │       │   └── metrics.py             # MemoryProfile, BatchScheduleInfo, ScheduleMetrics, GenerationTrace, ScheduleEvent 指标与统计画像
@@ -76,7 +76,7 @@ mini-infra-qwen3/
 │       │   ├── main.py                # 根命令 mini-infra 注册与分发
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
-│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / lockstep-batch / scheduler-batch / paged-cache)
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget / paged-cache-logits / paged-cache-scheduler)
 │       │       └── bench/             # mini-infra bench (lockstep / scheduler / suites / sweep / plot / check-regression / release)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
@@ -86,8 +86,9 @@ mini-infra-qwen3/
 │       │       ├── compare_paged_cache_logits.py # Dense 与 Paged KV Cache 逐 Token Logits 对齐
 │       │       ├── compare_paged_cache_scheduler.py # Scheduler 调度环境下 Dense 与 Paged 输出一致性
 │       │       ├── compare_transformers.py # 与 Transformers 对齐
-│       │       ├── compare_lockstep_batch.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
-│       │       └── compare_scheduler_batch.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
+│       │       ├── compare_batch_lockstep.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
+│       │       ├── compare_batch_scheduler.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
+│       │       └── compare_schedulers_token_budget.py # prefill-first 与 token-budget 迭代级调度策略输出与轨迹对齐
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── paths.py               # 基准测试与报告标准目录常量
 │           ├── env.py                 # 硬件 GPU、宿主机与 Git 环境元数据采集
@@ -136,7 +137,7 @@ mini-infra-qwen3/
 │   └── reports/                       # 按 {lockstep,scheduler}/ 分域存储 SUMMARY.md 与演进/剖析图表（生成物）
 ├── docs/                              # 技术文档中心
 │   ├── index.md                       # 文档导航主页
-│   ├── architecture/                  # 系统架构原理（KV Cache、Fixed Batching、Continuous Batching、Paged KV Cache）
+│   ├── architecture/                  # 系统架构原理（KV Cache、Fixed Batching、Continuous Batching、迭代级调度策略、Paged KV Cache）
 │   ├── guides/                        # 实践指南（数值对齐验证、算子 Profiling 与 Trace）
 │   └── benchmarks/                    # 性能基准与评测全景指南
 ├── .github/workflows/
@@ -219,9 +220,9 @@ mini-infra verify smoke
 ### 运行推理与计时
 
 ```bash
-# 1. 比较 KV Cache 开启与关闭（CachingMethod: none vs dense-kv-cache）
+# 1. 比较 KV Cache 开启与关闭（caching-method: none vs dense-kv-cache）
 mini-infra run \
-  --compare-feature CachingMethod none dense-kv-cache \
+  --compare-feature caching-method none dense-kv-cache \
   --prompts "请用一句话介绍 KV Cache。" \
   --max-new-tokens 32
 
@@ -233,13 +234,13 @@ mini-infra run \
 
 # 3. 对比两种批处理策略（如串行 none 与固定批处理 fixed-batching）
 mini-infra run \
-  --compare-feature BatchingMethod none fixed-batching \
+  --compare-feature batching-method none fixed-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" \
   --max-new-tokens 32
 
 # 4. 对比 Fixed 与 Continuous Batching（逐请求输出预算 + 并发上限）
 mini-infra run \
-  --compare-feature BatchingMethod fixed-batching continuous-batching \
+  --compare-feature batching-method fixed-batching continuous-batching \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
   --max-new-tokens 8 24 8 24 \
   --max-running-requests 2
@@ -247,14 +248,23 @@ mini-infra run \
 # 5. 在 Continuous Batching 下对比 Dense batch slot 与 Paged KV Cache
 mini-infra run \
   --batching-method continuous-batching \
-  --compare-feature CachingMethod dense-kv-cache paged-kv-cache \
+  --compare-feature caching-method dense-kv-cache paged-kv-cache \
   --kv-block-size 16 \
+  --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
+  --max-new-tokens 8 24 8 24 \
+  --max-running-requests 2
+
+# 6. 在 Continuous Batching 下对比 prefill-first 与 token-budget 迭代级调度策略
+mini-infra run \
+  --batching-method continuous-batching \
+  --compare-feature scheduling-policy prefill-first token-budget \
+  --token-budget 64 \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
   --max-new-tokens 8 24 8 24 \
   --max-running-requests 2
 ```
 
-`--max-new-tokens` 可传 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算。只要 `--batching-method` 或 `--compare-feature` 中出现 continuous-batching，所有 fixed/continuous 结果统一由 `run_scheduler` 产出（受 `--max-running-requests` 约束），并额外输出 Makespan、排队/TTFT/ITL 分位数与 Cache 管理耗时占比；该路径暂不支持 `--profile`。
+`--compare-feature ARG VALUE1 VALUE2` 中 ARG 为任一 EngineConfig 参数名（去掉 `--`），两个取值分别与其余参数合成两个 EngineConfig 后对照；若两个取值在当前参数下合成相同配置（如 dense-kv-cache 下对比 `kv-block-size`）会直接报错。`--max-new-tokens` 可传 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算。只要 `--batching-method` 或 `--compare-feature` 中出现 continuous-batching，所有 fixed/continuous 结果统一由 `run_scheduler` 产出（受 `--max-running-requests` 约束），并额外输出 Makespan、排队/TTFT/ITL 分位数与 Cache 管理耗时占比；该路径暂不支持 `--profile`。`--scheduling-policy token-budget --token-budget N` 以 padded prompt token 数限制单次 Prefill 规模并启用 decode protection（仅支持 continuous-batching，且 `N` 不小于并发上限），详见 [迭代级调度策略](docs/architecture/iteration-scheduling.md)。
 
 输出包含生成 Token IDs、生成文本、Prefill 延迟、平均 Decode 延迟、P50/P95 步延迟、Prefill 后已分配显存、峰值显存与最终 KV Cache 数据量；在 `--compare-feature` 模式下自动给出两组生成的逐 Token 一致性校验及加速比分析。
 

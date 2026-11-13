@@ -276,6 +276,7 @@ class ScheduleEvent:
     physical_batch_size: int  # 模型实际执行的行数（含空闲/已结束 batch slot）
     num_active_requests: int  # 事件期间仍在占用 batch slot 的请求数
     num_generated_tokens: int  # 本事件产出的有效 Token 数
+    num_scheduled_tokens: int  # 本事件计费 Token 数（透传 SchedulerOutput：PREFILL 为 padded prompt token 数）
     step_ms: float
     model_ms: float
     cache_management_ms: float
@@ -354,13 +355,8 @@ def summarize_schedule(
     cache_realign_moved_bytes = sum(e.cache_realign_moved_bytes for e in events)
     accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
-    prompt_len_by_request_idx = {state.request.request_idx: state.request.prompt_len for state in states}
     num_prompt_tokens = sum(state.request.prompt_len for state in states)
-    num_padded_prompt_tokens = sum(
-        len(e.admitted_request_ids) * max(prompt_len_by_request_idx[i] for i in e.admitted_request_ids)
-        for e in events
-        if e.phase is SchedulePhase.PREFILL and e.admitted_request_ids
-    )
+    num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in events if e.phase is SchedulePhase.PREFILL)
     if num_padded_prompt_tokens == 0:
         num_padded_prompt_tokens = num_prompt_tokens
     padding_efficiency = num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0

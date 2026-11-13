@@ -15,7 +15,7 @@ description: "确定性数值等价性验证（Parity）、假设驱动性能评
 
 1. **强制 `float32` 剥离硬件 GEMM 累加噪声**
    - `bfloat16` 仅 7 位尾数：Batch Size、Padding 长度或矩阵分块（Tiling）变化会改变 Tensor Core GEMM 累加顺序，引入 `~1e-3` 浮点舍入噪声并可能在 Greedy Decoding 临界点翻转 Top-1 Token。
-   - 验证算子、KV Cache、批处理隔离或动态调度器的**算法正确性**时（`verify {cache,lockstep-batch,scheduler-batch,paged-cache,paged-cache-scheduler}`），**必须默认固定在 `dtype=torch.float32` + Greedy Decoding 下对照**。
+   - 验证算子、KV Cache、批处理隔离或动态调度器的**算法正确性**时（`verify {cache,batch-lockstep,batch-scheduler,schedulers-token-budget,paged-cache-logits,paged-cache-scheduler}`），**必须默认固定在 `dtype=torch.float32` + Greedy Decoding 下对照**。
 2. **零妥协通过标准**
    - **自洽等价性（Self-Parity）**：优化路径（Dense / Paged KV Cache、Fixed / Continuous Batching、新算子）对照朴素基线（无 Cache 全量重算、单请求串行独立运行），`float32` 下逐步 Logits 最大绝对误差须满足 `atol <= 1e-4`，且 Greedy Token 序列 **100% 逐字一致**。
    - **跨维置换不变性**：批处理与调度测试必须覆盖不同 Batch Size、逆序置换、长短悬殊混跑、EOS 提前退场后 batch slot / physical block 复用及缓存动态扩容等边界工况。
