@@ -571,12 +571,11 @@ def test_generation_result_prompt_throughput_properties():
 def test_generation_options_immutability_and_defaults(diverse_model):
     from mini_infra import EngineConfig, GenerationOptions, generate
 
-    CPU = torch.device("cpu")
     config = EngineConfig()
     prompt = [[1, 2, 3]]
 
     # 1. 不可变性测试
-    opts = GenerationOptions(device=CPU, stop_on_eos=False, pad_token_id=0)
+    opts = GenerationOptions(stop_on_eos=False, pad_token_id=0)
     with pytest.raises(FrozenInstanceError):
         opts.stop_on_eos = True  # type: ignore[misc]
 
@@ -590,7 +589,7 @@ def test_generation_options_immutability_and_defaults(diverse_model):
 
     # 4. 不再支持平铺多余关键字参数（严格单一 options 结构体入口）
     with pytest.raises(TypeError):
-        generate(config, diverse_model, prompt, 3, device=CPU)  # type: ignore[call-arg]
+        generate(config, diverse_model, prompt, 3, stop_on_eos=False)  # type: ignore[call-arg]
 
 
 def test_generation_trace_enforces_cpu_tensors():
@@ -621,12 +620,3 @@ def test_generation_trace_enforces_cpu_tensors():
             num_active_tokens_per_step=[2],
             logits_trace=[meta_tensor],
         )
-
-
-def test_generation_options_accepts_str_and_torch_device():
-    """验证 GenerationOptions 支持字符串与 torch.device 类型的 device 参数。"""
-    opts_str = GenerationOptions(device="cpu")
-    assert opts_str.device == "cpu"
-
-    opts_dev = GenerationOptions(device=torch.device("cpu"))
-    assert opts_dev.device == torch.device("cpu")

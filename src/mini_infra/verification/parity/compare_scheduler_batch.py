@@ -49,7 +49,6 @@ def run_compare_scheduler_batch(
         requests,
         max_running_requests=1,
         eos_token_id=eos_token_id,
-        device=device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -61,7 +60,6 @@ def run_compare_scheduler_batch(
         requests,
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
-        device=device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -73,7 +71,6 @@ def run_compare_scheduler_batch(
         requests,
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
-        device=device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -85,7 +82,6 @@ def run_compare_scheduler_batch(
         requests,
         max_running_requests=max_running_requests,
         eos_token_id=eos_token_id,
-        device=device,
         kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
     )

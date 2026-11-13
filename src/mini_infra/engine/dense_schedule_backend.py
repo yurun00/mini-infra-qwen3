@@ -22,17 +22,16 @@ class DenseScheduleBackend(ScheduleBackend):
     def __init__(
         self,
         model: torch.nn.Module,
-        device: torch.device,
         max_running_requests: int,
         batching_method: BatchingMethod,
         pad_token_id: int = 0,
     ) -> None:
-        super().__init__(model, device, max_running_requests, batching_method)
+        super().__init__(model, max_running_requests, batching_method)
         self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
         self.snapshot_tracker = MemorySnapshotTracker()
         self.snapshot_tracker.start()
-        self.runner = SlotRunner(model, device, pad_token_id)
-        self.dense_slot_cache = DenseSlotCache(max_running_requests, device)
+        self.runner = SlotRunner(model, pad_token_id)
+        self.dense_slot_cache = DenseSlotCache(max_running_requests, self.device)
         self.snapshot_tracker.record_stage("01_dense_init")
 
     @property

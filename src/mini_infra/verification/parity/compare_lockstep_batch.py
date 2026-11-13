@@ -115,7 +115,6 @@ def _run_compare_lockstep_batch(
     fixed_batch_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
     gen_opts = GenerationOptions(
         eos_token_id=eos_token_id,
-        device=device,
         stop_on_eos=False,
         capture_logits=True,
     )

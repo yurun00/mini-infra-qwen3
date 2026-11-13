@@ -72,7 +72,7 @@ def test_store_prefill_scatters_each_request_to_its_own_blocks(model):
     for idx, prompt in enumerate(prompts):
         manager.allocate_slots(idx, len(prompt))
     pool = make_pool(model)
-    runner = PagedRunner(model, CPU)
+    runner = PagedRunner(model)
 
     runner.store_prefill(
         pool,
@@ -93,7 +93,7 @@ def test_store_prefill_scatters_each_request_to_its_own_blocks(model):
 
 
 def test_prepare_decode_inputs_builds_slot_mapping_and_null_padded_block_tables(model):
-    runner = PagedRunner(model, CPU)
+    runner = PagedRunner(model)
     # 请求 A 位于位置 5（context 6，块 [9, 4]）；请求 B 位于位置 2（context 3，块 [7]）
     input_ids, position_ids, metadata = runner.prepare_decode_inputs(
         block_tables=[[9, 4], [7]], last_tokens=[11, 22], positions=[5, 2], block_size=BLOCK_SIZE
@@ -112,7 +112,7 @@ def test_paged_decode_logits_match_dense_decode(model, block_size):
     steps = 5
     manager = KVCacheManager(block_size, num_blocks=64)
     pool = make_pool(model, num_blocks=64, block_size=block_size)
-    runner = PagedRunner(model, CPU)
+    runner = PagedRunner(model)
     for idx, prompt in enumerate(prompts):
         manager.allocate_slots(idx, len(prompt))
     runner.store_prefill(
@@ -166,7 +166,7 @@ def test_paged_decode_ignores_stale_data_in_recycled_blocks(model):
     block_size = 4
     manager = KVCacheManager(block_size, num_blocks=8)
     pool = make_pool(model, num_blocks=8, block_size=block_size)
-    runner = PagedRunner(model, CPU)
+    runner = PagedRunner(model)
 
     def decode_once(request_idx: int, prompt: list[int]) -> torch.Tensor:
         manager.allocate_slots(request_idx, len(prompt))

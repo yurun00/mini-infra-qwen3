@@ -10,7 +10,7 @@ import torch
 from mini_infra.bench.env import git_info
 from mini_infra.bench.paths import GOLDEN_OUTPUT_PATH
 from mini_infra.engine import EngineConfig, Qwen3Tokenizer
-from mini_infra.entrypoints import GenerationOptions, generate
+from mini_infra.entrypoints import generate
 
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
 GOLDEN_MAX_OUTPUT_TOKENS = 32
@@ -44,13 +44,11 @@ def check_correctness(
 ) -> CorrectnessReport:
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    options = GenerationOptions(device=device)
     res = generate(
         config,
         model,
         ids,
         GOLDEN_MAX_OUTPUT_TOKENS,
-        options=options,
     )
     tokens = res.padded_output_tokens(0).tolist()
 

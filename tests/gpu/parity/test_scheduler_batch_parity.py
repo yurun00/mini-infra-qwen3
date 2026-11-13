@@ -29,7 +29,6 @@ pytestmark = pytest.mark.gpu
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
 def test_continuous_batching_gpu_parity() -> None:
-    cuda = torch.device("cuda")
     model_dir = resolve_model_directory(DEFAULT_MODEL_ID, DEFAULT_MODEL_REVISION)
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device="cuda", dtype=torch.float32)
@@ -53,7 +52,6 @@ def test_continuous_batching_gpu_parity() -> None:
         requests,
         max_running_requests=2,
         eos_token_id=eos_token_id,
-        device=cuda,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -65,7 +63,6 @@ def test_continuous_batching_gpu_parity() -> None:
         requests,
         max_running_requests=2,
         eos_token_id=eos_token_id,
-        device=cuda,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -76,14 +73,13 @@ def test_continuous_batching_gpu_parity() -> None:
         requests,
         max_running_requests=2,
         eos_token_id=eos_token_id,
-        device=cuda,
         kv_cache_config=PagedCacheConfig(block_size=16),
         stop_on_eos=False,
     )
 
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
     single_config = EngineConfig(DenseCacheConfig())
-    single_opts = GenerationOptions(eos_token_id=eos_token_id, device=cuda, stop_on_eos=False)
+    single_opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=False)
     golden_tokens: list[list[int]] = []
     for p_tokens, budget in zip(prompt_tokens, budgets):
         gen_res = generate(

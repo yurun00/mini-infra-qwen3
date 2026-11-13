@@ -45,10 +45,10 @@ def _run_schedule_loop(
     requests: Sequence[Request],
     max_running_requests: int,
     eos_token_id: int | None,
-    device: torch.device,
     stop_on_eos: bool = True,
 ) -> ScheduleResult:
     """采用三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）驱动统一的调度主循环。"""
+    device = backend.device
     states, arrival_queue, clock_ms = prepare_schedule(requests, max_running_requests)
     waiting_queue = WaitingQueue()
     running_queue = RunningQueue(max_running_requests)
@@ -146,7 +146,6 @@ def run_scheduler(
     requests: Sequence[Request],
     max_running_requests: int,
     eos_token_id: int | None,
-    device: torch.device,
     *,
     kv_cache_config: KVCacheConfig,
     pad_token_id: int = 0,
@@ -160,7 +159,6 @@ def run_scheduler(
         requests: 待调度的请求列表。
         max_running_requests: 调度队列最大并发数（NONE 模式下自动约束为 1）。
         eos_token_id: 结束 Token ID。
-        device: 执行目标设备。
         kv_cache_config: 运行时 KV Cache 配置（DenseCacheConfig 或 PagedCacheConfig；NoCacheConfig 不支持）。
         pad_token_id: 填充 Token ID。
         stop_on_eos: 命中 EOS 时是否提前停止生成。
@@ -183,7 +181,6 @@ def run_scheduler(
             )
         backend = PagedScheduleBackend(
             model=model,
-            device=device,
             requests=requests,
             max_running_requests=max_running_requests,
             paged_cache_config=kv_cache_config,
@@ -197,7 +194,6 @@ def run_scheduler(
         )
         backend = DenseScheduleBackend(
             model=model,
-            device=device,
             max_running_requests=effective_max_running_requests,
             batching_method=batching_method,
             pad_token_id=pad_token_id,
@@ -208,6 +204,5 @@ def run_scheduler(
         requests=requests,
         max_running_requests=effective_max_running_requests,
         eos_token_id=eos_token_id,
-        device=device,
         stop_on_eos=stop_on_eos,
     )

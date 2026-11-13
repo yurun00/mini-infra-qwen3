@@ -246,7 +246,6 @@ def run_config(
             requests,
             effective_max_running_requests,
             options.eos_token_id,
-            options.device or torch.device("cuda"),
             kv_cache_config=config.kv_cache_config,
             pad_token_id=options.pad_token_id,
             stop_on_eos=options.stop_on_eos,
@@ -376,7 +375,6 @@ def _handle_run(args: argparse.Namespace) -> int:
     for cfg in configs:
         warmup_opts = GenerationOptions(
             eos_token_id=tokenizer.eos_token_id,
-            device=device,
         )
         for _ in range(args.warmup):
             run_config(cfg, model, input_ids, sequences, shrink_budgets(budgets, 2), warmup_opts, via_scheduler)
@@ -403,7 +401,6 @@ def _handle_run(args: argparse.Namespace) -> int:
 
         run_opts = GenerationOptions(
             eos_token_id=tokenizer.eos_token_id,
-            device=device,
             profile=do_profile,
             top_kernels=args.top_kernels,
             tensorboard_options=tb_options,

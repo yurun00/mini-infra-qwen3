@@ -121,7 +121,6 @@ def run_lockstep(
     token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
-    device: torch.device,
     *,
     kv_cache_config: KVCacheConfig,
     pad_token_id: int = 0,
@@ -141,13 +140,13 @@ def run_lockstep(
         raise ValueError("lockstep 暂不支持 PagedCacheConfig，请使用 NoCacheConfig 或 DenseCacheConfig")
     use_cache = isinstance(kv_cache_config, DenseCacheConfig)
 
+    runner = LockstepRunner(model, pad_token_id)
+    device = runner.device
     is_cuda = device.type == "cuda"
     synchronize(device)
     baseline_allocated_bytes = torch.cuda.memory_allocated(device) if is_cuda else 0
     if is_cuda:
         torch.cuda.reset_peak_memory_stats(device)
-
-    runner = LockstepRunner(model, device, pad_token_id)
     batch = runner.init_input_batch(
         token_sequences=token_sequences,
         has_uniform_prompt_len=has_uniform_prompt_len,

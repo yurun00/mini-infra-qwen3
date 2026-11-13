@@ -4,7 +4,6 @@
 """
 
 import pytest
-import torch
 
 from mini_infra.core import (
     DenseCacheConfig,
@@ -21,7 +20,6 @@ from mini_infra.engine import (
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 
-CPU = torch.device("cpu")
 KV_CONFIG = EngineConfig(DenseCacheConfig())
 RUNNERS = {
     BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(
@@ -40,7 +38,7 @@ def model(diverse_model):
 
 def test_fixture_outputs_are_diverse(model):
     """守卫：若输出退化为重复 Token，下面所有 parity 测试都会失去检出能力。"""
-    opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
+    opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
     tokens = generate(KV_CONFIG, model, [make_prompts([6])[0]], 10, options=opts)
     assert len(set(tokens.sequences[0].token_ids)) >= 5
 
@@ -50,7 +48,7 @@ def make_prompts(lengths: list[int]) -> list[list[int]]:
 
 
 def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
-    opts = GenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
+    opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=stop_on_eos)
     return [
         generate(KV_CONFIG, model, [prompt], budget, options=opts).sequences[0].token_ids
         for prompt, budget in zip(prompts, budgets)
@@ -79,7 +77,7 @@ def test_outputs_match_serial_generate(model, method, case):
     prompts = make_prompts(lengths)
     requests = make_requests(prompts, budgets, arrivals)
 
-    result = RUNNERS[method](model, requests, capacity, -1, CPU, stop_on_eos=False)
+    result = RUNNERS[method](model, requests, capacity, -1, stop_on_eos=False)
 
     assert result.batching_method == method
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
@@ -96,7 +94,7 @@ def test_eos_stops_request_and_matches_serial(model, method):
     eos = serial_outputs(model, prompts, budgets)[0][2]
     requests = make_requests(prompts, budgets)
 
-    result = RUNNERS[method](model, requests, 2, eos, CPU, stop_on_eos=True)
+    result = RUNNERS[method](model, requests, 2, eos, stop_on_eos=True)
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets, eos, stop_on_eos=True)
     assert result.sequences[0].finish_reason == "stop"
@@ -110,7 +108,7 @@ def test_timeline_and_metric_invariants(model, method, case):
     lengths, budgets, arrivals, capacity = CASES[case]
     requests = make_requests(make_prompts(lengths), budgets, arrivals)
 
-    result = RUNNERS[method](model, requests, capacity, -1, CPU, stop_on_eos=False)
+    result = RUNNERS[method](model, requests, capacity, -1, stop_on_eos=False)
     metrics = result.schedule_metrics
 
     for request, budget in zip(result.request_metrics, budgets):
@@ -151,7 +149,7 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
     requests = make_requests(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.FIXED, model, requests, 2, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.FIXED, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -168,7 +166,7 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     requests = make_requests(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
@@ -186,7 +184,7 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     requests = make_requests(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     assert result.request_metrics[0].admitted_ms == 10.0  # 初始时钟取最早到达时间
@@ -201,12 +199,12 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
 def test_runners_reject_invalid_arguments(model, runner):
     requests = make_requests(make_prompts([4]), [2])
     with pytest.raises(ValueError, match="max_running_requests"):
-        runner(model, requests, 0, -1, CPU)
+        runner(model, requests, 0, -1)
     with pytest.raises(ValueError, match="不能为空"):
-        runner(model, [], 2, -1, CPU)
+        runner(model, [], 2, -1)
     duplicate = [Request(0, (1, 2), 2), Request(0, (3, 4), 2)]
     with pytest.raises(ValueError, match="唯一"):
-        runner(model, duplicate, 2, -1, CPU)
+        runner(model, duplicate, 2, -1)
 
 
 def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model):
@@ -214,7 +212,7 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
     requests = make_requests(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
 
     result = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 1, -1, CPU, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 1, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, make_prompts([4, 6]), [2, 3])
@@ -229,7 +227,7 @@ class TestGenerateDispatch:
         continuous = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
         fixed = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
 
-        opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
+        opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
         result = generate(continuous, model, prompts, budgets, options=opts)
         fixed_result = generate(fixed, model, prompts, budgets, options=opts)
 
@@ -256,13 +254,13 @@ class TestGenerateDispatch:
     def test_continuous_mode_requires_kv_cache(self, model):
         config = EngineConfig(batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="KV Cache"):
-            generate(config, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU))
+            generate(config, model, make_prompts([3, 4]), 2)
 
     @pytest.mark.parametrize("kwargs", [{"capture_logits": True}, {"profile": True}])
     def test_continuous_mode_rejects_unsupported_options(self, model, kwargs):
         config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="暂不支持"):
-            generate(config, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU, **kwargs))
+            generate(config, model, make_prompts([3, 4]), 2, options=GenerationOptions(**kwargs))
 
     def test_continuous_mode_respects_max_running_requests(self, model):
         prompts = make_prompts([3, 5, 4, 6])
@@ -276,7 +274,6 @@ class TestGenerateDispatch:
             budgets,
             options=GenerationOptions(
                 eos_token_id=-1,
-                device=CPU,
                 stop_on_eos=False,
             ),
         )
@@ -299,7 +296,6 @@ def test_run_scheduler_dispatch(model):
         requests,
         2,
         eos_token_id=-1,
-        device=CPU,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -313,7 +309,6 @@ def test_run_scheduler_dispatch(model):
         requests,
         2,
         eos_token_id=-1,
-        device=CPU,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -327,7 +322,6 @@ def test_run_scheduler_dispatch(model):
         requests,
         2,
         eos_token_id=-1,
-        device=CPU,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )

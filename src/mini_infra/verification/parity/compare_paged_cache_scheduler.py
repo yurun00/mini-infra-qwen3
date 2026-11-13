@@ -64,7 +64,6 @@ def run_compare_paged_cache_scheduler(
         requests,
         max_running_requests=max_running_requests,
         eos_token_id=tokenizer.eos_token_id,
-        device=device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -79,7 +78,6 @@ def run_compare_paged_cache_scheduler(
             requests,
             max_running_requests=max_running_requests,
             eos_token_id=tokenizer.eos_token_id,
-            device=device,
             kv_cache_config=PagedCacheConfig(block_size=block_size),
             stop_on_eos=False,
         )

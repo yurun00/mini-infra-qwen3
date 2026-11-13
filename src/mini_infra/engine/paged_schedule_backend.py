@@ -29,7 +29,6 @@ class PagedScheduleBackend(ScheduleBackend):
     def __init__(
         self,
         model: torch.nn.Module,
-        device: torch.device,
         requests: Sequence[Request],
         max_running_requests: int,
         paged_cache_config: PagedCacheConfig,
@@ -49,10 +48,10 @@ class PagedScheduleBackend(ScheduleBackend):
                 f"num_blocks={num_blocks} 无法容纳单个请求所需的 {largest_request_blocks} "
                 "个物理块（另需 1 个 null block）"
             )
-        super().__init__(model, device, max_running_requests, batching_method)
+        super().__init__(model, max_running_requests, batching_method)
         self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
         config = model.config  # type: ignore[attr-defined]
-        self.runner = PagedRunner(model, device, pad_token_id)
+        self.runner = PagedRunner(model, pad_token_id)
         self.snapshot_tracker = MemorySnapshotTracker()
         self.snapshot_tracker.start()
         self.snapshot_tracker.record_stage("00_paged_before_pool_init")
@@ -63,7 +62,7 @@ class PagedScheduleBackend(ScheduleBackend):
             num_kv_heads=config.num_key_value_heads,
             head_dim=config.head_dim,
             dtype=next(model.parameters()).dtype,
-            device=device,
+            device=self.device,
         )
         self.snapshot_tracker.record_stage("01_paged_pool_allocated")
         self.kv_cache_manager = KVCacheManager(self.block_size, num_blocks)

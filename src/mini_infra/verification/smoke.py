@@ -113,7 +113,7 @@ def check_fixed_batching(model):
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
     fixed_batching_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
-    logits_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
+    logits_opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False, capture_logits=True)
     single = generate(fixed_batching_config, model, [request_a], 4, options=logits_opts)
     paired = generate(fixed_batching_config, model, [request_b, request_a], [4, 4], options=logits_opts)
     replaced = generate(fixed_batching_config, model, [request_c, request_a], [4, 4], options=logits_opts)
@@ -123,7 +123,7 @@ def check_fixed_batching(model):
         assert torch.allclose(single.trace.logits_trace[step][0], paired.trace.logits_trace[step][1], atol=1e-5)
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
-    base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
+    base_opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
     batched = generate(fixed_batching_config, model, [request_a, request_b], [2, 4], options=base_opts)
     assert batched.trace.num_active_tokens_per_step == [2, 2, 1, 1]
     assert [s.completion_step for s in batched.sequences] == [2, 4]
@@ -161,7 +161,6 @@ def check_fixed_batching(model):
 
 def check_continuous_batching(model):
     """验证 Continuous Batching 动态加入退出、FCFS 队列调度与串行 baseline 输出完全一致。"""
-    device = torch.device("cpu")
     sequences = [
         [3, 5, 7, 9],
         [11, 13],
@@ -173,7 +172,7 @@ def check_continuous_batching(model):
     # 1. 统一 generate 接口分发验证（多请求异构预算）
     continuous_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
     serial_config = EngineConfig(DenseCacheConfig())
-    base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
+    base_opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
 
     cont_gen = generate(continuous_config, model, sequences, budgets, options=base_opts)
     serial_gen = generate(serial_config, model, sequences, budgets, options=base_opts)
@@ -182,13 +181,13 @@ def check_continuous_batching(model):
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     requests = make_requests(sequences, budgets)
     fixed = run_scheduler(
-        BatchingMethod.FIXED, model, requests, 2, -1, device, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.FIXED, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
     continuous = run_scheduler(
-        BatchingMethod.CONTINUOUS, model, requests, 2, -1, device, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.CONTINUOUS, model, requests, 2, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
     serialized = run_scheduler(
-        BatchingMethod.NONE, model, requests, 1, -1, device, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
+        BatchingMethod.NONE, model, requests, 1, -1, kv_cache_config=DenseCacheConfig(), stop_on_eos=False
     )
 
     assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
@@ -205,8 +204,9 @@ def check_continuous_batching(model):
 
     # 5. 请求时序指标逻辑自洽性校验 (queue_ms >= 0, ttft_ms >= queue_ms, end_to_end_ms >= ttft_ms)
     assert all(
-        rm.queue_ms >= 0 and rm.ttft_ms >= rm.queue_ms and rm.end_to_end_ms >= rm.ttft_ms
+        rm.queue_ms >= 0 and rm.ttft_ms >= queue_ms_val and rm.end_to_end_ms >= rm.ttft_ms
         for rm in continuous.request_metrics
+        for queue_ms_val in [rm.queue_ms]
     )
 
     # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)
@@ -217,7 +217,6 @@ def check_continuous_batching(model):
         staggered_requests,
         2,
         -1,
-        device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -232,7 +231,6 @@ def check_continuous_batching(model):
         same_arrival_requests,
         3,
         -1,
-        device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -259,7 +257,7 @@ def check_paged_kv_cache(model):
         dtype=torch.float32,
         device=device,
     )
-    runner = PagedRunner(model, device)
+    runner = PagedRunner(model)
 
     # 1. Prefill 跨界分配与散写还原（6 个 token，block_size=4 -> 2 个 physical block）
     num_kv_heads = config.num_key_value_heads
@@ -334,7 +332,6 @@ def check_paged_kv_cache(model):
         requests,
         2,
         -1,
-        device,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -344,7 +341,6 @@ def check_paged_kv_cache(model):
         requests,
         2,
         -1,
-        device,
         kv_cache_config=PagedCacheConfig(block_size=block_size),
         stop_on_eos=False,
     )
@@ -355,7 +351,6 @@ def check_paged_kv_cache(model):
         budgets,
         options=GenerationOptions(
             eos_token_id=-1,
-            device=device,
             stop_on_eos=False,
         ),
     )

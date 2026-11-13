@@ -36,49 +36,43 @@ def generate(
 ) -> GenerationResult:
     """统一生成入口；config 为 EngineConfig 集中式配置对象。
 
-    所有可选执行控制项（device、eos_token_id、stop_on_eos、profile 等）
+    所有可选执行控制项（eos_token_id、stop_on_eos、profile 等）
     统一通过 options（GenerationOptions 结构体）传入。
     """
     opts = options or GenerationOptions()
     validate_engine_config(config)
 
-    # 1. 规约设备
-    device = torch.device(opts.device) if opts.device is not None else next(model.parameters()).device
-
-    # 2. 规约输入 Prompt 与输出预算
+    # 1. 规约输入 Prompt 与输出预算
     token_sequences, has_uniform_prompt_len = normalize_token_sequences(prompts, tokenizer=opts.tokenizer)
     budgets = normalize_budgets(max_new_tokens, len(token_sequences))
 
-    # 3. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
+    # 2. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
     if config.batching_method == BatchingMethod.CONTINUOUS or isinstance(config.kv_cache_config, PagedCacheConfig):
         return _dispatch_continuous(
             config,
             model,
             token_sequences,
             budgets,
-            device,
             opts,
         )
 
-    # 4. 串行 baseline 分发
+    # 3. 串行 baseline 分发
     if config.batching_method == BatchingMethod.NONE and len(token_sequences) > 1:
         return _dispatch_serial_baseline(
             config,
             model,
             token_sequences,
             budgets,
-            device,
             opts,
         )
 
-    # 5. 齐步（Lockstep）执行（所有请求同时开始，无队列调度）
+    # 4. 齐步（Lockstep）执行（所有请求同时开始，无队列调度）
     return _dispatch_lockstep(
         config,
         model,
         token_sequences,
         has_uniform_prompt_len,
         budgets,
-        device,
         opts,
     )
 
@@ -89,7 +83,6 @@ def _dispatch_lockstep(
     token_sequences: Sequence[Sequence[int]],
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
-    device: torch.device,
     opts: GenerationOptions,
 ) -> GenerationResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
@@ -99,7 +92,6 @@ def _dispatch_lockstep(
         has_uniform_prompt_len=has_uniform_prompt_len,
         budgets=budgets,
         kv_cache_config=config.kv_cache_config,
-        device=device,
         pad_token_id=opts.pad_token_id,
         eos_token_id=opts.eos_token_id,
         stop_on_eos=opts.stop_on_eos,
@@ -115,27 +107,16 @@ def _dispatch_serial_baseline(
     model: torch.nn.Module,
     token_sequences: Sequence[Sequence[int]],
     budgets: Sequence[int],
-    device: torch.device,
     opts: GenerationOptions,
 ) -> GenerationResult:
     """按顺序逐个执行请求（串行 baseline 模式）。"""
-    single_req_options = GenerationOptions(
-        eos_token_id=opts.eos_token_id,
-        device=device,
-        stop_on_eos=opts.stop_on_eos,
-        pad_token_id=opts.pad_token_id,
-        capture_logits=opts.capture_logits,
-        profile=opts.profile,
-        top_kernels=opts.top_kernels,
-        tensorboard_options=opts.tensorboard_options,
-    )
     runs = [
         generate(
             config,
             model,
             seq,
             budget,
-            options=single_req_options,
+            options=opts,
         )
         for seq, budget in zip(token_sequences, budgets)
     ]
@@ -147,7 +128,6 @@ def _dispatch_continuous(
     model: torch.nn.Module,
     token_sequences: Sequence[Sequence[int]],
     budgets: Sequence[int],
-    device: torch.device,
     opts: GenerationOptions,
 ) -> ScheduleResult:
     """以 Continuous Batching 执行（支持自定义并发上限），直接返回 ScheduleResult。"""
@@ -161,7 +141,6 @@ def _dispatch_continuous(
         requests,
         max_running_requests,
         opts.eos_token_id,
-        device,
         kv_cache_config=config.kv_cache_config,
         pad_token_id=opts.pad_token_id,
         stop_on_eos=opts.stop_on_eos,

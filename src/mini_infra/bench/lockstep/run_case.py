@@ -95,7 +95,6 @@ def run_case_once(
     max_new_tokens = budgets[0] if len(set(budgets)) == 1 else budgets
     opts = options or GenerationOptions(
         eos_token_id=-1,
-        device=device,
         stop_on_eos=False,
     )
     res = generate(
@@ -137,7 +136,6 @@ def run_case(
 
     warmup_opts = GenerationOptions(
         eos_token_id=-1,
-        device=device,
         stop_on_eos=False,
     )
     for _ in range(warmup):
@@ -146,7 +144,6 @@ def run_case(
     is_all_repeats_profile = profiling_mode == ProfilingMode.ALL_REPEATS
     run_opts = GenerationOptions(
         eos_token_id=-1,
-        device=device,
         stop_on_eos=False,
         profile=is_all_repeats_profile,
         tensorboard_options=tensorboard_options if is_all_repeats_profile else None,
@@ -160,7 +157,6 @@ def run_case(
     elif profiling_mode == ProfilingMode.DEDICATED_PASS:
         prof_opts = GenerationOptions(
             eos_token_id=-1,
-            device=device,
             stop_on_eos=False,
             profile=True,
             tensorboard_options=tensorboard_options,

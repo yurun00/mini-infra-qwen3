@@ -5,7 +5,6 @@
 """
 
 import pytest
-import torch
 
 from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests, required_pool_blocks
 from mini_infra.engine import (
@@ -16,7 +15,6 @@ from mini_infra.engine import (
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 
-CPU = torch.device("cpu")
 KV_CONFIG = EngineConfig(DenseCacheConfig())
 PAGED_CONFIG = EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.CONTINUOUS)
 
@@ -31,7 +29,7 @@ def make_prompts(lengths: list[int]) -> list[list[int]]:
 
 
 def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
-    opts = GenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
+    opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=stop_on_eos)
     return [
         generate(KV_CONFIG, model, [prompt], budget, options=opts).sequences[0].token_ids
         for prompt, budget in zip(prompts, budgets)
@@ -45,7 +43,6 @@ def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, **config):
         requests,
         capacity,
         eos,
-        CPU,
         kv_cache_config=PagedCacheConfig(**config),
         stop_on_eos=stop_on_eos,
     )
@@ -75,7 +72,6 @@ def test_outputs_match_serial_generate_and_dense(model, case, block_size):
         requests,
         capacity,
         -1,
-        CPU,
         kv_cache_config=DenseCacheConfig(),
         stop_on_eos=False,
     )
@@ -170,7 +166,6 @@ def test_paged_scheduling_rejects_none_batching(model):
             requests,
             1,
             -1,
-            CPU,
             kv_cache_config=PagedCacheConfig(),
         )
 
@@ -187,7 +182,6 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
         requests,
         2,
         -1,
-        CPU,
         kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
     )
@@ -197,7 +191,6 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
         requests,
         2,
         -1,
-        CPU,
         kv_cache_config=PagedCacheConfig(block_size=4),
         stop_on_eos=False,
     )
@@ -213,7 +206,7 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
 
 def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
     prompts = make_prompts([4, 7, 5])
-    opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
+    opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
 
     result = generate(PAGED_CONFIG, model, prompts, [5, 3, 4], options=opts)
     fixed_paged_config = EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.FIXED)
@@ -231,6 +224,6 @@ def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
 
 
 def test_generate_validates_paged_batching_method(model):
-    opts = GenerationOptions(eos_token_id=-1, device=CPU)
+    opts = GenerationOptions(eos_token_id=-1)
     with pytest.raises(ValueError, match="continuous-batching"):
         generate(EngineConfig(PagedCacheConfig()), model, [[1, 2, 3]], 2, options=opts)

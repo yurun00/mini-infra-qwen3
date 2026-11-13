@@ -63,7 +63,7 @@ def compare_paged_prompt(
     if not manager.allocate_slots(0, num_new_tokens=len(token_ids)):
         raise RuntimeError("分配 Prefill 物理块失败")
 
-    runner = PagedRunner(model, device)
+    runner = PagedRunner(model)
     prefill_cache = KVCache([(k.clone(), v.clone()) for k, v in dense_cache])
     runner.store_prefill(
         pool,

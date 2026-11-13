@@ -63,9 +63,9 @@ def _left_pad_sequences(
 class BaseModelRunner:
     """基础无状态模型执行器：只持有模型与硬件配置，不承载单步执行原语与请求批次状态。"""
 
-    def __init__(self, model: torch.nn.Module, device: torch.device, pad_token_id: int = 0):
+    def __init__(self, model: torch.nn.Module, pad_token_id: int = 0):
         self.model = model
-        self.device = device
+        self.device = next(model.parameters()).device
         self.pad_token_id = pad_token_id
 
     def run_prefill_step(self, prompt_sequences: Sequence[Sequence[int]]) -> PrefillOutput:

@@ -40,17 +40,16 @@ class ScheduleBackend(abc.ABC):
     def __init__(
         self,
         model: torch.nn.Module,
-        device: torch.device,
         max_running_requests: int,
         batching_method: BatchingMethod,
     ) -> None:
         self.model = model
-        self.device = device
+        self.device = next(model.parameters()).device
         self.max_running_requests = max_running_requests
         self.batching_method = batching_method
-        synchronize(device)
-        self.baseline_mb = allocated_memory_mb(device)
-        reset_peak_memory(device)
+        synchronize(self.device)
+        self.baseline_mb = allocated_memory_mb(self.device)
+        reset_peak_memory(self.device)
 
     @property
     @abc.abstractmethod

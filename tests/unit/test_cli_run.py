@@ -3,7 +3,6 @@
 import argparse
 
 import pytest
-import torch
 
 from mini_infra.cli.commands.run import (
     add_run_args,
@@ -24,7 +23,6 @@ from mini_infra.engine import (
 )
 from mini_infra.entrypoints import GenerationOptions
 
-CPU = torch.device("cpu")
 KV = DenseCacheConfig()
 SEQS = [[3, 5, 7, 9], [11, 13], [2, 4, 6], [8, 10, 12, 14, 16]]
 
@@ -35,7 +33,7 @@ class FakeTokenizer:
 
 
 def make_opts(**kwargs):
-    return GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False, **kwargs)
+    return GenerationOptions(eos_token_id=-1, stop_on_eos=False, **kwargs)
 
 
 def test_resolve_budgets():

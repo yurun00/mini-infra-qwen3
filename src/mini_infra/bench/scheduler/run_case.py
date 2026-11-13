@@ -31,7 +31,6 @@ def run_case_once(
         requests=reqs,
         max_running_requests=case.max_running_requests,
         eos_token_id=-1,
-        device=device,
         stop_on_eos=False,
     )
     gc.collect()
