@@ -8,13 +8,13 @@ import pytest
 from mini_infra.core import (
     DenseCacheConfig,
     Request,
+    SchedulePhase,
     make_requests,
 )
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
     GenerationResult,
-    SchedulePhase,
     ScheduleResult,
     run_scheduler,
 )
@@ -240,6 +240,71 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
     )
 
     assert [s.token_ids for s in result.sequences] == serial_outputs(model, make_prompts([4, 6]), [2, 3])
+
+
+def test_prefill_first_event_trajectories(model):
+    """锁定 prefill-first 基线在槽位复用、错峰到达与 EOS 提前退场下的完整事件轨迹。"""
+
+    def event_trace(events):
+        return [(e.phase, e.admitted_request_ids, e.finished_request_ids) for e in events]
+
+    # 1. 混合预算与 batch slot 复用（含 budget=1 在 Prefill 当步直接完成）
+    lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
+    res_mixed = RUNNERS[BatchingMethod.CONTINUOUS](
+        model, make_requests(make_prompts(lengths), budgets, arrivals), capacity, -1, stop_on_eos=False
+    )
+    assert event_trace(res_mixed.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+        (SchedulePhase.PREFILL, (3,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.PREFILL, (4,), (4,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (3,)),
+    ]
+
+    # 2. 错峰到达（t=0 先入场 0，步 0 后 1、2 均到达，按空余 batch slot 先入场 1，1 结束后再入场 2）
+    lengths, budgets, arrivals, capacity = CASES["longer_prompt_joins_late"]
+    res_late = RUNNERS[BatchingMethod.CONTINUOUS](
+        model, make_requests(make_prompts(lengths), budgets, arrivals), capacity, -1, stop_on_eos=False
+    )
+    assert event_trace(res_late.events) == [
+        (SchedulePhase.PREFILL, (0,), ()),
+        (SchedulePhase.PREFILL, (1,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+    ]
+
+    # 3. EOS 提前退场释放 batch slot
+    prompts_eos = make_prompts([4, 6, 5])
+    budgets_eos = [8, 8, 8]
+    eos = serial_outputs(model, prompts_eos, budgets_eos)[0][2]
+    res_eos = RUNNERS[BatchingMethod.CONTINUOUS](
+        model, make_requests(prompts_eos, budgets_eos), 2, eos, stop_on_eos=True
+    )
+    assert event_trace(res_eos.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+    ]
 
 
 class TestGenerateDispatch:

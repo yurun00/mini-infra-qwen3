@@ -2,12 +2,12 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Generic, TypeVar
 
 import torch
 
 from mini_infra.core.request import RequestState
+from mini_infra.core.scheduler import SchedulePhase
 from mini_infra.core.types import (
     BatchingMethod,
     DenseCacheConfig,
@@ -266,16 +266,6 @@ def compute_step_aggregated_metrics(
     )
 
 
-class SchedulePhase(str, Enum):
-    """一次调度事件所处阶段。"""
-
-    PREFILL = "prefill"
-    DECODE = "decode"
-
-    def __str__(self) -> str:
-        return self.value
-
-
 @dataclass(frozen=True)
 class ScheduleEvent:
     """一次模型调用（Prefill 或 Decode）及其搬移开销的调度事件记录。"""
@@ -452,7 +442,6 @@ __all__ = [
     "PagedCacheProfile",
     "ScheduleEvent",
     "ScheduleMetrics",
-    "SchedulePhase",
     "StepAggregatedMetrics",
     "build_memory_profile",
     "compute_step_aggregated_metrics",

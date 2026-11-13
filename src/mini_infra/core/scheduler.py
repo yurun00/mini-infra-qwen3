@@ -9,6 +9,8 @@
 import heapq
 from collections import deque
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from enum import Enum
 
 from mini_infra.core.request import (
     Request,
@@ -173,3 +175,44 @@ def prepare_schedule(
     validate_requests(requests)
     states = [RequestState(req) for req in requests]
     return states, ArrivalQueue(states), min(state.request.arrival_ms for state in states)
+
+
+class SchedulePhase(str, Enum):
+    """一次调度事件所处阶段。"""
+
+    PREFILL = "prefill"
+    DECODE = "decode"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
+class SchedulerOutput:
+    """单步迭代调度的决策产出：承载本步执行阶段与被选中请求快照。"""
+
+    phase: SchedulePhase
+    scheduled_requests: tuple[RequestState, ...]
+
+
+class Scheduler:
+    """迭代级请求调度器：在每个调度步决策执行一次 Prefill batch 或一次 Decode batch。"""
+
+    def schedule(
+        self,
+        waiting_queue: WaitingQueue,
+        running_queue: RunningQueue,
+        max_num_admissions: int,
+    ) -> SchedulerOutput | None:
+        """根据就绪队列、运行队列与资源准入上限生成本步调度计划；空闲时返回 None。"""
+        if max_num_admissions > 0 and waiting_queue:
+            return SchedulerOutput(
+                phase=SchedulePhase.PREFILL,
+                scheduled_requests=waiting_queue.requests[:max_num_admissions],
+            )
+        if running_queue:
+            return SchedulerOutput(
+                phase=SchedulePhase.DECODE,
+                scheduled_requests=running_queue.requests,
+            )
+        return None

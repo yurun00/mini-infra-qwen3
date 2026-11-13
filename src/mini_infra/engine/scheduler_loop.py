@@ -24,6 +24,8 @@ from mini_infra.core import (
     PagedCacheConfig,
     Request,
     RunningQueue,
+    SchedulePhase,
+    Scheduler,
     WaitingQueue,
     prepare_schedule,
 )
@@ -31,7 +33,7 @@ from mini_infra.core.types import BatchingMethod
 from mini_infra.device import peak_memory_mb, synchronize
 from mini_infra.engine.config import EngineConfig
 from mini_infra.engine.dense_schedule_backend import DenseScheduleBackend
-from mini_infra.engine.metrics import ScheduleEvent, SchedulePhase, summarize_schedule
+from mini_infra.engine.metrics import ScheduleEvent, summarize_schedule
 from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
 from mini_infra.engine.results import ScheduleResult
 from mini_infra.engine.schedule_backend import ScheduleBackend
@@ -52,6 +54,7 @@ def _run_schedule_loop(
     states, arrival_queue, clock_ms = prepare_schedule(requests, max_running_requests)
     waiting_queue = WaitingQueue()
     running_queue = RunningQueue(max_running_requests)
+    scheduler = Scheduler()
     events: list[ScheduleEvent] = []
     wall_start = time.perf_counter()
 
@@ -60,10 +63,17 @@ def _run_schedule_loop(
         arrived = arrival_queue.pop_arrived(clock_ms)
         waiting_queue.extend(arrived)
 
-        # 2. 调度入场：Prefill 阶段
-        num_admit = backend.determine_admission(waiting_queue, running_queue)
-        if num_admit:
-            admitted = running_queue.admit(waiting_queue.pop_batch(num_admit), clock_ms)
+        # 2. 迭代调度决策：结合后端资源准入上限生成本步执行计划
+        max_num_admissions = backend.determine_admission(waiting_queue, running_queue)
+        output = scheduler.schedule(waiting_queue, running_queue, max_num_admissions)
+        if output is None:
+            # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）
+            clock_ms = arrival_queue.next_arrival_ms()
+            continue
+
+        # 3. 执行 Prefill 阶段
+        if output.phase is SchedulePhase.PREFILL:
+            admitted = running_queue.admit(waiting_queue.pop_batch(len(output.scheduled_requests)), clock_ms)
             step_output = backend.execute_prefill(admitted)
             step_ms = step_output.model_ms + step_output.cache_ms
             clock_ms += step_ms
@@ -90,37 +100,32 @@ def _run_schedule_loop(
             backend.retire(finished, running_queue)
             continue
 
-        # 3. 运行中请求 Decode
-        if running_queue:
-            active_before = len(running_queue)
-            step_output = backend.execute_decode(running_queue)
-            for state in running_queue:
-                state.cache_length += 1
-            step_ms = step_output.model_ms + step_output.cache_ms
-            clock_ms += step_ms
-            finished = running_queue.process_step_output(step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
-            events.append(
-                ScheduleEvent(
-                    phase=SchedulePhase.DECODE,
-                    admitted_request_ids=(),
-                    finished_request_ids=tuple(s.request.request_idx for s in finished),
-                    physical_batch_size=step_output.physical_batch_size,
-                    num_active_requests=active_before,
-                    num_generated_tokens=active_before,
-                    step_ms=step_ms,
-                    model_ms=step_output.model_ms,
-                    cache_management_ms=step_output.cache_ms,
-                    live_kv_cache_bytes=step_output.live_kv_cache_bytes,
-                    kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
-                    cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
-                    accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
-                )
+        # 4. 执行运行中请求 Decode 阶段
+        active_before = len(output.scheduled_requests)
+        step_output = backend.execute_decode(running_queue)
+        for state in running_queue:
+            state.cache_length += 1
+        step_ms = step_output.model_ms + step_output.cache_ms
+        clock_ms += step_ms
+        finished = running_queue.process_step_output(step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
+        events.append(
+            ScheduleEvent(
+                phase=SchedulePhase.DECODE,
+                admitted_request_ids=(),
+                finished_request_ids=tuple(s.request.request_idx for s in finished),
+                physical_batch_size=step_output.physical_batch_size,
+                num_active_requests=active_before,
+                num_generated_tokens=active_before,
+                step_ms=step_ms,
+                model_ms=step_output.model_ms,
+                cache_management_ms=step_output.cache_ms,
+                live_kv_cache_bytes=step_output.live_kv_cache_bytes,
+                kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
+                cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
+                accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
             )
-            backend.retire(finished, running_queue)
-            continue
-
-        # 4. 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）
-        clock_ms = arrival_queue.next_arrival_ms()
+        )
+        backend.retire(finished, running_queue)
 
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000.0

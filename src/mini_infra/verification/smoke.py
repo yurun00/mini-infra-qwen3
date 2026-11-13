@@ -5,11 +5,10 @@
 
 import torch
 
-from mini_infra.core import DenseCacheConfig, KVCacheManager, PagedCacheConfig, make_requests
+from mini_infra.core import DenseCacheConfig, KVCacheManager, PagedCacheConfig, SchedulePhase, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
-    SchedulePhase,
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate

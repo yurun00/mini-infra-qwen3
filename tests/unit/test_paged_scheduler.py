@@ -6,11 +6,16 @@
 
 import pytest
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests, required_pool_blocks
+from mini_infra.core import (
+    DenseCacheConfig,
+    PagedCacheConfig,
+    SchedulePhase,
+    make_requests,
+    required_pool_blocks,
+)
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
-    SchedulePhase,
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
@@ -142,6 +147,60 @@ def test_small_pool_gates_admission_and_still_matches_serial(model):
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
     assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
     assert result.request_metrics[2].admitted_ms >= result.request_metrics[0].completion_ms
+
+
+def test_paged_prefill_first_event_trajectories(model):
+    """锁定 Paged prefill-first 基线在混合预算、小块池准入限流与 EOS 提前退场下的完整事件轨迹。"""
+
+    def event_trace(events):
+        return [(e.phase, e.admitted_request_ids, e.finished_request_ids) for e in events]
+
+    # 1. 混合预算
+    lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
+    res_mixed = run_paged(model, make_requests(make_prompts(lengths), budgets, arrivals), capacity, block_size=4)
+    assert event_trace(res_mixed.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+        (SchedulePhase.PREFILL, (3,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.PREFILL, (4,), (4,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (3,)),
+    ]
+
+    # 2. 小 physical block pool 显存准入限流（capacity=3 但块池仅够 2 个请求并发）
+    res_small = run_paged(model, make_requests(make_prompts([6, 6, 6]), [3, 3, 3]), 3, block_size=4, num_blocks=5)
+    assert event_trace(res_small.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (0, 1)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+    ]
+
+    # 3. EOS 提前退场归还物理块并立即补位
+    prompts_eos = make_prompts([4, 6, 5])
+    budgets_eos = [8, 8, 8]
+    eos = serial_outputs(model, prompts_eos, budgets_eos)[0][2]
+    res_eos = run_paged(model, make_requests(prompts_eos, budgets_eos), 2, eos, stop_on_eos=True, block_size=4)
+    assert event_trace(res_eos.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+    ]
 
 
 def test_pool_that_cannot_hold_one_request_is_rejected(model):

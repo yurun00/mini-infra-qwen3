@@ -59,7 +59,7 @@ class ScheduleBackend(abc.ABC):
 
     @abc.abstractmethod
     def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
-        """评估当前时刻允许从 waiting_queue 准入到 running_queue 的请求数量。"""
+        """评估当前时刻在资源（batch slot / physical block）与批处理屏障约束下可从 waiting_queue 准入的最大请求数。"""
         ...
 
     @abc.abstractmethod

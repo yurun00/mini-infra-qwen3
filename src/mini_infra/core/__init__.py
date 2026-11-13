@@ -17,6 +17,9 @@ from mini_infra.core.request import (
 from mini_infra.core.scheduler import (
     ArrivalQueue,
     RunningQueue,
+    SchedulePhase,
+    Scheduler,
+    SchedulerOutput,
     WaitingQueue,
     prepare_schedule,
 )
@@ -53,6 +56,9 @@ __all__ = [
     "RequestState",
     "RequestStatus",
     "RunningQueue",
+    "SchedulePhase",
+    "Scheduler",
+    "SchedulerOutput",
     "SequenceOutput",
     "WaitingQueue",
     "collapse_uniform",

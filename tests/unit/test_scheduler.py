@@ -10,6 +10,9 @@ from mini_infra.core import (
     RequestState,
     RequestStatus,
     RunningQueue,
+    SchedulePhase,
+    Scheduler,
+    SchedulerOutput,
     WaitingQueue,
     make_requests,
     prepare_schedule,
@@ -168,3 +171,30 @@ def test_running_queue_lifecycle_and_batch_slot_management():
     assert rq.num_free_batch_slots == 2
     assert rq.free_batch_slots == (0, 2)
     assert indices(rq.requests) == [1]
+
+
+def test_scheduler_prefill_first_decisions():
+    scheduler = Scheduler()
+    wq = WaitingQueue(make_states([0.0, 0.0, 0.0]))
+    rq = RunningQueue(capacity=4)
+
+    # 1. 有就绪请求且准入上限 > 0：按 FCFS 前缀生成 PREFILL 计划
+    out = scheduler.schedule(wq, rq, max_num_admissions=2)
+    assert out == SchedulerOutput(
+        phase=SchedulePhase.PREFILL,
+        scheduled_requests=wq.requests[:2],
+    )
+    assert indices(out.scheduled_requests) == [0, 1]
+
+    # 2. 准入上限为 0 但存在运行中请求：生成 DECODE 计划
+    rq.admit(wq.pop_batch(2), clock_ms=0.0)
+    out_decode = scheduler.schedule(wq, rq, max_num_admissions=0)
+    assert out_decode == SchedulerOutput(
+        phase=SchedulePhase.DECODE,
+        scheduled_requests=rq.requests,
+    )
+    assert indices(out_decode.scheduled_requests) == [0, 1]
+
+    # 3. 既无可准入请求也无运行中请求：返回 None
+    rq.retire(list(rq.requests))
+    assert scheduler.schedule(WaitingQueue(), rq, max_num_admissions=4) is None
