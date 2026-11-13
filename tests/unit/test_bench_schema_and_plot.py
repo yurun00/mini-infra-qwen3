@@ -36,7 +36,7 @@ from mini_infra.bench.result import (
 
 
 def _make_single_case_scheduler_dict(
-    tag: str, mode: str, makespan: float, ttft_p50: float, workload_id: str = "custom"
+    tag: str, engine_config: str, makespan: float, ttft_p50: float, workload_id: str = "custom"
 ) -> dict:
     """构造单 Case 的 SchedulerBenchmarkRecord 字典供测试使用。"""
 
@@ -56,8 +56,8 @@ def _make_single_case_scheduler_dict(
         "schema_version": 1,
         "engine": "scheduler",
         "tag": tag,
-        "release_feature": f"Scheduler {mode}",
-        "mode": mode,
+        "release_feature": f"Scheduler {engine_config}",
+        "engine_config": engine_config,
         "timestamp": "2099-12-31T23:59:59+0000",
         "git": {"commit": f"commit_{tag}", "branch": "main", "dirty": False, "message": "test"},
         "env": {"gpu": "NVIDIA L4", "torch": "2.14.1"},
@@ -69,7 +69,7 @@ def _make_single_case_scheduler_dict(
         "cases": [
             {
                 "workload_id": workload_id,
-                "mode": mode,
+                "engine_config": engine_config,
                 "num_total_requests": 8,
                 "prompt_len": 128,
                 "max_new_tokens": [8, 32, 8, 32, 8, 32, 8, 32],

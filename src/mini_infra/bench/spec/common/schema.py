@@ -9,7 +9,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 
 from mini_infra.bench.cases import CaseDimension
 from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+from mini_infra.engine import BatchingMethod, EngineConfig
 
 SuiteEngine = Literal["scheduler", "lockstep"]
 
@@ -259,10 +259,6 @@ class NoCacheSpec(_Strict):
     kind: Literal["none"] = "none"
 
     @property
-    def method(self) -> CachingMethod:
-        return CachingMethod.NONE
-
-    @property
     def kv_cache_config(self) -> NoCacheConfig:
         return NoCacheConfig()
 
@@ -271,10 +267,6 @@ class DenseCacheSpec(_Strict):
     """Dense KV Cache（预分配连续 batch slot）。"""
 
     kind: Literal["dense-kv-cache"] = "dense-kv-cache"
-
-    @property
-    def method(self) -> CachingMethod:
-        return CachingMethod.DENSE
 
     @property
     def kv_cache_config(self) -> DenseCacheConfig:
@@ -289,20 +281,14 @@ class PagedCacheSpec(_Strict):
     num_blocks: Annotated[int, Field(strict=True, ge=2)] | None = None
 
     @property
-    def method(self) -> CachingMethod:
-        return CachingMethod.PAGED
-
-    @property
     def kv_cache_config(self) -> PagedCacheConfig:
         return PagedCacheConfig(block_size=self.block_size, num_blocks=self.num_blocks)
 
 
 def _normalize_caching(raw: Any) -> Any:
-    """归一化 caching_spec 输入：将标量字符串或枚举提升为标准判别字典。"""
+    """归一化 caching_spec 输入：将标量字符串提升为标准判别字典。"""
     if isinstance(raw, str):
         return {"kind": raw}
-    if isinstance(raw, CachingMethod):
-        return {"kind": raw.value}
     return raw
 
 
@@ -319,9 +305,14 @@ class SystemSpec(_Strict):
     caching_spec: CachingSpec = DenseCacheSpec()
 
     @property
-    def default_mode(self) -> Mode:
-        """系统配置声明的默认运行模式。"""
-        return Mode(self.caching_spec.method, batching_method=self.batching_method)
+    def default_engine_config(self) -> EngineConfig:
+        """系统配置声明的默认 EngineConfig。"""
+        mrr = self.engine_mode.max_running_requests if isinstance(self.engine_mode, SchedulerEngineSpec) else None
+        return EngineConfig(
+            self.caching_spec.kv_cache_config,
+            batching_method=self.batching_method,
+            max_running_requests=mrr,
+        )
 
 
 # --------------------------------------------------------------------------- 语义检查守卫

@@ -50,7 +50,7 @@ class LockstepCaseResult:
         pl = collapse_uniform(self.workload.prompt_lens)
         mn = collapse_uniform(self.workload.output_budgets)
         rec: dict[str, Any] = {
-            "mode": str(self.key.mode),
+            "engine_config": str(self.key.engine_config),
             "prompt_len": list(pl) if isinstance(pl, tuple) else pl,
             "max_new_tokens": list(mn) if isinstance(mn, tuple) else mn,
             "num_total_requests": self.workload.num_total_requests,

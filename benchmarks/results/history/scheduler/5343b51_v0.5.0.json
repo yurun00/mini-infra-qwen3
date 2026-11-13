@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "v0.5.0",
   "release_feature": "paged kv cache",
-  "mode": "paged-kv-cache+continuous-batching",
+  "engine_config": "paged-kv-cache+continuous-batching",
   "timestamp": "2026-11-07T16:36:03+0000",
   "git": {
     "commit": "5343b51",
@@ -53,7 +53,7 @@
   "engine": "scheduler",
   "cases": [
     {
-      "mode": "paged-kv-cache+continuous-batching",
+      "engine_config": "paged-kv-cache+continuous-batching",
       "num_total_requests": 16,
       "prompt_len": [
         35,
@@ -1738,7 +1738,7 @@
       }
     },
     {
-      "mode": "paged-kv-cache+continuous-batching",
+      "engine_config": "paged-kv-cache+continuous-batching",
       "num_total_requests": 32,
       "prompt_len": [
         113,
@@ -6616,7 +6616,7 @@
       }
     },
     {
-      "mode": "paged-kv-cache+continuous-batching",
+      "engine_config": "paged-kv-cache+continuous-batching",
       "num_total_requests": 64,
       "prompt_len": [
         776,

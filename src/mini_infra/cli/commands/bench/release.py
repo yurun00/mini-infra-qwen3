@@ -55,7 +55,8 @@ from mini_infra.bench.paths import (
     SCHEDULER_RESULT_HISTORY_DIR,
 )
 from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, get_release_spec
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+from mini_infra.core import KV_CACHE_KINDS, PagedCacheConfig, kv_cache_config_from_str
+from mini_infra.engine import BatchingMethod, EngineConfig
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,7 @@ def _build_lockstep_case_cmd(
     workload: WorkloadProfile,
     tag: str,
     release_feature: str,
-    mode: Mode,
+    config: EngineConfig,
     warmup: int = 2,
     repeats: int = 5,
     scale: str | None = None,
@@ -93,9 +94,9 @@ def _build_lockstep_case_cmd(
         tag,
         "--release-feature",
         release_feature,
-        "--kv-cache" if mode.use_kv_cache else "--no-kv-cache",
+        "--kv-cache" if config.use_kv_cache else "--no-kv-cache",
         "--batching-method",
-        mode.batching_method.value,
+        config.batching_method.value,
         "--batch-size",
         str(workload.num_total_requests),
         "--prompt-lens",
@@ -120,7 +121,7 @@ def _build_scheduler_case_cmd(
     workload: WorkloadProfile,
     tag: str,
     release_feature: str,
-    mode: Mode,
+    config: EngineConfig,
     max_running_requests: int = 4,
     warmup: int = 2,
     repeats: int = 5,
@@ -143,9 +144,9 @@ def _build_scheduler_case_cmd(
         "--release-feature",
         release_feature,
         "--caching-method",
-        mode.caching_method.value,
+        config.kv_cache_config.kind,
         "--batching-method",
-        mode.batching_method.value,
+        config.batching_method.value,
         "--request-count",
         str(workload.num_total_requests),
         "--max-running-requests",
@@ -155,7 +156,7 @@ def _build_scheduler_case_cmd(
         "--repeats",
         str(repeats),
     ]
-    if mode.caching_method == CachingMethod.PAGED and block_size is not None:
+    if isinstance(config.kv_cache_config, PagedCacheConfig) and block_size is not None:
         cmd.extend(["--block-size", str(block_size)])
     if scale is not None:
         cmd.extend(["--scale", str(scale)])
@@ -243,7 +244,7 @@ def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--caching-method",
-        choices=[m.value for m in CachingMethod],
+        choices=list(KV_CACHE_KINDS),
         default=None,
         help="覆盖 KV Cache 策略（默认根据 --kv-cache 为 dense-kv-cache 或 none）",
     )
@@ -284,20 +285,20 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 
 
 def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
-    """根据解析后的参数生成有序的 _ReleaseStep 列表（仅替换 Mode，其余 Workload 字段保持一致）。"""
+    """根据解析后的参数生成有序的 _ReleaseStep 列表（仅替换 EngineConfig，其余 Workload 字段保持一致）。"""
     steps: list[_ReleaseStep] = []
     if getattr(args, "caching_method", None):
-        caching_method = CachingMethod(args.caching_method)
+        kv_cache_config = kv_cache_config_from_str(args.caching_method)
     else:
-        caching_method = CachingMethod.DENSE if args.kv_cache else CachingMethod.NONE
+        kv_cache_config = kv_cache_config_from_str("dense-kv-cache" if args.kv_cache else "none")
     scales: list[ReleaseScale] = list(getattr(args, "scales", None) or RELEASE_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
 
     if args.engine == "lockstep":
         loaded = get_release_spec("lockstep")
-        default_bm = loaded.default_mode.batching_method
+        default_bm = loaded.default_engine_config.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
-        mode = Mode(caching_method, batching_method=bm)
+        config = EngineConfig(kv_cache_config, batching_method=bm)
         prof = args.profiling_mode if args.profiling_mode is not None else "dedicated-pass"
 
         scales_spec = loaded.resolve(custom_seed)
@@ -311,7 +312,7 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
                         res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
-                        mode=mode,
+                        config=config,
                         warmup=loaded.spec.execution.warmup,
                         repeats=loaded.spec.execution.repeats,
                         scale=sc,
@@ -335,9 +336,9 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
         )
     else:
         loaded = get_release_spec("scheduler")
-        default_bm = loaded.default_mode.batching_method
+        default_bm = loaded.default_engine_config.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
-        target_mode = Mode(caching_method, batching_method=bm)
+        target_config = EngineConfig(kv_cache_config, batching_method=bm)
         block_size = getattr(args, "block_size", None)
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
@@ -352,7 +353,7 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
                         res_scale.workload.to_profile(),
                         args.tag,
                         args.release_feature,
-                        mode=target_mode,
+                        config=target_config,
                         max_running_requests=res_scale.max_running_requests or 4,
                         warmup=loaded.spec.execution.warmup,
                         repeats=loaded.spec.execution.repeats,

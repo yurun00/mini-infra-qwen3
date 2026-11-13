@@ -8,7 +8,8 @@ import torch
 
 from mini_infra.core.types import (
     BatchingMethod,
-    CachingMethod,
+    DenseCacheConfig,
+    KVCacheConfig,
     RequestMetrics,
     SequenceOutput,
 )
@@ -22,7 +23,6 @@ from mini_infra.engine.metrics import (
     StepAggregatedMetrics,
     summarize_repeated_paged_cache_profiles,
 )
-from mini_infra.engine.mode import Mode
 from mini_infra.profiling import (
     OpLatencyBreakdown,
     merge_op_latency_breakdowns,
@@ -100,12 +100,7 @@ class ScheduleResult(GenerationResult):
     events: list[ScheduleEvent] = field(kw_only=True)
     request_metrics: list[RequestMetrics] = field(kw_only=True)
     batching_method: BatchingMethod = BatchingMethod.CONTINUOUS
-    caching_method: CachingMethod = CachingMethod.DENSE
-
-    @property
-    def mode(self) -> Mode:
-        """运行模式。"""
-        return Mode(self.caching_method, batching_method=self.batching_method)
+    kv_cache_config: KVCacheConfig = DenseCacheConfig()
 
 
 AggFunc = Literal["sum", "mean", "max", "min"] | Callable[[Sequence[float]], float]

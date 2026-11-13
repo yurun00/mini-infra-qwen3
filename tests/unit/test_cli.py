@@ -117,8 +117,8 @@ def test_cli_scheduler_paged_suite_dry_run(capsys):
     captured = capsys.readouterr().out
     assert "=== [Dry Run] Suite: dense-vs-paged-block-size ===" in captured
     assert "Scheduler 基准评测执行计划" in captured
-    assert "block=8" in captured
-    assert "block=64" in captured
+    assert "block_size=8" in captured
+    assert "block_size=64" in captured
 
 
 def test_cli_plot_history_no_records(tmp_path, monkeypatch, capsys):

@@ -8,18 +8,19 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from mini_infra.bench.format import format_lengths
 from mini_infra.core import (
     DenseCacheConfig,
     KVCacheConfig,
-    NoCacheConfig,
+    KVCacheKind,
     PagedCacheConfig,
     Request,
+    kv_cache_config_from_str,
     make_requests,
 )
-from mini_infra.engine.mode import BatchingMethod, CachingMethod, FeatureFlag, Mode
+from mini_infra.engine.config import BatchingMethod, EngineConfig, FeatureFlag
 
 DEFAULT_WARMUP = 3
 DEFAULT_REPEATS = 10
@@ -35,7 +36,7 @@ class ProfilingMode(str, Enum):
         return self.value
 
 
-CaseDimensionValue = str | CachingMethod | BatchingMethod | frozenset[FeatureFlag] | int | None
+CaseDimensionValue = str | BatchingMethod | frozenset[FeatureFlag] | int | None
 
 
 class CaseDimension(str, Enum):
@@ -78,68 +79,39 @@ class CaseDimension(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class CaseKey:
-    """用例全局唯一身份键：所有正交维度完全展平为一阶标量。
+    """用例全局唯一身份键：聚合 workload_id、caching_method、batching_method、max_running_requests 等全展平维度。
 
     符合现代推理评测规范：
     1. 不可变哈希（frozen=True）且纯标量正交存储
-    2. 字段与 CaseDimension 1:1 严格同构反射
+    2. 字段与 CaseDimension 1:1 严格同构反射（`getattr(self, d.value)`）
     3. 规范化机器标识（canonical_id）与人类展示（display_name）分离
     4. 动态维度投影（project）与字典映射（as_dimension_map）
     """
 
     workload_id: str
-    caching_method: CachingMethod
-    batching_method: BatchingMethod
-    max_running_requests: int
+    caching_method: KVCacheKind = "dense-kv-cache"
+    batching_method: BatchingMethod = BatchingMethod.NONE
+    max_running_requests: int | None = None
     flags: frozenset[FeatureFlag] = frozenset()
     block_size: int | None = None
     num_blocks: int | None = None
 
     @property
-    def mode(self) -> Mode:
-        """派生引擎运行所需的复合 Mode 对象。"""
-        return Mode(
-            caching_method=self.caching_method,
+    def engine_config(self) -> EngineConfig:
+        """派生引擎运行所需的复合 EngineConfig 对象。"""
+        return EngineConfig(
+            kv_cache_config=kv_cache_config_from_str(
+                self.caching_method,
+                block_size=self.block_size,
+                num_blocks=self.num_blocks,
+            ),
             batching_method=self.batching_method,
+            max_running_requests=self.max_running_requests,
             flags=self.flags,
         )
 
-    @property
-    def kv_cache_config(self) -> KVCacheConfig:
-        """派生运行时 KV Cache 配置对象。"""
-        if self.caching_method is CachingMethod.NONE:
-            return NoCacheConfig()
-        if self.caching_method is CachingMethod.DENSE:
-            return DenseCacheConfig()
-        return PagedCacheConfig(
-            block_size=self.block_size if self.block_size is not None else PagedCacheConfig.block_size,
-            num_blocks=self.num_blocks,
-        )
-
-    @classmethod
-    def from_config(
-        cls,
-        workload_id: str,
-        batching_method: BatchingMethod = BatchingMethod.NONE,
-        kv_cache_config: KVCacheConfig | None = None,
-        max_running_requests: int = 1,
-        flags: frozenset[FeatureFlag] = frozenset(),
-    ) -> CaseKey:
-        """从运行时配置构造完全展平的 CaseKey。"""
-        cfg = kv_cache_config if kv_cache_config is not None else DenseCacheConfig()
-        is_paged = isinstance(cfg, PagedCacheConfig)
-        return cls(
-            workload_id=workload_id,
-            caching_method=cfg.method,
-            batching_method=batching_method,
-            max_running_requests=max_running_requests,
-            flags=flags,
-            block_size=cfg.block_size if is_paged else None,
-            num_blocks=cfg.num_blocks if is_paged else None,
-        )
-
     def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
-        """纯反射无分支提取正交维度标量值。"""
+        """基于正交维度枚举的零分支反射提取。"""
         d = dim if isinstance(dim, CaseDimension) else CaseDimension(dim)
         return getattr(self, d.value)
 
@@ -155,10 +127,11 @@ class CaseKey:
         """机器友好的规范化唯一标识符（符合 MLPerf Slug 规范，无空格和特殊符号）。"""
         parts = [
             f"workload={self.workload_id}",
-            f"cache={self.caching_method.value}",
+            f"cache={self.caching_method}",
             f"batch={self.batching_method.value}",
-            f"mrr={self.max_running_requests}",
         ]
+        if self.max_running_requests is not None:
+            parts.append(f"mrr={self.max_running_requests}")
         if self.flags:
             flags_str = ",".join(sorted(f.value for f in self.flags))
             parts.append(f"flags={flags_str}")
@@ -170,13 +143,7 @@ class CaseKey:
 
     @property
     def display_name(self) -> str:
-        parts = [f"[{self.workload_id}]", str(self.mode), f"mrr={self.max_running_requests}"]
-        if self.block_size is not None:
-            blk_str = f"block={self.block_size}"
-            if self.num_blocks is not None:
-                blk_str += f"(n={self.num_blocks})"
-            parts.append(blk_str)
-        return " | ".join(parts)
+        return f"[{self.workload_id}] | {self.engine_config}"
 
     @property
     def abbreviated_workload_id(self) -> str:
@@ -185,20 +152,23 @@ class CaseKey:
         return "_".join(p if p.isdigit() else p[:3] for p in parts)
 
     @property
-    def abbreviated_mode(self) -> str:
-        """提取 mode 各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。"""
-        return "+".join(
-            "".join(w[0] for w in part.replace("_", "-").split("-") if w) for part in str(self.mode).split("+")
-        )
+    def abbreviated_engine_config(self) -> str:
+        """提取策略名各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。"""
+        cache_label = "no-cache" if self.caching_method == "none" else self.caching_method
+        parts = [*sorted(f.value for f in self.flags), cache_label]
+        if self.batching_method != BatchingMethod.NONE:
+            parts.append(self.batching_method.value)
+        return "+".join("".join(w[0] for w in part.replace("_", "-").split("-") if w) for part in parts)
 
     @property
     def abbreviated_display_name(self) -> str:
         """提取用例键的缩写显示名（如 [vol] | dkc+cb | mrr=16 或 [lss] | pkc+cb | mrr=16 | blk-sz=16）。"""
         parts = [
             f"[{self.abbreviated_workload_id}]",
-            self.abbreviated_mode,
-            f"mrr={self.max_running_requests}",
+            self.abbreviated_engine_config,
         ]
+        if self.max_running_requests is not None:
+            parts.append(f"mrr={self.max_running_requests}")
         if self.block_size is not None:
             parts.append(f"blk-sz={self.block_size}")
         return " | ".join(parts)
@@ -210,11 +180,12 @@ class CaseKey:
         """导出全展平自变量字段字典。"""
         data: dict[str, Any] = {
             "workload_id": self.workload_id,
-            "caching_method": self.caching_method.value,
+            "caching_method": self.caching_method,
             "batching_method": self.batching_method.value,
-            "max_running_requests": self.max_running_requests,
             "canonical_id": self.canonical_id,
         }
+        if self.max_running_requests is not None:
+            data["max_running_requests"] = self.max_running_requests
         if self.flags:
             data["flags"] = [f.value for f in self.flags]
         if self.block_size is not None:
@@ -225,13 +196,15 @@ class CaseKey:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> CaseKey:
-        """从字典反向重构完全展平的 CaseKey。专供测试使用（Test-only）。"""
+        """从字典反向重构 CaseKey。专供测试使用（Test-only）。"""
         raw_flags = data.get("flags", ())
         return cls(
             workload_id=str(data["workload_id"]),
-            caching_method=CachingMethod.from_str(str(data["caching_method"])),
+            caching_method=cast(KVCacheKind, str(data["caching_method"])),
             batching_method=BatchingMethod.from_str(str(data["batching_method"])),
-            max_running_requests=int(data["max_running_requests"]),
+            max_running_requests=(
+                int(data["max_running_requests"]) if data.get("max_running_requests") is not None else None
+            ),
             flags=frozenset(FeatureFlag(f) for f in raw_flags) if raw_flags else frozenset(),
             block_size=int(data["block_size"]) if data.get("block_size") is not None else None,
             num_blocks=int(data["num_blocks"]) if data.get("num_blocks") is not None else None,
@@ -307,16 +280,17 @@ class BenchmarkCase:
     engine: Literal["scheduler", "lockstep"] = "scheduler"
 
     def __post_init__(self) -> None:
-        if self.max_running_requests is None:
+        if self.max_running_requests is None and self.engine == "scheduler":
             object.__setattr__(self, "max_running_requests", self.profile.num_total_requests)
-        elif self.max_running_requests <= 0:
+        elif self.max_running_requests is not None and self.max_running_requests <= 0:
             raise ValueError(f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}")
 
     @property
-    def mode(self) -> Mode:
-        return Mode(
-            caching_method=self.kv_cache_config.method,
+    def engine_config(self) -> EngineConfig:
+        return EngineConfig(
+            kv_cache_config=self.kv_cache_config,
             batching_method=self.batching_method,
+            max_running_requests=self.max_running_requests,
             flags=self.flags,
         )
 
@@ -326,13 +300,15 @@ class BenchmarkCase:
 
     @property
     def key(self) -> CaseKey:
-        assert self.max_running_requests is not None
-        return CaseKey.from_config(
+        paged = self.kv_cache_config if isinstance(self.kv_cache_config, PagedCacheConfig) else None
+        return CaseKey(
             workload_id=self.workload_id,
+            caching_method=self.kv_cache_config.kind,
             batching_method=self.batching_method,
-            kv_cache_config=self.kv_cache_config,
             max_running_requests=self.max_running_requests,
             flags=self.flags,
+            block_size=paged.block_size if paged is not None else None,
+            num_blocks=paged.num_blocks if paged is not None else None,
         )
 
     def format_summary(self) -> str:
@@ -340,7 +316,7 @@ class BenchmarkCase:
         if self.engine == "scheduler":
             return str(self.key)
         return (
-            f"[{self.workload_id}] | {self.mode} | batch={self.profile.num_total_requests} "
+            f"[{self.workload_id}] | {self.engine_config} | batch={self.profile.num_total_requests} "
             f"prompt={format_lengths(self.profile.prompt_lens)} "
             f"max_new_tokens={format_lengths(self.profile.output_budgets)}"
         )

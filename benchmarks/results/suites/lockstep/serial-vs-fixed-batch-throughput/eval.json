@@ -3,7 +3,7 @@
   "engine": "lockstep",
   "tag": "eval",
   "release_feature": null,
-  "mode": "dense-kv-cache,dense-kv-cache+fixed-batching",
+  "engine_config": "dense-kv-cache,dense-kv-cache+fixed-batching",
   "timestamp": "2026-10-24T11:35:58+0000",
   "git": {
     "commit": "6936b07",
@@ -55,7 +55,7 @@
   },
   "cases": [
     {
-      "mode": "dense-kv-cache",
+      "engine_config": "dense-kv-cache",
       "num_total_requests": 1,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -150,7 +150,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache+fixed-batching",
+      "engine_config": "dense-kv-cache+fixed-batching",
       "num_total_requests": 1,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -245,7 +245,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache",
+      "engine_config": "dense-kv-cache",
       "num_total_requests": 2,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -340,7 +340,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache+fixed-batching",
+      "engine_config": "dense-kv-cache+fixed-batching",
       "num_total_requests": 2,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -435,7 +435,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache",
+      "engine_config": "dense-kv-cache",
       "num_total_requests": 4,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -530,7 +530,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache+fixed-batching",
+      "engine_config": "dense-kv-cache+fixed-batching",
       "num_total_requests": 4,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -625,7 +625,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache",
+      "engine_config": "dense-kv-cache",
       "num_total_requests": 8,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -720,7 +720,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache+fixed-batching",
+      "engine_config": "dense-kv-cache+fixed-batching",
       "num_total_requests": 8,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -815,7 +815,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache",
+      "engine_config": "dense-kv-cache",
       "num_total_requests": 16,
       "prompt_len": 128,
       "max_new_tokens": 32,
@@ -910,7 +910,7 @@
       "warmup": 1
     },
     {
-      "mode": "dense-kv-cache+fixed-batching",
+      "engine_config": "dense-kv-cache+fixed-batching",
       "num_total_requests": 16,
       "prompt_len": 128,
       "max_new_tokens": 32,

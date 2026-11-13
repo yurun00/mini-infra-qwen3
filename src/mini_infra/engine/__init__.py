@@ -6,6 +6,12 @@ from mini_infra.core import (
     NoCacheConfig,
     PagedCacheConfig,
 )
+from mini_infra.engine.config import (
+    BatchingMethod,
+    EngineConfig,
+    FeatureFlag,
+    validate_engine_config,
+)
 from mini_infra.engine.lockstep_loop import LockstepState, run_lockstep
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
@@ -20,13 +26,6 @@ from mini_infra.engine.metrics import (
     build_memory_profile,
     compute_step_aggregated_metrics,
     summarize_schedule,
-)
-from mini_infra.engine.mode import (
-    BatchingMethod,
-    CachingMethod,
-    FeatureDimension,
-    FeatureFlag,
-    Mode,
 )
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
@@ -49,9 +48,8 @@ __all__ = [
     "AggregationOptions",
     "BatchScheduleInfo",
     "BatchingMethod",
-    "CachingMethod",
     "DenseCacheConfig",
-    "FeatureDimension",
+    "EngineConfig",
     "FeatureFlag",
     "GenerationResult",
     "GenerationTrace",
@@ -59,7 +57,6 @@ __all__ = [
     "KVCacheProfile",
     "LockstepState",
     "MemoryProfile",
-    "Mode",
     "NoCacheConfig",
     "PRE_TOKEN_PATTERN",
     "PagedCacheConfig",
@@ -79,4 +76,5 @@ __all__ = [
     "run_lockstep",
     "run_scheduler",
     "summarize_schedule",
+    "validate_engine_config",
 ]

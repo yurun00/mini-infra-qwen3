@@ -569,10 +569,10 @@ def test_generation_result_prompt_throughput_properties():
 
 
 def test_generation_options_immutability_and_defaults(diverse_model):
-    from mini_infra import GenerationOptions, Mode, generate
+    from mini_infra import EngineConfig, GenerationOptions, generate
 
     CPU = torch.device("cpu")
-    mode = Mode()
+    config = EngineConfig()
     prompt = [[1, 2, 3]]
 
     # 1. 不可变性测试
@@ -581,16 +581,16 @@ def test_generation_options_immutability_and_defaults(diverse_model):
         opts.stop_on_eos = True  # type: ignore[misc]
 
     # 2. options 结构体传参
-    res_opts = generate(mode, diverse_model, prompt, 3, options=opts)
+    res_opts = generate(config, diverse_model, prompt, 3, options=opts)
     assert len(res_opts.sequences[0].token_ids) == 3
 
     # 3. 默认 options=None 传参
-    res_default = generate(mode, diverse_model, prompt, 3)
+    res_default = generate(config, diverse_model, prompt, 3)
     assert len(res_default.sequences[0].token_ids) == 3
 
     # 4. 不再支持平铺多余关键字参数（严格单一 options 结构体入口）
     with pytest.raises(TypeError):
-        generate(mode, diverse_model, prompt, 3, device=CPU)  # type: ignore[call-arg]
+        generate(config, diverse_model, prompt, 3, device=CPU)  # type: ignore[call-arg]
 
 
 def test_generation_trace_enforces_cpu_tensors():

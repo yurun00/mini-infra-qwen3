@@ -10,7 +10,7 @@ from mini_infra.bench.cases import (
 )
 from mini_infra.bench.efficiency import EfficiencyMetrics
 from mini_infra.bench.stats import DistributionStats
-from mini_infra.core import PagedCacheConfig, collapse_uniform
+from mini_infra.core import collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
@@ -19,7 +19,6 @@ from mini_infra.engine.metrics import (
     StepAggregatedMetrics,
     summarize_repeated_kv_cache_profiles,
 )
-from mini_infra.engine.mode import Mode
 from mini_infra.engine.results import ScheduleResult
 
 
@@ -43,14 +42,6 @@ class SchedulerCaseResult:
     sample_events: list[ScheduleEvent] = field(default_factory=list)
     scale: str | None = None
     seed: int | None = None
-
-    @property
-    def mode(self) -> Mode:
-        return self.key.mode
-
-    @property
-    def workload_id(self) -> str:
-        return self.key.workload_id
 
     def format_summary(self) -> str:
         """格式化单用例的延迟/吞吐/slot_utilization 摘要行（与 lockstep 对齐）。"""
@@ -79,7 +70,7 @@ class SchedulerCaseResult:
         mn = collapse_uniform(self.workload.output_budgets)
         rec: dict[str, Any] = {
             "workload_id": self.key.workload_id,
-            "mode": str(self.key.mode),
+            "engine_config": str(self.key.engine_config),
             "num_total_requests": self.workload.num_total_requests,
             "prompt_len": list(pl) if isinstance(pl, tuple) else pl,
             "max_new_tokens": list(mn) if isinstance(mn, tuple) else mn,
@@ -123,10 +114,10 @@ class SchedulerCaseResult:
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
         }
-        if isinstance(self.key.kv_cache_config, PagedCacheConfig):
+        if self.key.block_size is not None:
             rec["paged_cache_config"] = {
-                "block_size": self.key.kv_cache_config.block_size,
-                "num_blocks": self.key.kv_cache_config.num_blocks,
+                "block_size": self.key.block_size,
+                "num_blocks": self.key.num_blocks,
             }
         if self.scale is not None:
             rec["scale"] = self.scale

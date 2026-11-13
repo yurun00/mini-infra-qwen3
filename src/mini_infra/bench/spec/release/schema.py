@@ -16,12 +16,13 @@ from mini_infra.bench.spec.common.schema import (
     GroupSpec,
     LockstepEngineSpec,
     MinMaxRunningRequestsCheck,
+    PagedCacheSpec,
     PositiveInt,
     SuiteEngine,
     SystemSpec,
     _Strict,
 )
-from mini_infra.engine import CachingMethod, Mode
+from mini_infra.engine import EngineConfig
 
 ReleaseScale = Literal["small", "medium", "large"]
 RELEASE_SCALES: tuple[ReleaseScale, ...] = ("small", "medium", "large")
@@ -46,9 +47,9 @@ class ReleaseSpec(_Strict):
         return self.system.engine_mode.kind
 
     @property
-    def default_mode(self) -> Mode:
-        """Release YAML 声明的默认运行模式。"""
-        return self.system.default_mode
+    def default_engine_config(self) -> EngineConfig:
+        """Release YAML 声明的默认 EngineConfig。"""
+        return self.system.default_engine_config
 
     @field_validator("scales")
     @classmethod
@@ -62,7 +63,7 @@ class ReleaseSpec(_Strict):
         if self.execution.interleave:
             raise ValueError("release 负载不支持 execution.interleave")
         if isinstance(self.system.engine_mode, LockstepEngineSpec):
-            if self.system.caching_spec.method is CachingMethod.PAGED:
+            if isinstance(self.system.caching_spec, PagedCacheSpec):
                 raise ValueError("lockstep release 不支持 paged-kv-cache")
             for check in self.checks:
                 if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):

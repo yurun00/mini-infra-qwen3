@@ -8,7 +8,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from mini_infra.bench.cases import CaseDimension, CaseDimensionValue, CaseKey
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.core import parse_kv_cache_kind
+from mini_infra.engine import BatchingMethod
 
 if TYPE_CHECKING:
     from mini_infra.bench.spec.suite.schema import ComparisonSpec
@@ -65,7 +66,7 @@ class Comparison:
             if dim is CaseDimension.BATCHING_METHOD:
                 baseline[dim] = BatchingMethod.from_str(str(raw))
             elif dim is CaseDimension.CACHING_METHOD:
-                baseline[dim] = CachingMethod.from_str(str(raw))
+                baseline[dim] = parse_kv_cache_kind(str(raw))
             elif dim is CaseDimension.WORKLOAD_ID:
                 baseline[dim] = str(raw)
             elif dim is CaseDimension.MAX_RUNNING_REQUESTS:
@@ -132,7 +133,7 @@ class ComparisonResult:
     def format_summary(self) -> str:
         """格式化单条基准对比摘要行。"""
         wid_abbr = self.candidate_key.abbreviated_workload_id
-        cand_info = self.candidate_key.abbreviated_mode
+        cand_info = self.candidate_key.abbreviated_engine_config
         if self.candidate_key.block_size is not None:
             cand_info += f" (block={self.candidate_key.block_size})"
         return f"  [{wid_abbr}] {self.metric_name} ({cand_info} vs baseline): {self._formatted_value()}"

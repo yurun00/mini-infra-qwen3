@@ -65,7 +65,7 @@ flowchart TD
    - 显式字段 `num_total_requests: int` 与请求级列表（`prompt_lens`、`output_budgets`、`arrival_ms`）严格校验守恒；运行时仅在 `run_case` 执行入口按需材质化为局部 `Request`，彻底杜绝纯数字画像与具体 Token 载荷的混淆与内存常驻。
 3. **两套引擎绝对结构对称（Two-Engine Symmetry）**
    - `Lockstep` 与 `Scheduler` 在套件抽象（`BenchmarkSuite`）、用例实体（`BenchmarkCase`）、数值画像（`WorkloadProfile`）、执行分层（原子 `run_case_once` 与统计多轮 `run_case`）、以及结果身份凭证（`key: CaseKey`）上保持 100% 对齐。
-   - 杜绝向后兼容包袱（严格遵循 YAGNI）：不保留兼容代理属性（如 `res.mode`），所有调用点直接访问规范路径 `res.key.mode`。
+   - 杜绝向后兼容包袱（严格遵循 YAGNI）：不保留兼容代理属性，所有调用点直接访问规范路径 `res.key.engine_config`。
 
 ### 核心类型与生命周期映射表
 
@@ -345,7 +345,7 @@ mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-lengt
 ```
 
 ### 2. 批量运行 (`bench sweep`)
-一次调用顺序运行多个 suite：共享同一次模型加载、正确性检查（按 Mode 缓存）与环境信息，结尾汇总各 suite 的产物路径、耗时与对比结论。配置层面的扫描由 YAML 的 `sweep:` 声明，`bench sweep` 负责「跨 suite 批量运行」与 `--set` 覆盖：
+一次调用顺序运行多个 suite：共享同一次模型加载、正确性检查（按 `EngineConfig.strategy_key` 缓存）与环境信息，结尾汇总各 suite 的产物路径、耗时与对比结论。配置层面的扫描由 YAML 的 `sweep:` 声明，`bench sweep` 负责「跨 suite 批量运行」与 `--set` 覆盖：
 
 ```bash
 # 运行指定的多个内置 suite，并统一把结果写入 tmp/sweep/

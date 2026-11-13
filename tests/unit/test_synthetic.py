@@ -10,10 +10,10 @@ from mini_infra.bench.synthetic import (
     make_sequence,
     make_sequences,
 )
+from mini_infra.core import DenseCacheConfig
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
-    Mode,
+    EngineConfig,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.verification.smoke import build_tiny_model
@@ -79,9 +79,9 @@ def test_variable_length_prompt_generation_smoke():
     # Generate unequal length prompts (e.g. lengths 4 and 2)
     prompts = make_sequences([4, 2], vocab_size)
 
-    mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+    config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
     res = generate(
-        mode=mode,
+        config=config,
         model=model,
         prompts=prompts,
         max_new_tokens=4,

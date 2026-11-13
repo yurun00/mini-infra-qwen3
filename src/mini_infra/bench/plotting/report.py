@@ -185,7 +185,7 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
             f"Allocator 预留碎片为 **{frag_mb:.1f} MiB**，Cache 搬移开销占比为 **{cache_frac * 100:.2f}%**。"
         )
         is_paged = (
-            "paged" in str(w.get("mode", "")).lower()
+            "paged" in str(w.get("engine_config", "")).lower()
             or "paged" in str(getattr(validated_target, "release_feature", "")).lower()
         )
         if is_paged:

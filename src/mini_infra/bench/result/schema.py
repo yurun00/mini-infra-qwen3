@@ -150,12 +150,12 @@ class BaseCaseRecord(_RecordModel):
 
     聚合了：
     1. `bench.spec.common.ResolvedWorkloadSpec` 的通用负载描述
-       （mode, num_total_requests, prompt_len, max_new_tokens, repeats, warmup）
+       （engine_config, num_total_requests, prompt_len, max_new_tokens, repeats, warmup）
     2. `engine.metrics.StepAggregatedMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
     3. 叶子画像组件（memory, packing, efficiency）
     """
 
-    mode: str
+    engine_config: str
     num_total_requests: int
     prompt_len: int | list[int]
     max_new_tokens: int | list[int]
@@ -244,7 +244,7 @@ class BenchmarkEnvelopeBase(_RecordModel):
     schema_version: int = SCHEMA_VERSION
     tag: str
     release_feature: str | None = None
-    mode: str
+    engine_config: str
     timestamp: str
     git: dict[str, Any]
     env: dict[str, Any]

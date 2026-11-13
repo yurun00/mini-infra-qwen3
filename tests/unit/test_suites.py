@@ -19,7 +19,8 @@ from mini_infra.bench.suite import (
     list_benchmark_suite_names,
     load_benchmark_suite,
 )
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+from mini_infra.core import DenseCacheConfig
+from mini_infra.engine import BatchingMethod, EngineConfig
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -77,7 +78,7 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     assert (suite.warmup, suite.repeats) == (1, 3)
     cases = suite.cases
     assert len(cases) == 5 * 2
-    assert [(c.profile.num_total_requests, c.mode.batching_method) for c in cases[:4]] == [
+    assert [(c.profile.num_total_requests, c.engine_config.batching_method) for c in cases[:4]] == [
         (1, BatchingMethod.NONE),
         (1, BatchingMethod.FIXED),
         (2, BatchingMethod.NONE),
@@ -87,10 +88,10 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     assert all(
         c.profile.prompt_lens == (128,) * c.profile.num_total_requests
         and c.profile.output_budgets == (32,) * c.profile.num_total_requests
-        and c.mode.use_kv_cache
+        and c.engine_config.use_kv_cache
         for c in cases
     )
-    assert [m.batching_method for m in suite.modes()] == [BatchingMethod.NONE, BatchingMethod.FIXED]
+    assert [m.batching_method for m in suite.engine_configs()] == [BatchingMethod.NONE, BatchingMethod.FIXED]
 
 
 def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
@@ -107,7 +108,7 @@ def test_uniform_vs_variable_prompt_padding_cases():
         (4, (128, 128, 128, 128), (32, 32, 32, 32)),
         (4, (16, 32, 64, 128), (32, 32, 32, 32)),
     ]
-    assert all(c.mode == Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED) for c in cases)
+    assert all(c.engine_config == EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED) for c in cases)
 
 
 def test_uniform_vs_variable_budget_slots_cases():
@@ -116,7 +117,7 @@ def test_uniform_vs_variable_budget_slots_cases():
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),
     ]
-    assert all(c.mode == Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED) for c in cases)
+    assert all(c.engine_config == EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED) for c in cases)
 
 
 @pytest.mark.parametrize(
@@ -216,11 +217,11 @@ sweep:
     )
     results = _run_cases(tiny)
 
-    assert [(r.key.mode, r.workload.num_total_requests) for r in results] == [
-        (Mode(CachingMethod.DENSE), 1),
-        (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 1),
-        (Mode(CachingMethod.DENSE), 2),
-        (Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED), 2),
+    assert [(r.key.engine_config, r.workload.num_total_requests) for r in results] == [
+        (EngineConfig(DenseCacheConfig()), 1),
+        (EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED), 1),
+        (EngineConfig(DenseCacheConfig()), 2),
+        (EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED), 2),
     ]
     for r in results:
         assert set(r.workload.prompt_lens) == {4} and set(r.workload.output_budgets) == {2}
@@ -332,15 +333,28 @@ def test_benchmark_case_and_suite_unification(tmp_path):
         output_budgets=(8, 8, 8),
         arrival_ms=(0.0, 0.0, 0.0),
     )
-    mode = Mode(caching_method=CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+    config = EngineConfig(
+        kv_cache_config=DenseCacheConfig(),
+        batching_method=BatchingMethod.FIXED,
+        max_running_requests=3,
+    )
 
-    # 1. 缺省 max_running_requests 自动推导为 num_total_requests
+    # 1. lockstep 缺省 max_running_requests 保持 None，scheduler 自动推导为 num_total_requests
     case = BenchmarkCase(profile=profile, batching_method=BatchingMethod.FIXED, engine="lockstep")
-    assert case.mode == mode
-    assert case.max_running_requests == 3
-    assert case.key.max_running_requests == 3
+    assert case.engine_config == EngineConfig(
+        kv_cache_config=DenseCacheConfig(),
+        batching_method=BatchingMethod.FIXED,
+        max_running_requests=None,
+    )
+    assert case.max_running_requests is None
+    assert case.key.max_running_requests is None
     assert case.workload_id == "test_profile"
     assert case.engine == "lockstep"
+
+    default_sched_case = BenchmarkCase(profile=profile, batching_method=BatchingMethod.FIXED, engine="scheduler")
+    assert default_sched_case.engine_config == config
+    assert default_sched_case.max_running_requests == 3
+    assert default_sched_case.key.max_running_requests == 3
 
     # 2. 显式提供 max_running_requests
     scheduler_case = BenchmarkCase(
@@ -372,7 +386,7 @@ workload:
     assert suite.engine == "lockstep"
     assert len(suite) == 1
     assert isinstance(suite[0], BenchmarkCase)
-    assert suite[0].max_running_requests == 3
+    assert suite[0].max_running_requests is None
 
     # BenchmarkSuite 纯内存直接实例化（零 Spec 依赖）
     pure_suite = BenchmarkSuite(

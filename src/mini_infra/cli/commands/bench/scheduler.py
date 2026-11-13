@@ -17,8 +17,8 @@ from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.cli.commands.bench.args import add_common_args
-from mini_infra.core import DenseCacheConfig, KVCacheConfig, PagedCacheConfig
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode, Qwen3Tokenizer
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, kv_cache_config_from_str
+from mini_infra.engine import BatchingMethod, EngineConfig, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 
 
@@ -27,9 +27,9 @@ def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
     add_common_args(p)
     p.add_argument(
         "--caching-method",
-        choices=[CachingMethod.DENSE.value, CachingMethod.PAGED.value],
-        default=CachingMethod.DENSE.value,
-        help=f"执行的 KV 缓存管理策略（默认: {CachingMethod.DENSE.value}）",
+        choices=[DenseCacheConfig.kind, PagedCacheConfig.kind],
+        default=DenseCacheConfig.kind,
+        help=f"执行的 KV 缓存管理策略（默认: {DenseCacheConfig.kind}）",
     )
     p.add_argument(
         "--batching-method",
@@ -83,28 +83,30 @@ def handle_case(args: argparse.Namespace) -> int:
     tokenizer = Qwen3Tokenizer(model_dir)
     model = load_model(model_dir, device)
 
-    caching = CachingMethod(args.caching_method)
     method = BatchingMethod(args.batching_method)
-    target_mode = Mode(caching, batching_method=method)
-    kv_cache_config: KVCacheConfig = (
-        PagedCacheConfig(block_size=args.block_size, num_blocks=args.num_blocks)
-        if caching is CachingMethod.PAGED
-        else DenseCacheConfig()
+    max_running = args.max_running_requests or 4
+    kv_cache_config = kv_cache_config_from_str(
+        args.caching_method,
+        block_size=args.block_size,
+        num_blocks=args.num_blocks,
+    )
+    target_config = EngineConfig(
+        kv_cache_config,
+        batching_method=method,
+        max_running_requests=max_running,
     )
 
     correctness = check_correctness(
         model,
         tokenizer,
-        target_mode,
+        target_config,
         device,
         update_golden=False,
-        kv_cache_config=kv_cache_config,
     )
     if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
     req_count = len(args.prompt_lens) if args.prompt_lens is not None else args.request_count
-    max_running = args.max_running_requests or 4
     prompt_len: int | tuple[int, ...] = tuple(args.prompt_lens) if args.prompt_lens is not None else args.prompt_length
     max_new_tokens: int | tuple[int, ...] = (
         tuple(args.output_budgets) if args.output_budgets is not None else args.output_budget
@@ -139,7 +141,7 @@ def handle_case(args: argparse.Namespace) -> int:
 
     block_info = f" block_size={kv_cache_config.block_size}" if isinstance(kv_cache_config, PagedCacheConfig) else ""
     print(
-        f"[bench-scheduler-case] case={case_name} mode={target_mode}{block_info} "
+        f"[bench-scheduler-case] case={case_name} mode={target_config}{block_info} "
         f"requests={workload_profile.num_total_requests} "
         f"max_running={max_running} warmup={warmup} repeats={repeats} ...",
         flush=True,
@@ -148,7 +150,7 @@ def handle_case(args: argparse.Namespace) -> int:
     def on_case_step(phase: str, step_number: int, total_steps: int) -> None:
         count = workload_profile.num_total_requests
         print(
-            f"  [{phase} {step_number}/{total_steps}] mode={target_mode} requests={count} ...",
+            f"  [{phase} {step_number}/{total_steps}] mode={target_config} requests={count} ...",
             flush=True,
         )
 
@@ -175,7 +177,7 @@ def handle_case(args: argparse.Namespace) -> int:
     record = build_benchmark_record(
         args=args,
         model=model,
-        mode_label=str(target_mode),
+        engine_config_label=str(target_config),
         cases=[result],
         correctness=correctness,
         env=env,

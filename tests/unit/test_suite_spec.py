@@ -20,7 +20,7 @@ from mini_infra.bench.spec import (
 )
 from mini_infra.bench.suite import BenchmarkSuite, get_benchmark_suite
 from mini_infra.core import PagedCacheConfig, collapse_uniform
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.engine import BatchingMethod
 
 GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
 VOCAB = GOLDEN["vocab_size"]
@@ -36,7 +36,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
     cases = [
         {
             "workload_id": c.workload_id,
-            "mode": str(c.mode),
+            "engine_config": str(c.engine_config),
             "max_running_requests": c.max_running_requests,
             "paged_cache_config": (
                 {"block_size": c.kv_cache_config.block_size, "num_blocks": c.kv_cache_config.num_blocks}
@@ -56,7 +56,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
         "repeats": suite.repeats,
         "max_running_requests": loaded.spec.system.engine_mode.max_running_requests,
         "interleave": [d.value for d in suite.interleave],
-        "modes": [str(m) for m in suite.modes()],
+        "engine_configs": [str(m) for m in suite.engine_configs()],
         "comparison": suite.comparison.to_dict(),
         "cases": cases,
     }
@@ -71,7 +71,7 @@ def _lockstep_entry(name: str) -> dict[str, Any]:
         mn = collapse_uniform(prof.output_budgets)
         cases.append(
             {
-                "mode": str(c.mode),
+                "engine_config": str(c.engine_config),
                 "num_total_requests": prof.num_total_requests,
                 "prompt_len": list(pl) if isinstance(pl, tuple) else pl,
                 "max_new_tokens": list(mn) if isinstance(mn, tuple) else mn,
@@ -80,7 +80,7 @@ def _lockstep_entry(name: str) -> dict[str, Any]:
     return {
         "warmup": suite.warmup,
         "repeats": suite.repeats,
-        "modes": [str(m) for m in suite.modes()],
+        "engine_configs": [str(m) for m in suite.engine_configs()],
         "cases": cases,
     }
 
@@ -170,14 +170,18 @@ def test_caching_spec_variants_in_sweep_expand_in_order(tmp_path):
     cases = load_suite_spec(_write(tmp_path, text)).cases
     assert [
         (
-            cs.mode.caching_method,
-            cs.kv_cache_config.block_size if isinstance(cs.kv_cache_config, PagedCacheConfig) else None,
+            cs.caching_spec.kv_cache_config.kind,
+            (
+                cs.caching_spec.kv_cache_config.block_size
+                if isinstance(cs.caching_spec.kv_cache_config, PagedCacheConfig)
+                else None
+            ),
         )
         for cs in cases
     ] == [
-        (CachingMethod.DENSE, None),
-        (CachingMethod.PAGED, 4),
-        (CachingMethod.PAGED, 8),
+        ("dense-kv-cache", None),
+        ("paged-kv-cache", 4),
+        ("paged-kv-cache", 8),
     ]
 
 
@@ -397,13 +401,13 @@ def test_system_spec_caching_spec_discriminated_union():
     # 1. 默认与标量字符串简写
     s_default = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
     assert isinstance(s_default.caching_spec, DenseCacheSpec)
-    assert s_default.caching_spec.method == CachingMethod.DENSE
+    assert s_default.caching_spec.kind == "dense-kv-cache"
 
     s_none = SystemSpec.model_validate(
         {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_spec": "none"}
     )
     assert isinstance(s_none.caching_spec, NoCacheSpec)
-    assert s_none.caching_spec.method == CachingMethod.NONE
+    assert s_none.caching_spec.kind == "none"
 
     # 2. Paged 显式声明与默认参数
     s_paged_str = SystemSpec.model_validate(

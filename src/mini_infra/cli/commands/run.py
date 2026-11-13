@@ -9,14 +9,21 @@ from pathlib import Path
 
 import torch
 
-from mini_infra.core import KVCacheConfig, PagedCacheConfig, make_requests
+from mini_infra.core import (
+    KV_CACHE_KINDS,
+    DenseCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+    kv_cache_config_from_str,
+    make_requests,
+    parse_kv_cache_kind,
+)
 from mini_infra.device import synchronize
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
+    EngineConfig,
     FeatureFlag,
     GenerationResult,
-    Mode,
     Qwen3Tokenizer,
     ScheduleResult,
     run_scheduler,
@@ -58,8 +65,8 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument(
         "--caching-method",
-        default=CachingMethod.DENSE.value,
-        choices=[m.value for m in CachingMethod],
+        default=DenseCacheConfig.kind,
+        choices=list(KV_CACHE_KINDS),
         help="指定基准 KV Cache 策略（默认: %(default)s）",
     )
     parser.add_argument(
@@ -87,7 +94,7 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         metavar="FEATURE",
         help=(
             "指定单个对比项：1 个 FeatureFlag 值（对比 disable vs enable），"
-            "或 Enum 类名（CachingMethod / BatchingMethod）加 2 个枚举值"
+            "或维度名（KVCacheConfig / BatchingMethod）加 2 个取值"
             "（如 BatchingMethod fixed-batching continuous-batching）"
         ),
     )
@@ -120,56 +127,69 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
     return parser
 
 
-_ENUM_COMPARE_DIMENSIONS: dict[str, type[CachingMethod] | type[BatchingMethod]] = {
-    "CachingMethod": CachingMethod,
-    "BatchingMethod": BatchingMethod,
-}
+_COMPARE_DIMENSIONS = ("KVCacheConfig", "BatchingMethod")
 
 
-def resolve_compare_feature(base_mode: Mode, raw_args: Sequence[str]) -> tuple[tuple[Mode, Mode], str]:
-    """解析 --compare-feature 参数并返回对比的 (mode1, mode2) 与特性描述名称。
+def resolve_compare_feature(
+    base_config: EngineConfig,
+    raw_args: Sequence[str],
+    *,
+    block_size: int = PagedCacheConfig.block_size,
+    num_blocks: int | None = None,
+) -> tuple[tuple[EngineConfig, EngineConfig], str]:
+    """解析 --compare-feature 参数并返回对比的 (config1, config2) 与特性描述名称。
 
     raw_args 接受以下两种格式之一：
     1. 单个 FeatureFlag 值（长度为 1）：
        例如: ["placeholder"]
-       语义: 对比该特性的 disable 与 enable 两种模式。
-    2. Enum 类名后跟随两个合法的枚举值（长度为 3）：
-       例如: ["CachingMethod", "dense-kv-cache", "paged-kv-cache"]
+       语义: 对比该特性的 disable 与 enable 两种配置。
+    2. 维度名后跟随两个合法取值（长度为 3）：
+       例如: ["KVCacheConfig", "dense-kv-cache", "paged-kv-cache"]
        或:   ["BatchingMethod", "fixed-batching", "continuous-batching"]
-       语义: 对比指定 Enum 类对应的两个枚举值模式。
+       语义: 对比指定维度对应的两个取值配置。
     """
     if not raw_args:
         raise ValueError("--compare-feature 不能为空")
 
     head = raw_args[0]
-    if head in _ENUM_COMPARE_DIMENSIONS:
+    if head in _COMPARE_DIMENSIONS:
         if len(raw_args) != 3:
             raise ValueError(f"--compare-feature 指定 {head} 时必须紧跟 2 个枚举值，当前传入: {list(raw_args)}")
-        enum_cls = _ENUM_COMPARE_DIMENSIONS[head]
-        val1 = enum_cls.from_str(raw_args[1])
-        val2 = enum_cls.from_str(raw_args[2])
+        if head == "KVCacheConfig":
+            kind1 = parse_kv_cache_kind(raw_args[1])
+            kind2 = parse_kv_cache_kind(raw_args[2])
+            if kind1 == kind2:
+                raise ValueError(f"--compare-feature 传入了两个相同的枚举值: '{kind1}'")
+            configs = (
+                base_config.with_kv_cache_config(
+                    kv_cache_config_from_str(kind1, block_size=block_size, num_blocks=num_blocks)
+                ),
+                base_config.with_kv_cache_config(
+                    kv_cache_config_from_str(kind2, block_size=block_size, num_blocks=num_blocks)
+                ),
+            )
+            return configs, f"{kind1} vs {kind2}"
+        val1 = BatchingMethod.from_str(raw_args[1])
+        val2 = BatchingMethod.from_str(raw_args[2])
         if val1 == val2:
             raise ValueError(f"--compare-feature 传入了两个相同的枚举值: '{val1.value}'")
-        if enum_cls is CachingMethod:
-            modes = (base_mode.with_caching_method(val1), base_mode.with_caching_method(val2))
-        else:
-            modes = (base_mode.with_batching_method(val1), base_mode.with_batching_method(val2))
-        return modes, f"{val1.value} vs {val2.value}"
+        configs = (base_config.with_batching_method(val1), base_config.with_batching_method(val2))
+        return configs, f"{val1.value} vs {val2.value}"
 
     try:
         flag = FeatureFlag.from_str(head)
     except ValueError as err:
         valid_flags = [f.value for f in FeatureFlag]
-        valid_enums = list(_ENUM_COMPARE_DIMENSIONS)
+        valid_dims = list(_COMPARE_DIMENSIONS)
         raise ValueError(
-            f"--compare-feature 参数 '{head}' 未知。可选 FeatureFlag: {valid_flags}，或 Enum 类名: {valid_enums}"
+            f"--compare-feature 参数 '{head}' 未知。可选 FeatureFlag: {valid_flags}，或维度名: {valid_dims}"
         ) from err
 
     if len(raw_args) != 1:
         raise ValueError(
             f"--compare-feature 指定 FeatureFlag '{flag.value}' 时不接受额外参数，当前传入: {list(raw_args)}"
         )
-    return (base_mode.with_flag(flag, False), base_mode.with_flag(flag, True)), flag.value
+    return (base_config.with_flag(flag, False), base_config.with_flag(flag, True)), flag.value
 
 
 def resolve_budgets(max_new_tokens: Sequence[int], num_prompts: int) -> int | list[int]:
@@ -193,23 +213,16 @@ def shrink_budgets(budgets: int | list[int], limit: int) -> int | list[int]:
     return [min(b, limit) for b in budgets]
 
 
-def uses_scheduler(modes: Sequence[Mode]) -> bool:
-    """只要任一 mode 使用 continuous batching 或 paged-kv-cache，所有结果都统一由 run_scheduler 产出（指标可比）。"""
-    return any(m.batching_method is BatchingMethod.CONTINUOUS or m.caching_method is CachingMethod.PAGED for m in modes)
+def uses_scheduler(configs: Sequence[EngineConfig]) -> bool:
+    """只要任一配置使用 continuous batching 或 paged-kv-cache，所有结果都统一由 run_scheduler 产出（指标可比）。"""
+    return any(
+        c.batching_method is BatchingMethod.CONTINUOUS or isinstance(c.kv_cache_config, PagedCacheConfig)
+        for c in configs
+    )
 
 
-def _build_kv_cache_config(
-    caching_method: CachingMethod,
-    block_size: int = PagedCacheConfig.block_size,
-    num_blocks: int | None = None,
-) -> KVCacheConfig:
-    if caching_method is CachingMethod.PAGED:
-        return PagedCacheConfig(block_size=block_size, num_blocks=num_blocks)
-    return caching_method.default_config
-
-
-def run_mode(
-    mode: Mode,
+def run_config(
+    config: EngineConfig,
     model: torch.nn.Module,
     input_ids,
     sequences: Sequence[Sequence[int]],
@@ -217,38 +230,28 @@ def run_mode(
     options: GenerationOptions,
     via_scheduler: bool,
 ) -> GenerationResult:
-    """执行单个 mode：via_scheduler 为 True 时统一由 run_scheduler 产出；否则沿用 generate。"""
+    """执行单个 EngineConfig：via_scheduler 为 True 时统一由 run_scheduler 产出；否则沿用 generate。"""
     if via_scheduler:
-        if mode.caching_method is CachingMethod.NONE:
+        if isinstance(config.kv_cache_config, NoCacheConfig):
             raise ValueError("调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache")
         if options.capture_logits or options.profile:
             raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
-        if options.kv_cache_config is not None and options.kv_cache_config.method is not mode.caching_method:
-            raise ValueError(
-                f"options.kv_cache_config.method ({options.kv_cache_config.method}) 与 "
-                f"mode.caching_method ({mode.caching_method}) 不一致"
-            )
-        kv_cache_config = (
-            options.kv_cache_config if options.kv_cache_config is not None else mode.caching_method.default_config
-        )
         requests = make_requests(sequences, budgets)
         effective_max_running_requests = (
-            options.max_running_requests if options.max_running_requests is not None else len(requests)
+            config.max_running_requests if config.max_running_requests is not None else len(requests)
         )
-        if effective_max_running_requests < 1:
-            raise ValueError("max_running_requests 必须大于 0")
         return run_scheduler(
-            mode.batching_method,
+            config.batching_method,
             model,
             requests,
             effective_max_running_requests,
             options.eos_token_id,
             options.device or torch.device("cuda"),
-            kv_cache_config=kv_cache_config,
+            kv_cache_config=config.kv_cache_config,
             pad_token_id=options.pad_token_id,
             stop_on_eos=options.stop_on_eos,
         )
-    return generate(mode, model, input_ids, budgets, options=options)
+    return generate(config, model, input_ids, budgets, options=options)
 
 
 def _print_schedule_metrics(result: ScheduleResult) -> None:
@@ -263,8 +266,8 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
         print("并发容量利用率: %.2f%%" % (info.running_capacity_utilization * 100))
 
 
-def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
-    print("\n[%s]" % mode)
+def print_result(config: EngineConfig, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
+    print("\n[%s]" % config)
     for seq in result.sequences:
         print("请求 %d Token IDs: %s" % (seq.request_idx, seq.token_ids))
         print("请求 %d 输出: %s" % (seq.request_idx, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))
@@ -283,7 +286,7 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
         print("P50 Decode 延迟: %.2f ms" % result.metrics.p50_tpot_ms)
     if result.metrics.p95_tpot_ms is not None:
         print("P95 Decode 延迟: %.2f ms" % result.metrics.p95_tpot_ms)
-    if mode.is_batch and result.batch_info is not None:
+    if config.is_batch and result.batch_info is not None:
         print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
         print("batch slot 利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
     if isinstance(result, ScheduleResult):
@@ -305,7 +308,7 @@ def print_result(mode: Mode, result, tokenizer: Qwen3Tokenizer, tensorboard_dir:
 
     if result.op_breakdown:
         breakdown = result.op_breakdown
-        print("\n--- [%s] 算子与模块耗时分析 (Profiler) ---" % mode)
+        print("\n--- [%s] 算子与模块耗时分析 (Profiler) ---" % config)
         if breakdown.time_share_by_module:
             print("各模块耗时占比 (Module Scope):")
             for mod, share in breakdown.time_share_by_module.items():
@@ -349,27 +352,34 @@ def _handle_run(args: argparse.Namespace) -> int:
     budgets = resolve_budgets(args.max_new_tokens, len(sequences))
     model = load_model(model_directory, device)
 
-    base_mode = Mode(args.caching_method, batching_method=args.batching_method)
+    base_config = EngineConfig(
+        kv_cache_config_from_str(args.caching_method, block_size=args.kv_block_size, num_blocks=args.num_kv_blocks),
+        batching_method=BatchingMethod.from_str(args.batching_method),
+        max_running_requests=args.max_running_requests,
+    )
 
     compare_feature_name = None
     if args.compare_feature:
-        modes, compare_feature_name = resolve_compare_feature(base_mode, args.compare_feature)
+        configs, compare_feature_name = resolve_compare_feature(
+            base_config,
+            args.compare_feature,
+            block_size=args.kv_block_size,
+            num_blocks=args.num_kv_blocks,
+        )
     else:
-        modes = (base_mode,)
+        configs = (base_config,)
 
-    via_scheduler = uses_scheduler(modes)
+    via_scheduler = uses_scheduler(configs)
     if args.max_running_requests is not None and not via_scheduler:
         print("[warn] --max-running-requests 仅对调度路径（含 continuous-batching）生效，当前对比未启用，将被忽略。")
 
-    for mode in modes:
+    for cfg in configs:
         warmup_opts = GenerationOptions(
             eos_token_id=tokenizer.eos_token_id,
             device=device,
-            max_running_requests=args.max_running_requests,
-            kv_cache_config=_build_kv_cache_config(mode.caching_method, args.kv_block_size, args.num_kv_blocks),
         )
         for _ in range(args.warmup):
-            run_mode(mode, model, input_ids, sequences, shrink_budgets(budgets, 2), warmup_opts, via_scheduler)
+            run_config(cfg, model, input_ids, sequences, shrink_budgets(budgets, 2), warmup_opts, via_scheduler)
         synchronize(device)
 
     if isinstance(input_ids, torch.Tensor):
@@ -383,9 +393,9 @@ def _handle_run(args: argparse.Namespace) -> int:
 
     do_profile = args.profile
     results = {}
-    for mode in modes:
+    for cfg in configs:
         if do_profile and args.tensorboard_dir is not None:
-            tb_dir = args.tensorboard_dir / str(mode) if args.compare_feature else args.tensorboard_dir
+            tb_dir = args.tensorboard_dir / str(cfg) if args.compare_feature else args.tensorboard_dir
             tb_options = TensorBoardOptions(log_dir=tb_dir)
         else:
             tb_dir = None
@@ -397,15 +407,13 @@ def _handle_run(args: argparse.Namespace) -> int:
             profile=do_profile,
             top_kernels=args.top_kernels,
             tensorboard_options=tb_options,
-            max_running_requests=args.max_running_requests,
-            kv_cache_config=_build_kv_cache_config(mode.caching_method, args.kv_block_size, args.num_kv_blocks),
         )
-        results[mode] = run_mode(mode, model, input_ids, sequences, budgets, run_opts, via_scheduler)
-        print_result(mode, results[mode], tokenizer, tensorboard_dir=tb_dir)
+        results[cfg] = run_config(cfg, model, input_ids, sequences, budgets, run_opts, via_scheduler)
+        print_result(cfg, results[cfg], tokenizer, tensorboard_dir=tb_dir)
 
-    if len(modes) == 2:
-        baseline = results[modes[0]]
-        optimized = results[modes[1]]
+    if len(configs) == 2:
+        baseline = results[configs[0]]
+        optimized = results[configs[1]]
         print(f"\n[特性 '{compare_feature_name}' 对照结论]")
         same_tokens = [s.token_ids for s in baseline.sequences] == [s.token_ids for s in optimized.sequences]
         print("逐请求 Token 一致:", same_tokens)
@@ -418,19 +426,16 @@ def _handle_run(args: argparse.Namespace) -> int:
                 "端到端 Wall-clock 耗时: %.2f ms -> %.2f ms"
                 % (baseline.metrics.e2e_wall_ms, optimized.metrics.e2e_wall_ms)
             )
-            print("Batch makespan 加速比: %.3fx" % (baseline.metrics.e2e_wall_ms / optimized.metrics.e2e_wall_ms))
-        if isinstance(baseline, ScheduleResult) and isinstance(optimized, ScheduleResult):
-            bm, om = baseline.schedule_metrics, optimized.schedule_metrics
-            if bm.makespan_ms > 0 and om.makespan_ms > 0:
-                print(
-                    "调度 Makespan: %.2f ms -> %.2f ms（加速比 %.3fx）"
-                    % (bm.makespan_ms, om.makespan_ms, bm.makespan_ms / om.makespan_ms)
-                )
-            print("TTFT p95: %.2f ms -> %.2f ms" % (bm.ttft_ms_p95, om.ttft_ms_p95))
-            base_pool = baseline.memory.kv_cache.peak_kv_cache_pool_mb
-            opt_pool = optimized.memory.kv_cache.peak_kv_cache_pool_mb
-            if base_pool > 0 and opt_pool > 0:
-                reduction_pct = (1.0 - opt_pool / base_pool) * 100
-                print("峰值 KV Cache Pool: %.2f MiB -> %.2f MiB（节省 %.1f%%）" % (base_pool, opt_pool, reduction_pct))
-    print("说明: 计时不包含 tokenizer、模型下载、模型加载和真实睡眠；默认 greedy decoding。")
     return 0
+
+
+__all__ = [
+    "add_run_args",
+    "print_result",
+    "register_parser",
+    "resolve_budgets",
+    "resolve_compare_feature",
+    "run_config",
+    "shrink_budgets",
+    "uses_scheduler",
+]

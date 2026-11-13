@@ -11,7 +11,7 @@ import torch
 from mini_infra.bench.correctness import CorrectnessReport
 from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.env import git_info, gpu_info, require_cuda
-from mini_infra.engine import Mode, Qwen3Tokenizer
+from mini_infra.engine import EngineConfig, Qwen3Tokenizer
 from mini_infra.model import load_model, resolve_model_directory
 
 
@@ -27,7 +27,7 @@ class BenchmarkExecutionContext:
     peaks: HardwarePeakSpecs
     cost: ModelCostProfile | None
     git: dict[str, Any]
-    correctness_cache: dict[Mode, CorrectnessReport] = field(default_factory=dict)
+    correctness_cache: dict[EngineConfig, CorrectnessReport] = field(default_factory=dict)
 
     @property
     def commit(self) -> str:

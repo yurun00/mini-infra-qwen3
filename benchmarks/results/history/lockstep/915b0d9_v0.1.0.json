@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "v0.1.0",
   "release_feature": "profiling",
-  "mode": "no-cache",
+  "engine_config": "no-cache",
   "timestamp": "2026-04-16T00:22:32+0000",
   "git": {
     "commit": "915b0d9",
@@ -48,7 +48,7 @@
   "engine": "lockstep",
   "cases": [
     {
-      "mode": "no-cache",
+      "engine_config": "no-cache",
       "num_total_requests": 4,
       "prompt_len": [
         40,
@@ -808,7 +808,7 @@
       }
     },
     {
-      "mode": "no-cache",
+      "engine_config": "no-cache",
       "num_total_requests": 8,
       "prompt_len": [
         200,
@@ -923,7 +923,7 @@
       }
     },
     {
-      "mode": "no-cache",
+      "engine_config": "no-cache",
       "num_total_requests": 16,
       "prompt_len": [
         269,

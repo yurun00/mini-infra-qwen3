@@ -14,7 +14,7 @@ from mini_infra.bench.scheduler.plan import (
     format_scheduler_run_plan,
 )
 from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig, Request
-from mini_infra.engine import BatchingMethod, CachingMethod
+from mini_infra.engine import BatchingMethod
 
 
 def make_dummy_case(
@@ -58,7 +58,7 @@ def test_parse_interleave_dimension():
 def test_case_key_dimension_value():
     case = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
     assert case.key.value(CaseDimension.BATCHING_METHOD) == BatchingMethod.CONTINUOUS
-    assert case.key.value(CaseDimension.CACHING_METHOD) == CachingMethod.DENSE
+    assert case.key.value(CaseDimension.CACHING_METHOD) == "dense-kv-cache"
     assert case.key.value(CaseDimension.WORKLOAD_ID) == "test_workload"
     assert case.key.value(CaseDimension.MAX_RUNNING_REQUESTS) == 2
     assert case.key.value(CaseDimension.BLOCK_SIZE) is None
@@ -66,7 +66,7 @@ def test_case_key_dimension_value():
     assert case.key.canonical_id == "workload=test_workload/cache=dense-kv-cache/batch=continuous-batching/mrr=2"
     dim_map = case.key.as_dimension_map()
     assert dim_map[CaseDimension.WORKLOAD_ID] == "test_workload"
-    assert dim_map[CaseDimension.CACHING_METHOD] == CachingMethod.DENSE
+    assert dim_map[CaseDimension.CACHING_METHOD] == "dense-kv-cache"
 
     # 验证 to_dict 与 from_dict 的对偶恢复
     key_dict = case.key.to_dict()
@@ -75,13 +75,15 @@ def test_case_key_dimension_value():
     assert restored_key.canonical_id == case.key.canonical_id
 
     # 验证带 block_size 与 num_blocks 时的 display_name 与恢复
-    paged_key = CaseKey.from_config(
+    paged_key = CaseKey(
         "custom_wl",
+        caching_method="paged-kv-cache",
         batching_method=BatchingMethod.CONTINUOUS,
-        kv_cache_config=PagedCacheConfig(16, 64),
         max_running_requests=16,
+        block_size=16,
+        num_blocks=64,
     )
-    assert "block=16(n=64)" in paged_key.display_name
+    assert "paged-kv-cache(block_size=16,num_blocks=64)+continuous-batching+mrr=16" in paged_key.display_name
     restored_paged = CaseKey.from_dict(paged_key.to_dict())
     assert restored_paged == paged_key
     assert restored_paged.block_size == 16

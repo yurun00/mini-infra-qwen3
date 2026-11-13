@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "v0.3.0",
   "release_feature": "fixed batching",
-  "mode": "kv-cache+fixed-batching",
+  "engine_config": "kv-cache+fixed-batching",
   "timestamp": "2026-04-16T22:55:47+0000",
   "git": {
     "commit": "1c21386",
@@ -48,7 +48,7 @@
   "engine": "lockstep",
   "cases": [
     {
-      "mode": "kv-cache+fixed-batching",
+      "engine_config": "kv-cache+fixed-batching",
       "num_total_requests": 4,
       "prompt_len": [
         40,
@@ -1004,7 +1004,7 @@
       }
     },
     {
-      "mode": "kv-cache+fixed-batching",
+      "engine_config": "kv-cache+fixed-batching",
       "num_total_requests": 8,
       "prompt_len": [
         200,
@@ -1161,7 +1161,7 @@
       }
     },
     {
-      "mode": "kv-cache+fixed-batching",
+      "engine_config": "kv-cache+fixed-batching",
       "num_total_requests": 16,
       "prompt_len": [
         269,

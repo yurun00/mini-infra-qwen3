@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "baseline",
   "release_feature": "no cache",
-  "mode": "no-cache",
+  "engine_config": "no-cache",
   "timestamp": "2026-04-16T00:18:10+0000",
   "git": {
     "commit": "a497386",
@@ -48,7 +48,7 @@
   "engine": "lockstep",
   "cases": [
     {
-      "mode": "no-cache",
+      "engine_config": "no-cache",
       "num_total_requests": 4,
       "prompt_len": [
         40,
@@ -155,7 +155,7 @@
       }
     },
     {
-      "mode": "no-cache",
+      "engine_config": "no-cache",
       "num_total_requests": 8,
       "prompt_len": [
         200,
@@ -270,7 +270,7 @@
       }
     },
     {
-      "mode": "no-cache",
+      "engine_config": "no-cache",
       "num_total_requests": 16,
       "prompt_len": [
         269,

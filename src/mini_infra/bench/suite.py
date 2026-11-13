@@ -17,7 +17,7 @@ from mini_infra.bench.spec.suite.loader import (
     get_suite_spec,
     load_suite_spec,
 )
-from mini_infra.engine import Mode
+from mini_infra.engine import EngineConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,9 +54,9 @@ class BenchmarkSuite:
     def __getitem__(self, index: int) -> BenchmarkCase:
         return self.cases[index]
 
-    def modes(self) -> list[Mode]:
-        """按用例展开顺序去重后的运行模式列表。"""
-        return list(dict.fromkeys(c.mode for c in self.cases))
+    def engine_configs(self) -> list[EngineConfig]:
+        """按用例展开顺序返回去重后的 EngineConfig 列表。"""
+        return list(dict.fromkeys(c.engine_config for c in self.cases))
 
     def to_dict(self) -> dict[str, Any]:
         """写入结果 JSON `suite` 块：合并后的完整 YAML 声明及其内容哈希（或执行画像字典）。"""
@@ -80,14 +80,12 @@ class BenchmarkSuite:
         engine = loaded.spec.engine
         cases: list[BenchmarkCase] = []
         for cs in loaded.cases:
-            mrr = cs.workload.num_total_requests if engine == "lockstep" else cs.max_running_requests
-            assert mrr is not None
             cases.append(
                 BenchmarkCase(
                     profile=cs.workload.to_profile(),
                     batching_method=cs.batching_method,
-                    kv_cache_config=cs.kv_cache_config,
-                    max_running_requests=mrr,
+                    kv_cache_config=cs.caching_spec.kv_cache_config,
+                    max_running_requests=cs.max_running_requests,
                     suite_name=loaded.spec.name,
                     engine=engine,
                 )

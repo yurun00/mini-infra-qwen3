@@ -10,7 +10,8 @@ from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
 )
-from mini_infra.engine import CachingMethod, Mode
+from mini_infra.core import DenseCacheConfig
+from mini_infra.engine import EngineConfig
 from mini_infra.engine.metrics import BatchScheduleInfo, KVCacheProfile, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
@@ -47,7 +48,7 @@ def test_distribution_stats_computation_and_immutability():
 
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
-    mode = Mode(CachingMethod.DENSE)
+    config = EngineConfig(DenseCacheConfig(), max_running_requests=2)
     workload = WorkloadProfile(
         workload_id="custom",
         num_total_requests=2,
@@ -92,7 +93,7 @@ def test_lockstep_case_result_structure_and_dot_access():
         time_share_by_module={"layers": 0.9},
     )
 
-    key = CaseKey.from_config(workload_id="custom", max_running_requests=2)
+    key = CaseKey(workload_id="custom", max_running_requests=2)
     case_result = LockstepCaseResult(
         key=key,
         workload=workload,
@@ -106,7 +107,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     )
 
     # 1. 验证强类型属性点号访问
-    assert case_result.key.mode == mode
+    assert case_result.key.engine_config == config
     assert case_result.workload.num_total_requests == 2
     assert case_result.workload.prompt_lens == (16, 32)
     assert case_result.workload.output_budgets == (16, 16)
@@ -130,7 +131,7 @@ def test_lockstep_case_result_structure_and_dot_access():
 
     # 4. 验证 to_record_dict() 字典导出结构
     rec = case_result.to_record_dict()
-    assert rec["mode"] == "dense-kv-cache"
+    assert rec["engine_config"] == "dense-kv-cache+mrr=2"
     assert rec["num_total_requests"] == 2
     assert rec["prompt_len"] == [16, 32]
     assert rec["max_new_tokens"] == 16

@@ -28,10 +28,10 @@ from mini_infra.core import (
     WaitingQueue,
     prepare_schedule,
 )
+from mini_infra.core.types import BatchingMethod
 from mini_infra.device import peak_memory_mb, synchronize
 from mini_infra.engine.dense_schedule_backend import DenseScheduleBackend
 from mini_infra.engine.metrics import ScheduleEvent, SchedulePhase, summarize_schedule
-from mini_infra.engine.mode import BatchingMethod
 from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
 from mini_infra.engine.results import ScheduleResult
 from mini_infra.engine.schedule_backend import ScheduleBackend
@@ -134,7 +134,7 @@ def _run_schedule_loop(
         baseline_mb=backend.baseline_mb,
         e2e_wall_ms=e2e_wall_ms,
         is_cuda=device.type == "cuda",
-        caching_method=backend.caching_method,
+        kv_cache_config=backend.kv_cache_config,
         paged_cache_profile=backend.collect_paged_cache_profile(),
     )
 

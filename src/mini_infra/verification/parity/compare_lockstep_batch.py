@@ -8,10 +8,10 @@ from typing import Any
 
 import torch
 
+from mini_infra.core import DenseCacheConfig
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
-    Mode,
+    EngineConfig,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import (
@@ -112,7 +112,7 @@ def _run_compare_lockstep_batch(
         ("pair_long_second", [target, long], 0),
     ]
 
-    fixed_batch_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+    fixed_batch_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
     gen_opts = GenerationOptions(
         eos_token_id=eos_token_id,
         device=device,
@@ -122,7 +122,7 @@ def _run_compare_lockstep_batch(
 
     # 1. 运行 reference (单请求 batch baseline)
     reference = generate(
-        fixed_batch_mode,
+        fixed_batch_config,
         model,
         [target],
         max_new_tokens,
@@ -138,7 +138,7 @@ def _run_compare_lockstep_batch(
             reference
             if name == "single"
             else generate(
-                fixed_batch_mode,
+                fixed_batch_config,
                 model,
                 sequences,
                 max_new_tokens,

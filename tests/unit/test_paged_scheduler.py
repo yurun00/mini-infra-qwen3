@@ -10,16 +10,15 @@ import torch
 from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests, required_pool_blocks
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
-    Mode,
+    EngineConfig,
     SchedulePhase,
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 
 CPU = torch.device("cpu")
-KV_MODE = Mode(CachingMethod.DENSE)
-PAGED_MODE = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
+KV_CONFIG = EngineConfig(DenseCacheConfig())
+PAGED_CONFIG = EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.CONTINUOUS)
 
 
 @pytest.fixture
@@ -34,7 +33,7 @@ def make_prompts(lengths: list[int]) -> list[list[int]]:
 def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
     opts = GenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
     return [
-        generate(KV_MODE, model, [prompt], budget, options=opts).sequences[0].token_ids
+        generate(KV_CONFIG, model, [prompt], budget, options=opts).sequences[0].token_ids
         for prompt, budget in zip(prompts, budgets)
     ]
 
@@ -81,7 +80,7 @@ def test_outputs_match_serial_generate_and_dense(model, case, block_size):
         stop_on_eos=False,
     )
 
-    assert paged.caching_method is CachingMethod.PAGED and dense.caching_method is CachingMethod.DENSE
+    assert isinstance(paged.kv_cache_config, PagedCacheConfig) and isinstance(dense.kv_cache_config, DenseCacheConfig)
     assert [s.token_ids for s in paged.sequences] == serial_outputs(model, prompts, budgets)
     assert [s.token_ids for s in paged.sequences] == [s.token_ids for s in dense.sequences]
     assert [s.output_len for s in paged.sequences] == budgets
@@ -203,7 +202,7 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
         stop_on_eos=False,
     )
 
-    assert fixed_res.caching_method is CachingMethod.PAGED
+    assert isinstance(fixed_res.kv_cache_config, PagedCacheConfig)
     assert fixed_res.batching_method is BatchingMethod.FIXED
     assert [s.token_ids for s in fixed_res.sequences] == serial_outputs(model, prompts, budgets)
     assert [s.token_ids for s in fixed_res.sequences] == [s.token_ids for s in cont_res.sequences]
@@ -214,18 +213,18 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
 
 def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
     prompts = make_prompts([4, 7, 5])
-    opts = GenerationOptions(
-        eos_token_id=-1, device=CPU, stop_on_eos=False, kv_cache_config=PagedCacheConfig(block_size=4)
-    )
+    opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
 
-    result = generate(PAGED_MODE, model, prompts, [5, 3, 4], options=opts)
-    fixed_paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.FIXED)
-    fixed_result = generate(fixed_paged_mode, model, prompts, [5, 3, 4], options=opts)
+    result = generate(PAGED_CONFIG, model, prompts, [5, 3, 4], options=opts)
+    fixed_paged_config = EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.FIXED)
+    fixed_result = generate(fixed_paged_config, model, prompts, [5, 3, 4], options=opts)
 
-    assert result.caching_method is CachingMethod.PAGED
-    assert result.mode == PAGED_MODE
-    assert fixed_result.caching_method is CachingMethod.PAGED
-    assert fixed_result.mode == fixed_paged_mode
+    assert result.kv_cache_config == PagedCacheConfig(block_size=4)
+    assert result.batching_method == BatchingMethod.CONTINUOUS
+    assert result.schedule_metrics.max_running_requests == 3
+    assert fixed_result.kv_cache_config == PagedCacheConfig(block_size=4)
+    assert fixed_result.batching_method == BatchingMethod.FIXED
+    assert fixed_result.schedule_metrics.max_running_requests == 3
     expected = serial_outputs(model, prompts, [5, 3, 4])
     assert [s.token_ids for s in result.sequences] == expected
     assert [s.token_ids for s in fixed_result.sequences] == expected
@@ -234,4 +233,4 @@ def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
 def test_generate_validates_paged_batching_method(model):
     opts = GenerationOptions(eos_token_id=-1, device=CPU)
     with pytest.raises(ValueError, match="continuous-batching"):
-        generate(Mode(CachingMethod.PAGED), model, [[1, 2, 3]], 2, options=opts)
+        generate(EngineConfig(PagedCacheConfig()), model, [[1, 2, 3]], 2, options=opts)

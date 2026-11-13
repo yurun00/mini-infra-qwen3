@@ -54,7 +54,7 @@ def test_suites_list_and_show(capsys):
     assert main(["bench", "suites", "show", "dense-vs-paged-block-size"]) == 0
     out = capsys.readouterr().out
     assert "block_size:" in out and "共 5 个" in out
-    assert "paged-kv-cache+continuous-batching | mrr=8 | block=64" in out
+    assert "paged-kv-cache(block_size=64)+continuous-batching+mrr=8" in out
 
 
 def test_suites_show_accepts_path_and_rejects_unknown(tmp_path, capsys):

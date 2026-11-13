@@ -12,8 +12,7 @@ import torch
 from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
-    Mode,
+    EngineConfig,
     Qwen3Tokenizer,
     run_scheduler,
 )
@@ -83,12 +82,12 @@ def test_continuous_batching_gpu_parity() -> None:
     )
 
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
-    single_mode = Mode(CachingMethod.DENSE)
+    single_config = EngineConfig(DenseCacheConfig())
     single_opts = GenerationOptions(eos_token_id=eos_token_id, device=cuda, stop_on_eos=False)
     golden_tokens: list[list[int]] = []
     for p_tokens, budget in zip(prompt_tokens, budgets):
         gen_res = generate(
-            single_mode,
+            single_config,
             model,
             [p_tokens],
             budget,

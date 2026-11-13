@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "v0.2.0",
   "release_feature": "KV cache",
-  "mode": "kv-cache",
+  "engine_config": "kv-cache",
   "timestamp": "2026-04-16T00:27:49+0000",
   "git": {
     "commit": "437d41d",
@@ -49,7 +49,7 @@
   "engine": "lockstep",
   "cases": [
     {
-      "mode": "kv-cache",
+      "engine_config": "kv-cache",
       "num_total_requests": 4,
       "prompt_len": [
         40,
@@ -795,7 +795,7 @@
       }
     },
     {
-      "mode": "kv-cache",
+      "engine_config": "kv-cache",
       "num_total_requests": 8,
       "prompt_len": [
         200,
@@ -910,7 +910,7 @@
       }
     },
     {
-      "mode": "kv-cache",
+      "engine_config": "kv-cache",
       "num_total_requests": 16,
       "prompt_len": [
         269,

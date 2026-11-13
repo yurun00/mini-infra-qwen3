@@ -75,13 +75,13 @@ def resolve_record_label(
     validated = validate_benchmark_record(rec)
     tag = validated.tag or ""
     feat = validated.release_feature
-    mode = validated.mode or ""
+    engine_config = validated.engine_config or ""
     dirty = "*" if validated.git.get("dirty") else ""
     if feat:
         return f"{tag} ({feat}){dirty}"
-    if mode and tag and mode != tag:
-        return f"{mode} ({tag}){dirty}"
-    return f"{mode or tag or 'unknown'}{dirty}"
+    if engine_config and tag and engine_config != tag:
+        return f"{engine_config} ({tag}){dirty}"
+    return f"{engine_config or tag or 'unknown'}{dirty}"
 
 
 def resolve_plot_specs(

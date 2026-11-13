@@ -13,8 +13,7 @@ from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.schema import CachingSpec, SchedulerEngineSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.schema import SuiteSpec
-from mini_infra.core import KVCacheConfig
-from mini_infra.engine import BatchingMethod, Mode
+from mini_infra.engine import BatchingMethod
 
 
 @dataclass(frozen=True)
@@ -25,14 +24,6 @@ class CaseSpec:
     batching_method: BatchingMethod
     caching_spec: CachingSpec
     max_running_requests: int | None
-
-    @property
-    def mode(self) -> Mode:
-        return Mode(self.caching_spec.method, batching_method=self.batching_method)
-
-    @property
-    def kv_cache_config(self) -> KVCacheConfig:
-        return self.caching_spec.kv_cache_config
 
 
 def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:

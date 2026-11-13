@@ -40,7 +40,7 @@
   * 若当前有 free batch slot 且队列中有就绪请求，优先执行新请求的 Prefill（可多请求拼接左 Padding 批处理），将其写入 `DenseSlotCache`，并产生第 1 个输出 Token。
   * 若当前没有 free batch slot 或无就绪请求，则针对所有活跃 batch slot 并发执行一步单 Token Decode。
 * **零静默回退（Zero Silent Fallback）**：
-  * 若用户通过 `Mode(batching_method=BatchingMethod.CONTINUOUS)` 调用，但未启用 KV Cache（`caching_method` 为 `NONE`）或使用了不支持的特性，引擎会显式抛出 `ValueError`，杜绝任何静默回退到单请求或固定批处理的行为。
+  * 若用户通过 `EngineConfig(batching_method=BatchingMethod.CONTINUOUS)` 调用，但未启用 KV Cache（`kv_cache_config` 为 `NoCacheConfig()`）或使用了不支持的特性，引擎会显式抛出 `ValueError`，杜绝任何静默回退到单请求或固定批处理的行为。
 
 ---
 

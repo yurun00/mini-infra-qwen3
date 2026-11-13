@@ -5,7 +5,6 @@ from typing import Any
 
 import torch
 
-from mini_infra.core import KVCacheConfig
 from mini_infra.inputs import PromptInput
 from mini_infra.profiling import TensorBoardOptions
 
@@ -22,8 +21,6 @@ class GenerationOptions:
     profile: bool = False
     top_kernels: int = 10
     tensorboard_options: TensorBoardOptions | None = None
-    max_running_requests: int | None = None
-    kv_cache_config: KVCacheConfig | None = None
     tokenizer: Any | None = None
 
 

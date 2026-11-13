@@ -13,9 +13,9 @@ from mini_infra.core.block_manager import (
 )
 from mini_infra.core.request import Request, RequestState
 from mini_infra.core.scheduler import RunningQueue, WaitingQueue
+from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
-from mini_infra.engine.mode import BatchingMethod, CachingMethod
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
 from mini_infra.profiling import MemorySnapshotTracker
 from mini_infra.worker import PagedKVCachePool, PagedRunner
@@ -36,6 +36,7 @@ class PagedScheduleBackend(ScheduleBackend):
         batching_method: BatchingMethod = BatchingMethod.CONTINUOUS,
         pad_token_id: int = 0,
     ) -> None:
+        self.paged_cache_config = paged_cache_config
         self.block_size = paged_cache_config.block_size
         num_blocks = paged_cache_config.num_blocks or required_pool_blocks(
             requests, max_running_requests, self.block_size
@@ -68,8 +69,8 @@ class PagedScheduleBackend(ScheduleBackend):
         self.kv_cache_manager = KVCacheManager(self.block_size, num_blocks)
 
     @property
-    def caching_method(self) -> CachingMethod:
-        return CachingMethod.PAGED
+    def kv_cache_config(self) -> KVCacheConfig:
+        return self.paged_cache_config
 
     def determine_admission(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> int:
         can_admit = running_queue.can_admit() if self.is_continuous else not running_queue

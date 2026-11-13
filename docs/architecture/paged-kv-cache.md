@@ -29,8 +29,10 @@ context_lens:          [batch]              long   含本步新 Token 的有效�
 ## 三、使用
 
 ```python
-Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-GenerationOptions(kv_cache_config=PagedCacheConfig(block_size=16, num_blocks=None))  # None：按工作负载推导
+EngineConfig(
+    kv_cache_config=PagedCacheConfig(block_size=16, num_blocks=None),  # None：按工作负载推导
+    batching_method=BatchingMethod.CONTINUOUS,
+)
 ```
 
 ```bash

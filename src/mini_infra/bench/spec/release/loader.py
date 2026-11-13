@@ -14,7 +14,7 @@ from mini_infra.bench.spec.release.expand import (
     resolve_release_spec,
 )
 from mini_infra.bench.spec.release.schema import ReleaseScale, ReleaseSpec
-from mini_infra.engine import Mode
+from mini_infra.engine import EngineConfig
 
 
 @dataclass(frozen=True)
@@ -28,9 +28,9 @@ class LoadedReleaseSpec:
     scales: dict[ReleaseScale, ResolvedReleaseScale]
 
     @property
-    def default_mode(self) -> Mode:
-        """release YAML 声明的默认运行模式（`bench release` 可通过命令行覆盖）。"""
-        return self.spec.default_mode
+    def default_engine_config(self) -> EngineConfig:
+        """release YAML 声明的默认 EngineConfig（`bench release` 可通过命令行覆盖）。"""
+        return self.spec.default_engine_config
 
     def resolve(self, seed: int | None = None) -> dict[ReleaseScale, ResolvedReleaseScale]:
         """以指定 seed 重新展开三档负载（seed 缺省即 `scales`，取 default_seed）。"""

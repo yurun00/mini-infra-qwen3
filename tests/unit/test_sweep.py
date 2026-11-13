@@ -236,7 +236,7 @@ def _args(**kw):
     return SimpleNamespace(**{**base, **kw})
 
 
-def _context(model, modes):
+def _context(model, configs):
     # 预填 correctness_cache：执行函数命中缓存时不会调用 tokenizer / check_correctness
     return BenchmarkExecutionContext(
         model=model,
@@ -248,7 +248,7 @@ def _context(model, modes):
         cost=None,
         git={"commit": "abc", "dirty": False},
         correctness_cache={
-            m: CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False) for m in modes
+            c: CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False) for c in configs
         },
     )
 
@@ -257,7 +257,7 @@ def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
     model = build_tiny_model()
     targets = ("aa", "bb")
     suites = [load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in targets]
-    ctx = _context(model, suites[0].modes())
+    ctx = _context(model, suites[0].engine_configs())
 
     summaries = []
     for suite in suites:
@@ -275,9 +275,9 @@ def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
 def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
     model = build_tiny_model()
     suite = load_benchmark_suite(_write(tmp_path, "aa", _SCHEDULER_YAML), expected_engine="scheduler")
-    ctx = _context(model, suite.modes())
-    first_mode = suite.modes()[0]
-    ctx.correctness_cache[first_mode] = CorrectnessReport(
+    ctx = _context(model, suite.engine_configs())
+    first_cfg = suite.engine_configs()[0]
+    ctx.correctness_cache[first_cfg] = CorrectnessReport(
         checked=True, passed=False, match_ratio=0.5, updated_golden=False
     )
     with pytest.raises(SystemExit, match="正确性检查失败"):
@@ -288,7 +288,7 @@ def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
 def test_execute_lockstep_suite_writes_valid_record(tmp_path):
     model = build_tiny_model()
     suite = load_benchmark_suite(_write(tmp_path, "demo-lock", _LOCKSTEP_YAML), expected_engine="lockstep")
-    ctx = _context(model, suite.modes())
+    ctx = _context(model, suite.engine_configs())
     output = tmp_path / "out" / "demo-lock.json"
     summary = execute_lockstep_suite(ctx, _args(), suite, output)
     assert summary.engine == "lockstep" and summary.num_cases == 1 and summary.comparison_lines == ()
@@ -302,7 +302,7 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
     model = build_tiny_model()
     spec = _write(tmp_path, "single-suite", _SCHEDULER_YAML)
     suite = load_benchmark_suite(spec, expected_engine="scheduler")
-    ctx = _context(model, suite.modes())
+    ctx = _context(model, suite.engine_configs())
     monkeypatch.setattr(sweep_cmd.BenchmarkExecutionContext, "from_args", lambda args: ctx)
 
     target_output = tmp_path / "custom" / "my_result.json"

@@ -8,7 +8,7 @@ import torch
 from mini_infra.bench.cases import BenchmarkCase, ProfilingMode, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import run_case
 from mini_infra.core import NoCacheConfig, Request
-from mini_infra.engine import BatchingMethod, Mode
+from mini_infra.engine import BatchingMethod, EngineConfig
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.profiling import (
     KERNEL_CATEGORIES,
@@ -58,21 +58,21 @@ def test_install_scope_hooks():
 
 def test_generate_without_profile():
     model = build_tiny_model()
-    mode = Mode()
+    config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(mode, model, ids, max_new_tokens=2, options=GenerationOptions(profile=False))
+    res = generate(config, model, ids, max_new_tokens=2, options=GenerationOptions(profile=False))
     assert res.op_breakdown is None
     assert res.padded_output_tokens().shape == (1, 2)
 
 
 def test_generate_with_profile():
     model = build_tiny_model()
-    mode = Mode()
+    config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
-    res_no_prof = generate(mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=False))
-    res_prof = generate(mode, model, ids, max_new_tokens=3, options=GenerationOptions(profile=True, top_kernels=5))
+    res_no_prof = generate(config, model, ids, max_new_tokens=3, options=GenerationOptions(profile=False))
+    res_prof = generate(config, model, ids, max_new_tokens=3, options=GenerationOptions(profile=True, top_kernels=5))
 
     # 1. 验证生成 Token 结果一致
     assert torch.equal(res_no_prof.padded_output_tokens(), res_prof.padded_output_tokens())
@@ -102,10 +102,10 @@ def test_generate_with_profile():
 
 def test_generate_profile_breakdown():
     model = build_tiny_model()
-    mode = Mode()
+    config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(mode, model, ids, max_new_tokens=2, options=GenerationOptions(profile=True, top_kernels=3))
+    res = generate(config, model, ids, max_new_tokens=2, options=GenerationOptions(profile=True, top_kernels=3))
     breakdown = res.op_breakdown
     assert breakdown is not None
     assert is_dataclass(breakdown)
@@ -118,10 +118,10 @@ def test_generate_profile_breakdown():
 
 def test_generate_with_batching_and_profile():
     model = build_tiny_model()
-    mode = Mode(batching_method=BatchingMethod.FIXED)
+    config = EngineConfig(batching_method=BatchingMethod.FIXED)
     prompts = torch.tensor([[1, 2, 3], [4, 5, 0]])
 
-    res = generate(mode, model, prompts, max_new_tokens=2, options=GenerationOptions(profile=True))
+    res = generate(config, model, prompts, max_new_tokens=2, options=GenerationOptions(profile=True))
     assert res.op_breakdown is not None
     assert res.batch_size == 2
     assert res.padded_output_tokens().shape == (2, 2)
@@ -143,14 +143,14 @@ def test_tensorboard_options_structure():
 
 def test_profile_with_tensorboard_option(tmp_path):
     model = build_tiny_model()
-    mode = Mode()
+    config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
     # 1. 结构化传参：profile=True 且传入 TensorBoardOptions 对象到 generate
     tb_dir = tmp_path / "profiler_tb"
     tb_opt = TensorBoardOptions(log_dir=tb_dir)
     res = generate(
-        mode,
+        config,
         model,
         ids,
         max_new_tokens=2,
@@ -166,7 +166,7 @@ def test_profile_with_tensorboard_option(tmp_path):
 
     # 2. profile=False 时即使传入 tensorboard_options 也不进行剖析
     res_no_profile = generate(
-        mode,
+        config,
         model,
         ids,
         max_new_tokens=2,

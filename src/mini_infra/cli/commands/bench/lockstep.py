@@ -104,7 +104,7 @@ def _handle_case(args: argparse.Namespace) -> int:
         engine="lockstep",
     )
 
-    correctness = check_correctness(model, tokenizer, case.mode, device, args.update_golden)
+    correctness = check_correctness(model, tokenizer, case.engine_config, device, args.update_golden)
     if correctness.passed is False and not args.allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
 
@@ -116,7 +116,7 @@ def _handle_case(args: argparse.Namespace) -> int:
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-case] mode={case.mode} batch={case.profile.num_total_requests} "
+        f"[bench-case] mode={case.engine_config} batch={case.profile.num_total_requests} "
         f"prompt={format_lengths(case.profile.prompt_lens)} "
         f"max_new_tokens={format_lengths(case.profile.output_budgets)} ...",
         flush=True,
@@ -146,7 +146,7 @@ def _handle_case(args: argparse.Namespace) -> int:
     record = build_benchmark_record(
         args=args,
         model=model,
-        mode_label=str(case.mode),
+        engine_config_label=str(case.engine_config),
         cases=[result],
         correctness=correctness,
         env=env,

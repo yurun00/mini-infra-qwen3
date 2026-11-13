@@ -31,7 +31,7 @@
 mini-infra-qwen3/
 ├── src/
 │   └── mini_infra/
-│       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, Mode, load_model 等
+│       ├── __init__.py                # 统一导出核心 API：generate, GenerationResult, EngineConfig, load_model 等
 │       ├── device.py                  # 通用硬件设备同步与显存统计工具
 │       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
 │       ├── model/                     # 统一模型算子面（Pure Tensor-In, Tensor-Out）
@@ -52,7 +52,7 @@ mini-infra-qwen3/
 │       │   ├── block_manager.py       # FreeKVCacheBlockQueue（free block queue）、KVCacheManager（请求级 block table）与 PagedCacheConfig
 │       │   ├── request.py             # Request, RequestState (append_token), RequestStatus 请求生命周期模型
 │       │   ├── scheduler.py           # 三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue: admit/step/retire）
-│       │   └── types.py               # CachingMethod, BatchingMethod, SequenceOutput, RequestMetrics 基础 control plane 类型
+│       │   └── types.py               # KVCacheConfig (NoCacheConfig / DenseCacheConfig / PagedCacheConfig), BatchingMethod, SequenceOutput, RequestMetrics 基础 control plane 类型
 │       ├── entrypoints/               # 用户级推理入口域（对标 vLLM entrypoints）
 │       │   ├── offline.py             # 离线文本生成薄入口（Offline Entrypoint）：generate
 │       │   └── types.py               # GenerationOptions 专用配置结构体
@@ -63,7 +63,7 @@ mini-infra-qwen3/
 │       │   ├── schedule_backend.py    # 调度后端抽象基类（ScheduleBackend）与单步产出（ScheduleStepOutput）
 │       │   ├── dense_schedule_backend.py # 稠密 batch slot 调度后端（DenseScheduleBackend）
 │       │   ├── paged_schedule_backend.py # 分页 KV Cache 调度后端（PagedScheduleBackend）
-│       │   ├── mode.py                # Mode、FeatureFlag、CachingMethod 与 BatchingMethod 模式定义
+│       │   ├── config.py              # EngineConfig、FeatureFlag 与 BatchingMethod 引擎配置定义
 │       │   ├── preprocessing.py       # Prompt 规约、左填充（Left Padding）与 Batch 张量初始化
 │       │   ├── results.py             # GenerationResult, ScheduleResult 引擎层结果容器与聚合
 │       │   └── metrics.py             # MemoryProfile, BatchScheduleInfo, ScheduleMetrics, GenerationTrace, ScheduleEvent 指标与统计画像

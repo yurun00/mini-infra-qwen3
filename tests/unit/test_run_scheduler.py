@@ -18,7 +18,7 @@ from mini_infra.bench.scheduler import (
 )
 from mini_infra.bench.suite import load_benchmark_suite
 from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
-from mini_infra.engine import BatchingMethod, CachingMethod, Mode
+from mini_infra.engine import BatchingMethod, EngineConfig
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -123,9 +123,8 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     tiny_model = build_tiny_model()
     captured_correctness_kwargs = {}
 
-    def fake_check_correctness(model, tokenizer, mode, device, update_golden=False, kv_cache_config=None):
-        captured_correctness_kwargs["mode"] = mode
-        captured_correctness_kwargs["kv_cache_config"] = kv_cache_config
+    def fake_check_correctness(model, tokenizer, config, device, update_golden=False):
+        captured_correctness_kwargs["config"] = config
         return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
 
     monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
@@ -170,11 +169,14 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     )
     ret = sched_cmd.handle_case(args)
     assert ret == 0
-    assert captured_correctness_kwargs["mode"] == Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
-    assert captured_correctness_kwargs["kv_cache_config"] == PagedCacheConfig(block_size=4, num_blocks=32)
+    assert captured_correctness_kwargs["config"] == EngineConfig(
+        PagedCacheConfig(block_size=4, num_blocks=32),
+        batching_method=BatchingMethod.CONTINUOUS,
+        max_running_requests=2,
+    )
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    assert saved["mode"] == "paged-kv-cache+continuous-batching"
+    assert saved["engine_config"] == "paged-kv-cache(block_size=4,num_blocks=32)+continuous-batching+mrr=2"
     assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["block_size"] == 4
     assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["num_blocks"] == 32
 
@@ -238,7 +240,7 @@ def test_run_scheduler_case_and_step_on_cpu():
     model = build_tiny_model()
     device = torch.device("cpu")
     requests = tuple(make_requests([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
-    mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+    config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("test-cont-case", requests),
         batching_method=BatchingMethod.CONTINUOUS,
@@ -264,9 +266,8 @@ def test_run_scheduler_case_and_step_on_cpu():
         repeats=2,
     )
 
-    assert case_res.key.mode == mode
+    assert case_res.key.engine_config == config
     assert case_res.key.workload_id == "test-cont-case"
-    assert case_res.mode == mode
     assert case_res.repeats == 2
     assert case_res.warmup == 1
     assert case_res.workload == sw
@@ -321,7 +322,10 @@ workload:
     )
 
     assert len(cases) == 2
-    assert {c.key.mode.batching_method for c in cases} == {BatchingMethod.FIXED, BatchingMethod.CONTINUOUS}
+    assert {c.key.engine_config.batching_method for c in cases} == {
+        BatchingMethod.FIXED,
+        BatchingMethod.CONTINUOUS,
+    }
 
     # 验证控制台表格打印无异常
     print(format_table(cases, suite_name=suite.name))
@@ -336,7 +340,7 @@ workload:
     record = build_benchmark_record(
         args=DummyArgs(),
         model=model,
-        mode_label="suite(kv-cache+fixed-batching,kv-cache+continuous-batching)",
+        engine_config_label="suite(kv-cache+fixed-batching,kv-cache+continuous-batching)",
         cases=cases,
         correctness=CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
         env={"gpu": "CPU"},
@@ -360,8 +364,8 @@ def test_run_scheduler_paged_case_on_cpu():
     model = build_tiny_model()
     device = torch.device("cpu")
     requests = tuple(make_requests([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
-    mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     paged_config = PagedCacheConfig(block_size=4)
+    config = EngineConfig(paged_config, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
 
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("stress_case", requests),
@@ -388,9 +392,8 @@ def test_run_scheduler_paged_case_on_cpu():
         warmup=1,
         repeats=2,
     )
-    assert case_res.key.mode == mode
+    assert case_res.key.engine_config == config
     assert case_res.key.workload_id == "stress_case"
-    assert case_res.mode == mode
     assert case_res.memory.kv_cache.paged_cache is not None
     assert case_res.memory.kv_cache.paged_cache.block_size == 4
     assert case_res.memory.kv_cache.paged_cache.block_cold_allocation_count > 0
@@ -403,9 +406,9 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     req_w0 = tuple(make_requests([[1, 2], [3, 4]], [2, 2], [0.0, 0.0]))
     req_w1 = tuple(make_requests([[5, 6, 7], [8, 9, 10]], [1, 1], [0.0, 0.0]))
 
-    dense_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    paged_mode = Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS)
     paged_config = PagedCacheConfig(block_size=4)
+    dense_cfg = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    paged_cfg = EngineConfig(paged_config, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
 
     cases = [
         BenchmarkCase(
@@ -455,8 +458,8 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
         )
         comparison: Any = None
 
-        def modes(self):
-            return [dense_mode, paged_mode]
+        def engine_configs(self):
+            return [dense_cfg, paged_cfg]
 
     suite = DummyMultiWorkloadSuite(cases=tuple(cases))
     results = run_suite(
@@ -471,13 +474,13 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     assert len(results) == 4
     # 验证返回顺序与 cases 一致，且负载规格与各 case 匹配
     assert results[0].workload.prompt_lens == (2, 2)
-    assert results[0].mode == dense_mode
+    assert results[0].key.engine_config == dense_cfg
     assert results[1].workload.prompt_lens == (2, 2)
-    assert results[1].mode == paged_mode
+    assert results[1].key.engine_config == paged_cfg
     assert results[2].workload.prompt_lens == (3, 3)
-    assert results[2].mode == dense_mode
+    assert results[2].key.engine_config == dense_cfg
     assert results[3].workload.prompt_lens == (3, 3)
-    assert results[3].mode == paged_mode
+    assert results[3].key.engine_config == paged_cfg
 
 
 def test_scheduler_suite_dry_run_main(capsys):

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "baseline",
   "release_feature": "fixed batching",
-  "mode": "kv-cache+fixed-batching",
+  "engine_config": "kv-cache+fixed-batching",
   "timestamp": "2026-10-30T03:26:46+0000",
   "git": {
     "commit": "f03abf6",
@@ -49,7 +49,7 @@
   "engine": "scheduler",
   "cases": [
     {
-      "mode": "kv-cache+fixed-batching",
+      "engine_config": "kv-cache+fixed-batching",
       "num_total_requests": 16,
       "prompt_len": [
         35,
@@ -1720,7 +1720,7 @@
       ]
     },
     {
-      "mode": "kv-cache+fixed-batching",
+      "engine_config": "kv-cache+fixed-batching",
       "num_total_requests": 32,
       "prompt_len": [
         113,
@@ -6163,7 +6163,7 @@
       ]
     },
     {
-      "mode": "kv-cache+fixed-batching",
+      "engine_config": "kv-cache+fixed-batching",
       "num_total_requests": 64,
       "prompt_len": [
         776,

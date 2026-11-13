@@ -3,67 +3,67 @@
   "serial-vs-fixed-batch-throughput": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache",
      "num_total_requests": 1,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 1,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache",
      "num_total_requests": 2,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 2,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache",
      "num_total_requests": 4,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache",
      "num_total_requests": 8,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 8,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache",
      "num_total_requests": 16,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 16,
      "prompt_len": 128
     }
    ],
-   "modes": [
+   "engine_configs": [
     "dense-kv-cache",
     "dense-kv-cache+fixed-batching"
    ],
@@ -73,24 +73,24 @@
   "uniform-vs-variable-budget-slots": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 64,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": [
       8,
       16,
       32,
       64
      ],
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
      "prompt_len": 128
     }
    ],
-   "modes": [
+   "engine_configs": [
     "dense-kv-cache+fixed-batching"
    ],
    "repeats": 3,
@@ -99,14 +99,14 @@
   "uniform-vs-variable-prompt-padding": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
      "prompt_len": 128
     },
     {
+     "engine_config": "dense-kv-cache+fixed-batching",
      "max_new_tokens": 32,
-     "mode": "dense-kv-cache+fixed-batching",
      "num_total_requests": 4,
      "prompt_len": [
       16,
@@ -116,7 +116,7 @@
      ]
     }
    ],
-   "modes": [
+   "engine_configs": [
     "dense-kv-cache+fixed-batching"
    ],
    "repeats": 3,
@@ -127,8 +127,8 @@
   "dense-vs-paged-block-size": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -254,8 +254,8 @@
      "workload_id": "block_size_sweep"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=8)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 8,
       "num_blocks": null
@@ -384,8 +384,8 @@
      "workload_id": "block_size_sweep"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 16,
       "num_blocks": null
@@ -514,8 +514,8 @@
      "workload_id": "block_size_sweep"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=32)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 32,
       "num_blocks": null
@@ -644,8 +644,8 @@
      "workload_id": "block_size_sweep"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=64)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 64,
       "num_blocks": null
@@ -804,23 +804,26 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+continuous-batching+mrr=8",
+    "paged-kv-cache(block_size=8)+continuous-batching+mrr=8",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
+    "paged-kv-cache(block_size=32)+continuous-batching+mrr=8",
+    "paged-kv-cache(block_size=64)+continuous-batching+mrr=8"
+   ],
    "interleave": [
     "caching_method",
     "block_size"
    ],
    "max_running_requests": 8,
-   "modes": [
-    "dense-kv-cache+continuous-batching",
-    "paged-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   },
   "dense-vs-paged-length-ratio": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -946,8 +949,8 @@
      "workload_id": "length_ratio_128"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 16,
       "num_blocks": null
@@ -1076,8 +1079,8 @@
      "workload_id": "length_ratio_128"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -1203,8 +1206,8 @@
      "workload_id": "length_ratio_512"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 16,
       "num_blocks": null
@@ -1333,8 +1336,8 @@
      "workload_id": "length_ratio_512"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -1460,8 +1463,8 @@
      "workload_id": "length_ratio_2048"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 16,
       "num_blocks": null
@@ -1590,8 +1593,8 @@
      "workload_id": "length_ratio_2048"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -1717,8 +1720,8 @@
      "workload_id": "length_ratio_3072"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 16,
       "num_blocks": null
@@ -1877,23 +1880,23 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+continuous-batching+mrr=8",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=8"
+   ],
    "interleave": [
     "caching_method",
     "block_size"
    ],
    "max_running_requests": 8,
-   "modes": [
-    "dense-kv-cache+continuous-batching",
-    "paged-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   },
   "dense-vs-paged-long-short-stress": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2019,8 +2022,8 @@
      "workload_id": "long_short_stress"
     },
     {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=8",
      "max_running_requests": 8,
-     "mode": "paged-kv-cache+continuous-batching",
      "paged_cache_config": {
       "block_size": 16,
       "num_blocks": null
@@ -2179,23 +2182,23 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+continuous-batching+mrr=8",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=8"
+   ],
    "interleave": [
     "caching_method",
     "block_size"
    ],
    "max_running_requests": 8,
-   "modes": [
-    "dense-kv-cache+continuous-batching",
-    "paged-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   },
   "fixed-vs-continuous-prefill-interference": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+fixed-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+fixed-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2223,8 +2226,8 @@
      "workload_id": "prefill_interference"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2267,22 +2270,22 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+fixed-batching+mrr=4",
+    "dense-kv-cache+continuous-batching+mrr=4"
+   ],
    "interleave": [
     "batching_method"
    ],
    "max_running_requests": 4,
-   "modes": [
-    "dense-kv-cache+fixed-batching",
-    "dense-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   },
   "fixed-vs-continuous-staggered-arrivals": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+fixed-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+fixed-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2345,8 +2348,8 @@
      "workload_id": "staggered_arrivals"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2424,22 +2427,22 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+fixed-batching+mrr=4",
+    "dense-kv-cache+continuous-batching+mrr=4"
+   ],
    "interleave": [
     "batching_method"
    ],
    "max_running_requests": 4,
-   "modes": [
-    "dense-kv-cache+fixed-batching",
-    "dense-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   },
   "fixed-vs-continuous-uniform-output-length": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+fixed-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+fixed-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2502,8 +2505,8 @@
      "workload_id": "uniform_output_length"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2581,22 +2584,22 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+fixed-batching+mrr=4",
+    "dense-kv-cache+continuous-batching+mrr=4"
+   ],
    "interleave": [
     "batching_method"
    ],
    "max_running_requests": 4,
-   "modes": [
-    "dense-kv-cache+fixed-batching",
-    "dense-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   },
   "fixed-vs-continuous-variable-output-length": {
    "cases": [
     {
+     "engine_config": "dense-kv-cache+fixed-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+fixed-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2659,8 +2662,8 @@
      "workload_id": "variable_output_length"
     },
     {
+     "engine_config": "dense-kv-cache+continuous-batching+mrr=4",
      "max_running_requests": 4,
-     "mode": "dense-kv-cache+continuous-batching",
      "paged_cache_config": null,
      "specs": [
       [
@@ -2738,14 +2741,14 @@
      }
     ]
    },
+   "engine_configs": [
+    "dense-kv-cache+fixed-batching+mrr=4",
+    "dense-kv-cache+continuous-batching+mrr=4"
+   ],
    "interleave": [
     "batching_method"
    ],
    "max_running_requests": 4,
-   "modes": [
-    "dense-kv-cache+fixed-batching",
-    "dense-kv-cache+continuous-batching"
-   ],
    "repeats": 3,
    "warmup": 1
   }

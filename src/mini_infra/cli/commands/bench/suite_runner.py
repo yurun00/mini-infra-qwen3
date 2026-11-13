@@ -23,21 +23,23 @@ from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan
 from mini_infra.bench.scheduler.run_suite import run_suite as run_scheduler_suite
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.sweep import SuiteRunSummary
-from mini_infra.engine import Mode
+from mini_infra.engine import EngineConfig
 from mini_infra.profiling import TensorBoardOptions
 
 
 def _ensure_suite_correctness(
     ctx: BenchmarkExecutionContext,
-    modes: Sequence[Mode],
+    configs: Sequence[EngineConfig],
     allow_mismatch: bool,
 ) -> dict[str, CorrectnessReport]:
-    """按需检查并缓存各运行模式的输出正确性；若存在不一致且未开启 allow_mismatch 则退出进程。"""
-    for m in modes:
-        if m not in ctx.correctness_cache:
+    """按需检查并缓存各 EngineConfig 的输出正确性；若存在不一致且未开启 allow_mismatch 则退出进程。"""
+    for cfg in configs:
+        if cfg not in ctx.correctness_cache:
             assert ctx.tokenizer is not None
-            ctx.correctness_cache[m] = check_correctness(ctx.model, ctx.tokenizer, m, ctx.device, update_golden=False)
-    correctness = {str(m): ctx.correctness_cache[m] for m in modes}
+            ctx.correctness_cache[cfg] = check_correctness(
+                ctx.model, ctx.tokenizer, cfg, ctx.device, update_golden=False
+            )
+    correctness = {str(cfg): ctx.correctness_cache[cfg] for cfg in configs}
     if any(c.passed is False for c in correctness.values()) and not allow_mismatch:
         sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
     return correctness
@@ -47,23 +49,24 @@ def execute_lockstep_suite(
     ctx: BenchmarkExecutionContext, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 lockstep suite：正确性检查 → 执行 → 落盘 → 打印表格。"""
-    modes = suite.modes()
+    configs = suite.engine_configs()
     cases = suite.cases
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-    mode_label = ",".join(str(m) for m in modes)
-    correctness = _ensure_suite_correctness(ctx, modes, allow_mismatch=args.allow_mismatch)
+    engine_config_label = ",".join(str(c) for c in configs)
+    correctness = _ensure_suite_correctness(ctx, configs, allow_mismatch=args.allow_mismatch)
 
     tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
 
     print(
-        f"[bench-suite] suite={suite.name} modes={mode_label} cases={len(cases)} warmup={warmup} repeats={repeats}",
+        f"[bench-suite] suite={suite.name} modes={engine_config_label} "
+        f"cases={len(cases)} warmup={warmup} repeats={repeats}",
         flush=True,
     )
 
     def on_progress(case_number: int, total_cases: int, case: BenchmarkCase) -> None:
         print(
-            f"[{case_number}/{total_cases}] mode={case.mode} batch={case.profile.num_total_requests} "
+            f"[{case_number}/{total_cases}] mode={case.engine_config} batch={case.profile.num_total_requests} "
             f"prompt={format_lengths(case.profile.prompt_lens)} "
             f"max_new_tokens={format_lengths(case.profile.output_budgets)} ...",
             flush=True,
@@ -86,7 +89,7 @@ def execute_lockstep_suite(
     record = build_benchmark_record(
         args=args,
         model=ctx.model,
-        mode_label=mode_label,
+        engine_config_label=engine_config_label,
         cases=results,
         correctness=correctness,
         env=ctx.env,
@@ -115,9 +118,9 @@ def execute_scheduler_suite(
     ctx: BenchmarkExecutionContext, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 scheduler suite：正确性检查 → 执行 → 对比 → 落盘 → 打印表格。"""
-    modes = suite.modes()
-    mode_label = ",".join(str(m) for m in modes)
-    correctness = _ensure_suite_correctness(ctx, modes, allow_mismatch=args.allow_mismatch)
+    configs = suite.engine_configs()
+    engine_config_label = ",".join(str(c) for c in configs)
+    correctness = _ensure_suite_correctness(ctx, configs, allow_mismatch=args.allow_mismatch)
 
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
@@ -161,7 +164,7 @@ def execute_scheduler_suite(
     record = build_benchmark_record(
         args=args,
         model=ctx.model,
-        mode_label=mode_label,
+        engine_config_label=engine_config_label,
         cases=results,
         correctness=correctness,
         env=ctx.env,

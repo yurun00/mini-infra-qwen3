@@ -2,7 +2,7 @@
   "schema_version": 1,
   "tag": "v0.4.0",
   "release_feature": "continuous batching",
-  "mode": "kv-cache+continuous-batching",
+  "engine_config": "kv-cache+continuous-batching",
   "timestamp": "2026-10-30T03:34:37+0000",
   "git": {
     "commit": "f03abf6",
@@ -49,7 +49,7 @@
   "engine": "scheduler",
   "cases": [
     {
-      "mode": "kv-cache+continuous-batching",
+      "engine_config": "kv-cache+continuous-batching",
       "num_total_requests": 16,
       "prompt_len": [
         35,
@@ -1465,7 +1465,7 @@
       ]
     },
     {
-      "mode": "kv-cache+continuous-batching",
+      "engine_config": "kv-cache+continuous-batching",
       "num_total_requests": 32,
       "prompt_len": [
         113,
@@ -5456,7 +5456,7 @@
       ]
     },
     {
-      "mode": "kv-cache+continuous-batching",
+      "engine_config": "kv-cache+continuous-batching",
       "num_total_requests": 64,
       "prompt_len": [
         776,

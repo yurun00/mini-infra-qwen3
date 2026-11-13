@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "tag": "reference",
-  "mode": "dense-kv-cache",
+  "engine_config": "dense-kv-cache",
   "timestamp": "2026-11-11T14:23:10+0000",
   "git": {
     "commit": "ffdf7e7",
@@ -52,7 +52,7 @@
   "engine": "lockstep",
   "cases": [
     {
-      "mode": "dense-kv-cache",
+      "engine_config": "dense-kv-cache",
       "num_total_requests": 2,
       "prompt_len": [
         32,

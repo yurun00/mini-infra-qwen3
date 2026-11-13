@@ -42,7 +42,7 @@
 - **栈下公共设施（`device.py`、`profiling/`、`utils.py`）**：位于五层栈之下的横切基础设施，栈内任意层可依赖，但**严禁反向依赖栈内任何模块**。
 
 ```text
-① Entrypoints  (接入层)         用户级入口（generate / GenerationOptions）：参数校验、按 Mode 分发、结果聚合
+① Entrypoints  (接入层)         用户级入口（generate / GenerationOptions）：参数校验、按 EngineConfig 分发、结果聚合
       ↓
 ② Engine       (协调层)         驱动 Schedule -> Execute -> Process Outputs 主循环；维护生命周期与时钟；承载 Tokenizer 与输入规约
       ↓
@@ -55,7 +55,7 @@
 
 **各层职责与硬性不变量**
 
-- **① `entrypoints/`**：用户级协议解析与入参校验、调用输入规约、按 `Mode` 分发引擎并聚合跨请求结果。**严禁执行算子计算、分配物理显存、或参与调度排队与 Cache 寻址**。
+- **① `entrypoints/`**：用户级协议解析与入参校验、调用输入规约、按 `EngineConfig` 分发引擎并聚合跨请求结果。**严禁执行算子计算、分配物理显存、或参与调度排队与 Cache 寻址**。
 - **② `engine/`**：承担 `EngineCore` 编排职责，串联 Core（获取调度计划）与 Worker（触发执行），推进请求状态流转、EOS 判定与打点计时（兼含纯 CPU 的 `tokenizer.py` 与 `preprocessing.py`）。**严禁分配物理 KV 显存、拼装模型输入 Tensor 或直接调用底层算子；严禁被 `core/`、`worker/`、`model/` 反向依赖**。
 - **③ `core/`**：**100% 纯 Python / CPU 实现，零 `torch` 依赖**。维护请求状态机（`WAITING -> RUNNING -> FINISHED`）、三级调度队列（`ArrivalQueue -> WaitingQueue -> RunningQueue`）与 KV Cache 逻辑映射（batch slot 分配与 `KVCacheManager` block table）。只操作原生整数索引与元数据，**严禁持有 Tensor、分配物理显存、触发 CUDA 同步或调用模型前向**。
 - **④ `worker/`**：GPU 算力与物理显存池专职执行者。Runner 在 Host 侧将调度计划批量组装为 GPU 输入 Tensor、驱动 Model Forward 并在设备端采样（Sampler 属本层，不属 `model/`）；Cache Pool 按物理索引（`batch_slot_idx` / `physical_block_id`）原地读写 KV Cache。**只认物理索引与 Tensor，不感知 `request_id` 或业务请求对象；严禁掺杂排队策略或请求状态机；物理池严禁承担输入组装**。

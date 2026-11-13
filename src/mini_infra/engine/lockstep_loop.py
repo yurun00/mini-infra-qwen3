@@ -1,7 +1,7 @@
 """齐步自回归生成主循环（Lockstep Generation Loop）。
 
 不做请求队列调度（Scheduler），所有请求在 t=0 同时入场、打包进同一批次齐步执行（1 步 Prefill + N 步 Decode）。
-面向算子基准测试与数值等价性校验（支持 CachingMethod.NONE 全量重算对照、capture_logits=True 逐步 Logits 采集
+面向算子基准测试与数值等价性校验（支持 NoCacheConfig 全量重算对照、capture_logits=True 逐步 Logits 采集
 以及 CUDA Event 全异步计时）。
 作为协调层编排者，内部通过纯 CPU 状态机 LockstepState 驱动生命周期与完成判定，
 GPU 张量组装、物理 KV Cache 更新与采样由 Worker 层的 LockstepRunner 内部自治闭环。

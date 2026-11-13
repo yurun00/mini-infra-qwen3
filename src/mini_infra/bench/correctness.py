@@ -9,8 +9,7 @@ import torch
 
 from mini_infra.bench.env import git_info
 from mini_infra.bench.paths import GOLDEN_OUTPUT_PATH
-from mini_infra.core import KVCacheConfig
-from mini_infra.engine import Mode, Qwen3Tokenizer
+from mini_infra.engine import EngineConfig, Qwen3Tokenizer
 from mini_infra.entrypoints import GenerationOptions, generate
 
 GOLDEN_PROMPT = "请用一句话介绍 KV Cache。"
@@ -39,16 +38,15 @@ class CorrectnessReport:
 def check_correctness(
     model: torch.nn.Module,
     tokenizer: Qwen3Tokenizer,
-    mode: Mode,
+    config: EngineConfig,
     device: torch.device,
     update_golden: bool = False,  # infra-legacy(naming): 对齐 CLI --update-golden 参数名
-    kv_cache_config: KVCacheConfig | None = None,
 ) -> CorrectnessReport:
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
-    options = GenerationOptions(device=device, kv_cache_config=kv_cache_config)
+    options = GenerationOptions(device=device)
     res = generate(
-        mode,
+        config,
         model,
         ids,
         GOLDEN_MAX_OUTPUT_TOKENS,

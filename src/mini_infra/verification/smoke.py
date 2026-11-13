@@ -8,8 +8,7 @@ import torch
 from mini_infra.core import DenseCacheConfig, KVCacheManager, PagedCacheConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
-    Mode,
+    EngineConfig,
     SchedulePhase,
     run_scheduler,
 )
@@ -113,11 +112,11 @@ def check_fixed_batching(model):
     assert lengths.tolist() == [4, 2]
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
-    fixed_batching_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+    fixed_batching_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
     logits_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False, capture_logits=True)
-    single = generate(fixed_batching_mode, model, [request_a], 4, options=logits_opts)
-    paired = generate(fixed_batching_mode, model, [request_b, request_a], [4, 4], options=logits_opts)
-    replaced = generate(fixed_batching_mode, model, [request_c, request_a], [4, 4], options=logits_opts)
+    single = generate(fixed_batching_config, model, [request_a], 4, options=logits_opts)
+    paired = generate(fixed_batching_config, model, [request_b, request_a], [4, 4], options=logits_opts)
+    replaced = generate(fixed_batching_config, model, [request_c, request_a], [4, 4], options=logits_opts)
 
     assert single.sequences[0].token_ids == paired.sequences[1].token_ids == replaced.sequences[1].token_ids
     for step in range(4):
@@ -125,7 +124,7 @@ def check_fixed_batching(model):
         assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
 
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
-    batched = generate(fixed_batching_mode, model, [request_a, request_b], [2, 4], options=base_opts)
+    batched = generate(fixed_batching_config, model, [request_a, request_b], [2, 4], options=base_opts)
     assert batched.trace.num_active_tokens_per_step == [2, 2, 1, 1]
     assert [s.completion_step for s in batched.sequences] == [2, 4]
     assert abs(batched.batch_info.slot_utilization - 0.75) < 1e-12
@@ -135,7 +134,7 @@ def check_fixed_batching(model):
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。
     serial = generate(
-        Mode(CachingMethod.DENSE),
+        EngineConfig(DenseCacheConfig()),
         model,
         [request_a, request_b],
         [2, 4],
@@ -172,12 +171,12 @@ def check_continuous_batching(model):
     budgets = [2, 4, 3, 2]
 
     # 1. 统一 generate 接口分发验证（多请求异构预算）
-    continuous_mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-    serial_mode = Mode(CachingMethod.DENSE)
+    continuous_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
+    serial_config = EngineConfig(DenseCacheConfig())
     base_opts = GenerationOptions(eos_token_id=-1, device=device, stop_on_eos=False)
 
-    cont_gen = generate(continuous_mode, model, sequences, budgets, options=base_opts)
-    serial_gen = generate(serial_mode, model, sequences, budgets, options=base_opts)
+    cont_gen = generate(continuous_config, model, sequences, budgets, options=base_opts)
+    serial_gen = generate(serial_config, model, sequences, budgets, options=base_opts)
     assert [s.token_ids for s in cont_gen.sequences] == [s.token_ids for s in serial_gen.sequences]
 
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
@@ -350,7 +349,7 @@ def check_paged_kv_cache(model):
         stop_on_eos=False,
     )
     paged_gen = generate(
-        Mode(CachingMethod.PAGED, batching_method=BatchingMethod.CONTINUOUS),
+        EngineConfig(PagedCacheConfig(block_size=block_size), batching_method=BatchingMethod.CONTINUOUS),
         model,
         sequences,
         budgets,
@@ -358,7 +357,6 @@ def check_paged_kv_cache(model):
             eos_token_id=-1,
             device=device,
             stop_on_eos=False,
-            kv_cache_config=PagedCacheConfig(block_size=block_size),
         ),
     )
 

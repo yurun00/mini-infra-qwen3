@@ -6,7 +6,7 @@ import torch
 from mini_infra.bench.cases import BenchmarkCase, WorkloadProfile
 from mini_infra.bench.lockstep.run_case import broadcast_case_lengths, run_case, run_case_once
 from mini_infra.core import NoCacheConfig, Request
-from mini_infra.engine import Mode
+from mini_infra.engine import EngineConfig
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -83,7 +83,6 @@ def test_parse_args_run_case():
 
 def test_run_case_on_cpu():
     model = build_tiny_model()
-    mode = Mode()
 
     # 1. 单用例标量执行
     req1 = Request(request_idx=0, token_ids=[1, 2, 3, 4], max_new_tokens=2, arrival_ms=0.0)
@@ -104,7 +103,7 @@ def test_run_case_on_cpu():
         warmup=0,
         repeats=1,
     )
-    assert res_scalar.key.mode == mode
+    assert res_scalar.key.engine_config == EngineConfig()
     assert isinstance(res_scalar.workload, WorkloadProfile)
     assert res_scalar.workload.num_total_requests == 1
     assert res_scalar.workload.prompt_lens == (4,)
@@ -131,7 +130,7 @@ def test_run_case_on_cpu():
         warmup=0,
         repeats=1,
     )
-    assert res_var.key.mode == mode
+    assert res_var.key.engine_config == EngineConfig()
     assert res_var.workload.num_total_requests == 2
     assert res_var.workload.prompt_lens == (2, 4)
     assert res_var.workload.output_budgets == (2, 2)

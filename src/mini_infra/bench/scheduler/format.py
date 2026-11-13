@@ -20,7 +20,7 @@ def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     return [
         _abbreviate_suite_name(suite_name),
         res.key.abbreviated_workload_id,
-        res.key.abbreviated_mode,
+        res.key.abbreviated_engine_config,
         str(res.key.max_running_requests),
         block_size_str,
         f"{res.schedule_metrics.makespan_ms.mean:.3f}",
@@ -40,7 +40,7 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
     header = [
         "suite",
         "workload_id",
-        "mode",
+        "engine_config",
         "max_running_requests",
         "block_size",
         "makespan_ms_mean",

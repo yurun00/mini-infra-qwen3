@@ -12,7 +12,7 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     ttft = w.metrics.ttft_ms
     tpot = w.metrics.mean_tpot_ms
     row = [
-        str(w.key.mode),
+        str(w.key.engine_config),
         format_lengths(w.workload.prompt_lens),
         format_lengths(w.workload.output_budgets),
         f"{(ttft.mean if ttft else 0.0):.3f}",
@@ -44,7 +44,7 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
 def format_table(case_results: Sequence[LockstepCaseResult]) -> str:
     """将用例结果列表格式化为标准 CSV 文本。"""
     header = [
-        "mode",
+        "engine_config",
         "prompt_tokens",
         "generated_tokens",
         "prefill_ms_mean",
@@ -76,7 +76,7 @@ def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup:
     ]
     for i, case in enumerate(cases, 1):
         lines.append(
-            f"  [{i:02d}] mode={case.mode} batch={case.profile.num_total_requests} "
+            f"  [{i:02d}] mode={case.engine_config} batch={case.profile.num_total_requests} "
             f"prompt={format_lengths(case.profile.prompt_lens)} "
             f"max_new_tokens={format_lengths(case.profile.output_budgets)}"
         )

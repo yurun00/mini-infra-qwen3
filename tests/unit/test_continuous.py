@@ -13,9 +13,8 @@ from mini_infra.core import (
 )
 from mini_infra.engine import (
     BatchingMethod,
-    CachingMethod,
+    EngineConfig,
     GenerationResult,
-    Mode,
     SchedulePhase,
     ScheduleResult,
     run_scheduler,
@@ -23,7 +22,7 @@ from mini_infra.engine import (
 from mini_infra.entrypoints import GenerationOptions, generate
 
 CPU = torch.device("cpu")
-KV_MODE = Mode(CachingMethod.DENSE)
+KV_CONFIG = EngineConfig(DenseCacheConfig())
 RUNNERS = {
     BatchingMethod.FIXED: lambda *args, **kwargs: run_scheduler(
         BatchingMethod.FIXED, *args, kv_cache_config=DenseCacheConfig(), **kwargs
@@ -42,7 +41,7 @@ def model(diverse_model):
 def test_fixture_outputs_are_diverse(model):
     """守卫：若输出退化为重复 Token，下面所有 parity 测试都会失去检出能力。"""
     opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
-    tokens = generate(KV_MODE, model, [make_prompts([6])[0]], 10, options=opts)
+    tokens = generate(KV_CONFIG, model, [make_prompts([6])[0]], 10, options=opts)
     assert len(set(tokens.sequences[0].token_ids)) >= 5
 
 
@@ -53,7 +52,7 @@ def make_prompts(lengths: list[int]) -> list[list[int]]:
 def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
     opts = GenerationOptions(eos_token_id=eos_token_id, device=CPU, stop_on_eos=stop_on_eos)
     return [
-        generate(KV_MODE, model, [prompt], budget, options=opts).sequences[0].token_ids
+        generate(KV_CONFIG, model, [prompt], budget, options=opts).sequences[0].token_ids
         for prompt, budget in zip(prompts, budgets)
     ]
 
@@ -222,13 +221,13 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
 
 
 class TestGenerateDispatch:
-    """generate(mode=CONTINUOUS) 不再静默回退到固定批次路径。"""
+    """generate(config=CONTINUOUS) 不再静默回退到固定批次路径。"""
 
     def test_continuous_mode_matches_serial_and_fixed(self, model):
         prompts = make_prompts([3, 6, 4])
         budgets = [5, 2, 4]
-        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
-        fixed = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.FIXED)
+        continuous = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
+        fixed = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
 
         opts = GenerationOptions(eos_token_id=-1, device=CPU, stop_on_eos=False)
         result = generate(continuous, model, prompts, budgets, options=opts)
@@ -255,20 +254,20 @@ class TestGenerateDispatch:
         assert result.padded_output_tokens(0).tolist() == expected[0]
 
     def test_continuous_mode_requires_kv_cache(self, model):
-        mode = Mode(batching_method=BatchingMethod.CONTINUOUS)
+        config = EngineConfig(batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="KV Cache"):
-            generate(mode, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU))
+            generate(config, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU))
 
     @pytest.mark.parametrize("kwargs", [{"capture_logits": True}, {"profile": True}])
     def test_continuous_mode_rejects_unsupported_options(self, model, kwargs):
-        mode = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="暂不支持"):
-            generate(mode, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU, **kwargs))
+            generate(config, model, make_prompts([3, 4]), 2, options=GenerationOptions(device=CPU, **kwargs))
 
     def test_continuous_mode_respects_max_running_requests(self, model):
         prompts = make_prompts([3, 5, 4, 6])
         budgets = [3, 2, 4, 1]
-        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
+        continuous = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
         # 4 个离线请求，并发上限限制为 2，触发 batch slot 排队复用
         result = generate(
             continuous,
@@ -279,7 +278,6 @@ class TestGenerateDispatch:
                 eos_token_id=-1,
                 device=CPU,
                 stop_on_eos=False,
-                max_running_requests=2,
             ),
         )
         expected = serial_outputs(model, prompts, budgets)
@@ -287,15 +285,8 @@ class TestGenerateDispatch:
         assert result.batch_size == 4
 
     def test_continuous_mode_rejects_invalid_max_running_requests(self, model):
-        continuous = Mode(CachingMethod.DENSE, batching_method=BatchingMethod.CONTINUOUS)
         with pytest.raises(ValueError, match="必须大于 0"):
-            generate(
-                continuous,
-                model,
-                make_prompts([3]),
-                2,
-                options=GenerationOptions(device=CPU, max_running_requests=0),
-            )
+            EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=0)
 
 
 def test_run_scheduler_dispatch(model):

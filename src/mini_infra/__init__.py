@@ -20,14 +20,12 @@ from mini_infra.device import (
 from mini_infra.engine import (
     BatchingMethod,
     BatchScheduleInfo,
-    CachingMethod,
-    FeatureDimension,
+    EngineConfig,
     FeatureFlag,
     GenerationResult,
     GenerationTrace,
     KVCacheProfile,
     MemoryProfile,
-    Mode,
     PagedCacheProfile,
     Qwen3Tokenizer,
     ScheduleEvent,
@@ -40,6 +38,7 @@ from mini_infra.engine import (
     run_lockstep,
     run_scheduler,
     summarize_schedule,
+    validate_engine_config,
 )
 from mini_infra.entrypoints import GenerationOptions, PromptInput, generate
 from mini_infra.model import (
@@ -77,7 +76,7 @@ __all__ = [
     "DEFAULT_MODEL_REVISION",
     "DenseCacheConfig",
     "DenseSlotCache",
-    "FeatureDimension",
+    "EngineConfig",
     "FeatureFlag",
     "GenerationOptions",
     "GenerationResult",
@@ -85,12 +84,10 @@ __all__ = [
     "KERNEL_CATEGORIES",
     "KVCache",
     "KVCacheConfig",
-    "CachingMethod",
     "KVCacheProfile",
     "KernelInfo",
     "MODULE_SCOPES",
     "MemoryProfile",
-    "Mode",
     "NoCacheConfig",
     "OpLatencyBreakdown",
     "PagedCacheConfig",
@@ -129,5 +126,6 @@ __all__ = [
     "run_scheduler",
     "summarize_schedule",
     "synchronize",
+    "validate_engine_config",
     "validate_requests",
 ]
