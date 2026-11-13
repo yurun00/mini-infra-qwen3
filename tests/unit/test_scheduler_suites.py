@@ -79,7 +79,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
     assert suite.comparison is not None
     configs = suite.engine_configs()
     assert [m.batching_method for m in configs] == [BatchingMethod.FIXED, BatchingMethod.CONTINUOUS]
-    assert all(m.use_kv_cache for m in configs)
+    assert all(m.has_kv_cache for m in configs)
 
     cases = suite.cases
     assert len(cases) == 2

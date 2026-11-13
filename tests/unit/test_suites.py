@@ -88,7 +88,7 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     assert all(
         c.profile.prompt_lens == (128,) * c.profile.num_total_requests
         and c.profile.output_budgets == (32,) * c.profile.num_total_requests
-        and c.engine_config.use_kv_cache
+        and c.engine_config.has_kv_cache
         for c in cases
     )
     assert [m.batching_method for m in suite.engine_configs()] == [BatchingMethod.NONE, BatchingMethod.FIXED]

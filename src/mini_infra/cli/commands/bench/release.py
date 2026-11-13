@@ -94,7 +94,7 @@ def _build_lockstep_case_cmd(
         tag,
         "--release-feature",
         release_feature,
-        "--kv-cache" if config.use_kv_cache else "--no-kv-cache",
+        "--kv-cache" if config.has_kv_cache else "--no-kv-cache",
         "--batching-method",
         config.batching_method.value,
         "--batch-size",

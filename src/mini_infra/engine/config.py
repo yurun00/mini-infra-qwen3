@@ -65,7 +65,7 @@ class EngineConfig:
         return EngineConfig(self.kv_cache_config, batching_method, self.max_running_requests, self.flags)
 
     @property
-    def use_kv_cache(self) -> bool:
+    def has_kv_cache(self) -> bool:
         """是否使用任一 KV Cache 实现（Dense 或 Paged）。"""
         return not isinstance(self.kv_cache_config, NoCacheConfig)
 
@@ -90,9 +90,8 @@ def validate_engine_config(config: EngineConfig) -> None:
 
     只编码与具体驱动无关的硬约束；run_scheduler / run_lockstep 再各自校验自身边界。
     """
-    if isinstance(config.kv_cache_config, PagedCacheConfig) and config.batching_method not in (
-        BatchingMethod.CONTINUOUS,
-        BatchingMethod.FIXED,
+    if isinstance(config.kv_cache_config, PagedCacheConfig) and config.batching_method in (
+        BatchingMethod.NONE
     ):
         raise ValueError("paged-kv-cache 仅支持 continuous-batching 或 fixed-batching")
     if config.batching_method is BatchingMethod.CONTINUOUS and isinstance(config.kv_cache_config, NoCacheConfig):

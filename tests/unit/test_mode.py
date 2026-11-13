@@ -53,7 +53,7 @@ def test_engine_config_default():
     assert cfg.kv_cache_config == NoCacheConfig()
     assert cfg.batching_method == BatchingMethod.NONE
     assert cfg.max_running_requests is None
-    assert not cfg.use_kv_cache
+    assert not cfg.has_kv_cache
     assert not cfg.is_batch
     assert str(cfg) == "no-cache"
 
@@ -69,12 +69,12 @@ def test_engine_config_with_flag():
 def test_engine_config_with_kv_cache_config():
     cfg = EngineConfig(batching_method=BatchingMethod.FIXED)
     dense = cfg.with_kv_cache_config(DenseCacheConfig())
-    assert dense.use_kv_cache
+    assert dense.has_kv_cache
     assert dense.kv_cache_config == DenseCacheConfig()
     assert str(dense) == "dense-kv-cache+fixed-batching"
 
     paged = dense.with_kv_cache_config(PagedCacheConfig(block_size=8))
-    assert paged.use_kv_cache
+    assert paged.has_kv_cache
     assert paged.kv_cache_config == PagedCacheConfig(block_size=8)
     assert str(paged) == "paged-kv-cache(block_size=8)+fixed-batching"
 
