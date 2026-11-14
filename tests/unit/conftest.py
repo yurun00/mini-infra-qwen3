@@ -1,8 +1,12 @@
 """单元测试共享 fixture。"""
 
+from collections.abc import Callable
+
 import pytest
 import torch
 
+from mini_infra.core import SchedulePhase
+from mini_infra.engine import ScheduleResult
 from mini_infra.verification.smoke import build_tiny_model
 
 
@@ -19,3 +23,33 @@ def diverse_model():
     generator = torch.Generator().manual_seed(1234)
     model.lm_head.weight = torch.nn.Parameter(torch.randn(model.lm_head.weight.shape, generator=generator))
     return model
+
+
+def _assert_token_budget_invariants(result: ScheduleResult, token_budget: int) -> None:
+    prompt_len_by_request_idx = {s.request_idx: s.prompt_len for s in result.sequences}
+    for event in result.events:
+        if event.phase is SchedulePhase.PREFILL:
+            prompt_lens = [prompt_len_by_request_idx[i] for i in event.admitted_request_ids]
+            assert event.num_scheduled_tokens == len(prompt_lens) * max(prompt_lens)
+            # ① 非 oversize prefill 不超预算；② oversize prefill 只含 1 个请求
+            assert event.is_oversize_prefill is (event.num_scheduled_tokens > token_budget)
+            assert not event.is_oversize_prefill or len(prompt_lens) == 1
+        else:
+            assert event.num_scheduled_tokens == event.num_active_requests
+            assert not event.is_oversize_prefill
+    # ③ RunningQueue 非空时不出现连续两步 PREFILL（前一步入场后仍有请求在跑即违反 decode protection）
+    for prev, curr in zip(result.events, result.events[1:]):
+        if prev.phase is SchedulePhase.PREFILL and curr.phase is SchedulePhase.PREFILL:
+            assert prev.num_active_requests == len(prev.finished_request_ids)
+    # 步数类指标与事件流一致
+    sm = result.schedule_metrics
+    phases = [event.phase for event in result.events]
+    assert sm.num_prefill_steps == phases.count(SchedulePhase.PREFILL)
+    assert sm.num_decode_steps == phases.count(SchedulePhase.DECODE)
+    assert sm.num_oversize_prefill_steps == sum(event.is_oversize_prefill for event in result.events)
+
+
+@pytest.fixture
+def assert_token_budget_invariants() -> Callable[[ScheduleResult, int], None]:
+    """token-budget 调度的事件不变量断言（Dense 与 Paged 路径共用）。"""
+    return _assert_token_budget_invariants

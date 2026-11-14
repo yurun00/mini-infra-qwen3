@@ -37,7 +37,7 @@ EngineConfig(
 
 ```bash
 # 1. Dense batch slot vs Paged（同一调度策略，唯一变量是 KV 存储）
-mini-infra run --batching-method continuous-batching --compare-feature CachingMethod dense-kv-cache paged-kv-cache --kv-block-size 16
+mini-infra run --batching-method continuous-batching --compare-feature caching-method dense-kv-cache paged-kv-cache --kv-block-size 16
 
 # 2. 单用例基准测试（指定 block size 并以连续批处理驱动）
 mini-infra bench scheduler case --tag dev --caching-method paged-kv-cache --batching-method continuous-batching --block-size 16 --max-running-requests 4
@@ -61,5 +61,5 @@ mini-infra bench sweep --engine scheduler --tag dev --suite dense-vs-paged-block
 
 ```bash
 pytest tests/unit/test_block_manager.py tests/unit/test_paged_kv_cache.py tests/unit/test_paged_scheduler.py
-mini-infra verify scheduler-batch   # float32：serialized / fixed / continuous / paged 逐 Token 一致
+mini-infra verify batch-scheduler   # float32：serialized / fixed / continuous / paged 逐 Token 一致
 ```

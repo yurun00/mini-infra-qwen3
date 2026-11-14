@@ -17,8 +17,15 @@ from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.cli.commands.bench.args import add_common_args
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, kv_cache_config_from_str
-from mini_infra.engine import BatchingMethod, EngineConfig, Qwen3Tokenizer
+from mini_infra.core import (
+    SCHEDULING_POLICY_KINDS,
+    DenseCacheConfig,
+    PagedCacheConfig,
+    PrefillFirstConfig,
+    kv_cache_config_from_str,
+    scheduler_config_from_str,
+)
+from mini_infra.engine import BatchingMethod, EngineConfig, Qwen3Tokenizer, validate_engine_config
 from mini_infra.model import load_model, resolve_model_directory
 
 
@@ -55,6 +62,18 @@ def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         default=None,
         help="调度队列最大运行并发数（默认: 4）",
     )
+    p.add_argument(
+        "--scheduling-policy",
+        choices=list(SCHEDULING_POLICY_KINDS),
+        default=PrefillFirstConfig.kind,
+        help="迭代级调度策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
+    )
+    p.add_argument(
+        "--token-budget",
+        type=int,
+        default=None,
+        help="token-budget 策略下单次 Prefill 的 padded prompt token 上限，须不小于 --max-running-requests",
+    )
     p.add_argument("--prompt-length", type=int, default=128, help="统一输入 Prompt 长度（默认: 128）")
     p.add_argument("--prompt-lens", type=int, nargs="+", default=None, help="逐请求输入 Prompt 长度列表（可选）")
     p.add_argument("--request-count", type=int, default=8, help="请求总数（默认: 8）")
@@ -90,11 +109,14 @@ def handle_case(args: argparse.Namespace) -> int:
         block_size=args.block_size,
         num_blocks=args.num_blocks,
     )
+    scheduler_config = scheduler_config_from_str(args.scheduling_policy, token_budget=args.token_budget)
     target_config = EngineConfig(
         kv_cache_config,
         batching_method=method,
         max_running_requests=max_running,
+        scheduler_config=scheduler_config,
     )
+    validate_engine_config(target_config)
 
     correctness = check_correctness(
         model,
@@ -135,6 +157,7 @@ def handle_case(args: argparse.Namespace) -> int:
         batching_method=method,
         kv_cache_config=kv_cache_config,
         max_running_requests=max_running,
+        scheduler_config=scheduler_config,
         suite_name=case_name,
         engine="scheduler",
     )

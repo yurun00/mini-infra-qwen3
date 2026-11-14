@@ -1,6 +1,7 @@
-"""CLI 子命令：mini-infra verify (transformers / cache / lockstep-batch / scheduler-batch)
+"""CLI 子命令：mini-infra verify 数值对齐与请求隔离验证。
 
-数值对齐与请求隔离验证。
+包含 transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget /
+paged-cache-logits / paged-cache-scheduler。
 """
 
 import argparse
@@ -9,8 +10,9 @@ from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )
+from mini_infra.verification.parity.compare_batch_lockstep import execute_compare_lockstep_batch
+from mini_infra.verification.parity.compare_batch_scheduler import execute_compare_scheduler_batch
 from mini_infra.verification.parity.compare_cache import execute_compare_cache
-from mini_infra.verification.parity.compare_lockstep_batch import execute_compare_lockstep_batch
 from mini_infra.verification.parity.compare_paged_cache_logits import (
     DEFAULT_PROMPTS as DEFAULT_PAGED_PROMPTS,
 )
@@ -23,7 +25,12 @@ from mini_infra.verification.parity.compare_paged_cache_scheduler import (
 from mini_infra.verification.parity.compare_paged_cache_scheduler import (
     execute_compare_paged_cache_scheduler,
 )
-from mini_infra.verification.parity.compare_scheduler_batch import execute_compare_scheduler_batch
+from mini_infra.verification.parity.compare_schedulers_token_budget import (
+    DEFAULT_PROMPTS as DEFAULT_SCHEDULERS_PROMPTS,
+)
+from mini_infra.verification.parity.compare_schedulers_token_budget import (
+    execute_compare_schedulers,
+)
 from mini_infra.verification.parity.compare_transformers import execute_compare_transformers
 
 
@@ -134,6 +141,34 @@ def _add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse
     return parser
 
 
+def _add_schedulers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--prompts",
+        nargs="+",
+        default=DEFAULT_SCHEDULERS_PROMPTS,
+        help="待测试的一条或多条 prompt",
+    )
+    parser.add_argument(
+        "--dtype",
+        choices=("float32", "bfloat16"),
+        default="float32",
+        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument(
+        "--token-budget",
+        type=int,
+        default=64,
+        help="单次 Prefill 的 padded prompt token 预算（默认: 64）",
+    )
+    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
+    parser.add_argument("--max-running-requests", type=int, default=4, help="调度器最大并发请求数（默认: 4）")
+    parser.add_argument("--output", help="可选 JSON 输出路径")
+    return parser
+
+
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """注册 parity 相关验证命令，直接挂载到 verify 下。"""
     p_tf = subparsers.add_parser("transformers", help="与 Hugging Face Transformers 对齐")
@@ -144,15 +179,22 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     _add_cache_args(p_cache)
     p_cache.set_defaults(func=_handle_cache)
 
-    p_batch = subparsers.add_parser("lockstep-batch", help="Lockstep 齐步批处理数值与请求隔离对齐")
+    p_batch = subparsers.add_parser("batch-lockstep", help="Lockstep 齐步批处理数值与请求隔离对齐")
     _add_lockstep_batch_args(p_batch)
     p_batch.set_defaults(func=_handle_lockstep_batch)
 
-    p_cont = subparsers.add_parser("scheduler-batch", help="Scheduler 批处理动态请求归属与输出一致性验证")
+    p_cont = subparsers.add_parser("batch-scheduler", help="Scheduler 批处理动态请求归属与输出一致性验证")
     _add_scheduler_batch_args(p_cont)
     p_cont.set_defaults(func=_handle_scheduler_batch)
 
-    p_paged = subparsers.add_parser("paged-cache", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
+    p_sched = subparsers.add_parser(
+        "schedulers-token-budget",
+        help="prefill-first 与 token-budget 两种迭代级调度策略的输出与轨迹对齐验证",
+    )
+    _add_schedulers_args(p_sched)
+    p_sched.set_defaults(func=_handle_schedulers)
+
+    p_paged = subparsers.add_parser("paged-cache-logits", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
     _add_paged_cache_args(p_paged)
     p_paged.set_defaults(func=_handle_paged_cache)
 
@@ -206,6 +248,20 @@ def _handle_scheduler_batch(args: argparse.Namespace) -> int:
         dtype=args.dtype,
         max_new_tokens=args.max_new_tokens,
         max_running_requests=args.max_running_requests,
+        output=args.output,
+    )
+
+
+def _handle_schedulers(args: argparse.Namespace) -> int:
+    return execute_compare_schedulers(
+        model=args.model,
+        revision=args.revision,
+        prompts=args.prompts,
+        max_new_tokens=args.max_new_tokens,
+        token_budget=args.token_budget,
+        block_size=args.block_size,
+        max_running_requests=args.max_running_requests,
+        dtype=args.dtype,
         output=args.output,
     )
 

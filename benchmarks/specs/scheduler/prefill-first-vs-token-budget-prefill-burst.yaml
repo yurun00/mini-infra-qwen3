@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: prefill-first-vs-token-budget-prefill-burst
+description: >-
+  4 个 128-token 请求持续 Decode；200 ms 时突发到达 12 个长短混合 Prompt。扫描 token budget，
+  对比 prefill-first 与 token-budget 对在途请求 Decode 尾延迟（ITL max）、TTFT 与吞吐的影响；
+  Dense / Paged 交叉验证分次 Prefill 对 Dense batch slot 左侧扩容搬移的影响。
+execution:
+  warmup: 1
+  repeats: 3
+  interleave: [scheduling_policy, token_budget]
+system:
+  engine_mode:
+    kind: scheduler
+    max_running_requests: 8
+  batching_method: continuous-batching
+  caching_spec: {kind: paged-kv-cache, block_size: 16}
+  scheduler_spec: prefill-first
+sweep:
+  system:
+    caching_spec:
+      - dense-kv-cache
+      - {kind: paged-kv-cache, block_size: 16}
+    scheduler_spec:
+      - prefill-first
+      - {kind: token-budget, token_budget: 256}
+      - {kind: token-budget, token_budget: 512}
+      - {kind: token-budget, token_budget: 1024}
+      - {kind: token-budget, token_budget: 2048}
+      - {kind: token-budget, token_budget: 4096}
+workload:
+  id: prefill_burst
+  groups:
+    - {count: 4, prompt_len: 128, output_len: 64, arrival_ms: 0}
+    - count: 12
+      prompt_len: [128, 512, 128, 1024, 128, 2048, 128, 512, 256, 1024, 256, 2048]
+      output_len: 8
+      arrival_ms: 200
+checks: [free_batch_slot_at_t0]
+comparison:
+  group_by: [workload_id, caching_method]
+  baseline: {scheduling_policy: prefill-first}
+  metrics:
+    - {path: schedule_metrics.itl_ms_max, kind: reduction, name: ITL-max}
+    - {path: schedule_metrics.itl_ms_p95, kind: reduction, name: ITL-p95}
+    - {path: schedule_metrics.ttft_ms_p95, kind: speedup, name: TTFT-p95}
+    - {path: metrics.throughput_tok_s, kind: gain, name: throughput}
+    - {path: packing.padding_efficiency, kind: gain, name: padding-eff}

@@ -8,7 +8,13 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from mini_infra.bench.cases import CaseDimension
-from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig
+from mini_infra.core import (
+    DenseCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+    PrefillFirstConfig,
+    TokenBudgetConfig,
+)
 from mini_infra.engine import BatchingMethod, EngineConfig
 
 SuiteEngine = Literal["scheduler", "lockstep"]
@@ -299,10 +305,46 @@ CachingSpec = Annotated[
 ]
 
 
+class PrefillFirstSpec(_Strict):
+    """prefill-first 迭代调度策略（默认）：WaitingQueue 有可入场请求即整批 Prefill。"""
+
+    kind: Literal["prefill-first"] = PrefillFirstConfig.kind
+
+    @property
+    def scheduler_config(self) -> PrefillFirstConfig:
+        return PrefillFirstConfig()
+
+
+class TokenBudgetSpec(_Strict):
+    """token-budget 迭代调度策略：padded prompt token 预算限制单次 Prefill，并启用 decode protection。"""
+
+    kind: Literal["token-budget"] = TokenBudgetConfig.kind
+    token_budget: PositiveInt
+
+    @property
+    def scheduler_config(self) -> TokenBudgetConfig:
+        return TokenBudgetConfig(self.token_budget)
+
+
+def _normalize_scheduler(raw: Any) -> Any:
+    """归一化 scheduler_spec 输入：将标量字符串提升为标准判别字典。"""
+    if isinstance(raw, str):
+        return {"kind": raw}
+    return raw
+
+
+SchedulerSpec = Annotated[
+    PrefillFirstSpec | TokenBudgetSpec,
+    Field(discriminator="kind"),
+    BeforeValidator(_normalize_scheduler),
+]
+
+
 class SystemSpec(_Strict):
     engine_mode: EngineModeSpec
     batching_method: BatchingMethod
     caching_spec: CachingSpec = DenseCacheSpec()
+    scheduler_spec: SchedulerSpec = PrefillFirstSpec()
 
     @property
     def default_engine_config(self) -> EngineConfig:
@@ -312,6 +354,7 @@ class SystemSpec(_Strict):
             self.caching_spec.kv_cache_config,
             batching_method=self.batching_method,
             max_running_requests=mrr,
+            scheduler_config=self.scheduler_spec.scheduler_config,
         )
 
 
@@ -354,9 +397,12 @@ __all__ = [
     "PagedCacheSpec",
     "PoissonArrival",
     "PositiveInt",
+    "PrefillFirstSpec",
     "SchedulerEngineSpec",
+    "SchedulerSpec",
     "SuiteEngine",
     "SystemSpec",
+    "TokenBudgetSpec",
     "WorkloadSpec",
     "_Strict",
     "normalize_workload_body",

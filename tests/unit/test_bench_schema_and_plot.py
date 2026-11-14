@@ -360,3 +360,47 @@ def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPat
     assert info["system_memory_mb"] is None or info["system_memory_mb"] > 0
     assert isinstance(info["platform"], str) and len(info["platform"]) > 0
     assert info["cuda_alloc_conf"] == "expandable_segments:True"
+
+
+def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path: Path):
+    """新旧 Scheduler 记录混合：旧记录缺失迭代调度步数类指标时，宽表 / Tidy / 对比 / 报告与绘图均不报错。"""
+    legacy = _make_single_case_scheduler_dict("v0.6.0", "paged-kv-cache+continuous-batching+mrr=4", 2100.0, 44.0)
+    budget_config = "paged-kv-cache+continuous-batching+mrr=4+token-budget(token_budget=256)"
+    current = _make_single_case_scheduler_dict("dev", budget_config, 2200.0, 60.0)
+    schedule = current["cases"][0]["schedule"]
+    for key, value in (
+        ("num_prefill_steps", 6.0),
+        ("num_decode_steps", 40.0),
+        ("max_consecutive_prefill_steps", 1.0),
+        ("num_oversize_prefill_steps", 2.0),
+    ):
+        schedule[key] = {"median": value, "mean": value}
+    schedule["itl_ms_max"] = {"median": 120.0, "mean": 120.0}
+
+    rec_legacy = validate_benchmark_record(legacy, require_single_case=True)
+    rec_current = validate_benchmark_record(current, require_single_case=True)
+    assert isinstance(rec_legacy, SchedulerBenchmarkRecord)
+    assert isinstance(rec_current, SchedulerBenchmarkRecord)
+    assert rec_legacy.cases[0].schedule.max_consecutive_prefill_steps is None
+    assert rec_current.cases[0].schedule.max_consecutive_prefill_steps is not None
+
+    wide_df = records_to_wide_df([rec_legacy, rec_current])
+    assert wide_df["max_consecutive_prefill_steps.median"].isna().iloc[0]
+    assert wide_df["max_consecutive_prefill_steps.median"].iloc[1] == pytest.approx(1.0)
+    tidy = wide_to_tidy_df(wide_df, resolve_plot_specs([rec_legacy, rec_current]))
+    itl_max = tidy[tidy["metric_key"] == "itl_ms_max"].sort_values("order_idx")["median"].tolist()
+    assert itl_max == pytest.approx([50.0, 120.0])
+
+    md = generate_comparison_table(rec_legacy, rec_current, "legacy", "token-budget")
+    assert "ITL Max Latency (ms/token)" in md
+    assert "**0.42x**" in md  # 耗时类指标按 base / target 计算：50 / 120
+    plot_mode_comparison(rec_legacy, rec_current, "legacy", "token-budget", tmp_path / "mixed.png")
+    assert (tmp_path / "mixed.png").exists()
+    assert "token-budget" in markdown_table([rec_legacy, rec_current], rec_legacy)
+
+    current_guidance = generate_optimization_guidance(rec_current)
+    assert "最长连续 Prefill `1` 步" in current_guidance
+    assert "oversize prefill `2` 次" in current_guidance
+    assert "Chunked Prefill" in current_guidance
+    legacy_guidance = generate_optimization_guidance(rec_legacy)
+    assert "迭代调度步数" not in legacy_guidance

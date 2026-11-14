@@ -8,7 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from mini_infra.bench.cases import CaseDimension, CaseDimensionValue, CaseKey
-from mini_infra.core import parse_kv_cache_kind
+from mini_infra.core import parse_kv_cache_kind, parse_scheduling_policy_kind
 from mini_infra.engine import BatchingMethod
 
 if TYPE_CHECKING:
@@ -81,6 +81,12 @@ class Comparison:
                 if not isinstance(raw, int) and raw is not None:
                     raise ValueError("baseline.num_blocks 必须是整数或 null")
                 baseline[dim] = raw
+            elif dim is CaseDimension.SCHEDULING_POLICY:
+                baseline[dim] = parse_scheduling_policy_kind(str(raw))
+            elif dim is CaseDimension.TOKEN_BUDGET:
+                if not isinstance(raw, int) and raw is not None:
+                    raise ValueError("baseline.token_budget 必须是整数或 null")
+                baseline[dim] = raw
             else:
                 raise ValueError(f"baseline 不支持维度 {dim.value}")
         return cls(
@@ -136,6 +142,8 @@ class ComparisonResult:
         cand_info = self.candidate_key.abbreviated_engine_config
         if self.candidate_key.block_size is not None:
             cand_info += f" (block={self.candidate_key.block_size})"
+        if self.candidate_key.token_budget is not None:
+            cand_info += f" (budget={self.candidate_key.token_budget})"
         return f"  [{wid_abbr}] {self.metric_name} ({cand_info} vs baseline): {self._formatted_value()}"
 
     def to_dict(self) -> dict[str, Any]:

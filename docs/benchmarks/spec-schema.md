@@ -57,7 +57,8 @@ release_exec_spec = "{" [ "warmup:" non_neg_int ]
 
 system_spec       = "{" "engine_mode:" engine_mode_spec ","
                         "batching_method:" batching_method
-                        [ "," "caching_spec:" caching_spec ] "}" ;
+                        [ "," "caching_spec:" caching_spec ]
+                        [ "," "scheduler_spec:" scheduler_spec ] "}" ;
 
 engine_mode_spec  = "lockstep"
                   | "scheduler"
@@ -73,6 +74,12 @@ caching_spec      = caching_method
                         [ "," "num_blocks:" (pos_int_ge_2 | "null") ] "}" ;
 
 caching_method    = "none" | "dense-kv-cache" | "paged-kv-cache" ;
+
+scheduler_spec    = scheduling_policy                    (* 仅 prefill-first 可用标量简写 *)
+                  | "{" "kind:" "prefill-first" "}"
+                  | "{" "kind:" "token-budget" "," "token_budget:" pos_int "}" ;
+
+scheduling_policy = "prefill-first" | "token-budget" ;
 
 (* ========================================================================== *)
 (* 4. 负载模板与请求组 (Workload & Distributions)                              *)
@@ -130,7 +137,8 @@ workload_sweep    = "{" { var_name ":" "[" yaml_value { "," yaml_value } "]" } "
 
 system_sweep      = "{" [ "max_running_requests:" "[" pos_int { "," pos_int } "]" ]
                         [ "batching_method:" "[" batching_method { "," batching_method } "]" ]
-                        [ "caching_spec:" "[" caching_spec { "," caching_spec } "]" ] "}" ;
+                        [ "caching_spec:" "[" caching_spec { "," caching_spec } "]" ]
+                        [ "scheduler_spec:" "[" scheduler_spec { "," scheduler_spec } "]" ] "}" ;
 
 (* ========================================================================== *)
 (* 6. 对比规约与语义守卫 (Comparison & Checks)                                 *)
@@ -153,7 +161,8 @@ check_spec        = "free_batch_slot_at_t0"
 (* ========================================================================== *)
 
 case_dim          = "workload_id" | "caching_method" | "batching_method" | "flags"
-                  | "max_running_requests" | "block_size" | "num_blocks" ;
+                  | "max_running_requests" | "block_size" | "num_blocks"
+                  | "scheduling_policy" | "token_budget" ;
 suite_name        = /^[a-z0-9][a-z0-9-]*$/ ;             (* 必须与 YAML 文件名 stem 一致 *)
 pos_int           = /^[1-9][0-9]*$/ ;                    (* 严格 int > 0，拒绝 bool 与 float *)
 pos_int_ge_2      = /^([2-9]|[1-9][0-9]+)$/ ;            (* 严格 int >= 2 *)
@@ -170,14 +179,14 @@ pos_float         = (* float > 0.0，拒绝 bool *) ;
 | :--- | :--- |
 | `name` / `extends` | `name` 必须满足 `^[a-z0-9][a-z0-9-]*$` 且与 YAML 文件名一致；`_bases/` 下的基底文件仅供 `extends` 继承，不可直接作为 suite 运行。`extends` 按**映射深合并、列表整体替换**规则递归合并。 |
 | `execution` | `warmup`（默认 `1`）、`repeats`（默认 `3`）、`interleave`（仅 `scheduler` 支持，指定奇偶轮次反转顺序的 `CaseDimension` 列表以规避热漂移）。 |
-| `system` | 定义基线运行环境：`engine_mode`（`lockstep` 或 `scheduler`）、`batching_method`、`caching_spec`（默认 `dense-kv-cache`）。当引擎为 `scheduler` 时，必须在 `system.engine_mode.max_running_requests` 或 `sweep.system.max_running_requests` 中提供并发上限。 |
+| `system` | 定义基线运行环境：`engine_mode`（`lockstep` 或 `scheduler`）、`batching_method`、`caching_spec`（默认 `dense-kv-cache`）、`scheduler_spec`（默认 `prefill-first`）。当引擎为 `scheduler` 时，必须在 `system.engine_mode.max_running_requests` 或 `sweep.system.max_running_requests` 中提供并发上限。`token-budget` 要求生效的 `batching_method` 全部为 `continuous-batching`，且 `token_budget` 不小于每个生效的 `max_running_requests`。 |
 | `workload` | 定义负载模板：`id`（支持 `${var}` 插值生成各场景的 `workload_id`）、`vars`（默认变量表）、以及多组 `groups` 或单组平铺字段（`count` / `prompt_len` / `output_len` / `arrival_ms`，二者不可同时出现）。 |
-| `sweep` | `sweep.workload` 引用的变量名必须预先在 `workload.vars` 中声明；`sweep.system` 仅显式列出的轴参与笛卡尔积展开（未列出的轴沿用 `system` 基线值）。`sweep.system.caching_spec` 的元素支持标量简写或带专属子字段（如 `block_size`、`num_blocks`）的 `caching_spec` 变体映射。 |
+| `sweep` | `sweep.workload` 引用的变量名必须预先在 `workload.vars` 中声明；`sweep.system` 仅显式列出的轴参与笛卡尔积展开（未列出的轴沿用 `system` 基线值）。`sweep.system.caching_spec` 的元素支持标量简写或带专属子字段（如 `block_size`、`num_blocks`）的 `caching_spec` 变体映射；`sweep.system.scheduler_spec` 同理（如 `[prefill-first, {kind: token-budget, token_budget: 256}]`），用例身份键展平为 `scheduling_policy` + `token_budget`（默认 `prefill-first` 不进入 `canonical_id` 与 `engine_config` 字符串）。 |
 | `comparison` | 仅 `scheduler` 支持：按 `group_by` 维度将用例分组，在组内匹配 `baseline` 约束的唯一基线用例，沿 `metrics[].path` 提取均值计算 `speedup`（`baseline / candidate`）、`gain`（`(candidate - baseline) / baseline`）或 `reduction`（`(baseline - candidate) / baseline`）。 |
 | `checks` | 展开期语义守卫：`free_batch_slot_at_t0`（要求 $t=0$ 到达请求数 $<$ `max_running_requests`）、`{min_max_running_requests: N}`、`{min_output_len: N}`（Lockstep Decode 测量至少要求 `min_output_len: 2`）。 |
 
 > [!IMPORTANT]
-> **Lockstep 引擎边界约束**：`lockstep` 套件禁止声明 `max_running_requests`、`paged-kv-cache`、`continuous-batching`、`execution.interleave`、`comparison` 以及 scheduler 专属守卫（`free_batch_slot_at_t0`、`min_max_running_requests`）。
+> **Lockstep 引擎边界约束**：`lockstep` 套件禁止声明 `max_running_requests`、`paged-kv-cache`、`continuous-batching`、`token-budget`、`execution.interleave`、`comparison` 以及 scheduler 专属守卫（`free_batch_slot_at_t0`、`min_max_running_requests`）。
 
 ---
 
@@ -206,6 +215,7 @@ sweep.workload（外层场景）
   └── max_running_requests
         └── batching_method
               └── caching_spec（元素为 CachingSpec，可包含不同 block_size 等变体配置）
+                    └── scheduler_spec（元素为 SchedulerSpec，可包含不同 token_budget 等变体配置）
 ```
 
 ---

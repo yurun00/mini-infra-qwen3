@@ -511,3 +511,151 @@ def test_scheduler_suite_dry_run_main(capsys):
     assert "Scheduler 基准评测执行计划" in captured
     assert "warmup" in captured
     assert "repeat 1" in captured
+
+
+def test_parse_args_scheduler_case_scheduling_policy():
+    from mini_infra.cli import build_parser
+
+    parser = build_parser()
+    default_args = parser.parse_args(["bench", "scheduler", "case", "--tag", "dev"])
+    assert default_args.scheduling_policy == "prefill-first"
+    assert default_args.token_budget is None
+
+    args = parser.parse_args(
+        ["bench", "scheduler", "case", "--tag", "dev", "--scheduling-policy", "token-budget", "--token-budget", "64"]
+    )
+    assert args.scheduling_policy == "token-budget"
+    assert args.token_budget == 64
+
+
+def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
+    """验证 handle_case 透传 TokenBudgetConfig，并在记录中写出 engine_config 后缀与步数类指标。"""
+    import json
+
+    import pytest
+
+    from mini_infra.cli import build_parser
+    from mini_infra.cli.commands.bench import scheduler as sched_cmd
+    from mini_infra.core import TokenBudgetConfig
+
+    tiny_model = build_tiny_model()
+    captured: dict[str, EngineConfig] = {}
+
+    def fake_check_correctness(model, tokenizer, config, device, update_golden=False):
+        captured["config"] = config
+        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+
+    monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
+    monkeypatch.setattr(sched_cmd, "resolve_model_directory", lambda model, rev: tmp_path)
+    monkeypatch.setattr(sched_cmd, "Qwen3Tokenizer", lambda model_dir: object())
+    monkeypatch.setattr(sched_cmd, "load_model", lambda model_dir, device: tiny_model)
+    monkeypatch.setattr(sched_cmd, "check_correctness", fake_check_correctness)
+    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+
+    out_path = tmp_path / "token_budget_case.json"
+    parser = build_parser()
+    common = ["bench", "scheduler", "case", "--tag", "dev", "--request-count", "3", "--prompt-length", "4"]
+    common += ["--output-budget", "3", "--max-running-requests", "2", "--warmup", "0", "--repeats", "1"]
+    args = parser.parse_args(
+        [*common, "--scheduling-policy", "token-budget", "--token-budget", "4", "--output", str(out_path)]
+    )
+    assert sched_cmd.handle_case(args) == 0
+    assert captured["config"].scheduler_config == TokenBudgetConfig(4)
+
+    saved = json.loads(out_path.read_text(encoding="utf-8"))
+    assert saved["engine_config"] == "dense-kv-cache+continuous-batching+mrr=2+token-budget(token_budget=4)"
+    schedule = saved["cases"][0]["schedule"]
+    # 预算 4 每次只放行 1 个 4-token 请求，decode protection 隔开每次 Prefill
+    assert schedule["num_prefill_steps"]["median"] == 3
+    assert schedule["max_consecutive_prefill_steps"]["median"] == 1
+    assert schedule["num_oversize_prefill_steps"]["median"] == 0
+
+    # CLI 边界校验：token-budget 仅支持 continuous-batching
+    fixed_args = parser.parse_args(
+        [*common, "--batching-method", "fixed-batching", "--scheduling-policy", "token-budget", "--token-budget", "4"]
+    )
+    with pytest.raises(ValueError, match="continuous-batching"):
+        sched_cmd.handle_case(fixed_args)
+
+
+def test_run_scheduler_token_budget_suite_on_cpu(tmp_path):
+    """验证 scheduler_spec 扫描轴端到端：展开、执行、对比与 Record 校验（含 CaseKeyRecord 新字段）。"""
+    from mini_infra.bench.comparison import compute_comparisons
+    from mini_infra.bench.result import validate_benchmark_record
+
+    model = build_tiny_model()
+    device = torch.device("cpu")
+    spec_path = tmp_path / "tiny-token-budget.yaml"
+    spec_path.write_text(
+        """
+name: tiny-token-budget
+execution: {warmup: 0, repeats: 1, interleave: [scheduling_policy, token_budget]}
+system:
+  engine_mode: {kind: scheduler, max_running_requests: 2}
+  batching_method: continuous-batching
+  caching_spec: dense-kv-cache
+sweep:
+  system:
+    scheduler_spec: [prefill-first, {kind: token-budget, token_budget: 4}]
+workload:
+  id: burst
+  groups:
+    - {count: 1, prompt_len: 4, output_len: 3, arrival_ms: 0}
+    # 首次 Prefill 执行期间到达：prefill-first 立即再 Prefill（连续 2 步），token-budget 先插入 Decode
+    - {count: 2, prompt_len: 4, output_len: 3, arrival_ms: 0.001}
+comparison:
+  group_by: [workload_id]
+  baseline: {scheduling_policy: prefill-first}
+  metrics:
+    - {path: schedule_metrics.itl_ms_max, kind: reduction}
+""",
+        encoding="utf-8",
+    )
+    suite = load_benchmark_suite(spec_path, expected_engine="scheduler")
+    cases = run_suite(
+        model=model,
+        device=device,
+        suite=suite,
+        vocab_size=model.config.vocab_size,
+        warmup=0,
+        repeats=1,
+        interleave=suite.interleave,
+    )
+    by_policy = {c.key.scheduling_policy: c for c in cases}
+    assert by_policy["prefill-first"].key.token_budget is None
+    assert by_policy["token-budget"].key.token_budget == 4
+    assert by_policy["prefill-first"].schedule_metrics.max_consecutive_prefill_steps.median == 2
+    assert by_policy["token-budget"].schedule_metrics.max_consecutive_prefill_steps.median == 1
+    assert "budget 4" in by_policy["token-budget"].format_summary()
+    assert "budget" not in by_policy["prefill-first"].format_summary()
+    print(format_table(cases, suite_name=suite.name))
+
+    assert suite.comparison is not None
+    comparisons = compute_comparisons(cases, suite.comparison)
+    assert len(comparisons) == 1
+    assert "(budget=4)" in comparisons[0].format_summary()
+
+    class DummyArgs:
+        tag = "test-tag"
+
+    record = build_benchmark_record(
+        args=DummyArgs(),
+        model=model,
+        engine_config_label="suite(tiny-token-budget)",
+        cases=cases,
+        correctness=CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
+        env={"gpu": "CPU"},
+        peaks=HardwarePeakSpecs(bandwidth_gbs=None, tflops=None),
+        cost=None,
+        git={"commit": "abc", "dirty": False},
+        warmup=0,
+        repeats=1,
+        engine="scheduler",
+        comparisons=comparisons,
+    )
+    validated = validate_benchmark_record(record.model_dump())
+    candidate_key = validated.comparisons[0].candidate_key
+    assert candidate_key.scheduling_policy == "token-budget"
+    assert candidate_key.token_budget == 4
+    assert validated.comparisons[0].baseline_key.scheduling_policy is None
+    assert validated.cases[1].schedule.max_consecutive_prefill_steps is not None

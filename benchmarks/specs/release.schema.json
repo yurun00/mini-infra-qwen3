@@ -19,7 +19,9 @@
         "flags",
         "max_running_requests",
         "block_size",
-        "num_blocks"
+        "num_blocks",
+        "scheduling_policy",
+        "token_budget"
       ],
       "title": "CaseDimension",
       "type": "string"
@@ -155,6 +157,20 @@
       "title": "PagedCacheSpec",
       "type": "object"
     },
+    "PrefillFirstSpec": {
+      "additionalProperties": false,
+      "description": "prefill-first 迭代调度策略（默认）：WaitingQueue 有可入场请求即整批 Prefill。",
+      "properties": {
+        "kind": {
+          "const": "prefill-first",
+          "default": "prefill-first",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "title": "PrefillFirstSpec",
+      "type": "object"
+    },
     "ScaleSpec": {
       "additionalProperties": false,
       "properties": {
@@ -270,6 +286,27 @@
             }
           ],
           "title": "Caching Spec"
+        },
+        "scheduler_spec": {
+          "default": {
+            "kind": "prefill-first"
+          },
+          "discriminator": {
+            "mapping": {
+              "prefill-first": "#/$defs/PrefillFirstSpec",
+              "token-budget": "#/$defs/TokenBudgetSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PrefillFirstSpec"
+            },
+            {
+              "$ref": "#/$defs/TokenBudgetSpec"
+            }
+          ],
+          "title": "Scheduler Spec"
         }
       },
       "required": [
@@ -277,6 +314,28 @@
         "batching_method"
       ],
       "title": "SystemSpec",
+      "type": "object"
+    },
+    "TokenBudgetSpec": {
+      "additionalProperties": false,
+      "description": "token-budget 迭代调度策略：padded prompt token 预算限制单次 Prefill，并启用 decode protection。",
+      "properties": {
+        "kind": {
+          "const": "token-budget",
+          "default": "token-budget",
+          "title": "Kind",
+          "type": "string"
+        },
+        "token_budget": {
+          "exclusiveMinimum": 0,
+          "title": "Token Budget",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "token_budget"
+      ],
+      "title": "TokenBudgetSpec",
       "type": "object"
     },
     "AlternatingLength": {

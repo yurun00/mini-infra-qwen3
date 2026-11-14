@@ -6,11 +6,18 @@
 
 import pytest
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests, required_pool_blocks
+from mini_infra.core import (
+    DenseCacheConfig,
+    PagedCacheConfig,
+    PrefillFirstConfig,
+    SchedulePhase,
+    TokenBudgetConfig,
+    make_requests,
+    required_pool_blocks,
+)
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
-    SchedulePhase,
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
@@ -36,12 +43,13 @@ def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) 
     ]
 
 
-def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, **config):
+def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, token_budget=None, **config):
     return run_scheduler(
         EngineConfig(
             PagedCacheConfig(**config),
             batching_method=BatchingMethod.CONTINUOUS,
             max_running_requests=capacity,
+            scheduler_config=PrefillFirstConfig() if token_budget is None else TokenBudgetConfig(token_budget),
         ),
         model,
         requests,
@@ -142,6 +150,89 @@ def test_small_pool_gates_admission_and_still_matches_serial(model):
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
     assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
     assert result.request_metrics[2].admitted_ms >= result.request_metrics[0].completion_ms
+
+
+def test_paged_prefill_first_event_trajectories(model):
+    """锁定 Paged prefill-first 基线在混合预算、小块池准入限流与 EOS 提前退场下的完整事件轨迹。"""
+
+    def event_trace(events):
+        return [(e.phase, e.admitted_request_ids, e.finished_request_ids) for e in events]
+
+    # 1. 混合预算
+    lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
+    res_mixed = run_paged(model, make_requests(make_prompts(lengths), budgets, arrivals), capacity, block_size=4)
+    assert event_trace(res_mixed.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+        (SchedulePhase.PREFILL, (3,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.PREFILL, (4,), (4,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (3,)),
+    ]
+
+    # 2. 小 physical block pool 显存准入限流（capacity=3 但块池仅够 2 个请求并发）
+    res_small = run_paged(model, make_requests(make_prompts([6, 6, 6]), [3, 3, 3]), 3, block_size=4, num_blocks=5)
+    assert event_trace(res_small.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (0, 1)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+    ]
+
+    # 3. EOS 提前退场归还物理块并立即补位
+    prompts_eos = make_prompts([4, 6, 5])
+    budgets_eos = [8, 8, 8]
+    eos = serial_outputs(model, prompts_eos, budgets_eos)[0][2]
+    res_eos = run_paged(model, make_requests(prompts_eos, budgets_eos), 2, eos, stop_on_eos=True, block_size=4)
+    assert event_trace(res_eos.events) == [
+        (SchedulePhase.PREFILL, (0, 1), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (0,)),
+        (SchedulePhase.PREFILL, (2,), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (1,)),
+        (SchedulePhase.DECODE, (), ()),
+        (SchedulePhase.DECODE, (), (2,)),
+    ]
+
+
+@pytest.mark.parametrize("block_size", [1, 4, 16])
+@pytest.mark.parametrize("case", list(CASES))
+def test_token_budget_outputs_match_serial(model, case, block_size, assert_token_budget_invariants):
+    lengths, budgets, arrivals, capacity = CASES[case]
+    prompts = make_prompts(lengths)
+    token_budget = max(capacity, 8)  # 8 小于 CASES 中最长 Prompt（12），覆盖 oversize prefill
+    requests = make_requests(prompts, budgets, arrivals)
+
+    result = run_paged(model, requests, capacity, block_size=block_size, token_budget=token_budget)
+
+    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert_token_budget_invariants(result, token_budget)
+
+
+def test_token_budget_with_small_pool_matches_serial_and_reuses_blocks(model, assert_token_budget_invariants):
+    """token budget 与 physical block pool 准入叠加：两者都是 FCFS 前缀截断，取交集后输出仍与串行一致。"""
+    prompts = make_prompts([6, 6, 6, 6])
+    budgets = [3, 3, 3, 3]
+    # 块大小 4：每个请求峰值 8 Token = 2 块；池 = 1 个 null block + 4 块，只够 2 个请求并发（并发上限 3）
+    result = run_paged(model, make_requests(prompts, budgets), 3, block_size=4, num_blocks=5, token_budget=6)
+
+    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
+    assert [e.admitted_request_ids for e in prefill_events] == [(0,), (1,), (2,), (3,)]
+    assert result.memory.kv_cache.paged_cache is not None
+    assert result.memory.kv_cache.paged_cache.block_reuse_count > 0
+    assert_token_budget_invariants(result, 6)
 
 
 def test_pool_that_cannot_hold_one_request_is_rejected(model):

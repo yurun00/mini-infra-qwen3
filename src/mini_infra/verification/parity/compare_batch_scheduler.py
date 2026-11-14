@@ -1,6 +1,6 @@
 """用真实 Qwen3 权重检查 Scheduler 批处理（Fixed 与 Continuous）的请求归属和输出一致性。
 
-入口：mini-infra verify scheduler-batch。
+入口：mini-infra verify batch-scheduler。
 """
 
 from collections.abc import Sequence

@@ -86,6 +86,7 @@ class BenchmarkSuite:
                     batching_method=cs.batching_method,
                     kv_cache_config=cs.caching_spec.kv_cache_config,
                     max_running_requests=cs.max_running_requests,
+                    scheduler_config=cs.scheduler_spec.scheduler_config,
                     suite_name=loaded.spec.name,
                     engine=engine,
                 )

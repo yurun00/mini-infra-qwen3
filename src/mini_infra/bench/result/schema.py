@@ -138,6 +138,11 @@ class ScheduleMetricsRecord(_RecordModel):
     itl_ms_p50: DistributionStatsRecord
     itl_ms_p95: DistributionStatsRecord
     itl_ms_max: DistributionStatsRecord
+    # 迭代调度步数类指标：早于 token-budget 的历史记录无此字段，缺省为 None（不回填）
+    num_prefill_steps: DistributionStatsRecord | None = None
+    num_decode_steps: DistributionStatsRecord | None = None
+    max_consecutive_prefill_steps: DistributionStatsRecord | None = None
+    num_oversize_prefill_steps: DistributionStatsRecord | None = None
 
 
 # ============================================================================
@@ -200,6 +205,8 @@ class CaseKeyRecord(_RecordModel):
     max_running_requests: int
     block_size: int | None = None
     num_blocks: int | None = None
+    scheduling_policy: str | None = None  # 缺省即默认 prefill-first
+    token_budget: int | None = None
     canonical_id: str | None = None
 
 

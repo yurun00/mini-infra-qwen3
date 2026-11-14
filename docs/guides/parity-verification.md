@@ -12,9 +12,10 @@
 | :--- | :--- | :--- | :--- | :---: | :--- |
 | **1. 参考实现对齐** | `compare_transformers.py` | `mini-infra verify transformers` | `pytest tests/gpu/parity/test_transformers_parity.py` | FP16/BF16 | 验证手写 Qwen3 与 Hugging Face 官方分词、Logits 与输出 100% 对齐 |
 | **2. KV Cache 等价** | `compare_cache.py` | `mini-infra verify cache` | `pytest tests/gpu/parity/test_cache_parity.py` | `float32` | 验证引入 KV Cache 增量 Decode 与无 Cache 全量重算的数值完全一致 |
-| **3. Lockstep 批隔离** | `compare_lockstep_batch.py` | `mini-infra verify lockstep-batch` | `pytest tests/gpu/parity/test_lockstep_batch_parity.py` | `float32` | 验证固定批处理在不同 Batch Size、顺序与 Padding 长度下的严格请求隔离 |
-| **4. Scheduler 批调度** | `compare_scheduler_batch.py` | `mini-infra verify scheduler-batch` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
-| **5. Paged KV Cache 对照** | `compare_paged_cache_logits.py` / `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache` / `paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` / `-k scheduler` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token Logits 误差在容差内、Greedy 输出一致，以及 Scheduler 环境下多 Block Size 输出一致性与入场轨迹 |
+| **3. Lockstep 批隔离** | `compare_batch_lockstep.py` | `mini-infra verify batch-lockstep` | `pytest tests/gpu/parity/test_lockstep_batch_parity.py` | `float32` | 验证固定批处理在不同 Batch Size、顺序与 Padding 长度下的严格请求隔离 |
+| **4. Scheduler 批调度** | `compare_batch_scheduler.py` | `mini-infra verify batch-scheduler` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
+| **5. Paged KV Cache 对照** | `compare_paged_cache_logits.py` / `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache-logits` / `paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` / `-k scheduler` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token Logits 误差在容差内、Greedy 输出一致，以及 Scheduler 环境下多 Block Size 输出一致性与入场轨迹 |
+| **6. 迭代调度策略对照** | `compare_schedulers_token_budget.py` | `mini-infra verify schedulers-token-budget` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k schedulers` | `float32` | 在错峰 Burst 负载下验证 `prefill-first` 与 `token-budget` 的逐请求输出一致性、单步轨迹与 decode protection（最大连续 Prefill 步数对比） |
 
 ---
 
@@ -83,16 +84,16 @@ pytest tests/gpu/parity/test_cache_parity.py
 
 ### 3. Lockstep 批处理请求隔离与数值对齐测试
 
-* **对应源码**：[`src/mini_infra/verification/parity/compare_lockstep_batch.py`](../../src/mini_infra/verification/parity/compare_lockstep_batch.py)
+* **对应源码**：[`src/mini_infra/verification/parity/compare_batch_lockstep.py`](../../src/mini_infra/verification/parity/compare_batch_lockstep.py)
 * **核心目标**：验证齐步固定批处理（Fixed Batching）的**请求隔离（Request Isolation）**。不管一个请求与什么样的长短请求伴随组成 Batch、位于 Batch 的第几行、受到多长的左填充（Left Padding），其生成结果必须与该请求**完全单独隔离运行**时 100% 一致。
 
 #### CLI 运行指令
 ```bash
 # 默认运行（内置隔离矩阵比对：单请求基准、同批组合、逆序置换与不同 Padding）
-mini-infra verify lockstep-batch
+mini-infra verify batch-lockstep
 
 # 指定生成长度并输出详细测试 JSON
-mini-infra verify lockstep-batch \
+mini-infra verify batch-lockstep \
   --prompt "用一句话解释固定批处理。" \
   --max-new-tokens 8 \
   --dtype float32 \
@@ -112,7 +113,7 @@ pytest tests/gpu/parity/test_lockstep_batch_parity.py
 
 ### 4. scheduler 批调度一致性测试（Fixed vs Continuous vs Paged vs 串行）
 
-* **对应源码**：[`src/mini_infra/verification/parity/compare_scheduler_batch.py`](../../src/mini_infra/verification/parity/compare_scheduler_batch.py)
+* **对应源码**：[`src/mini_infra/verification/parity/compare_batch_scheduler.py`](../../src/mini_infra/verification/parity/compare_batch_scheduler.py)
 * **核心目标**：验证在底层通用调度循环（三级队列 + `DenseScheduleBackend` / `PagedScheduleBackend`）下：
   1. **Fixed Batching（波次准入）** 与单请求串行调度（`max_running_requests=1`）输出完全一致；
   2. **Continuous Batching（空 batch slot 即准入，DenseSlotCache）** 与单请求串行调度输出完全一致；
@@ -122,10 +123,10 @@ pytest tests/gpu/parity/test_lockstep_batch_parity.py
 #### CLI 运行指令
 ```bash
 # 默认参数运行（并发 batch slot 2，输出预算差异化测试）
-mini-infra verify scheduler-batch
+mini-infra verify batch-scheduler
 
 # 指定参数与导出 Admission 轨迹
-mini-infra verify scheduler-batch \
+mini-infra verify batch-scheduler \
   --max-new-tokens 8 \
   --max-running-requests 2 \
   --dtype float32 \
@@ -164,11 +165,11 @@ Paged KV Cache 提供两个互补的对齐验证：单 prompt 的逐步 Logits �
 #### CLI 运行指令
 ```bash
 # 默认参数运行（2 条内置 prompt，生成 8 tokens，block_size=16）
-mini-infra verify paged-cache
+mini-infra verify paged-cache-logits
 
 # 自定义参数与精度阈值
-mini-infra verify paged-cache \
-  --prompt "用一句话解释 Paged KV Cache。" \
+mini-infra verify paged-cache-logits \
+  --prompts "用一句话解释 Paged KV Cache。" \
   --max-new-tokens 8 \
   --block-size 4 \
   --dtype float32 \
@@ -216,17 +217,53 @@ pytest tests/gpu/parity/test_paged_cache_parity.py -k scheduler
 
 ---
 
+### 6. 迭代调度策略对照（`prefill-first` vs `token-budget`）
+
+* **对应源码**：[`src/mini_infra/verification/parity/compare_schedulers_token_budget.py`](../../src/mini_infra/verification/parity/compare_schedulers_token_budget.py)
+* **核心目标**：在错峰 Burst 负载（6 条请求，`arrival_ms = [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]`，`max_running_requests = 4`）下，比较 `prefill-first` 与 `token-budget` 的逐请求 Token 输出一致性、单步调度轨迹（`prefill_first_trace` / `token_budget_trace`，含 `is_oversize_prefill`）与聚合指标（特别是 `max_consecutive_prefill_steps`）。
+
+#### CLI 运行指令
+```bash
+# 默认参数运行（6 条错峰请求，并发 4，token_budget=64，block_size=16）
+mini-infra verify schedulers-token-budget
+
+# 自定义预算与导出 JSON 轨迹
+mini-infra verify schedulers-token-budget \
+  --max-new-tokens 8 \
+  --token-budget 64 \
+  --block-size 16 \
+  --max-running-requests 4 \
+  --dtype float32 \
+  --output tmp/parity_schedulers.json
+```
+
+#### Pytest 运行指令
+```bash
+# 1. GPU 真实权重对照
+pytest tests/gpu/parity/test_scheduler_batch_parity.py -k schedulers
+
+# 2. CPU 单元逻辑测试
+pytest tests/unit/test_compare_schedulers.py
+```
+
+* **判定标准**：
+  - `tokens_match` 为 `True`（`prefill-first` 与 `token-budget` 逐请求生成序列完全一致）；
+  - 打印并导出双方 `max_consecutive_prefill_steps` 与完整调度事件轨迹。
+
+---
+
 ## 三、一键运行全部验证
 
 ### 1. 使用 CLI 依次执行全部对齐命令
 ```bash
-# 执行全部 6 项精度对齐命令
+# 执行全部 7 项精度对齐命令
 mini-infra verify transformers
 mini-infra verify cache
-mini-infra verify lockstep-batch
-mini-infra verify paged-cache
+mini-infra verify batch-lockstep
+mini-infra verify paged-cache-logits
 mini-infra verify paged-cache-scheduler
-mini-infra verify scheduler-batch
+mini-infra verify batch-scheduler
+mini-infra verify schedulers-token-budget
 ```
 
 ### 2. 使用 Pytest 一键回归全部 GPU 对齐测试
@@ -239,7 +276,7 @@ pytest tests/gpu/parity/
 ```bash
 # 无 GPU 时验证调度器与各组件逻辑完备性
 mini-infra verify smoke
-pytest tests/unit/test_compare_scheduler_batch.py
+pytest tests/unit/test_compare_scheduler_batch.py tests/unit/test_compare_schedulers.py
 ```
 
 ---

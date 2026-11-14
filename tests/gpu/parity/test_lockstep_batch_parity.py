@@ -14,4 +14,4 @@ pytestmark = pytest.mark.gpu
 def test_compare_lockstep_batch():
     from mini_infra.cli import main
 
-    assert main(["verify", "lockstep-batch", "--prompt", "用一句话解释固定批处理。", "--max-new-tokens", "8"]) == 0
+    assert main(["verify", "batch-lockstep", "--prompt", "用一句话解释固定批处理。", "--max-new-tokens", "8"]) == 0

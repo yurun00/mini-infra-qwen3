@@ -17,18 +17,22 @@ def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     """渲染单个 Scheduler 用例的一行表格字段。"""
     slot_util = res.packing.slot_utilization.mean if res.packing is not None else 0.0
     block_size_str = str(res.key.block_size) if res.key.block_size is not None else ""
+    token_budget_str = str(res.key.token_budget) if res.key.token_budget is not None else ""
     return [
         _abbreviate_suite_name(suite_name),
         res.key.abbreviated_workload_id,
         res.key.abbreviated_engine_config,
         str(res.key.max_running_requests),
         block_size_str,
+        token_budget_str,
         f"{res.schedule_metrics.makespan_ms.mean:.3f}",
         f"{res.metrics.throughput_req_s.mean:.3f}",
         f"{res.metrics.throughput_tok_s.mean:.3f}",
         f"{slot_util * 100:.2f}%",
         f"{res.schedule_metrics.ttft_ms_p95.mean:.3f}",
         f"{res.schedule_metrics.itl_ms_p95.mean:.3f}",
+        f"{res.schedule_metrics.itl_ms_max.mean:.3f}",
+        f"{res.schedule_metrics.max_consecutive_prefill_steps.median:.0f}",
         f"{res.schedule_metrics.cache_management_fraction.mean * 100:.2f}%",
         f"{res.memory.kv_cache.peak_kv_cache_pool_mb:.2f}",
         str(res.memory.kv_cache.accessed_kv_cache_tokens),
@@ -43,12 +47,15 @@ def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = 
         "engine_config",
         "max_running_requests",
         "block_size",
+        "token_budget",
         "makespan_ms_mean",
         "throughput_req_s_mean",
         "throughput_tok_s_mean",
         "slot_utilization_mean",
         "ttft_ms_p95_mean",
         "itl_ms_p95_mean",
+        "itl_ms_max_mean",
+        "max_consecutive_prefill_steps",
         "cache_management_fraction_mean",
         "peak_kv_cache_pool_mb",
         "accessed_kv_cache_tokens",

@@ -13,7 +13,7 @@ from mini_infra.bench.scheduler.plan import (
     build_scheduler_run_plan,
     format_scheduler_run_plan,
 )
-from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig, Request
+from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig, Request, TokenBudgetConfig
 from mini_infra.engine import BatchingMethod
 
 
@@ -91,6 +91,36 @@ def test_case_key_dimension_value():
 
     with pytest.raises(ValueError, match="is not a valid CaseDimension"):
         case.key.value("invalid_dimension")
+
+
+def test_case_key_scheduling_policy_dimensions():
+    """默认 prefill-first 不进入 canonical_id / to_dict / 缩写名；token-budget 展平为两个正交维度。"""
+    default_case = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
+    assert default_case.key.value(CaseDimension.SCHEDULING_POLICY) == "prefill-first"
+    assert default_case.key.value(CaseDimension.TOKEN_BUDGET) is None
+    assert "sched=" not in default_case.key.canonical_id
+    assert "scheduling_policy" not in default_case.key.to_dict()
+    assert "token_budget" not in default_case.key.to_dict()
+
+    budget_case = BenchmarkCase(
+        profile=default_case.profile,
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(block_size=16),
+        max_running_requests=8,
+        scheduler_config=TokenBudgetConfig(512),
+    )
+    key = budget_case.key
+    assert key.scheduling_policy == "token-budget"
+    assert key.token_budget == 512
+    assert key.engine_config == budget_case.engine_config
+    assert key.canonical_id.endswith("/block=16/sched=token-budget/budget=512")
+    assert key.abbreviated_engine_config == "pkc+cb+tb"
+    assert key.abbreviated_display_name.endswith("| blk-sz=16 | budget=512")
+    assert str(key.engine_config).endswith("+mrr=8+token-budget(token_budget=512)")
+    assert key.to_dict()["scheduling_policy"] == "token-budget"
+    assert key.to_dict()["token_budget"] == 512
+    assert CaseKey.from_dict(key.to_dict()) == key
+    assert key != default_case.key
 
 
 def test_interleave_batching_method_unselected_kv_cache():

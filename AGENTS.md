@@ -79,7 +79,10 @@
 | attention metadata | `Qwen3Model.forward` 的 `attn_metadata` / `DenseAttentionMetadata` / `PagedAttentionMetadata` | 模型前向的注意力寻址与存储描述符，按类型分派：`DenseAttentionMetadata.past_key_values` 承载逐层 dense 历史键值；`PagedAttentionMetadata` 承载 paged 寻址（`slot_mapping` / `block_tables` / `context_lens`）与逐层 physical block pool（`kv_pools`） |
 | sampler | `worker/sampler.py` 的 `greedy_sample` | data plane 设备端贪心采样算子：只吃 logits 张量、吐 token 张量，不感知请求状态与计时 |
 | history mask | `DenseSlotCache.history_mask` | 标记各 batch slot 内历史 token 有效位置（右对齐）的布尔掩码 |
-| scheduler | `ArrivalQueue` / `WaitingQueue` / `RunningQueue` / `run_scheduler` | 调度器概念词统一小写；`Lockstep` 因对应 `LockstepState` / `LockstepRunner` 类保留大写 |
+| scheduler | `ArrivalQueue` / `WaitingQueue` / `RunningQueue` / `IterationScheduler` / `run_scheduler` | 调度器概念词统一小写；`Lockstep` 因对应 `LockstepState` / `LockstepRunner` 类保留大写 |
+| scheduler output | `SchedulerOutput` | 单步迭代调度的决策产出：承载本步阶段（`phase`）、被选中请求快照（`scheduled_requests`）、本步计费 Token 数（`num_scheduled_tokens`）与 oversize prefill 标记（`is_oversize_prefill`） |
+| scheduling policy | `SchedulingPolicyKind`（`prefill-first` / `token-budget`） | scheduler config 的策略标识；「baseline」已另有所指，严禁用作策略名 |
+| token budget | `TokenBudgetConfig.token_budget` | 单次 Prefill 允许的 padded prompt token 上限（软预算），须不小于 `max_running_requests` |
 | control plane / data plane / compute plane | 分层图 ③④⑤ | 模块 `import torch` 且持有张量即 data plane；纯 CPU 决策即 control plane；纯张量算子计算即 compute plane |
 
 **命名与反混用红线**

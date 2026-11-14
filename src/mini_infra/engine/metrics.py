@@ -2,12 +2,12 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Generic, TypeVar
 
 import torch
 
 from mini_infra.core.request import RequestState
+from mini_infra.core.scheduler import SchedulePhase
 from mini_infra.core.types import (
     BatchingMethod,
     DenseCacheConfig,
@@ -266,16 +266,6 @@ def compute_step_aggregated_metrics(
     )
 
 
-class SchedulePhase(str, Enum):
-    """一次调度事件所处阶段。"""
-
-    PREFILL = "prefill"
-    DECODE = "decode"
-
-    def __str__(self) -> str:
-        return self.value
-
-
 @dataclass(frozen=True)
 class ScheduleEvent:
     """一次模型调用（Prefill 或 Decode）及其搬移开销的调度事件记录。"""
@@ -286,6 +276,7 @@ class ScheduleEvent:
     physical_batch_size: int  # 模型实际执行的行数（含空闲/已结束 batch slot）
     num_active_requests: int  # 事件期间仍在占用 batch slot 的请求数
     num_generated_tokens: int  # 本事件产出的有效 Token 数
+    num_scheduled_tokens: int  # 本事件计费 Token 数（透传 SchedulerOutput：PREFILL 为 padded prompt token 数）
     step_ms: float
     model_ms: float
     cache_management_ms: float
@@ -293,6 +284,7 @@ class ScheduleEvent:
     kv_cache_pool_bytes: int = 0
     cache_realign_moved_bytes: int = 0
     accessed_kv_cache_tokens: int = 0
+    is_oversize_prefill: bool = False  # 透传 SchedulerOutput：token-budget 下队头单独超预算放行的 PREFILL
 
 
 @dataclass(frozen=True)
@@ -314,6 +306,18 @@ class ScheduleMetrics(Generic[_MetricT]):
     itl_ms_p50: _MetricT
     itl_ms_p95: _MetricT
     itl_ms_max: _MetricT
+    num_prefill_steps: _MetricT
+    num_decode_steps: _MetricT
+    max_consecutive_prefill_steps: _MetricT  # 最长连续 PREFILL 事件数：衡量 Prefill burst 对在途 Decode 的阻塞
+    num_oversize_prefill_steps: _MetricT
+
+
+def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
+    longest = streak = 0
+    for event in events:
+        streak = streak + 1 if event.phase is SchedulePhase.PREFILL else 0
+        longest = max(longest, streak)
+    return longest
 
 
 def summarize_schedule(
@@ -364,13 +368,8 @@ def summarize_schedule(
     cache_realign_moved_bytes = sum(e.cache_realign_moved_bytes for e in events)
     accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
-    prompt_len_by_request_idx = {state.request.request_idx: state.request.prompt_len for state in states}
     num_prompt_tokens = sum(state.request.prompt_len for state in states)
-    num_padded_prompt_tokens = sum(
-        len(e.admitted_request_ids) * max(prompt_len_by_request_idx[i] for i in e.admitted_request_ids)
-        for e in events
-        if e.phase is SchedulePhase.PREFILL and e.admitted_request_ids
-    )
+    num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in events if e.phase is SchedulePhase.PREFILL)
     if num_padded_prompt_tokens == 0:
         num_padded_prompt_tokens = num_prompt_tokens
     padding_efficiency = num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0
@@ -423,6 +422,10 @@ def summarize_schedule(
         itl_ms_p50=percentile(itls, 50),
         itl_ms_p95=percentile(itls, 95),
         itl_ms_max=max(itls, default=0.0),
+        num_prefill_steps=sum(1 for e in events if e.phase is SchedulePhase.PREFILL),
+        num_decode_steps=sum(1 for e in events if e.phase is SchedulePhase.DECODE),
+        max_consecutive_prefill_steps=_max_consecutive_prefill_steps(events),
+        num_oversize_prefill_steps=sum(1 for e in events if e.is_oversize_prefill),
     )
     trace = GenerationTrace(
         step_latencies_ms=[event.step_ms for event in events],
@@ -452,7 +455,6 @@ __all__ = [
     "PagedCacheProfile",
     "ScheduleEvent",
     "ScheduleMetrics",
-    "SchedulePhase",
     "StepAggregatedMetrics",
     "build_memory_profile",
     "compute_step_aggregated_metrics",

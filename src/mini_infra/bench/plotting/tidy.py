@@ -51,6 +51,7 @@ SCHEDULER_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
     MetricPlotSpec("queue_ms_p95", "Queue Latency P95 (ms)", "Queue P95 (ms)"),
     MetricPlotSpec("ttft_ms_p95", "TTFT P95 Latency (ms)", "TTFT P95 (ms)"),
     MetricPlotSpec("itl_ms_p95", "ITL P95 Latency (ms/token)", "ITL P95 (ms/token)"),
+    MetricPlotSpec("itl_ms_max", "ITL Max Latency (ms/token)", "ITL Max (ms/token)"),
     MetricPlotSpec(
         "running_capacity_utilization",
         "Running Capacity Utilization (%)",
@@ -192,6 +193,11 @@ def records_to_wide_df(
         "itl_ms_p50",
         "itl_ms_p95",
         "itl_ms_max",
+        # 迭代调度步数类指标：历史记录缺失时对应列不存在或为 NaN，由 wide_to_tidy_df 的 dropna 过滤
+        "num_prefill_steps",
+        "num_decode_steps",
+        "max_consecutive_prefill_steps",
+        "num_oversize_prefill_steps",
     )
     for key in sched_exclusive_keys:
         for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
