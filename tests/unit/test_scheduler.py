@@ -186,7 +186,7 @@ CONTINUOUS = BatchingMethod.CONTINUOUS
 
 
 def test_scheduler_prefill_first_decisions():
-    scheduler = IterationScheduler(SchedulerConfig(PrefillFirstConfig()), CONTINUOUS)
+    scheduler = IterationScheduler(SchedulerConfig(batching_policy=PrefillFirstConfig()), CONTINUOUS)
     wq = WaitingQueue(make_states([0.0, 0.0, 0.0]))
     rq = RunningQueue(capacity=2)
 
@@ -214,7 +214,7 @@ def test_scheduler_prefill_first_decisions():
 
 @pytest.mark.parametrize("batching_method", [BatchingMethod.FIXED, BatchingMethod.NONE])
 def test_scheduler_wave_barrier_blocks_admission_until_running_queue_drains(batching_method):
-    scheduler = IterationScheduler(SchedulerConfig(PrefillFirstConfig()), batching_method)
+    scheduler = IterationScheduler(SchedulerConfig(batching_policy=PrefillFirstConfig()), batching_method)
     wq = WaitingQueue(make_states([0.0, 0.0, 0.0]))
     rq = RunningQueue(capacity=2)
     rq.admit(wq.pop_batch(1), clock_ms=0.0)
@@ -231,7 +231,7 @@ def test_scheduler_wave_barrier_blocks_admission_until_running_queue_drains(batc
 def test_scheduler_paged_admission_limited_by_free_blocks():
     # block_size=4，num_blocks=4：1 个 null block + 3 个可分配块
     manager = KVCacheManager(block_size=4, num_blocks=4)
-    scheduler = IterationScheduler(SchedulerConfig(PrefillFirstConfig()), CONTINUOUS, manager)
+    scheduler = IterationScheduler(SchedulerConfig(batching_policy=PrefillFirstConfig()), CONTINUOUS, manager)
     rq = RunningQueue(capacity=8)
 
     # Prompt 6/6/2 各需 2/2/1 块：只够队头 1 个；FCFS 不跳过队头去放 2-token 请求
@@ -246,7 +246,7 @@ def test_scheduler_paged_admission_limited_by_free_blocks():
 
 
 def test_scheduler_prefill_first_has_no_decode_protection():
-    scheduler = IterationScheduler(SchedulerConfig(PrefillFirstConfig()), CONTINUOUS)
+    scheduler = IterationScheduler(SchedulerConfig(batching_policy=PrefillFirstConfig()), CONTINUOUS)
     states = make_states_with_prompt_lens([3, 5, 9])
     wq = WaitingQueue(states[:1])
     rq = RunningQueue(capacity=4)
@@ -273,13 +273,13 @@ def test_scheduler_token_budget_decisions():
 
     # prefill-first：free batch slot 内整批入场
     wq, rq = queues(waiting)
-    decision = IterationScheduler(SchedulerConfig(PrefillFirstConfig()), CONTINUOUS).schedule(wq, rq)
+    decision = IterationScheduler(SchedulerConfig(batching_policy=PrefillFirstConfig()), CONTINUOUS).schedule(wq, rq)
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [0, 1, 2]
     assert not decision.is_oversize_prefill
 
     # token-budget=6：[3] 计 3 ≤ 6；[3, 5] 计 2 × 5 = 10 > 6，只取队头
-    budgeted = IterationScheduler(SchedulerConfig(TokenBudgetConfig(6)), CONTINUOUS)
+    budgeted = IterationScheduler(SchedulerConfig(batching_policy=TokenBudgetConfig(6)), CONTINUOUS)
     decision = budgeted.schedule(wq, rq)
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [0]
@@ -294,7 +294,7 @@ def test_scheduler_token_budget_decisions():
     assert not decision.is_oversize_prefill
 
     # 队头单独超预算：oversize prefill 独自执行，避免永久阻塞 FCFS 队列
-    oversize = IterationScheduler(SchedulerConfig(TokenBudgetConfig(6)), CONTINUOUS)
+    oversize = IterationScheduler(SchedulerConfig(batching_policy=TokenBudgetConfig(6)), CONTINUOUS)
     decision = oversize.schedule(WaitingQueue(waiting[2:]), RunningQueue(capacity=4))
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [2]
@@ -319,7 +319,7 @@ def test_scheduler_token_budget_decisions():
 )
 def test_scheduler_token_budget_selects_fcfs_prefix(prompt_lens, token_budget, capacity, expected, is_oversize):
     wq = WaitingQueue(make_states_with_prompt_lens(prompt_lens))
-    out = IterationScheduler(SchedulerConfig(TokenBudgetConfig(token_budget)), CONTINUOUS).schedule(
+    out = IterationScheduler(SchedulerConfig(batching_policy=TokenBudgetConfig(token_budget)), CONTINUOUS).schedule(
         wq, RunningQueue(capacity)
     )
 
@@ -332,15 +332,17 @@ def test_scheduler_token_budget_selects_fcfs_prefix(prompt_lens, token_budget, c
 def test_scheduler_token_budget_with_paged_admission_takes_intersection():
     # 3 个可分配块：Prompt 4/4/4 各需 1 块 -> KV 显存允许 3 个；预算 8 只允许 2 个（3 × 4 = 12 > 8）
     manager = KVCacheManager(block_size=4, num_blocks=4)
-    out = IterationScheduler(SchedulerConfig(TokenBudgetConfig(8)), CONTINUOUS, manager).schedule(
-        WaitingQueue(make_states_with_prompt_lens([4, 4, 4])), RunningQueue(capacity=4)
-    )
+    out = IterationScheduler(
+        SchedulerConfig(batching_policy=TokenBudgetConfig(8)),
+        CONTINUOUS,
+        manager,
+    ).schedule(WaitingQueue(make_states_with_prompt_lens([4, 4, 4])), RunningQueue(capacity=4))
     assert out is not None and indices(out.scheduled_requests) == [0, 1]
 
 
 def test_scheduler_token_budget_decode_protection_lifecycle():
     # 预算 2：每次 Prefill 只放 1 个 2-token 请求
-    scheduler = IterationScheduler(SchedulerConfig(TokenBudgetConfig(2)), CONTINUOUS)
+    scheduler = IterationScheduler(SchedulerConfig(batching_policy=TokenBudgetConfig(2)), CONTINUOUS)
     wq = WaitingQueue(make_states_with_prompt_lens([2, 2, 2]))
     rq = RunningQueue(capacity=2)
 

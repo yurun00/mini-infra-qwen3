@@ -4,7 +4,7 @@
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, ClassVar, Literal
 
@@ -175,20 +175,44 @@ def batching_policy_from_str(kind: str | None, *, token_budget: int | None = Non
 class SchedulerConfig:
     """迭代级调度器配置（对标 vLLM SchedulerConfig）。
 
+    - max_running_requests: 调度队列最大并发请求数（None 表示不限，按工作负载请求总数推导；对标 vLLM max_num_seqs）。
     - batching_policy: 单步组批与阶段准入策略（PrefillFirstConfig / TokenBudgetConfig）。
-    - TODO: 后续聚合 max_running_requests、queue_policy（priority / srtf）、
+    - TODO: 后续聚合 queue_policy（priority / srtf）、
       preemption_mode（recompute / swap）与 watermark。
     """
 
+    max_running_requests: int | None = None
     batching_policy: BatchingPolicy = PrefillFirstConfig()
 
+    def __post_init__(self) -> None:
+        if self.max_running_requests is not None and self.max_running_requests < 1:
+            raise ValueError(f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}")
+
+    def with_max_running_requests(self, max_running_requests: int | None) -> "SchedulerConfig":
+        """返回指定 max_running_requests 修改后的新 SchedulerConfig 实例。"""
+        return replace(self, max_running_requests=max_running_requests)
+
+    def with_batching_policy(self, batching_policy: BatchingPolicy) -> "SchedulerConfig":
+        """返回指定 batching_policy 修改后的新 SchedulerConfig 实例。"""
+        return replace(self, batching_policy=batching_policy)
+
     def __str__(self) -> str:
-        return str(self.batching_policy)
+        if self.max_running_requests is None:
+            return str(self.batching_policy)
+        return f"mrr={self.max_running_requests}+{self.batching_policy}"
 
 
-def scheduler_config_from_str(kind: str | None, *, token_budget: int | None = None) -> SchedulerConfig:
-    """根据 batching policy 标识与可选预算构造对应的 SchedulerConfig 实例（prefill-first 忽略 token_budget）。"""
-    return SchedulerConfig(batching_policy=batching_policy_from_str(kind, token_budget=token_budget))
+def scheduler_config_from_str(
+    kind: str | None = None,
+    *,
+    max_running_requests: int | None = None,
+    token_budget: int | None = None,
+) -> SchedulerConfig:
+    """根据并发上限、batching policy 标识与可选预算构造 SchedulerConfig（prefill-first 忽略 token_budget）。"""
+    return SchedulerConfig(
+        max_running_requests=max_running_requests,
+        batching_policy=batching_policy_from_str(kind, token_budget=token_budget),
+    )
 
 
 class BatchingMethod(str, Enum):

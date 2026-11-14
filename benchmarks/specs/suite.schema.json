@@ -267,7 +267,15 @@
           "default": "scheduler",
           "title": "Kind",
           "type": "string"
-        },
+        }
+      },
+      "title": "SchedulerEngineSpec",
+      "type": "object"
+    },
+    "SchedulerSpec": {
+      "additionalProperties": false,
+      "description": "迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。",
+      "properties": {
         "max_running_requests": {
           "anyOf": [
             {
@@ -280,15 +288,7 @@
           ],
           "default": null,
           "title": "Max Running Requests"
-        }
-      },
-      "title": "SchedulerEngineSpec",
-      "type": "object"
-    },
-    "SchedulerSpec": {
-      "additionalProperties": false,
-      "description": "迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。",
-      "properties": {
+        },
         "batching_policy": {
           "default": {
             "kind": "prefill-first"
@@ -396,6 +396,7 @@
         "scheduler_spec": {
           "$ref": "#/$defs/SchedulerSpec",
           "default": {
+            "max_running_requests": null,
             "batching_policy": {
               "kind": "prefill-first"
             }
@@ -413,23 +414,6 @@
       "additionalProperties": false,
       "description": "系统层扫描轴：仅显式指定的字段会在 expand 阶段展开为多个候选点。",
       "properties": {
-        "max_running_requests": {
-          "anyOf": [
-            {
-              "items": {
-                "exclusiveMinimum": 0,
-                "type": "integer"
-              },
-              "minItems": 1,
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Running Requests"
-        },
         "batching_method": {
           "anyOf": [
             {
@@ -912,7 +896,6 @@
         "system": {
           "batching_method": null,
           "caching_spec": null,
-          "max_running_requests": null,
           "scheduler_spec": null
         }
       }

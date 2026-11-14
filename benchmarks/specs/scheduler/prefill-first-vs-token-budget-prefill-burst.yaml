@@ -9,12 +9,10 @@ execution:
   repeats: 3
   interleave: [batching_policy, token_budget]
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 8
+  engine_mode: scheduler
   batching_method: continuous-batching
   caching_spec: {kind: paged-kv-cache, block_size: 16}
-  scheduler_spec: {batching_policy: prefill-first}
+  scheduler_spec: {max_running_requests: 8, batching_policy: prefill-first}
 sweep:
   system:
     caching_spec:

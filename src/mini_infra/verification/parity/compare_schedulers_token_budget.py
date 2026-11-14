@@ -102,18 +102,21 @@ def run_compare_schedulers(
     base_config = EngineConfig(
         PagedCacheConfig(block_size=block_size),
         batching_method=BatchingMethod.CONTINUOUS,
-        max_running_requests=max_running_requests,
+        scheduler_config=SchedulerConfig(
+            max_running_requests=max_running_requests,
+            batching_policy=PrefillFirstConfig(),
+        ),
     )
 
     prefill_first = run_scheduler(
-        base_config.with_scheduler_config(SchedulerConfig(PrefillFirstConfig())),
+        base_config,
         model,
         requests,
         eos_token_id=eos_token_id,
         stop_on_eos=False,
     )
     budgeted = run_scheduler(
-        base_config.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(token_budget))),
+        base_config.with_batching_policy(TokenBudgetConfig(token_budget)),
         model,
         requests,
         eos_token_id=eos_token_id,

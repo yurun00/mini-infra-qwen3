@@ -10,7 +10,7 @@ from mini_infra.bench.lockstep.types import (
     DistributionStats,
     LockstepCaseResult,
 )
-from mini_infra.core import DenseCacheConfig
+from mini_infra.core import DenseCacheConfig, SchedulerConfig
 from mini_infra.engine import EngineConfig
 from mini_infra.engine.metrics import BatchScheduleInfo, KVCacheProfile, MemoryProfile, StepAggregatedMetrics
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
@@ -48,7 +48,7 @@ def test_distribution_stats_computation_and_immutability():
 
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
-    config = EngineConfig(DenseCacheConfig(), max_running_requests=2)
+    config = EngineConfig(DenseCacheConfig(), scheduler_config=SchedulerConfig(max_running_requests=2))
     workload = WorkloadProfile(
         workload_id="custom",
         num_total_requests=2,

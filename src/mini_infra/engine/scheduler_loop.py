@@ -164,7 +164,7 @@ def run_scheduler(
     """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
     Args:
-        config: 引擎运行配置（包含 kv_cache_config、batching_method、max_running_requests 与 scheduler_config）。
+        config: 引擎运行配置（包含 kv_cache_config、batching_method 与 scheduler_config）。
         model: 因果语言模型。
         requests: 待调度的请求列表。
         eos_token_id: 结束 Token ID。
@@ -176,7 +176,8 @@ def run_scheduler(
     """
     if not requests:
         raise ValueError("requests 不能为空")
-    max_running_requests = config.max_running_requests if config.max_running_requests is not None else len(requests)
+    raw_mrr = config.scheduler_config.max_running_requests
+    max_running_requests = raw_mrr if raw_mrr is not None else len(requests)
 
     batching_method = config.batching_method
     kv_cache_config = config.kv_cache_config

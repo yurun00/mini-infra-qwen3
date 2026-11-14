@@ -19,7 +19,7 @@ from mini_infra.bench.suite import (
     list_benchmark_suite_names,
     load_benchmark_suite,
 )
-from mini_infra.core import DenseCacheConfig
+from mini_infra.core import DenseCacheConfig, SchedulerConfig
 from mini_infra.engine import BatchingMethod, EngineConfig
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -65,8 +65,9 @@ def test_lockstep_suites_registry():
 def test_load_lockstep_suite_rejects_other_engine(tmp_path):
     path = tmp_path / "demo.yaml"
     path.write_text(
-        "name: demo\nsystem: {engine_mode: {kind: scheduler, max_running_requests: 2}, batching_method: fixed-batching,"
-        " caching_spec: dense-kv-cache}\nworkload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
+        "name: demo\nsystem: {engine_mode: scheduler, batching_method: fixed-batching,"
+        " caching_spec: dense-kv-cache, scheduler_spec: {max_running_requests: 2}}\n"
+        "workload: {id: w, count: 1, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="engine 必须是 lockstep"):
@@ -336,7 +337,7 @@ def test_benchmark_case_and_suite_unification(tmp_path):
     config = EngineConfig(
         kv_cache_config=DenseCacheConfig(),
         batching_method=BatchingMethod.FIXED,
-        max_running_requests=3,
+        scheduler_config=SchedulerConfig(max_running_requests=3),
     )
 
     # 1. lockstep 缺省 max_running_requests 保持 None，scheduler 自动推导为 num_total_requests
@@ -344,26 +345,25 @@ def test_benchmark_case_and_suite_unification(tmp_path):
     assert case.engine_config == EngineConfig(
         kv_cache_config=DenseCacheConfig(),
         batching_method=BatchingMethod.FIXED,
-        max_running_requests=None,
     )
-    assert case.max_running_requests is None
+    assert case.scheduler_config.max_running_requests is None
     assert case.key.max_running_requests is None
     assert case.workload_id == "test_profile"
     assert case.engine == "lockstep"
 
     default_sched_case = BenchmarkCase(profile=profile, batching_method=BatchingMethod.FIXED, engine="scheduler")
     assert default_sched_case.engine_config == config
-    assert default_sched_case.max_running_requests == 3
+    assert default_sched_case.scheduler_config.max_running_requests == 3
     assert default_sched_case.key.max_running_requests == 3
 
     # 2. 显式提供 max_running_requests
     scheduler_case = BenchmarkCase(
         profile=profile,
         batching_method=BatchingMethod.FIXED,
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         engine="scheduler",
     )
-    assert scheduler_case.max_running_requests == 2
+    assert scheduler_case.scheduler_config.max_running_requests == 2
     assert scheduler_case.engine == "scheduler"
 
     # 3. BenchmarkSuite 实体容器从 Spec 装配与纯内存直接实例化
@@ -386,7 +386,7 @@ workload:
     assert suite.engine == "lockstep"
     assert len(suite) == 1
     assert isinstance(suite[0], BenchmarkCase)
-    assert suite[0].max_running_requests is None
+    assert suite[0].scheduler_config.max_running_requests is None
 
     # BenchmarkSuite 纯内存直接实例化（零 Spec 依赖）
     pure_suite = BenchmarkSuite(

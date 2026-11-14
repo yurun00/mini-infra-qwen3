@@ -17,9 +17,10 @@ from mini_infra.bench.spec.common.schema import (
     LockstepEngineSpec,
     MinMaxRunningRequestsCheck,
     PagedCacheSpec,
-    PositiveInt,
+    SchedulerSpec,
     SuiteEngine,
     SystemSpec,
+    TokenBudgetSpec,
     _Strict,
 )
 from mini_infra.engine import EngineConfig
@@ -30,7 +31,7 @@ RELEASE_SCALES: tuple[ReleaseScale, ...] = ("small", "medium", "large")
 
 class ScaleSpec(_Strict):
     seed_salt: Annotated[int, Field(strict=True)]
-    max_running_requests: PositiveInt | None = None
+    scheduler_spec: SchedulerSpec | None = None
     workload: dict[str, Any]
 
 
@@ -65,19 +66,29 @@ class ReleaseSpec(_Strict):
         if isinstance(self.system.engine_mode, LockstepEngineSpec):
             if isinstance(self.system.caching_spec, PagedCacheSpec):
                 raise ValueError("lockstep release 不支持 paged-kv-cache")
+            if self.system.scheduler_spec.max_running_requests is not None:
+                raise ValueError("lockstep release 不支持 max_running_requests")
+            if isinstance(self.system.scheduler_spec.batching_policy, TokenBudgetSpec):
+                raise ValueError("lockstep release 不支持 token-budget 调度策略")
             for check in self.checks:
                 if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):
                     raise ValueError(f"lockstep release 不支持检查 {check!r}")
             for scale, spec in self.scales.items():
-                if spec.max_running_requests is not None:
-                    raise ValueError(f"lockstep release 的 scales.{scale} 不支持 max_running_requests")
-        else:
-            base_mrr = self.system.engine_mode.max_running_requests
-            for scale, spec in self.scales.items():
-                effective_mrr = spec.max_running_requests or base_mrr
-                if effective_mrr is None:
+                if spec.scheduler_spec is not None:
                     raise ValueError(
-                        f"scheduler release 的 scales.{scale} 必须提供 max_running_requests（或在 system 中指定）"
+                        f"lockstep release 的 scales.{scale} 不支持 scheduler_spec（如 max_running_requests）"
+                    )
+        else:
+            for scale, spec in self.scales.items():
+                effective_scheduler = (
+                    spec.scheduler_spec.inherit_from(self.system.scheduler_spec)
+                    if spec.scheduler_spec is not None
+                    else self.system.scheduler_spec
+                )
+                if effective_scheduler.max_running_requests is None:
+                    raise ValueError(
+                        f"scheduler release 的 scales.{scale} 必须提供 max_running_requests"
+                        "（通过 scheduler_spec 或在 system.scheduler_spec 中指定）"
                     )
         return self
 

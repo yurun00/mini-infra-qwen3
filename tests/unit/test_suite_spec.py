@@ -37,7 +37,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
         {
             "workload_id": c.workload_id,
             "engine_config": str(c.engine_config),
-            "max_running_requests": c.max_running_requests,
+            "max_running_requests": c.scheduler_config.max_running_requests,
             "paged_cache_config": (
                 {"block_size": c.kv_cache_config.block_size, "num_blocks": c.kv_cache_config.num_blocks}
                 if isinstance(c.kv_cache_config, PagedCacheConfig)
@@ -54,7 +54,7 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
     return {
         "warmup": suite.warmup,
         "repeats": suite.repeats,
-        "max_running_requests": loaded.spec.system.engine_mode.max_running_requests,
+        "max_running_requests": loaded.spec.system.scheduler_spec.max_running_requests,
         "interleave": [d.value for d in suite.interleave],
         "engine_configs": [str(m) for m in suite.engine_configs()],
         "comparison": suite.comparison.to_dict(),
@@ -140,11 +140,11 @@ def test_suite_info_is_json_serializable_and_hash_is_stable():
 _SCHEDULER_BASE = """
 name: demo
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 4
+  engine_mode: scheduler
   batching_method: continuous-batching
   caching_spec: dense-kv-cache
+  scheduler_spec:
+    max_running_requests: 4
 workload:
   id: w
   count: 2
@@ -189,11 +189,11 @@ def test_workload_cartesian_sweep_and_type_preserving_interpolation(tmp_path):
     text = """
 name: demo
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 4
+  engine_mode: scheduler
   batching_method: fixed-batching
   caching_spec: dense-kv-cache
+  scheduler_spec:
+    max_running_requests: 4
 workload:
   vars: {n: 1, plen: 8}
   id: "w_${n}_${plen}"
@@ -245,11 +245,11 @@ workload:
 def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
     (tmp_path / "base.yaml").write_text(
         "system:\n"
-        "  engine_mode:\n"
-        "    kind: scheduler\n"
-        "    max_running_requests: 4\n"
+        "  engine_mode: scheduler\n"
         "  batching_method: fixed-batching\n"
         "  caching_spec: dense-kv-cache\n"
+        "  scheduler_spec:\n"
+        "    max_running_requests: 4\n"
         "sweep:\n"
         "  system:\n"
         "    batching_method: [fixed-batching, continuous-batching]\n",
@@ -262,12 +262,12 @@ def test_extends_deep_merges_mappings_and_replaces_lists(tmp_path):
     )
     raw = load_raw_spec(child)
     assert raw["system"] == {
-        "engine_mode": {
-            "kind": "scheduler",
-            "max_running_requests": 4,
-        },
+        "engine_mode": "scheduler",
         "batching_method": "continuous-batching",
         "caching_spec": "dense-kv-cache",
+        "scheduler_spec": {
+            "max_running_requests": 4,
+        },
     }
     assert "extends" not in raw
     assert load_suite_spec(child).spec.system.batching_method == BatchingMethod.CONTINUOUS
@@ -297,7 +297,7 @@ def test_deep_merge_does_not_mutate_inputs():
         (lambda t: t.replace("prompt_len: 8", "prompt_len: true"), "布尔"),
         (lambda t: t.replace("prompt_len: 8", "prompt_len: [8]"), "必须等于 count"),
         (lambda t: t.replace("prompt_len: 8", "prompt_len: {ladder: {max: 8}}"), "count == 4"),
-        (lambda t: t.replace("    max_running_requests: 4\n", ""), "max_running_requests"),
+        (lambda t: t.replace("  scheduler_spec:\n    max_running_requests: 4\n", ""), "max_running_requests"),
         (lambda t: t + "sweep:\n  workload:\n    nope: [1]\n", "未在 workload.vars 中声明"),
         (lambda t: t + "sweep:\n  system:\n    caching_spec: []\n", "at least 1"),
         (
@@ -326,16 +326,52 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
     )
     loaded = load_suite_spec(_write(tmp_path, text))
     assert [(cs.caching_spec.kind, cs.scheduler_spec.scheduler_config) for cs in loaded.cases] == [
-        ("dense-kv-cache", SchedulerConfig(PrefillFirstConfig())),
-        ("dense-kv-cache", SchedulerConfig(TokenBudgetConfig(64))),
-        ("paged-kv-cache", SchedulerConfig(PrefillFirstConfig())),
-        ("paged-kv-cache", SchedulerConfig(TokenBudgetConfig(64))),
+        ("dense-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig())),
+        ("dense-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=TokenBudgetConfig(64))),
+        ("paged-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig())),
+        ("paged-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=TokenBudgetConfig(64))),
     ]
     suite = BenchmarkSuite.from_spec(loaded)
     assert [c.key.token_budget for c in suite.cases] == [None, 64, None, 64]
-    # 基线 system 未声明 scheduler_spec 时默认 prefill-first，既有 suite 的 engine_config 字符串不变
+    # 基线 system 未声明 batching_policy 时默认 prefill-first，既有 suite 的 engine_config 字符串不变
     default_suite = BenchmarkSuite.from_spec(load_suite_spec(_write(tmp_path, _SCHEDULER_BASE)))
     assert [str(m) for m in default_suite.engine_configs()] == ["dense-kv-cache+continuous-batching+mrr=4"]
+
+    # 基线 system.scheduler_spec 声明了 batching_policy 时，仅扫描 max_running_requests 的 sweep 项也会继承该策略
+    inherit_policy_text = (
+        _SCHEDULER_BASE.replace(
+            "  scheduler_spec:\n    max_running_requests: 4\n",
+            "  scheduler_spec: {max_running_requests: 4, batching_policy: {kind: token-budget, token_budget: 64}}\n",
+        )
+        + "sweep:\n  system:\n    scheduler_spec:\n"
+        + "      - {max_running_requests: 2}\n"
+        + "      - {max_running_requests: 8}\n"
+    )
+    inherited = load_suite_spec(_write(tmp_path, inherit_policy_text))
+    assert [cs.scheduler_spec.scheduler_config for cs in inherited.cases] == [
+        SchedulerConfig(max_running_requests=2, batching_policy=TokenBudgetConfig(64)),
+        SchedulerConfig(max_running_requests=8, batching_policy=TokenBudgetConfig(64)),
+    ]
+
+    # 基线 system.caching_spec 为 paged-kv-cache(block_size=32) 时，sweep 中同类变体自动继承未指定的 block_size
+    inherit_cache_text = (
+        _SCHEDULER_BASE.replace(
+            "  caching_spec: dense-kv-cache\n",
+            "  caching_spec: {kind: paged-kv-cache, block_size: 32}\n",
+        )
+        + "sweep:\n  system:\n    caching_spec:\n"
+        + "      - dense-kv-cache\n"
+        + "      - paged-kv-cache\n"
+        + "      - {kind: paged-kv-cache, num_blocks: 64}\n"
+    )
+    inherited_cache = load_suite_spec(_write(tmp_path, inherit_cache_text))
+    from mini_infra.core import DenseCacheConfig, PagedCacheConfig
+
+    assert [cs.caching_spec.kv_cache_config for cs in inherited_cache.cases] == [
+        DenseCacheConfig(),
+        PagedCacheConfig(block_size=32, num_blocks=None),
+        PagedCacheConfig(block_size=32, num_blocks=64),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -344,16 +380,29 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
         # token-budget 仅支持 continuous-batching（含 sweep 中任一生效的 batching_method）
         (
             "sweep:\n  system:\n    batching_method: [fixed-batching, continuous-batching]\n"
-            "    scheduler_spec: [{batching_policy: {kind: token-budget, token_budget: 64}}]\n",
+            "    scheduler_spec:\n"
+            "      - {batching_policy: {kind: token-budget, token_budget: 64}}\n",
             "continuous-batching",
         ),
-        # token_budget 不得小于任一生效的 max_running_requests
+        # token_budget 不得小于任一生效的 max_running_requests（含继承自 system.scheduler_spec 的 4）
         (
-            "sweep:\n  system:\n    max_running_requests: [2, 8]\n"
-            "    scheduler_spec: [{batching_policy: {kind: token-budget, token_budget: 4}}]\n",
+            "sweep:\n  system:\n"
+            "    scheduler_spec:\n"
+            "      - {batching_policy: {kind: token-budget, token_budget: 2}}\n",
             "不能小于",
         ),
-        ("sweep:\n  system:\n    scheduler_spec: [{batching_policy: token-budget}]\n", "token_budget"),
+        # token_budget 不得小于 sweep.system.scheduler_spec 显式覆盖的 max_running_requests
+        (
+            "sweep:\n  system:\n"
+            "    scheduler_spec:\n"
+            "      - {max_running_requests: 2, batching_policy: {kind: token-budget, token_budget: 4}}\n"
+            "      - {max_running_requests: 8, batching_policy: {kind: token-budget, token_budget: 4}}\n",
+            "不能小于",
+        ),
+        (
+            "sweep:\n  system:\n    scheduler_spec: [{batching_policy: token-budget}]\n",
+            "token_budget",
+        ),
         (
             "sweep:\n  system:\n    scheduler_spec: [{batching_policy: {kind: token-budget, token_budget: 0}}]\n",
             "greater than 0",
@@ -374,11 +423,14 @@ def test_baseline_scheduler_spec_and_lockstep_rejection(tmp_path):
     from mini_infra.core import SchedulerConfig, TokenBudgetConfig
 
     text = _SCHEDULER_BASE.replace(
-        "  caching_spec: dense-kv-cache\n",
-        "  caching_spec: dense-kv-cache\n  scheduler_spec: {batching_policy: {kind: token-budget, token_budget: 4}}\n",
+        "  scheduler_spec:\n    max_running_requests: 4\n",
+        "  scheduler_spec: {max_running_requests: 4, batching_policy: {kind: token-budget, token_budget: 4}}\n",
     )
     (case,) = load_suite_spec(_write(tmp_path, text)).cases
-    assert case.scheduler_spec.scheduler_config == SchedulerConfig(TokenBudgetConfig(4))
+    assert case.scheduler_spec.scheduler_config == SchedulerConfig(
+        max_running_requests=4,
+        batching_policy=TokenBudgetConfig(4),
+    )
 
     lockstep = """
 name: demo
@@ -398,16 +450,22 @@ def test_system_spec_scheduler_spec_default_engine_config():
     from mini_infra.core import PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
 
     default_sys = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "continuous-batching"})
-    assert default_sys.default_engine_config.scheduler_config == SchedulerConfig(PrefillFirstConfig())
+    assert default_sys.default_engine_config.scheduler_config == SchedulerConfig(batching_policy=PrefillFirstConfig())
 
     budget_sys = SystemSpec.model_validate(
         {
-            "engine_mode": {"kind": "scheduler", "max_running_requests": 4},
+            "engine_mode": "scheduler",
             "batching_method": "continuous-batching",
-            "scheduler_spec": {"batching_policy": {"kind": "token-budget", "token_budget": 128}},
+            "scheduler_spec": {
+                "max_running_requests": 4,
+                "batching_policy": {"kind": "token-budget", "token_budget": 128},
+            },
         }
     )
-    assert budget_sys.default_engine_config.scheduler_config == SchedulerConfig(TokenBudgetConfig(128))
+    assert budget_sys.default_engine_config.scheduler_config == SchedulerConfig(
+        max_running_requests=4,
+        batching_policy=TokenBudgetConfig(128),
+    )
 
 
 def test_filename_must_match_name(tmp_path):
@@ -557,7 +615,7 @@ def test_system_spec_engine_mode_discriminated_union():
     )
     from mini_infra.bench.spec.suite import SuiteSpec
 
-    # 1. 标量简写
+    # 1. 标量简写与字典形式
     s_lockstep = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
     assert isinstance(s_lockstep.engine_mode, LockstepEngineSpec)
     assert s_lockstep.engine_mode.kind == "lockstep"
@@ -565,24 +623,25 @@ def test_system_spec_engine_mode_discriminated_union():
     s_scheduler = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "fixed-batching"})
     assert isinstance(s_scheduler.engine_mode, SchedulerEngineSpec)
     assert s_scheduler.engine_mode.kind == "scheduler"
-    assert s_scheduler.engine_mode.max_running_requests is None
+    assert s_scheduler.scheduler_spec.max_running_requests is None
 
-    # 2. Scheduler 字典形式定制子 field
+    # 2. SchedulerSpec 字典形式定制 max_running_requests
     s_scheduler_mrr = SystemSpec.model_validate(
         {
-            "engine_mode": {"kind": "scheduler", "max_running_requests": 8},
+            "engine_mode": "scheduler",
             "batching_method": "continuous-batching",
+            "scheduler_spec": {"max_running_requests": 8},
         }
     )
     assert isinstance(s_scheduler_mrr.engine_mode, SchedulerEngineSpec)
-    assert s_scheduler_mrr.engine_mode.max_running_requests == 8
+    assert s_scheduler_mrr.scheduler_spec.max_running_requests == 8
 
-    # 3. 非法状态不可表达：lockstep 下传入 max_running_requests 被拒绝
+    # 3. 非法状态不可表达：engine_mode 下传入已迁出的 max_running_requests 被拒绝
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         SystemSpec.model_validate(
             {
-                "engine_mode": {"kind": "lockstep", "max_running_requests": 8},
-                "batching_method": "fixed-batching",
+                "engine_mode": {"kind": "scheduler", "max_running_requests": 8},
+                "batching_method": "continuous-batching",
             }
         )
 

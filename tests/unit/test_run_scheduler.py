@@ -17,7 +17,7 @@ from mini_infra.bench.scheduler import (
     run_suite,
 )
 from mini_infra.bench.suite import load_benchmark_suite
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, make_requests
 from mini_infra.engine import BatchingMethod, EngineConfig
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -172,7 +172,7 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     assert captured_correctness_kwargs["config"] == EngineConfig(
         PagedCacheConfig(block_size=4, num_blocks=32),
         batching_method=BatchingMethod.CONTINUOUS,
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
     )
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
@@ -240,12 +240,16 @@ def test_run_scheduler_case_and_step_on_cpu():
     model = build_tiny_model()
     device = torch.device("cpu")
     requests = tuple(make_requests([[1, 2, 3], [4, 5]], [2, 3], [0.0, 10.0]))
-    config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    config = EngineConfig(
+        DenseCacheConfig(),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("test-cont-case", requests),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=DenseCacheConfig(),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test-cont-case",
         engine="scheduler",
     )
@@ -293,11 +297,11 @@ def test_run_scheduler_suite_on_cpu(tmp_path):
 name: tiny-fixed-vs-continuous
 execution: {warmup: 0, repeats: 2, interleave: [batching_method]}
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 4
+  engine_mode: scheduler
   batching_method: fixed-batching
   caching_spec: dense-kv-cache
+  scheduler_spec:
+    max_running_requests: 4
 sweep:
   system:
     batching_method: [fixed-batching, continuous-batching]
@@ -365,13 +369,17 @@ def test_run_scheduler_paged_case_on_cpu():
     device = torch.device("cpu")
     requests = tuple(make_requests([[1, 2, 3, 4], [5, 6]], [2, 3], [0.0, 5.0]))
     paged_config = PagedCacheConfig(block_size=4)
-    config = EngineConfig(paged_config, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    config = EngineConfig(
+        paged_config,
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
 
     case = BenchmarkCase(
         profile=WorkloadProfile.from_requests("stress_case", requests),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=paged_config,
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test-paged-case",
         engine="scheduler",
     )
@@ -407,15 +415,23 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
     req_w1 = tuple(make_requests([[5, 6, 7], [8, 9, 10]], [1, 1], [0.0, 0.0]))
 
     paged_config = PagedCacheConfig(block_size=4)
-    dense_cfg = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
-    paged_cfg = EngineConfig(paged_config, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    dense_cfg = EngineConfig(
+        DenseCacheConfig(),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
+    paged_cfg = EngineConfig(
+        paged_config,
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
 
     cases = [
         BenchmarkCase(
             profile=WorkloadProfile.from_requests("workload_0", req_w0),
             batching_method=BatchingMethod.CONTINUOUS,
             kv_cache_config=DenseCacheConfig(),
-            max_running_requests=2,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
@@ -423,7 +439,7 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
             profile=WorkloadProfile.from_requests("workload_0", req_w0),
             batching_method=BatchingMethod.CONTINUOUS,
             kv_cache_config=paged_config,
-            max_running_requests=2,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
@@ -431,7 +447,7 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
             profile=WorkloadProfile.from_requests("workload_1", req_w1),
             batching_method=BatchingMethod.CONTINUOUS,
             kv_cache_config=DenseCacheConfig(),
-            max_running_requests=2,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
@@ -439,7 +455,7 @@ def test_run_scheduler_suite_multi_workload_on_cpu():
             profile=WorkloadProfile.from_requests("workload_1", req_w1),
             batching_method=BatchingMethod.CONTINUOUS,
             kv_cache_config=paged_config,
-            max_running_requests=2,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
             suite_name="multi-workload-suite",
             engine="scheduler",
         ),
@@ -560,7 +576,10 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
         [*common, "--batching-policy", "token-budget", "--token-budget", "4", "--output", str(out_path)]
     )
     assert sched_cmd.handle_case(args) == 0
-    assert captured["config"].scheduler_config == SchedulerConfig(TokenBudgetConfig(4))
+    assert captured["config"].scheduler_config == SchedulerConfig(
+        max_running_requests=2,
+        batching_policy=TokenBudgetConfig(4),
+    )
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     assert saved["engine_config"] == "dense-kv-cache+continuous-batching+mrr=2+token-budget(token_budget=4)"
@@ -591,14 +610,14 @@ def test_run_scheduler_token_budget_suite_on_cpu(tmp_path):
 name: tiny-token-budget
 execution: {warmup: 0, repeats: 1, interleave: [batching_policy, token_budget]}
 system:
-  engine_mode: {kind: scheduler, max_running_requests: 2}
+  engine_mode: scheduler
   batching_method: continuous-batching
   caching_spec: dense-kv-cache
 sweep:
   system:
     scheduler_spec:
-      - {batching_policy: prefill-first}
-      - {batching_policy: {kind: token-budget, token_budget: 4}}
+      - {max_running_requests: 2, batching_policy: prefill-first}
+      - {max_running_requests: 2, batching_policy: {kind: token-budget, token_budget: 4}}
 workload:
   id: burst
   groups:

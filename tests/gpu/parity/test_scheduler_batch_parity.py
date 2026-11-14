@@ -47,7 +47,11 @@ def test_continuous_batching_gpu_parity() -> None:
 
     # 1. 运行连续批处理（容量 2，测试 batch slot 复用）
     cont_result = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         eos_token_id=eos_token_id,
@@ -56,7 +60,11 @@ def test_continuous_batching_gpu_parity() -> None:
 
     # 2. 运行固定批处理作为对比
     fixed_result = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.FIXED,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         eos_token_id=eos_token_id,
@@ -67,7 +75,7 @@ def test_continuous_batching_gpu_parity() -> None:
         EngineConfig(
             PagedCacheConfig(block_size=16),
             batching_method=BatchingMethod.CONTINUOUS,
-            max_running_requests=2,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
         ),
         model,
         requests,
@@ -81,8 +89,10 @@ def test_continuous_batching_gpu_parity() -> None:
             EngineConfig(
                 kv_cache_config,
                 batching_method=BatchingMethod.CONTINUOUS,
-                max_running_requests=2,
-                scheduler_config=SchedulerConfig(TokenBudgetConfig(token_budget)),
+                scheduler_config=SchedulerConfig(
+                    max_running_requests=2,
+                    batching_policy=TokenBudgetConfig(token_budget),
+                ),
             ),
             model,
             requests,

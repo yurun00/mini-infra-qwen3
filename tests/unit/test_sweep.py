@@ -32,11 +32,11 @@ _SCHEDULER_YAML = """
 name: {name}
 execution: {{warmup: 0, repeats: 1, interleave: [batching_method]}}
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 4
+  engine_mode: scheduler
   batching_method: fixed-batching
   caching_spec: dense-kv-cache
+  scheduler_spec:
+    max_running_requests: 4
 sweep:
   system:
     batching_method: [fixed-batching, continuous-batching]
@@ -331,11 +331,11 @@ def test_suite_with_seeded_distributions_is_deterministic(tmp_path):
     text = """
 name: seeded
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 4
+  engine_mode: scheduler
   batching_method: continuous-batching
   caching_spec: dense-kv-cache
+  scheduler_spec:
+    max_running_requests: 4
 workload:
   id: w
   seed: 7
@@ -375,11 +375,11 @@ def test_seeded_distribution_validation(tmp_path, line, message):
     text = (
         "name: bad\n"
         "system:\n"
-        "  engine_mode:\n"
-        "    kind: scheduler\n"
-        "    max_running_requests: 4\n"
+        "  engine_mode: scheduler\n"
         "  batching_method: continuous-batching\n"
         "  caching_spec: dense-kv-cache\n"
+        "  scheduler_spec:\n"
+        "    max_running_requests: 4\n"
         "workload:\n  id: w\n  count: 4\n  output_len: 4\n" + line
     )
     path = tmp_path / "bad.yaml"
@@ -395,7 +395,11 @@ def test_builtin_release_specs_are_valid():
 
 
 def _release_raw(engine="scheduler", **override):
-    scale = {"seed_salt": 1, "max_running_requests": 4, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
+    scale = {
+        "seed_salt": 1,
+        "scheduler_spec": {"max_running_requests": 4},
+        "workload": {"count": 4, "prompt_len": 8, "output_len": 4},
+    }
     system = (
         {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_spec": "dense-kv-cache"}
         if engine == "scheduler"
@@ -417,17 +421,18 @@ def test_release_spec_validation():
     no_mrr = {"seed_salt": 1, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
     with pytest.raises(ValueError, match="必须提供 max_running_requests"):
         ReleaseSpec.model_validate(_release_raw(scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr}))
-    # 允许在 system 顶层提供默认 max_running_requests 供各 scale 继承
+    # 允许在 system.scheduler_spec 提供默认 max_running_requests 供各 scale 继承
     system_with_mrr = {
-        "engine_mode": {"kind": "scheduler", "max_running_requests": 4},
+        "engine_mode": "scheduler",
         "batching_method": "continuous-batching",
         "caching_spec": "dense-kv-cache",
+        "scheduler_spec": {"max_running_requests": 4},
     }
     inherited = ReleaseSpec.model_validate(
         _release_raw(system=system_with_mrr, scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr})
     )
-    assert inherited.system.engine_mode.max_running_requests == 4
-    with pytest.raises(ValueError, match="不支持 max_running_requests"):
+    assert inherited.system.scheduler_spec.max_running_requests == 4
+    with pytest.raises(ValueError, match="不支持"):
         ReleaseSpec.model_validate(_release_raw(engine="lockstep"))
     with pytest.raises(ValueError, match="interleave"):
         ReleaseSpec.model_validate(_release_raw(execution={"interleave": ["batching_method"]}))
@@ -440,7 +445,7 @@ def _write_release(
     checks: str = "[]",
 ) -> Path:
     path = tmp_path / f"{name}.yaml"
-    scale = f"{{seed_salt: 1, max_running_requests: 4, workload: {workload}}}"
+    scale = f"{{seed_salt: 1, scheduler_spec: {{max_running_requests: 4}}, workload: {workload}}}"
     path.write_text(
         f"default_seed: 42\n"
         f"system: {{engine_mode: {name}, batching_method: continuous-batching, caching_spec: dense-kv-cache}}\n"

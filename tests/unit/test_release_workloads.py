@@ -27,7 +27,7 @@ def _encode(w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int) -> d
         "max_new_tokens": as_list(w.output_budgets),
         "seed": seed,
         "scale": scale,
-        "max_running_requests": resolved.max_running_requests,
+        "max_running_requests": resolved.scheduler_spec.max_running_requests,
         "arrival_times_ms": as_list(w.arrival_ms) if engine == "scheduler" else None,
         "warmup": loaded.spec.execution.warmup,
         "repeats": loaded.spec.execution.repeats,

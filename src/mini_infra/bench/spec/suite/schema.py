@@ -29,7 +29,6 @@ from mini_infra.bench.spec.common.schema import (
     GroupSpec,
     MinMaxRunningRequestsCheck,
     PagedCacheSpec,
-    PositiveInt,
     SchedulerEngineSpec,
     SchedulerSpec,
     SuiteEngine,
@@ -59,7 +58,6 @@ class WorkloadTemplate(_Strict):
 class SystemSweepSpec(_Strict):
     """系统层扫描轴：仅显式指定的字段会在 expand 阶段展开为多个候选点。"""
 
-    max_running_requests: Annotated[list[PositiveInt], Field(min_length=1)] | None = None
     batching_method: Annotated[list[BatchingMethod], Field(min_length=1)] | None = None
     caching_spec: Annotated[list[CachingSpec], Field(min_length=1)] | None = None
     scheduler_spec: Annotated[list[SchedulerSpec], Field(min_length=1)] | None = None
@@ -117,6 +115,27 @@ class SuiteSpec(_Strict):
     def engine(self) -> SuiteEngine:
         return self.system.engine_mode.kind
 
+    @property
+    def effective_sweep_batching_methods(self) -> list[BatchingMethod]:
+        """计算 sweep 展开实际生效的 BatchingMethod 列表：未配置 sweep 时取 system.batching_method。"""
+        if self.sweep.system.batching_method is None:
+            return [self.system.batching_method]
+        return list(self.sweep.system.batching_method)
+
+    @property
+    def effective_sweep_caching_specs(self) -> list[CachingSpec]:
+        """计算 sweep 展开实际生效的 CachingSpec 列表：同类变体未显式指定的字段从 system.caching_spec 继承。"""
+        if self.sweep.system.caching_spec is None:
+            return [self.system.caching_spec]
+        return [s.inherit_from(self.system.caching_spec) for s in self.sweep.system.caching_spec]
+
+    @property
+    def effective_sweep_scheduler_specs(self) -> list[SchedulerSpec]:
+        """计算 sweep 展开实际生效的 SchedulerSpec 列表：sweep 项未显式指定的字段从 system.scheduler_spec 继承。"""
+        if self.sweep.system.scheduler_spec is None:
+            return [self.system.scheduler_spec]
+        return [s.inherit_from(self.system.scheduler_spec) for s in self.sweep.system.scheduler_spec]
+
     @field_validator("name")
     @classmethod
     def _check_name(cls, value: str) -> str:
@@ -160,25 +179,14 @@ class SuiteSpec(_Strict):
         if unknown:
             raise ValueError(f"sweep.workload 引用了未在 workload.vars 中声明的变量: {sorted(unknown)}")
 
-        # 2. 计算实际生效的系统维度取值集合（sweep.system 显式覆盖基线 system）
-        effective_caching_specs = (
-            self.sweep.system.caching_spec if self.sweep.system.caching_spec is not None else [self.system.caching_spec]
-        )
-        effective_batching_methods = (
-            self.sweep.system.batching_method
-            if self.sweep.system.batching_method is not None
-            else [self.system.batching_method]
-        )
-        effective_scheduler_specs = (
-            self.sweep.system.scheduler_spec
-            if self.sweep.system.scheduler_spec is not None
-            else [self.system.scheduler_spec]
-        )
+        # 2. 计算实际生效的系统维度取值集合（sweep.system 显式覆盖基线 system，缺省字段从基线继承）
+        effective_caching_specs = self.effective_sweep_caching_specs
+        effective_batching_methods = self.effective_sweep_batching_methods
+        effective_scheduler_specs = self.effective_sweep_scheduler_specs
 
         # 3. 根据引擎类别校验对应特性的支持边界
         if isinstance(self.system.engine_mode, SchedulerEngineSpec):
             self._check_scheduler(
-                self.system.engine_mode,
                 effective_batching_methods,
                 effective_scheduler_specs,
             )
@@ -188,32 +196,30 @@ class SuiteSpec(_Strict):
 
     def _check_scheduler(
         self,
-        engine_mode: SchedulerEngineSpec,
         effective_batching_methods: list[BatchingMethod],
         effective_scheduler_specs: list[SchedulerSpec],
     ) -> None:
-        if self.sweep.system.max_running_requests is not None:
-            effective_mrrs = self.sweep.system.max_running_requests
-        elif engine_mode.max_running_requests is not None:
-            effective_mrrs = [engine_mode.max_running_requests]
-        else:
+        if any(spec.max_running_requests is None for spec in effective_scheduler_specs):
             raise ValueError(
-                "scheduler suite 必须提供 system.engine_mode.max_running_requests（或在 sweep.system 中扫描）"
+                "scheduler suite 必须提供 max_running_requests"
+                "（在 system.scheduler_spec 或 sweep.system.scheduler_spec 中指定）"
             )
 
         token_budget_specs = [
-            spec.batching_policy
-            for spec in effective_scheduler_specs
-            if isinstance(spec.batching_policy, TokenBudgetSpec)
+            spec for spec in effective_scheduler_specs if isinstance(spec.batching_policy, TokenBudgetSpec)
         ]
         if not token_budget_specs:
             return
         if any(method is not BatchingMethod.CONTINUOUS for method in effective_batching_methods):
             raise ValueError("token-budget 调度策略要求生效的 batching_method 全部为 continuous-batching")
-        max_mrr = max(effective_mrrs)
-        for policy in token_budget_specs:
-            if policy.token_budget < max_mrr:
-                raise ValueError(f"token_budget={policy.token_budget} 不能小于生效的 max_running_requests={max_mrr}")
+        for spec in token_budget_specs:
+            assert spec.max_running_requests is not None
+            assert isinstance(spec.batching_policy, TokenBudgetSpec)
+            if spec.batching_policy.token_budget < spec.max_running_requests:
+                raise ValueError(
+                    f"token_budget={spec.batching_policy.token_budget} "
+                    f"不能小于生效的 max_running_requests={spec.max_running_requests}"
+                )
 
     def _check_lockstep(
         self,
@@ -221,7 +227,7 @@ class SuiteSpec(_Strict):
         effective_batching_methods: list[BatchingMethod],
         effective_scheduler_specs: list[SchedulerSpec],
     ) -> None:
-        if self.sweep.system.max_running_requests is not None:
+        if any(s.max_running_requests is not None for s in effective_scheduler_specs):
             raise ValueError("lockstep suite 不支持 max_running_requests")
         if any(isinstance(s.batching_policy, TokenBudgetSpec) for s in effective_scheduler_specs):
             raise ValueError("lockstep suite 不支持 token-budget 调度策略")

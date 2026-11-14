@@ -1,7 +1,7 @@
 """SuiteSpec 展开：sweep 笛卡尔积 / 显式场景 → 与引擎无关的 CaseSpec 列表（纯 CPU，不依赖 vocab 与 torch）。
 
 展开顺序（与历史手写 suite 的 case 顺序严格一致）：
-    workload sweep 点（外层） → max_running_requests → batching_method → caching_spec → scheduler_spec
+    workload sweep 点（外层） → batching_method → caching_spec → scheduler_spec
 """
 
 import itertools
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mini_infra.bench.spec.common.checks import run_check
-from mini_infra.bench.spec.common.schema import CachingSpec, SchedulerEngineSpec, SchedulerSpec
+from mini_infra.bench.spec.common.schema import CachingSpec, SchedulerSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.suite.schema import SuiteSpec
 from mini_infra.engine import BatchingMethod
@@ -23,7 +23,6 @@ class CaseSpec:
     workload: ResolvedWorkloadSpec
     batching_method: BatchingMethod
     caching_spec: CachingSpec
-    max_running_requests: int | None
     scheduler_spec: SchedulerSpec
 
 
@@ -49,33 +48,16 @@ def expand_workload(spec: SuiteSpec) -> list[ResolvedWorkloadSpec]:
     return [_resolve_workload(spec, point) for point in _expand_workload_points(spec)]
 
 
-_SystemCase = tuple[int | None, BatchingMethod, CachingSpec, SchedulerSpec]
+_SystemCase = tuple[BatchingMethod, CachingSpec, SchedulerSpec]
 
 
 def _generate_system_cases(spec: SuiteSpec) -> Iterator[_SystemCase]:
-    """展开系统配置维度的组合：(max_running_requests, batching_method, caching_spec, scheduler_spec)。"""
-    base_sys = spec.system
-    sweep_sys = spec.sweep.system
-
-    if isinstance(base_sys.engine_mode, SchedulerEngineSpec):
-        base_mrr = base_sys.engine_mode.max_running_requests
-    else:
-        base_mrr = None
-
-    mrr_axis: list[int | None] = (
-        list(sweep_sys.max_running_requests) if sweep_sys.max_running_requests is not None else [base_mrr]
+    """展开系统配置维度的组合：(batching_method, caching_spec, scheduler_spec)。"""
+    yield from itertools.product(
+        spec.effective_sweep_batching_methods,
+        spec.effective_sweep_caching_specs,
+        spec.effective_sweep_scheduler_specs,
     )
-    batching_axis: list[BatchingMethod] = (
-        list(sweep_sys.batching_method) if sweep_sys.batching_method is not None else [base_sys.batching_method]
-    )
-    caching_axis: list[CachingSpec] = (
-        list(sweep_sys.caching_spec) if sweep_sys.caching_spec is not None else [base_sys.caching_spec]
-    )
-    scheduler_axis: list[SchedulerSpec] = (
-        list(sweep_sys.scheduler_spec) if sweep_sys.scheduler_spec is not None else [base_sys.scheduler_spec]
-    )
-
-    yield from itertools.product(mrr_axis, batching_axis, caching_axis, scheduler_axis)
 
 
 def _validate_checks(
@@ -85,7 +67,7 @@ def _validate_checks(
 ) -> None:
     if not spec.checks:
         return
-    mrr_axis = list(dict.fromkeys(mrr for mrr, _, _, _ in sys_cases))
+    mrr_axis = list(dict.fromkeys(sched.max_running_requests for _, _, sched in sys_cases))
     for workload, mrr in itertools.product(workloads, mrr_axis):
         for check in spec.checks:
             run_check(
@@ -108,11 +90,10 @@ def expand_suite_spec(spec: SuiteSpec) -> list[CaseSpec]:
             workload=workload,
             batching_method=batch,
             caching_spec=caching_spec,
-            max_running_requests=mrr,
             scheduler_spec=scheduler_spec,
         )
         for workload in workloads
-        for mrr, batch, caching_spec, scheduler_spec in sys_cases
+        for batch, caching_spec, scheduler_spec in sys_cases
     ]
 
 

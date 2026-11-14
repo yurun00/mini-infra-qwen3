@@ -25,7 +25,7 @@ from mini_infra.bench.suite import (
     list_benchmark_suite_names,
     load_benchmark_suite,
 )
-from mini_infra.core import DenseCacheConfig, KVCacheConfig, NoCacheConfig, PagedCacheConfig
+from mini_infra.core import DenseCacheConfig, KVCacheConfig, NoCacheConfig, PagedCacheConfig, SchedulerConfig
 from mini_infra.engine import BatchingMethod, EngineConfig
 
 FIXED_VS_CONTINUOUS = [
@@ -92,7 +92,7 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
             case.workload_id,
             caching_method=case.kv_cache_config.kind,
             batching_method=case.batching_method,
-            max_running_requests=case.max_running_requests,
+            max_running_requests=case.scheduler_config.max_running_requests,
         )
 
 
@@ -124,7 +124,7 @@ def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
     base = spec.path.parent / "_bases" / "fixed_vs_continuous.yaml"
     path = tmp_path / "demo.yaml"
     path.write_text(
-        f"name: demo\nextends: {base}\nsystem: {{engine_mode: {{kind: scheduler, max_running_requests: 2}}}}\n"
+        f"name: demo\nextends: {base}\nsystem: {{scheduler_spec: {{max_running_requests: 2}}}}\n"
         "workload: {id: w, groups: [{count: 1, prompt_len: 8, output_len: 4}]}\n"
         "checks: [{min_max_running_requests: 3}]\n",
         encoding="utf-8",
@@ -206,7 +206,9 @@ def test_scheduler_suite_case_paged_validation():
 
     req = Request(request_idx=0, token_ids=[1, 2], max_new_tokens=2, arrival_ms=0.0)
     paged_config = EngineConfig(
-        PagedCacheConfig(block_size=16), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2
+        PagedCacheConfig(block_size=16),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
     )
 
     # 1. workload_id 为空报错
@@ -218,7 +220,7 @@ def test_scheduler_suite_case_paged_validation():
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=PagedCacheConfig(block_size=16),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test",
         engine="scheduler",
     )

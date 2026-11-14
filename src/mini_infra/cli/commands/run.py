@@ -160,9 +160,12 @@ def build_engine_config(args: argparse.Namespace) -> EngineConfig:
     return EngineConfig(
         kv_cache_config_from_str(args.caching_method, block_size=args.kv_block_size, num_blocks=args.num_kv_blocks),
         batching_method=BatchingMethod.from_str(args.batching_method),
-        max_running_requests=args.max_running_requests,
         flags=args.feature_flags,
-        scheduler_config=scheduler_config_from_str(args.batching_policy, token_budget=args.token_budget),
+        scheduler_config=scheduler_config_from_str(
+            args.batching_policy,
+            max_running_requests=args.max_running_requests,
+            token_budget=args.token_budget,
+        ),
     )
 
 

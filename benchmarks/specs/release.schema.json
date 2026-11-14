@@ -178,18 +178,16 @@
           "title": "Seed Salt",
           "type": "integer"
         },
-        "max_running_requests": {
+        "scheduler_spec": {
           "anyOf": [
             {
-              "exclusiveMinimum": 0,
-              "type": "integer"
+              "$ref": "#/$defs/SchedulerSpec"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Max Running Requests"
+          "default": null
         },
         "workload": {
           "type": "object",
@@ -220,7 +218,15 @@
           "default": "scheduler",
           "title": "Kind",
           "type": "string"
-        },
+        }
+      },
+      "title": "SchedulerEngineSpec",
+      "type": "object"
+    },
+    "SchedulerSpec": {
+      "additionalProperties": false,
+      "description": "迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。",
+      "properties": {
         "max_running_requests": {
           "anyOf": [
             {
@@ -233,15 +239,7 @@
           ],
           "default": null,
           "title": "Max Running Requests"
-        }
-      },
-      "title": "SchedulerEngineSpec",
-      "type": "object"
-    },
-    "SchedulerSpec": {
-      "additionalProperties": false,
-      "description": "迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。",
-      "properties": {
+        },
         "batching_policy": {
           "default": {
             "kind": "prefill-first"
@@ -319,6 +317,7 @@
         "scheduler_spec": {
           "$ref": "#/$defs/SchedulerSpec",
           "default": {
+            "max_running_requests": null,
             "batching_policy": {
               "kind": "prefill-first"
             }

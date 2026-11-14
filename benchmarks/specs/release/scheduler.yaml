@@ -13,7 +13,7 @@ system:
 scales:
   small:
     seed_salt: 601
-    max_running_requests: 4
+    scheduler_spec: {max_running_requests: 4}
     workload:
       count: 16
       prompt_len: {log_uniform: {min: 16, max: 64}}
@@ -21,7 +21,7 @@ scales:
       arrival_ms: {poisson: {initial_burst: 4, mean_interval_ms: 55}}
   medium:
     seed_salt: 702
-    max_running_requests: 8
+    scheduler_spec: {max_running_requests: 8}
     workload:
       count: 32
       prompt_len: {log_uniform: {min: 64, max: 256}}
@@ -29,7 +29,7 @@ scales:
       arrival_ms: {poisson: {initial_burst: 8, mean_interval_ms: 110}}
   large:
     seed_salt: 803
-    max_running_requests: 16
+    scheduler_spec: {max_running_requests: 16}
     workload:
       count: 64
       prompt_len: {log_uniform: {min: 256, max: 1024}}

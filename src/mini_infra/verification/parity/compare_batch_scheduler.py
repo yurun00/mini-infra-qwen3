@@ -8,7 +8,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, make_requests
 from mini_infra.engine import BatchingMethod, EngineConfig, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
@@ -44,7 +44,11 @@ def run_compare_scheduler_batch(
 
     # 1. 串行调度基准（serialized baseline，并发 batch slot 为 1）
     serialized = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=1),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.NONE,
+            scheduler_config=SchedulerConfig(max_running_requests=1),
+        ),
         model,
         requests,
         eos_token_id=eos_token_id,
@@ -56,7 +60,7 @@ def run_compare_scheduler_batch(
         EngineConfig(
             DenseCacheConfig(),
             batching_method=BatchingMethod.FIXED,
-            max_running_requests=max_running_requests,
+            scheduler_config=SchedulerConfig(max_running_requests=max_running_requests),
         ),
         model,
         requests,
@@ -69,7 +73,7 @@ def run_compare_scheduler_batch(
         EngineConfig(
             DenseCacheConfig(),
             batching_method=BatchingMethod.CONTINUOUS,
-            max_running_requests=max_running_requests,
+            scheduler_config=SchedulerConfig(max_running_requests=max_running_requests),
         ),
         model,
         requests,
@@ -82,7 +86,7 @@ def run_compare_scheduler_batch(
         EngineConfig(
             PagedCacheConfig(block_size=4),
             batching_method=BatchingMethod.CONTINUOUS,
-            max_running_requests=max_running_requests,
+            scheduler_config=SchedulerConfig(max_running_requests=max_running_requests),
         ),
         model,
         requests,

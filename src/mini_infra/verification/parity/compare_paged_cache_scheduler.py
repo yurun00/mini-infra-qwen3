@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
@@ -63,7 +63,7 @@ def run_compare_paged_cache_scheduler(
         EngineConfig(
             DenseCacheConfig(),
             batching_method=BatchingMethod.CONTINUOUS,
-            max_running_requests=max_running_requests,
+            scheduler_config=SchedulerConfig(max_running_requests=max_running_requests),
         ),
         model,
         requests,
@@ -79,7 +79,7 @@ def run_compare_paged_cache_scheduler(
             EngineConfig(
                 PagedCacheConfig(block_size=block_size),
                 batching_method=BatchingMethod.CONTINUOUS,
-                max_running_requests=max_running_requests,
+                scheduler_config=SchedulerConfig(max_running_requests=max_running_requests),
             ),
             model,
             requests,

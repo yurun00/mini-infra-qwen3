@@ -30,6 +30,22 @@ _LADDER_REQUESTS = 4
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    def inherit_from(self, base: "_Strict") -> Any:
+        """若与 base 同类型，用 base 递归补齐当前实例未显式指定的字段；否则原样返回 self。"""
+        if type(self) is not type(base):
+            return self
+        merged: dict[str, Any] = {}
+        for name in type(self).model_fields:
+            self_val = getattr(self, name)
+            base_val = getattr(base, name)
+            if name not in self.model_fields_set or self_val is None:
+                merged[name] = base_val
+            elif isinstance(self_val, _Strict) and isinstance(base_val, _Strict):
+                merged[name] = self_val.inherit_from(base_val)
+            else:
+                merged[name] = self_val
+        return type(self)(**merged)
+
 
 # --------------------------------------------------------------------------- 长度分布
 
@@ -243,7 +259,6 @@ class SchedulerEngineSpec(_Strict):
     """Scheduler 离散事件调度引擎（支持到达队列、Running 并发容量管理）。"""
 
     kind: Literal["scheduler"] = "scheduler"
-    max_running_requests: PositiveInt | None = None
 
 
 def _normalize_engine(raw: Any) -> Any:
@@ -344,11 +359,15 @@ BatchingPolicySpec = Annotated[
 class SchedulerSpec(_Strict):
     """迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。"""
 
+    max_running_requests: PositiveInt | None = None
     batching_policy: BatchingPolicySpec = PrefillFirstSpec()
 
     @property
     def scheduler_config(self) -> SchedulerConfig:
-        return SchedulerConfig(batching_policy=self.batching_policy.batching_policy)
+        return SchedulerConfig(
+            max_running_requests=self.max_running_requests,
+            batching_policy=self.batching_policy.batching_policy,
+        )
 
 
 class SystemSpec(_Strict):
@@ -360,11 +379,9 @@ class SystemSpec(_Strict):
     @property
     def default_engine_config(self) -> EngineConfig:
         """系统配置声明的默认 EngineConfig。"""
-        mrr = self.engine_mode.max_running_requests if isinstance(self.engine_mode, SchedulerEngineSpec) else None
         return EngineConfig(
             self.caching_spec.kv_cache_config,
             batching_method=self.batching_method,
-            max_running_requests=mrr,
             scheduler_config=self.scheduler_spec.scheduler_config,
         )
 

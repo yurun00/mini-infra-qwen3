@@ -77,12 +77,16 @@ def test_run_args_parse_batching_policy_and_token_budget():
 
 
 def test_run_config_token_budget_matches_prefill_first(diverse_model):
-    cont = EngineConfig(KV, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    cont = EngineConfig(
+        KV,
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
     budgets = [3, 2, 4, 1]
     opts = make_opts()
     prefill_first = run_config(cont, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
     budgeted = run_config(
-        cont.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(4))),
+        cont.with_batching_policy(TokenBudgetConfig(4)),
         diverse_model,
         SEQS,
         SEQS,
@@ -93,7 +97,9 @@ def test_run_config_token_budget_matches_prefill_first(diverse_model):
     assert [s.token_ids for s in budgeted.sequences] == [s.token_ids for s in prefill_first.sequences]
 
     fixed = EngineConfig(
-        KV, batching_method=BatchingMethod.FIXED, scheduler_config=SchedulerConfig(TokenBudgetConfig(4))
+        KV,
+        batching_method=BatchingMethod.FIXED,
+        scheduler_config=SchedulerConfig(batching_policy=TokenBudgetConfig(4)),
     )
     with pytest.raises(ValueError, match="仅支持 continuous-batching"):
         run_config(fixed, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
@@ -107,9 +113,21 @@ def test_uses_scheduler_only_when_continuous_present():
 
 
 def test_run_config_uses_scheduler_for_all_methods_when_via_scheduler(diverse_model):
-    none_cfg = EngineConfig(KV, batching_method=BatchingMethod.NONE, max_running_requests=2)
-    fixed = EngineConfig(KV, batching_method=BatchingMethod.FIXED, max_running_requests=2)
-    cont = EngineConfig(KV, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    none_cfg = EngineConfig(
+        KV,
+        batching_method=BatchingMethod.NONE,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
+    fixed = EngineConfig(
+        KV,
+        batching_method=BatchingMethod.FIXED,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
+    cont = EngineConfig(
+        KV,
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
     budgets = [3, 2, 4, 1]
     opts = make_opts()
 
@@ -142,7 +160,11 @@ def test_run_config_scheduler_rejects_profile_and_missing_kv(diverse_model):
 
 
 def test_print_result_shows_schedule_metrics(diverse_model, capsys):
-    cont = EngineConfig(KV, batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    cont = EngineConfig(
+        KV,
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
     res = run_config(cont, diverse_model, SEQS, SEQS, [3, 2, 4, 1], make_opts(), True)
     print_result(cont, res, FakeTokenizer())
     out = capsys.readouterr().out
@@ -158,9 +180,15 @@ def test_print_result_shows_schedule_metrics(diverse_model, capsys):
 
 
 def test_run_config_and_print_result_dense_vs_paged(diverse_model, capsys):
-    dense_cfg = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+    dense_cfg = EngineConfig(
+        DenseCacheConfig(),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
     paged_cfg = EngineConfig(
-        PagedCacheConfig(block_size=4), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2
+        PagedCacheConfig(block_size=4),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
     )
     assert uses_scheduler([dense_cfg, paged_cfg])
 
@@ -211,9 +239,8 @@ def test_build_engine_config_from_flat_args():
     assert build_engine_config(args) == EngineConfig(
         PagedCacheConfig(block_size=8, num_blocks=32),
         batching_method=BatchingMethod.CONTINUOUS,
-        max_running_requests=4,
         flags=frozenset({FeatureFlag.PLACEHOLDER}),
-        scheduler_config=SchedulerConfig(TokenBudgetConfig(64)),
+        scheduler_config=SchedulerConfig(max_running_requests=4, batching_policy=TokenBudgetConfig(64)),
     )
 
 
@@ -238,8 +265,8 @@ def test_resolve_compare_feature_overrides_one_arg_and_keeps_the_rest():
         parse_run_args(*base, "--compare-feature", "batching-policy", "prefill-first", "token-budget")
     )
     assert [c.scheduler_config for c in configs] == [
-        SchedulerConfig(PrefillFirstConfig()),
-        SchedulerConfig(TokenBudgetConfig(64)),
+        SchedulerConfig(batching_policy=PrefillFirstConfig()),
+        SchedulerConfig(batching_policy=TokenBudgetConfig(64)),
     ]
 
     # 嵌套字段的数值参数同样可直接对比
@@ -247,15 +274,15 @@ def test_resolve_compare_feature_overrides_one_arg_and_keeps_the_rest():
         parse_run_args(*base, "--batching-policy", "token-budget", "--compare-feature", "token-budget", "128", "256")
     )
     assert [c.scheduler_config for c in configs] == [
-        SchedulerConfig(TokenBudgetConfig(128)),
-        SchedulerConfig(TokenBudgetConfig(256)),
+        SchedulerConfig(batching_policy=TokenBudgetConfig(128)),
+        SchedulerConfig(batching_policy=TokenBudgetConfig(256)),
     ]
 
     # 默认不限的整型参数接受 none
     configs, _ = resolve_compare_feature(
         parse_run_args(*base, "--compare-feature", "max-running-requests", "none", "2")
     )
-    assert [c.max_running_requests for c in configs] == [None, 2]
+    assert [c.scheduler_config.max_running_requests for c in configs] == [None, 2]
 
     configs, name = resolve_compare_feature(
         parse_run_args(*base, "--compare-feature", "feature-flags", "none", "placeholder")

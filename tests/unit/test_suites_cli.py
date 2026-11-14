@@ -15,11 +15,11 @@ _SCHEDULER_YAML = """
 name: demo-spec
 execution: {warmup: 0, repeats: 1, interleave: [batching_method]}
 system:
-  engine_mode:
-    kind: scheduler
-    max_running_requests: 4
+  engine_mode: scheduler
   batching_method: fixed-batching
   caching_spec: dense-kv-cache
+  scheduler_spec:
+    max_running_requests: 4
 sweep:
   system:
     batching_method: [fixed-batching, continuous-batching]

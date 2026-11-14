@@ -122,9 +122,12 @@ class CaseKey:
                 num_blocks=self.num_blocks,
             ),
             batching_method=self.batching_method,
-            max_running_requests=self.max_running_requests,
             flags=self.flags,
-            scheduler_config=scheduler_config_from_str(self.batching_policy, token_budget=self.token_budget),
+            scheduler_config=scheduler_config_from_str(
+                self.batching_policy,
+                max_running_requests=self.max_running_requests,
+                token_budget=self.token_budget,
+            ),
         )
 
     @property
@@ -315,24 +318,24 @@ class BenchmarkCase:
     profile: WorkloadProfile
     batching_method: BatchingMethod = BatchingMethod.NONE
     kv_cache_config: KVCacheConfig = DenseCacheConfig()
-    max_running_requests: int | None = None
     flags: frozenset[FeatureFlag] = frozenset()
     scheduler_config: SchedulerConfig = SchedulerConfig()
     suite_name: str | None = None
     engine: Literal["scheduler", "lockstep"] = "scheduler"
 
     def __post_init__(self) -> None:
-        if self.max_running_requests is None and self.engine == "scheduler":
-            object.__setattr__(self, "max_running_requests", self.profile.num_total_requests)
-        elif self.max_running_requests is not None and self.max_running_requests <= 0:
-            raise ValueError(f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}")
+        if self.scheduler_config.max_running_requests is None and self.engine == "scheduler":
+            object.__setattr__(
+                self,
+                "scheduler_config",
+                self.scheduler_config.with_max_running_requests(self.profile.num_total_requests),
+            )
 
     @property
     def engine_config(self) -> EngineConfig:
         return EngineConfig(
             kv_cache_config=self.kv_cache_config,
             batching_method=self.batching_method,
-            max_running_requests=self.max_running_requests,
             flags=self.flags,
             scheduler_config=self.scheduler_config,
         )
@@ -350,7 +353,7 @@ class BenchmarkCase:
             workload_id=self.workload_id,
             caching_method=self.kv_cache_config.kind,
             batching_method=self.batching_method,
-            max_running_requests=self.max_running_requests,
+            max_running_requests=self.scheduler_config.max_running_requests,
             flags=self.flags,
             block_size=paged.block_size if paged is not None else None,
             num_blocks=paged.num_blocks if paged is not None else None,

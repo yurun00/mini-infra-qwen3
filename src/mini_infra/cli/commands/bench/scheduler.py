@@ -109,11 +109,14 @@ def handle_case(args: argparse.Namespace) -> int:
         block_size=args.block_size,
         num_blocks=args.num_blocks,
     )
-    scheduler_config = scheduler_config_from_str(args.batching_policy, token_budget=args.token_budget)
+    scheduler_config = scheduler_config_from_str(
+        args.batching_policy,
+        max_running_requests=max_running,
+        token_budget=args.token_budget,
+    )
     target_config = EngineConfig(
         kv_cache_config,
         batching_method=method,
-        max_running_requests=max_running,
         scheduler_config=scheduler_config,
     )
     validate_engine_config(target_config)
@@ -156,7 +159,6 @@ def handle_case(args: argparse.Namespace) -> int:
         profile=workload_profile,
         batching_method=method,
         kv_cache_config=kv_cache_config,
-        max_running_requests=max_running,
         scheduler_config=scheduler_config,
         suite_name=case_name,
         engine="scheduler",

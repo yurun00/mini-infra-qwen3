@@ -36,7 +36,7 @@ def make_dummy_case(
         profile=WorkloadProfile.from_requests(workload_id, (req,)),
         batching_method=batching_method,
         kv_cache_config=kv_cache_config,
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name=suite_name,
         engine="scheduler",
     )
@@ -113,8 +113,7 @@ def test_case_key_batching_policy_dimensions():
         profile=default_case.profile,
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=PagedCacheConfig(block_size=16),
-        max_running_requests=8,
-        scheduler_config=SchedulerConfig(TokenBudgetConfig(512)),
+        scheduler_config=SchedulerConfig(max_running_requests=8, batching_policy=TokenBudgetConfig(512)),
     )
     key = budget_case.key
     assert key.batching_policy == "token-budget"
@@ -264,7 +263,7 @@ def test_multi_workload_id_grouping_and_interleaving():
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=DenseCacheConfig(),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test-multi-workload",
         engine="scheduler",
     )
@@ -272,7 +271,7 @@ def test_multi_workload_id_grouping_and_interleaving():
         profile=WorkloadProfile.from_requests("workload_0", (req,)),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=PagedCacheConfig(block_size=16),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test-multi-workload",
         engine="scheduler",
     )
@@ -280,7 +279,7 @@ def test_multi_workload_id_grouping_and_interleaving():
         profile=WorkloadProfile.from_requests("workload_1", (req,)),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=DenseCacheConfig(),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test-multi-workload",
         engine="scheduler",
     )
@@ -288,7 +287,7 @@ def test_multi_workload_id_grouping_and_interleaving():
         profile=WorkloadProfile.from_requests("workload_1", (req,)),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=PagedCacheConfig(block_size=16),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="test-multi-workload",
         engine="scheduler",
     )
@@ -388,7 +387,7 @@ def test_build_scheduler_run_plan_inconsistent_specs():
         profile=WorkloadProfile.from_requests("w0", (req1,)),
         batching_method=BatchingMethod.FIXED,
         kv_cache_config=DenseCacheConfig(),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="s",
         engine="scheduler",
     )
@@ -396,7 +395,7 @@ def test_build_scheduler_run_plan_inconsistent_specs():
         profile=WorkloadProfile.from_requests("w0", (req2,)),
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=DenseCacheConfig(),
-        max_running_requests=2,
+        scheduler_config=SchedulerConfig(max_running_requests=2),
         suite_name="s",
         engine="scheduler",
     )

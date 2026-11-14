@@ -354,7 +354,7 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
                         args.tag,
                         args.release_feature,
                         config=target_config,
-                        max_running_requests=res_scale.max_running_requests or 4,
+                        max_running_requests=res_scale.scheduler_spec.max_running_requests or 4,
                         warmup=loaded.spec.execution.warmup,
                         repeats=loaded.spec.execution.repeats,
                         scale=sc,

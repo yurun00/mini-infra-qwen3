@@ -191,21 +191,33 @@ def check_continuous_batching(model):
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     requests = make_requests(sequences, budgets)
     fixed = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.FIXED,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         -1,
         stop_on_eos=False,
     )
     continuous = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         -1,
         stop_on_eos=False,
     )
     serialized = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=1),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.NONE,
+            scheduler_config=SchedulerConfig(max_running_requests=1),
+        ),
         model,
         requests,
         -1,
@@ -234,7 +246,11 @@ def check_continuous_batching(model):
     # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)
     staggered_requests = make_requests(sequences[:2], [4, 2], arrival_times_ms=[0.0, 5.0])
     staggered = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         staggered_requests,
         -1,
@@ -246,7 +262,11 @@ def check_continuous_batching(model):
     # 7. FCFS 高并发排队保序 (FIFO Queue Ordering under Concurrency Limit)
     same_arrival_requests = make_requests([sequences[0]] * 12, 1)
     same_arrival = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=3),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=3),
+        ),
         model,
         same_arrival_requests,
         -1,
@@ -345,7 +365,11 @@ def check_paged_kv_cache(model):
     arrivals = [0.0, 0.0, 0.1, 0.2]
     requests = make_requests(sequences, budgets, arrivals)
     dense = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         -1,
@@ -355,7 +379,7 @@ def check_paged_kv_cache(model):
         EngineConfig(
             PagedCacheConfig(block_size=block_size),
             batching_method=BatchingMethod.CONTINUOUS,
-            max_running_requests=2,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
         ),
         model,
         requests,
@@ -405,11 +429,11 @@ def check_token_budget_scheduling(model):
     base_config = EngineConfig(
         PagedCacheConfig(block_size=4),
         batching_method=BatchingMethod.CONTINUOUS,
-        max_running_requests=4,
+        scheduler_config=SchedulerConfig(max_running_requests=4),
     )
     prefill_first = run_scheduler(base_config, model, requests, -1, stop_on_eos=False)
     token_budget_run = run_scheduler(
-        base_config.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(token_budget))),
+        base_config.with_batching_policy(TokenBudgetConfig(token_budget)),
         model,
         requests,
         -1,

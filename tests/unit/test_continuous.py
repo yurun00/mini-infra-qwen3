@@ -25,14 +25,22 @@ from mini_infra.entrypoints import GenerationOptions, generate
 KV_CONFIG = EngineConfig(DenseCacheConfig())
 RUNNERS = {
     BatchingMethod.FIXED: lambda model, requests, capacity, eos=-1, **kwargs: run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=capacity),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.FIXED,
+            scheduler_config=SchedulerConfig(max_running_requests=capacity),
+        ),
         model,
         requests,
         eos,
         **kwargs,
     ),
     BatchingMethod.CONTINUOUS: lambda model, requests, capacity, eos=-1, **kwargs: run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=capacity),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=capacity),
+        ),
         model,
         requests,
         eos,
@@ -159,7 +167,11 @@ def test_fixed_batching_does_not_admit_new_requests_until_the_wave_finishes(mode
     requests = make_requests(make_prompts([4, 4, 4]), [2, 6, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.FIXED,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         -1,
@@ -180,7 +192,11 @@ def test_continuous_batching_refills_freed_slots_while_others_keep_running(model
     requests = make_requests(make_prompts([4, 4, 4]), [2, 8, 3], [0.0, 0.0, 0.0])
 
     result = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         -1,
@@ -202,7 +218,11 @@ def test_idle_gap_jumps_logical_clock_to_next_arrival(model):
     requests = make_requests(make_prompts([4, 4]), [2, 2], [10.0, 90000.0])
 
     result = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         -1,
@@ -234,7 +254,11 @@ def test_slots_are_reused_after_all_requests_finish_and_cache_is_released(model)
     requests = make_requests(make_prompts([4, 6]), [2, 3], [0.0, 90000.0])
 
     result = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=1),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=1),
+        ),
         model,
         requests,
         -1,
@@ -314,8 +338,10 @@ def run_token_budget(model, requests, capacity, token_budget, eos=-1, **kwargs):
         EngineConfig(
             DenseCacheConfig(),
             batching_method=BatchingMethod.CONTINUOUS,
-            max_running_requests=capacity,
-            scheduler_config=SchedulerConfig(TokenBudgetConfig(token_budget)),
+            scheduler_config=SchedulerConfig(
+                max_running_requests=capacity,
+                batching_policy=TokenBudgetConfig(token_budget),
+            ),
         ),
         model,
         requests,
@@ -417,7 +443,7 @@ def test_run_scheduler_rejects_invalid_token_budget(model):
             EngineConfig(
                 DenseCacheConfig(),
                 batching_method=BatchingMethod.FIXED,
-                scheduler_config=SchedulerConfig(TokenBudgetConfig(8)),
+                scheduler_config=SchedulerConfig(batching_policy=TokenBudgetConfig(8)),
             ),
             model,
             requests,
@@ -474,7 +500,11 @@ class TestGenerateDispatch:
     def test_continuous_mode_respects_max_running_requests(self, model):
         prompts = make_prompts([3, 5, 4, 6])
         budgets = [3, 2, 4, 1]
-        continuous = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2)
+        continuous = EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        )
         # 4 个离线请求，并发上限限制为 2，触发 batch slot 排队复用
         result = generate(
             continuous,
@@ -492,7 +522,11 @@ class TestGenerateDispatch:
 
     def test_continuous_mode_rejects_invalid_max_running_requests(self, model):
         with pytest.raises(ValueError, match="必须大于 0"):
-            EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=0)
+            EngineConfig(
+                DenseCacheConfig(),
+                batching_method=BatchingMethod.CONTINUOUS,
+                scheduler_config=SchedulerConfig(max_running_requests=0),
+            )
 
 
 def test_run_scheduler_dispatch(model):
@@ -500,7 +534,11 @@ def test_run_scheduler_dispatch(model):
 
     # 1. 验证枚举分发 CONTINUOUS
     res_cont = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         eos_token_id=-1,
@@ -511,7 +549,11 @@ def test_run_scheduler_dispatch(model):
 
     # 2. 验证枚举分发 FIXED
     res_fixed = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.FIXED,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         eos_token_id=-1,
@@ -522,7 +564,11 @@ def test_run_scheduler_dispatch(model):
 
     # 3. 验证枚举分发 NONE（自动约束并发为 1，逐请求串行调度）
     res_none = run_scheduler(
-        EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.NONE, max_running_requests=2),
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.NONE,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
         model,
         requests,
         eos_token_id=-1,
