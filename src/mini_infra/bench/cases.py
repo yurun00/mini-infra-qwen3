@@ -12,6 +12,7 @@ from typing import Any, Literal, cast
 
 from mini_infra.bench.format import format_lengths
 from mini_infra.core import (
+    BatchingPolicyKind,
     DenseCacheConfig,
     KVCacheConfig,
     KVCacheKind,
@@ -19,11 +20,10 @@ from mini_infra.core import (
     PrefillFirstConfig,
     Request,
     SchedulerConfig,
-    SchedulingPolicyKind,
     TokenBudgetConfig,
     kv_cache_config_from_str,
     make_requests,
-    parse_scheduling_policy_kind,
+    parse_batching_policy_kind,
     scheduler_config_from_str,
 )
 from mini_infra.engine.config import BatchingMethod, EngineConfig, FeatureFlag
@@ -59,8 +59,11 @@ class CaseDimension(str, Enum):
     MAX_RUNNING_REQUESTS = "max_running_requests"
     BLOCK_SIZE = "block_size"
     NUM_BLOCKS = "num_blocks"
-    SCHEDULING_POLICY = "scheduling_policy"
+    BATCHING_POLICY = "batching_policy"
     TOKEN_BUDGET = "token_budget"
+    # TODO: 后续引入正交调度维度时在此平铺扩展（严禁塞入 BATCHING_POLICY）：
+    # QUEUE_POLICY = "queue_policy"        # "fcfs" | "priority" | "srtf"
+    # PREEMPTION_MODE = "preemption_mode"  # "recompute" | "swap"
 
     @classmethod
     def from_str(cls, name: str) -> CaseDimension:
@@ -89,7 +92,7 @@ class CaseDimension(str, Enum):
 class CaseKey:
     """用例全局唯一身份键：聚合 workload_id、caching_method、batching_method、max_running_requests 等全展平维度。
 
-    嵌套配置按 kind + 专属字段展平（caching_method + block_size / num_blocks、scheduling_policy + token_budget）；
+    嵌套配置按 kind + 专属字段展平（caching_method + block_size / num_blocks、batching_policy + token_budget）；
     新增维度取默认值时不进入 canonical_id / to_dict / 缩写名，保证既有用例身份与历史记录不变。
 
     符合现代推理评测规范：
@@ -106,7 +109,7 @@ class CaseKey:
     flags: frozenset[FeatureFlag] = frozenset()
     block_size: int | None = None
     num_blocks: int | None = None
-    scheduling_policy: SchedulingPolicyKind = PrefillFirstConfig.kind
+    batching_policy: BatchingPolicyKind = PrefillFirstConfig.kind
     token_budget: int | None = None
 
     @property
@@ -121,12 +124,12 @@ class CaseKey:
             batching_method=self.batching_method,
             max_running_requests=self.max_running_requests,
             flags=self.flags,
-            scheduler_config=scheduler_config_from_str(self.scheduling_policy, token_budget=self.token_budget),
+            scheduler_config=scheduler_config_from_str(self.batching_policy, token_budget=self.token_budget),
         )
 
     @property
-    def _is_default_scheduling_policy(self) -> bool:
-        return self.scheduling_policy == PrefillFirstConfig.kind
+    def _is_default_batching_policy(self) -> bool:
+        return self.batching_policy == PrefillFirstConfig.kind
 
     def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
         """基于正交维度枚举的零分支反射提取。"""
@@ -157,8 +160,8 @@ class CaseKey:
             parts.append(f"block={self.block_size}")
         if self.num_blocks is not None:
             parts.append(f"num_blocks={self.num_blocks}")
-        if not self._is_default_scheduling_policy:
-            parts.append(f"sched={self.scheduling_policy}")
+        if not self._is_default_batching_policy:
+            parts.append(f"sched={self.batching_policy}")
         if self.token_budget is not None:
             parts.append(f"budget={self.token_budget}")
         return "/".join(parts)
@@ -177,14 +180,14 @@ class CaseKey:
     def abbreviated_engine_config(self) -> str:
         """提取策略名各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。
 
-        非默认调度策略追加在末尾（如 paged-kv-cache+continuous-batching+token-budget -> pkc+cb+tb）。
+        非默认组批策略追加在末尾（如 paged-kv-cache+continuous-batching+token-budget -> pkc+cb+tb）。
         """
         cache_label = "no-cache" if self.caching_method == "none" else self.caching_method
         parts = [*sorted(f.value for f in self.flags), cache_label]
         if self.batching_method != BatchingMethod.NONE:
             parts.append(self.batching_method.value)
-        if not self._is_default_scheduling_policy:
-            parts.append(self.scheduling_policy)
+        if not self._is_default_batching_policy:
+            parts.append(self.batching_policy)
         return "+".join("".join(w[0] for w in part.replace("_", "-").split("-") if w) for part in parts)
 
     @property
@@ -224,8 +227,8 @@ class CaseKey:
             data["block_size"] = self.block_size
         if self.num_blocks is not None:
             data["num_blocks"] = self.num_blocks
-        if not self._is_default_scheduling_policy:
-            data["scheduling_policy"] = self.scheduling_policy
+        if not self._is_default_batching_policy:
+            data["batching_policy"] = self.batching_policy
         if self.token_budget is not None:
             data["token_budget"] = self.token_budget
         return data
@@ -244,7 +247,7 @@ class CaseKey:
             flags=frozenset(FeatureFlag(f) for f in raw_flags) if raw_flags else frozenset(),
             block_size=int(data["block_size"]) if data.get("block_size") is not None else None,
             num_blocks=int(data["num_blocks"]) if data.get("num_blocks") is not None else None,
-            scheduling_policy=parse_scheduling_policy_kind(data.get("scheduling_policy")),
+            batching_policy=parse_batching_policy_kind(data.get("batching_policy")),
             token_budget=int(data["token_budget"]) if data.get("token_budget") is not None else None,
         )
 
@@ -350,7 +353,7 @@ class BenchmarkCase:
             flags=self.flags,
             block_size=paged.block_size if paged is not None else None,
             num_blocks=paged.num_blocks if paged is not None else None,
-            scheduling_policy=self.scheduler_config.kind,
+            batching_policy=self.scheduler_config.kind,
             token_budget=budget.token_budget if budget is not None else None,
         )
 

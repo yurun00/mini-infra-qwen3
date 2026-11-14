@@ -4215,7 +4215,7 @@
    ],
    "comparison": {
     "baseline": {
-     "scheduling_policy": "prefill-first"
+     "batching_policy": "prefill-first"
     },
     "group_by": [
      "workload_id",
@@ -4264,7 +4264,7 @@
     "paged-kv-cache(block_size=16)+continuous-batching+mrr=8+token-budget(token_budget=4096)"
    ],
    "interleave": [
-    "scheduling_policy",
+    "batching_policy",
     "token_budget"
    ],
    "max_running_requests": 8,

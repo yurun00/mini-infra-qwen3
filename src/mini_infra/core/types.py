@@ -87,24 +87,54 @@ def kv_cache_config_from_str(
     )
 
 
-SchedulingPolicyKind = Literal["prefill-first", "token-budget"]
-SCHEDULING_POLICY_KINDS: tuple[SchedulingPolicyKind, ...] = ("prefill-first", "token-budget")
+# ============================================================================
+# SchedulerConfig 与正交调度维度演进路线（防概念冲突契约）
+#
+# 单步迭代调度（IterationScheduler.schedule）由四个彼此正交的决策维度组合而成，
+# 严禁将不同维度的策略拍平塞入同一个 Enum（避免笛卡尔积爆炸与与 vLLM 术语冲突）：
+#
+#   1. 队列排序策略 `queue_policy` (QueuePolicyKind) — [TODO: 待演进]
+#      - 回答问题：WaitingQueue 按什么次序接纳请求？RunningQueue 满载时按什么逆序选 Victim？
+#      - 业界对齐：对应 vLLM 的 `--scheduling-policy` (`SchedulerConfig.policy`)。
+#      - 规划取值："fcfs"（默认，按 arrival_ms 稳定排序）| "priority"（按业务优先级）| "srtf"（最短剩余时间优先）。
+#
+#   2. 单步组批与阶段准入策略 `batching_policy` (BatchingPolicyKind) — [当前已实现]
+#      - 回答问题：本轮 Step 如何划定 Prefill / Decode 阶段与单步 Token 预算？
+#      - 注意区分：与宏观批处理机制 `BatchingMethod`（none / fixed-batching / continuous-batching）正交；
+#        `BatchingMethod` 决定跨步生命周期（是否有 wave barrier），`BatchingPolicyKind` 决定单步组批规则。
+#      - 当前取值："prefill-first"（有可入场请求即整批 Prefill）| "token-budget"（受单步 padded prompt token
+#        软预算约束并启用 decode protection）。
+#      - TODO 演进："chunked-prefill"（vLLM V1 统一 Token-Budget 范式：解除 P/D 互斥，先扣减在途 Decode 预算，
+#        剩余预算将长 Prompt 切块混批执行）。
+#
+#   3. 抢占/驱逐模式 `preemption_mode` (PreemptionMode) — [TODO: 待演进]
+#      - 回答问题：Decode 步追加新 Token 导致 free_block_queue 耗尽时，被选中的 Victim 请求如何处置？
+#      - 业界对齐：对应 vLLM 的 `--preemption-mode`。
+#      - 规划取值："recompute"（释放物理 KV blocks 并退回 WaitingQueue 重算 Prefill）
+#        | "swap"（通过 PCIe 将物理 KV blocks 换出至 CPU Host Swap Pool，恢复时换回）。
+#
+#   4. 准入容量水印 `watermark` (float) — [TODO: 待演进]
+#      - 回答问题：Prefill 准入时预留多少比例空闲 physical blocks 作安全垫，防止接纳后立刻在 Decode 步触发抢占抖动？
+# ============================================================================
+
+BatchingPolicyKind = Literal["prefill-first", "token-budget"]
+BATCHING_POLICY_KINDS: tuple[BatchingPolicyKind, ...] = ("prefill-first", "token-budget")
 
 
-def parse_scheduling_policy_kind(value: str | None) -> SchedulingPolicyKind:
-    """将字符串解析为合法的 SchedulingPolicyKind（None 视为默认的 prefill-first）。"""
+def parse_batching_policy_kind(value: str | None) -> BatchingPolicyKind:
+    """将字符串解析为合法的 BatchingPolicyKind（None 视为默认的 prefill-first）。"""
     if value is None or value == "prefill-first":
         return "prefill-first"
     if value == "token-budget":
         return "token-budget"
-    raise ValueError(f"未知调度策略: {value}，可选策略: {list(SCHEDULING_POLICY_KINDS)}")
+    raise ValueError(f"未知 batching policy: {value}，可选策略: {list(BATCHING_POLICY_KINDS)}")
 
 
 @dataclass(frozen=True)
 class PrefillFirstConfig:
-    """prefill-first 调度策略（默认）：WaitingQueue 有可入场请求即整批 Prefill，否则 Decode。"""
+    """prefill-first 组批策略（默认）：WaitingQueue 有可入场请求即整批 Prefill，否则 Decode。"""
 
-    kind: ClassVar[SchedulingPolicyKind] = "prefill-first"
+    kind: ClassVar[BatchingPolicyKind] = "prefill-first"
 
     def __str__(self) -> str:
         return self.kind
@@ -112,12 +142,12 @@ class PrefillFirstConfig:
 
 @dataclass(frozen=True)
 class TokenBudgetConfig:
-    """token-budget 调度策略：以 padded prompt token 数限制单次 Batched Prefill 规模，并启用 decode protection。
+    """token-budget 组批策略：以 padded prompt token 数限制单次 Batched Prefill 规模，并启用 decode protection。
 
     token_budget: 单次 Prefill 允许的 padded prompt token 上限（软预算：队头请求单独超预算时仍放行）。
     """
 
-    kind: ClassVar[SchedulingPolicyKind] = "token-budget"
+    kind: ClassVar[BatchingPolicyKind] = "token-budget"
     token_budget: int
 
     def __post_init__(self) -> None:
@@ -128,16 +158,19 @@ class TokenBudgetConfig:
         return f"{self.kind}(token_budget={self.token_budget})"
 
 
+# 当前 SchedulerConfig 仅承载维度 2（batching_policy）的判别式联合；
+# TODO: 引入 queue_policy（priority / srtf）或 preemption_mode（recompute / swap）时，
+# 演进为聚合 `queue_policy`、`batching_policy`、`preemption_mode` 与 `watermark` 的复合配置。
 SchedulerConfig = PrefillFirstConfig | TokenBudgetConfig
 
 
 def scheduler_config_from_str(kind: str | None, *, token_budget: int | None = None) -> SchedulerConfig:
-    """根据策略标识与可选预算构造对应的 SchedulerConfig 实例（prefill-first 忽略 token_budget）。"""
-    parsed = parse_scheduling_policy_kind(kind)
+    """根据 batching policy 标识与可选预算构造对应的 SchedulerConfig 实例（prefill-first 忽略 token_budget）。"""
+    parsed = parse_batching_policy_kind(kind)
     if parsed == "prefill-first":
         return PrefillFirstConfig()
     if token_budget is None:
-        raise ValueError("token-budget 调度策略必须指定 token_budget")
+        raise ValueError("token-budget 组批策略必须指定 token_budget")
     return TokenBudgetConfig(token_budget)
 
 
@@ -215,9 +248,10 @@ def collapse_uniform(values: Sequence[Any]) -> Any:
 
 
 __all__ = [
+    "BATCHING_POLICY_KINDS",
     "KV_CACHE_KINDS",
-    "SCHEDULING_POLICY_KINDS",
     "BatchingMethod",
+    "BatchingPolicyKind",
     "DenseCacheConfig",
     "KVCacheConfig",
     "KVCacheKind",
@@ -226,12 +260,11 @@ __all__ = [
     "PrefillFirstConfig",
     "RequestMetrics",
     "SchedulerConfig",
-    "SchedulingPolicyKind",
     "SequenceOutput",
     "TokenBudgetConfig",
     "collapse_uniform",
     "kv_cache_config_from_str",
+    "parse_batching_policy_kind",
     "parse_kv_cache_kind",
-    "parse_scheduling_policy_kind",
     "scheduler_config_from_str",
 ]

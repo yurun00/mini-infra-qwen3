@@ -1,6 +1,22 @@
-# 迭代级调度策略 (Iteration-level Scheduling Policy)
+# 迭代级组批与调度策略 (Iteration-level Batching & Scheduling Policy)
 
-> 本文描述 `core.IterationScheduler` 每一步「执行 Prefill 还是 Decode、哪些请求入场」的决策逻辑。队列、batch slot 与 KV Cache 的机制见 [Continuous Batching](continuous-batching.md) 与 [Paged KV Cache](paged-kv-cache.md)。
+> 本文描述 `core.IterationScheduler` 每一步「执行 Prefill 还是 Decode、哪些请求入场」的决策逻辑，以及正交调度维度的演进边界。队列、batch slot 与 KV Cache 的机制见 [Continuous Batching](continuous-batching.md) 与 [Paged KV Cache](paged-kv-cache.md)。
+
+---
+
+## 零、正交调度维度与术语防冲突契约
+
+在现代 LLM 推理引擎（如 vLLM V0/V1、SGLang）中，单步迭代调度包含四个正交决策维度，**严禁将不同维度的策略塞入同一枚举**：
+
+| 决策维度 | 解决的核心问题 | 本项目规范命名 | 业界对照与规划取值 |
+|---|---|---|---|
+| **1. 请求排队序**<br>*(Queue Ordering)* | `WaitingQueue` 先看谁？`RunningQueue` 满载抢占时先踢谁？ | `queue_policy` (`QueuePolicyKind`)<br>*(TODO)* | 对应 vLLM `--scheduling-policy`：`fcfs`（当前默认）、`priority`（优先级）、`srtf`（最短剩余时间优先） |
+| **2. 单步组批与阶段准入**<br>*(Batching / Phase Policy)* | 本轮 Step 如何划定 Prefill / Decode 阶段与单步 Token 预算？ | `batching_policy` (`BatchingPolicyKind`)<br>*(已实现)* | `prefill-first`（默认）、`token-budget`（已实现）、`chunked-prefill`（TODO：vLLM V1 统一预算范式） |
+| **3. 抢占/驱逐模式**<br>*(Preemption Mode)* | Decode 步物理块耗尽时，被选中的 Victim 请求如何处置？ | `preemption_mode` (`PreemptionMode`)<br>*(TODO)* | 对应 vLLM `--preemption-mode`：`recompute`（释放块并退回 `WaitingQueue` 重算）、`swap`（换出至 CPU Host Swap Pool） |
+| **4. 准入容量水印**<br>*(Admission Watermark)* | Prefill 准入时预留多少空闲块作为安全垫防抢占抖动？ | `watermark`<br>*(TODO)* | 预留空闲 physical blocks 比例（如 `0.05`） |
+
+> [!IMPORTANT]
+> **区分 `batching_method` 与 `batching_policy`**：`batching_method`（`none` / `fixed-batching` / `continuous-batching`）决定跨步生命周期机制（是否存在 wave barrier）；`batching_policy`（`prefill-first` / `token-budget`）决定 `continuous-batching` 下单步如何切分阶段与控制 Prefill 规模。
 
 ---
 
@@ -37,7 +53,7 @@ sequenceDiagram
 
 通过 `EngineConfig.scheduler_config` 选择策略（判别式联合 `SchedulerConfig`，与 `KVCacheConfig` 同构）：
 
-| 配置 | scheduling policy | 行为 |
+| 配置 | batching policy | 行为 |
 |---|---|---|
 | `PrefillFirstConfig()`（默认） | `prefill-first` | 入场上限内的 FCFS 前缀整批 Prefill；无可入场请求才 Decode |
 | `TokenBudgetConfig(token_budget)` | `token-budget` | 入场上限内再按 token budget 截断 FCFS 前缀，并启用 decode protection |
@@ -93,11 +109,11 @@ RunningQueue 非空且上一步是 PREFILL 时，强制执行一步 DECODE。本
 ```bash
 # 单独启用 token-budget
 mini-infra run --batching-method continuous-batching --caching-method paged-kv-cache \
-  --scheduling-policy token-budget --token-budget 256 --max-running-requests 4
+  --batching-policy token-budget --token-budget 256 --max-running-requests 4
 
 # 对比 prefill-first 与 token-budget
 mini-infra run --batching-method continuous-batching \
-  --compare-feature scheduling-policy prefill-first token-budget --token-budget 256 \
+  --compare-feature batching-policy prefill-first token-budget --token-budget 256 \
   --max-running-requests 4
 ```
 
@@ -118,5 +134,5 @@ config = EngineConfig(
 mini-infra bench sweep --engine scheduler --tag dev --suite prefill-first-vs-token-budget-prefill-burst \
   --output tmp/results/prefill-burst.local.json
 mini-infra bench scheduler case --tag dev --caching-method paged-kv-cache --max-running-requests 8 \
-  --scheduling-policy token-budget --token-budget 512 --prompt-lens 128 2048 128 1024 --arrival-times-ms 0 0 50 50
+  --batching-policy token-budget --token-budget 512 --prompt-lens 128 2048 128 1024 --arrival-times-ms 0 0 50 50
 ```

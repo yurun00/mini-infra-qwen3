@@ -56,17 +56,17 @@ def test_run_args_parse_per_request_budgets_and_max_running():
     defaults = parser.parse_args([])
     assert defaults.max_new_tokens == [32]
     assert defaults.max_running_requests is None
-    assert defaults.scheduling_policy == "prefill-first"
+    assert defaults.batching_policy == "prefill-first"
     assert defaults.token_budget is None
 
 
-def test_run_args_parse_scheduling_policy_and_token_budget():
+def test_run_args_parse_batching_policy_and_token_budget():
     parser = add_run_args(argparse.ArgumentParser())
-    args = parser.parse_args(["--scheduling-policy", "token-budget", "--token-budget", "256"])
-    assert args.scheduling_policy == "token-budget"
+    args = parser.parse_args(["--batching-policy", "token-budget", "--token-budget", "256"])
+    assert args.batching_policy == "token-budget"
     assert args.token_budget == 256
     with pytest.raises(SystemExit):
-        parser.parse_args(["--scheduling-policy", "budgeted"])
+        parser.parse_args(["--batching-policy", "budgeted"])
 
 
 def test_run_config_token_budget_matches_prefill_first(diverse_model):
@@ -186,7 +186,7 @@ def test_build_engine_config_from_flat_args():
         "continuous-batching",
         "--max-running-requests",
         "4",
-        "--scheduling-policy",
+        "--batching-policy",
         "token-budget",
         "--token-budget",
         "64",
@@ -220,13 +220,13 @@ def test_resolve_compare_feature_overrides_one_arg_and_keeps_the_rest():
 
     # 嵌套字段：token-budget 的预算取自其余参数中的 --token-budget
     configs, _ = resolve_compare_feature(
-        parse_run_args(*base, "--compare-feature", "scheduling-policy", "prefill-first", "token-budget")
+        parse_run_args(*base, "--compare-feature", "batching-policy", "prefill-first", "token-budget")
     )
     assert [c.scheduler_config for c in configs] == [PrefillFirstConfig(), TokenBudgetConfig(64)]
 
     # 嵌套字段的数值参数同样可直接对比
     configs, _ = resolve_compare_feature(
-        parse_run_args(*base, "--scheduling-policy", "token-budget", "--compare-feature", "token-budget", "128", "256")
+        parse_run_args(*base, "--batching-policy", "token-budget", "--compare-feature", "token-budget", "128", "256")
     )
     assert [c.scheduler_config for c in configs] == [TokenBudgetConfig(128), TokenBudgetConfig(256)]
 
@@ -253,7 +253,7 @@ def test_resolve_compare_feature_overrides_one_arg_and_keeps_the_rest():
         ("batching-method", "fixed", "continuous"),
         ("max-running-requests", "two", "4"),
         ("caching-method", "none", "dense-kv-cache", "extra"),  # 必须恰好 3 个
-        ("scheduling-policy", "prefill-first", "token-budget"),  # 未提供 --token-budget
+        ("batching-policy", "prefill-first", "token-budget"),  # 未提供 --token-budget
         ("feature-flags", "none", "unknown"),
     ],
 )

@@ -8,7 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from mini_infra.bench.cases import CaseDimension, CaseDimensionValue, CaseKey
-from mini_infra.core import parse_kv_cache_kind, parse_scheduling_policy_kind
+from mini_infra.core import parse_batching_policy_kind, parse_kv_cache_kind
 from mini_infra.engine import BatchingMethod
 
 if TYPE_CHECKING:
@@ -81,8 +81,8 @@ class Comparison:
                 if not isinstance(raw, int) and raw is not None:
                     raise ValueError("baseline.num_blocks 必须是整数或 null")
                 baseline[dim] = raw
-            elif dim is CaseDimension.SCHEDULING_POLICY:
-                baseline[dim] = parse_scheduling_policy_kind(str(raw))
+            elif dim is CaseDimension.BATCHING_POLICY:
+                baseline[dim] = parse_batching_policy_kind(str(raw))
             elif dim is CaseDimension.TOKEN_BUDGET:
                 if not isinstance(raw, int) and raw is not None:
                     raise ValueError("baseline.token_budget 必须是整数或 null")

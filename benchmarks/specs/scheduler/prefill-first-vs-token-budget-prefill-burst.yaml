@@ -7,7 +7,7 @@ description: >-
 execution:
   warmup: 1
   repeats: 3
-  interleave: [scheduling_policy, token_budget]
+  interleave: [batching_policy, token_budget]
 system:
   engine_mode:
     kind: scheduler
@@ -38,7 +38,7 @@ workload:
 checks: [free_batch_slot_at_t0]
 comparison:
   group_by: [workload_id, caching_method]
-  baseline: {scheduling_policy: prefill-first}
+  baseline: {batching_policy: prefill-first}
   metrics:
     - {path: schedule_metrics.itl_ms_max, kind: reduction, name: ITL-max}
     - {path: schedule_metrics.itl_ms_p95, kind: reduction, name: ITL-p95}

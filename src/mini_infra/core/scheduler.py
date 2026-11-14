@@ -1,10 +1,16 @@
-"""FCFS 调度策略：三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）、入场退场管理与迭代级 Scheduler。
+"""三级调度队列（ArrivalQueue -> WaitingQueue -> RunningQueue）、入场退场管理与迭代级 Scheduler。
 
-本模块只负责调度状态机的纯逻辑转移，不执行模型前向，也不管理显存：
+本模块只负责调度状态机的纯逻辑转移，不执行模型前向，也不管理物理显存：
 - ArrivalQueue：外部到达流（arrival_ms > clock_ms 的未来请求，按到达时间排序）；
 - WaitingQueue：已到达但未分配 batch slot 的就绪等待队列（RequestStatus.WAITING）；
 - RunningQueue：已分配 batch slot 并在计算中的活跃队列（RequestStatus.RUNNING，batch slot 池上限为 capacity）；
-- IterationScheduler：按 SchedulerConfig（prefill-first / token-budget）逐步产出 SchedulerOutput。
+- IterationScheduler：按 SchedulerConfig 的 batching policy（prefill-first / token-budget）逐步产出 SchedulerOutput。
+
+正交调度维度演进路线（详见 `core/types.py`）：
+1. `queue_policy`（排队序）：当前固定为 FCFS；TODO 支持 `priority`（优先级）与 `srtf`（最短剩余时间优先）。
+2. `batching_policy`（单步组批与阶段准入）：当前支持 `prefill-first` 与 `token-budget`；TODO 支持 `chunked-prefill`。
+3. `preemption_mode`（抢占驱逐模式）：TODO 支持 Decode 阶段物理块耗尽时的 `recompute`（重算）与 `swap`（CPU 换入换出）。
+4. `watermark`（准入容量水印）：TODO 支持 Prefill 准入时预留空闲块安全垫。
 """
 
 import heapq
@@ -55,7 +61,11 @@ class ArrivalQueue:
 
 
 class WaitingQueue:
-    """已到达但尚未分配 batch slot 的就绪等待队列（FCFS 次序）。"""
+    """已到达但尚未分配 batch slot 的就绪等待队列。
+
+    TODO(queue_policy): 当前仅实现 FCFS 次序（deque FIFO）；后续接入 `queue_policy`（"fcfs" | "priority" | "srtf"）
+    时，在此处按策略比较器维护出队优先级，以及支持抢占回退请求的队首/按序重插（prepend_preempted）。
+    """
 
     def __init__(self, states: Iterable[RequestState] | None = None):
         self._requests: deque[RequestState] = deque()
@@ -93,7 +103,12 @@ class WaitingQueue:
 
 
 class RunningQueue:
-    """正在占用 batch slot 进行计算的活跃请求队列。"""
+    """正在占用 batch slot 进行计算的活跃请求队列。
+
+    TODO(preemption_mode / queue_policy): 后续当 Decode 步物理块耗尽触发抢占时，
+    按 `queue_policy` 的逆序（FCFS 下选最晚入场请求，priority/srtf 下选最低优请求）从本队列尾部挑出 Victim，
+    并配合 `preemption_mode`（"recompute" | "swap"）释放 batch slot 与物理块。
+    """
 
     def __init__(self, capacity: int):
         if capacity < 1:
@@ -234,13 +249,19 @@ def _select_within_budget(
 class IterationScheduler:
     """迭代级请求调度器：在每个调度步决策执行一次 Prefill batch 或一次 Decode batch。
 
-    入场决策全部收敛于此，依次取 WaitingQueue FCFS 前缀的交集（均为前缀截断，可交换、可组合）：
-    1. batching 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等
+    入场决策全部收敛于此，依次取 WaitingQueue 就绪前缀的交集（均为前缀截断，可交换、可组合）：
+    1. batching method 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等
        RunningQueue 完全排空（wave barrier）；
     2. batch slot 约束：至多 RunningQueue.num_free_batch_slots 个；
-    3. KV 显存约束（仅 Paged）：KVCacheManager 空闲 physical block 可容纳的前缀；
-    4. 策略约束：PrefillFirstConfig 不再截断；TokenBudgetConfig 按 token budget 截断，且 RunningQueue
+    3. KV 显存约束（仅 Paged）：KVCacheManager 空闲 physical block 可容纳的前缀
+       （TODO(watermark): 后续在此支持预留 watermark 比例的空闲块防抢占抖动）；
+    4. batching policy 约束：PrefillFirstConfig 不再截断；TokenBudgetConfig 按 token budget 截断，且 RunningQueue
        非空时禁止连续两步 PREFILL（decode protection），以限制 Prefill burst 对在途请求 ITL 的冲击。
+
+    TODO(chunked-prefill): 演进至统一 Token-Budget 范式（解除 P/D 相位互斥，单步先扣减在途 Decode token 预算，
+    剩余预算将长 Prompt 切块与 Decode 混批执行）。
+    TODO(preemption_mode): 当 Decode 步在途请求增长越过 block 边界且无空闲 physical block 时，
+    触发 Victim 抢占（"recompute" 重算退回 WaitingQueue，或 "swap" 换出至 CPU Host Swap Pool）。
     """
 
     def __init__(

@@ -513,18 +513,18 @@ def test_scheduler_suite_dry_run_main(capsys):
     assert "repeat 1" in captured
 
 
-def test_parse_args_scheduler_case_scheduling_policy():
+def test_parse_args_scheduler_case_batching_policy():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
     default_args = parser.parse_args(["bench", "scheduler", "case", "--tag", "dev"])
-    assert default_args.scheduling_policy == "prefill-first"
+    assert default_args.batching_policy == "prefill-first"
     assert default_args.token_budget is None
 
     args = parser.parse_args(
-        ["bench", "scheduler", "case", "--tag", "dev", "--scheduling-policy", "token-budget", "--token-budget", "64"]
+        ["bench", "scheduler", "case", "--tag", "dev", "--batching-policy", "token-budget", "--token-budget", "64"]
     )
-    assert args.scheduling_policy == "token-budget"
+    assert args.batching_policy == "token-budget"
     assert args.token_budget == 64
 
 
@@ -557,7 +557,7 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
     common = ["bench", "scheduler", "case", "--tag", "dev", "--request-count", "3", "--prompt-length", "4"]
     common += ["--output-budget", "3", "--max-running-requests", "2", "--warmup", "0", "--repeats", "1"]
     args = parser.parse_args(
-        [*common, "--scheduling-policy", "token-budget", "--token-budget", "4", "--output", str(out_path)]
+        [*common, "--batching-policy", "token-budget", "--token-budget", "4", "--output", str(out_path)]
     )
     assert sched_cmd.handle_case(args) == 0
     assert captured["config"].scheduler_config == TokenBudgetConfig(4)
@@ -572,7 +572,7 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
 
     # CLI 边界校验：token-budget 仅支持 continuous-batching
     fixed_args = parser.parse_args(
-        [*common, "--batching-method", "fixed-batching", "--scheduling-policy", "token-budget", "--token-budget", "4"]
+        [*common, "--batching-method", "fixed-batching", "--batching-policy", "token-budget", "--token-budget", "4"]
     )
     with pytest.raises(ValueError, match="continuous-batching"):
         sched_cmd.handle_case(fixed_args)
@@ -589,7 +589,7 @@ def test_run_scheduler_token_budget_suite_on_cpu(tmp_path):
     spec_path.write_text(
         """
 name: tiny-token-budget
-execution: {warmup: 0, repeats: 1, interleave: [scheduling_policy, token_budget]}
+execution: {warmup: 0, repeats: 1, interleave: [batching_policy, token_budget]}
 system:
   engine_mode: {kind: scheduler, max_running_requests: 2}
   batching_method: continuous-batching
@@ -605,7 +605,7 @@ workload:
     - {count: 2, prompt_len: 4, output_len: 3, arrival_ms: 0.001}
 comparison:
   group_by: [workload_id]
-  baseline: {scheduling_policy: prefill-first}
+  baseline: {batching_policy: prefill-first}
   metrics:
     - {path: schedule_metrics.itl_ms_max, kind: reduction}
 """,
@@ -621,7 +621,7 @@ comparison:
         repeats=1,
         interleave=suite.interleave,
     )
-    by_policy = {c.key.scheduling_policy: c for c in cases}
+    by_policy = {c.key.batching_policy: c for c in cases}
     assert by_policy["prefill-first"].key.token_budget is None
     assert by_policy["token-budget"].key.token_budget == 4
     assert by_policy["prefill-first"].schedule_metrics.max_consecutive_prefill_steps.median == 2
@@ -655,7 +655,7 @@ comparison:
     )
     validated = validate_benchmark_record(record.model_dump())
     candidate_key = validated.comparisons[0].candidate_key
-    assert candidate_key.scheduling_policy == "token-budget"
+    assert candidate_key.batching_policy == "token-budget"
     assert candidate_key.token_budget == 4
-    assert validated.comparisons[0].baseline_key.scheduling_policy is None
+    assert validated.comparisons[0].baseline_key.batching_policy is None
     assert validated.cases[1].schedule.max_consecutive_prefill_steps is not None

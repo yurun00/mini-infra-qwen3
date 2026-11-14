@@ -222,8 +222,8 @@ mini-infra bench scheduler case \
 6. **`dense-vs-paged-length-ratio`**：长短 Prompt 长度比扫描（长 Prompt 取 128 / 512 / 2048 / 3072），评估非均匀 Prompt 长度分布下 Paged KV Cache 的显存与吞吐收益变化趋势。
 7. **`dense-vs-paged-block-size`**：Paged 物理块大小扫描（8 / 16 / 32 / 64），对比不同 block size 下的显存开销与调度吞吐，共用同一 Dense 基线。
 
-**prefill-first vs token-budget 对比套件（交替维度 `interleave=(scheduling_policy, token_budget)`）**：
-8. **`prefill-first-vs-token-budget-prefill-burst`**：4 个 128-token 请求持续 Decode，200 ms 突发到达 12 个长短混合 Prompt；扫描 token budget（256 / 512 / 1024 / 2048 / 4096）× Dense / Paged，对比在途请求 Decode 尾延迟（`itl_ms_max` / `itl_ms_p95`）、TTFT P95、吞吐与 padding 效率，并记录 `max_consecutive_prefill_steps` / `num_oversize_prefill_steps` 等迭代调度步数类指标（见 [迭代级调度策略](../architecture/iteration-scheduling.md)）。
+**prefill-first vs token-budget 对比套件（交替维度 `interleave=(batching_policy, token_budget)`）**：
+8. **`prefill-first-vs-token-budget-prefill-burst`**：4 个 128-token 请求持续 Decode，200 ms 突发到达 12 个长短混合 Prompt；扫描 token budget（256 / 512 / 1024 / 2048 / 4096）× Dense / Paged，对比在途请求 Decode 尾延迟（`itl_ms_max` / `itl_ms_p95`）、TTFT P95、吞吐与 padding 效率，并记录 `max_consecutive_prefill_steps` / `num_oversize_prefill_steps` 等迭代调度步数类指标（见 [迭代级组批与调度策略](../architecture/iteration-scheduling.md)）。
 
 > [!NOTE]
 > 与 lockstep 一致：套件的 `warmup` / `repeats` 取自 YAML 的 `execution`，命令行 `--warmup` / `--repeats` 仅在显式传入时覆盖。
@@ -246,7 +246,7 @@ mini-infra bench sweep --engine scheduler \
   --suite dense-vs-paged-block-size
 
 # 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, block_size,
-#    num_blocks, scheduling_policy, token_budget）
+#    num_blocks, batching_policy, token_budget）
 mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-block-size \

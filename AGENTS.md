@@ -1,6 +1,6 @@
 # AI Inference Infra Engineering Rules (Core & Always-On)
 
-`mini-infra-qwen3` 推理与调度引擎核心规则。子域细则由 `.agents/rules/` 按需挂载。
+`mini-infra-qwen3` 推理与调度引擎核心规则。子域细则由 `.agents/rules/` 按需挂载；新增或修改规则须简短准确——直写可判定的红线与代码锚点，省去背景铺垫与泛化套话，优先合并至现存条目而非单列新条。
 
 ---
 
@@ -81,7 +81,7 @@
 | history mask | `DenseSlotCache.history_mask` | 标记各 batch slot 内历史 token 有效位置（右对齐）的布尔掩码 |
 | scheduler | `ArrivalQueue` / `WaitingQueue` / `RunningQueue` / `IterationScheduler` / `run_scheduler` | 调度器概念词统一小写；`Lockstep` 因对应 `LockstepState` / `LockstepRunner` 类保留大写 |
 | scheduler output | `SchedulerOutput` | 单步迭代调度的决策产出：承载本步阶段（`phase`）、被选中请求快照（`scheduled_requests`）、本步计费 Token 数（`num_scheduled_tokens`）与 oversize prefill 标记（`is_oversize_prefill`） |
-| scheduling policy | `SchedulingPolicyKind`（`prefill-first` / `token-budget`） | scheduler config 的策略标识；「baseline」已另有所指，严禁用作策略名 |
+| batching policy | `BatchingPolicyKind`（`prefill-first` / `token-budget`） | `SchedulerConfig` 的单步组批策略标识 |
 | token budget | `TokenBudgetConfig.token_budget` | 单次 Prefill 允许的 padded prompt token 上限（软预算），须不小于 `max_running_requests` |
 | control plane / data plane / compute plane | 分层图 ③④⑤ | 模块 `import torch` 且持有张量即 data plane；纯 CPU 决策即 control plane；纯张量算子计算即 compute plane |
 
@@ -89,6 +89,7 @@
 
 - **禁中文别名**：physical block pool 不写「物理块池 / 块池」，block table 不写「页表」，batch slot 不写「请求槽位 / 执行槽」；文档与注释用规范名，首次出现可附代码标识符。
 - **三个「行/位」语义严禁互混**：`slot_mapping` 的 token 级 slot（写入地址）≠ dense 的 batch slot（请求并发位）≠ 单步前向的 row（临时 batch 行）。
+- **调度正交维度严禁互混**：`batching_method`（跨步机制：`none` / `fixed-batching` / `continuous-batching`）≠ `batching_policy`（单步组批：`prefill-first` / `token-budget`）≠ `queue_policy`（排队序：`fcfs` / `priority` / `srtf`）≠ `preemption_mode`（抢占：`recompute` / `swap`）。
 
 ---
 

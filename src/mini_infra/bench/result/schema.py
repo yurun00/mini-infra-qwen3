@@ -205,7 +205,7 @@ class CaseKeyRecord(_RecordModel):
     max_running_requests: int
     block_size: int | None = None
     num_blocks: int | None = None
-    scheduling_policy: str | None = None  # 缺省即默认 prefill-first
+    batching_policy: str | None = None  # 缺省即默认 prefill-first
     token_budget: int | None = None
     canonical_id: str | None = None
 

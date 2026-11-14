@@ -37,13 +37,14 @@ class FeatureFlag(str, Enum):
 
 @dataclass(frozen=True)
 class EngineConfig:
-    """引擎集中式运行配置（对标 vLLM VllmConfig）：聚合 KV Cache 配置、批处理策略、并发上限、特性标志与调度策略。
+    """引擎集中式运行配置（对标 vLLM VllmConfig）：聚合 KV Cache 配置、批处理策略、并发上限、特性标志与调度器配置。
 
     - kv_cache_config: 互斥的 KV Cache 配置（NoCacheConfig / DenseCacheConfig / PagedCacheConfig）。
-    - batching_method: 互斥的批处理策略（BatchingMethod.NONE / FIXED / CONTINUOUS）。
+    - batching_method: 互斥的宏观批处理策略（BatchingMethod.NONE / FIXED / CONTINUOUS）。
     - max_running_requests: 调度队列最大并发请求数（None 表示不限，按工作负载请求总数推导）。
     - flags: 正交的布尔型功能开关集合。
-    - scheduler_config: 互斥的迭代级调度策略配置（PrefillFirstConfig / TokenBudgetConfig，对标 vLLM SchedulerConfig）。
+    - scheduler_config: 迭代级调度器配置（当前承载 batching_policy：PrefillFirstConfig / TokenBudgetConfig；
+      TODO 后续可扩展聚合 queue_policy 与 preemption_mode，对标 vLLM SchedulerConfig）。
     """
 
     kv_cache_config: KVCacheConfig = NoCacheConfig()
@@ -106,7 +107,7 @@ def _validate_scheduler_config(
     batching_method: BatchingMethod,
     max_running_requests: int | None,
 ) -> None:
-    """校验调度策略与批处理策略、并发上限的组合；max_running_requests 为 None（尚未推导）时跳过预算下限校验。
+    """校验 batching policy 与批处理策略、并发上限的组合；max_running_requests 为 None（未推导）时跳过预算下限校验。
 
     token-budget 仅对 continuous-batching 有意义（fixed 的 wave barrier 与 none 串行都不存在跨步入场决策）；
     且 token_budget 不得小于并发上限，否则一次完整 Decode 即超预算（对标 vLLM max_num_batched_tokens >= max_num_seqs）。
@@ -114,7 +115,7 @@ def _validate_scheduler_config(
     if not isinstance(scheduler_config, TokenBudgetConfig):
         return
     if batching_method is not BatchingMethod.CONTINUOUS:
-        raise ValueError(f"token-budget 调度策略仅支持 continuous-batching，实际为 {batching_method.value}")
+        raise ValueError(f"token-budget 组批策略仅支持 continuous-batching，实际为 {batching_method.value}")
     if max_running_requests is not None and scheduler_config.token_budget < max_running_requests:
         raise ValueError(
             f"token_budget={scheduler_config.token_budget} 不能小于 max_running_requests={max_running_requests}，"

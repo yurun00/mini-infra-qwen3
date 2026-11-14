@@ -9,8 +9,8 @@ from mini_infra.core import (
     PrefillFirstConfig,
     TokenBudgetConfig,
     kv_cache_config_from_str,
+    parse_batching_policy_kind,
     parse_kv_cache_kind,
-    parse_scheduling_policy_kind,
     scheduler_config_from_str,
 )
 from mini_infra.engine.config import (
@@ -120,18 +120,18 @@ def test_validate_engine_config():
         validate_engine_config(EngineConfig(NoCacheConfig(), batching_method=BatchingMethod.CONTINUOUS))
 
 
-def test_scheduling_policy_kind_and_config_from_str():
-    assert parse_scheduling_policy_kind(None) == "prefill-first"
-    assert parse_scheduling_policy_kind("prefill-first") == "prefill-first"
-    assert parse_scheduling_policy_kind("token-budget") == "token-budget"
+def test_batching_policy_kind_and_config_from_str():
+    assert parse_batching_policy_kind(None) == "prefill-first"
+    assert parse_batching_policy_kind("prefill-first") == "prefill-first"
+    assert parse_batching_policy_kind("token-budget") == "token-budget"
     assert scheduler_config_from_str(None) == PrefillFirstConfig()
     assert scheduler_config_from_str("prefill-first", token_budget=64) == PrefillFirstConfig()
     assert scheduler_config_from_str("token-budget", token_budget=64) == TokenBudgetConfig(64)
     assert str(PrefillFirstConfig()) == "prefill-first"
     assert str(TokenBudgetConfig(2048)) == "token-budget(token_budget=2048)"
 
-    with pytest.raises(ValueError, match="未知调度策略"):
-        parse_scheduling_policy_kind("budgeted")
+    with pytest.raises(ValueError, match="未知 batching policy"):
+        parse_batching_policy_kind("budgeted")
     with pytest.raises(ValueError, match="必须指定 token_budget"):
         scheduler_config_from_str("token-budget")
     with pytest.raises(ValueError, match="token_budget 必须大于 0"):
@@ -167,7 +167,7 @@ def test_validate_engine_config_scheduler_rules():
         )
     )
     for method in (BatchingMethod.FIXED, BatchingMethod.NONE):
-        with pytest.raises(ValueError, match="token-budget 调度策略仅支持 continuous-batching"):
+        with pytest.raises(ValueError, match="token-budget 组批策略仅支持 continuous-batching"):
             validate_engine_config(
                 EngineConfig(DenseCacheConfig(), batching_method=method, scheduler_config=TokenBudgetConfig(8))
             )

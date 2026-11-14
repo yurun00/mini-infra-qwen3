@@ -188,7 +188,7 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
                 "**Chunked Prefill**，将长 Prompt 拆分为小块与 Decode 交织执行"
                 "（软预算下 oversize prefill 仍会整段阻塞）。"
                 if is_token_budget
-                else "**token-budget 调度策略**（`--scheduling-policy token-budget`）限制单次 Prefill 规模并启用 "
+                else "**token-budget 组批策略**（`--batching-policy token-budget`）限制单次 Prefill 规模并启用 "
                 "decode protection，再演进到 **Chunked Prefill**。"
             )
             lines.append(

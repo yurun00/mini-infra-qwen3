@@ -11,8 +11,8 @@ from typing import Any
 import torch
 
 from mini_infra.core import (
+    BATCHING_POLICY_KINDS,
     KV_CACHE_KINDS,
-    SCHEDULING_POLICY_KINDS,
     DenseCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
@@ -76,10 +76,10 @@ _ENGINE_CONFIG_ARGS: dict[str, dict[str, Any]] = {
         "default": None,
         "help": "调度器最大并发请求数，仅对 fixed/continuous 调度路径生效（默认: 不限，即 prompt 数量）",
     },
-    "--scheduling-policy": {
+    "--batching-policy": {
         "default": PrefillFirstConfig.kind,
-        "choices": list(SCHEDULING_POLICY_KINDS),
-        "help": "迭代级调度策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
+        "choices": list(BATCHING_POLICY_KINDS),
+        "help": "迭代级单步组批策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
     },
     "--token-budget": {
         "type": int,
@@ -162,7 +162,7 @@ def build_engine_config(args: argparse.Namespace) -> EngineConfig:
         batching_method=BatchingMethod.from_str(args.batching_method),
         max_running_requests=args.max_running_requests,
         flags=args.feature_flags,
-        scheduler_config=scheduler_config_from_str(args.scheduling_policy, token_budget=args.token_budget),
+        scheduler_config=scheduler_config_from_str(args.batching_policy, token_budget=args.token_budget),
     )
 
 

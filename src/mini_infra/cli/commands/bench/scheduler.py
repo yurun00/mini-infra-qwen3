@@ -18,7 +18,7 @@ from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.spec.common.lengths import make_arrival_times
 from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.core import (
-    SCHEDULING_POLICY_KINDS,
+    BATCHING_POLICY_KINDS,
     DenseCacheConfig,
     PagedCacheConfig,
     PrefillFirstConfig,
@@ -63,10 +63,10 @@ def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         help="调度队列最大运行并发数（默认: 4）",
     )
     p.add_argument(
-        "--scheduling-policy",
-        choices=list(SCHEDULING_POLICY_KINDS),
+        "--batching-policy",
+        choices=list(BATCHING_POLICY_KINDS),
         default=PrefillFirstConfig.kind,
-        help="迭代级调度策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
+        help="迭代级单步组批策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
     )
     p.add_argument(
         "--token-budget",
@@ -109,7 +109,7 @@ def handle_case(args: argparse.Namespace) -> int:
         block_size=args.block_size,
         num_blocks=args.num_blocks,
     )
-    scheduler_config = scheduler_config_from_str(args.scheduling_policy, token_budget=args.token_budget)
+    scheduler_config = scheduler_config_from_str(args.batching_policy, token_budget=args.token_budget)
     target_config = EngineConfig(
         kv_cache_config,
         batching_method=method,

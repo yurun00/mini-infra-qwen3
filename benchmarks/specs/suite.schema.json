@@ -20,7 +20,7 @@
         "max_running_requests",
         "block_size",
         "num_blocks",
-        "scheduling_policy",
+        "batching_policy",
         "token_budget"
       ],
       "title": "CaseDimension",

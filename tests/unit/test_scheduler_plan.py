@@ -93,13 +93,13 @@ def test_case_key_dimension_value():
         case.key.value("invalid_dimension")
 
 
-def test_case_key_scheduling_policy_dimensions():
+def test_case_key_batching_policy_dimensions():
     """默认 prefill-first 不进入 canonical_id / to_dict / 缩写名；token-budget 展平为两个正交维度。"""
     default_case = make_dummy_case(BatchingMethod.CONTINUOUS, kv_cache=True)
-    assert default_case.key.value(CaseDimension.SCHEDULING_POLICY) == "prefill-first"
+    assert default_case.key.value(CaseDimension.BATCHING_POLICY) == "prefill-first"
     assert default_case.key.value(CaseDimension.TOKEN_BUDGET) is None
     assert "sched=" not in default_case.key.canonical_id
-    assert "scheduling_policy" not in default_case.key.to_dict()
+    assert "batching_policy" not in default_case.key.to_dict()
     assert "token_budget" not in default_case.key.to_dict()
 
     budget_case = BenchmarkCase(
@@ -110,14 +110,14 @@ def test_case_key_scheduling_policy_dimensions():
         scheduler_config=TokenBudgetConfig(512),
     )
     key = budget_case.key
-    assert key.scheduling_policy == "token-budget"
+    assert key.batching_policy == "token-budget"
     assert key.token_budget == 512
     assert key.engine_config == budget_case.engine_config
     assert key.canonical_id.endswith("/block=16/sched=token-budget/budget=512")
     assert key.abbreviated_engine_config == "pkc+cb+tb"
     assert key.abbreviated_display_name.endswith("| blk-sz=16 | budget=512")
     assert str(key.engine_config).endswith("+mrr=8+token-budget(token_budget=512)")
-    assert key.to_dict()["scheduling_policy"] == "token-budget"
+    assert key.to_dict()["batching_policy"] == "token-budget"
     assert key.to_dict()["token_budget"] == 512
     assert CaseKey.from_dict(key.to_dict()) == key
     assert key != default_case.key
