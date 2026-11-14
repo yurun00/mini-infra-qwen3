@@ -320,7 +320,9 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
         _SCHEDULER_BASE
         + "sweep:\n  system:\n"
         + "    caching_spec: [dense-kv-cache, paged-kv-cache]\n"
-        + "    scheduler_spec: [prefill-first, {kind: token-budget, token_budget: 64}]\n"
+        + "    scheduler_spec:\n"
+        + "      - {batching_policy: prefill-first}\n"
+        + "      - {batching_policy: {kind: token-budget, token_budget: 64}}\n"
     )
     loaded = load_suite_spec(_write(tmp_path, text))
     assert [(cs.caching_spec.kind, cs.scheduler_spec.scheduler_config) for cs in loaded.cases] == [
@@ -342,18 +344,25 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
         # token-budget 仅支持 continuous-batching（含 sweep 中任一生效的 batching_method）
         (
             "sweep:\n  system:\n    batching_method: [fixed-batching, continuous-batching]\n"
-            "    scheduler_spec: [{kind: token-budget, token_budget: 64}]\n",
+            "    scheduler_spec: [{batching_policy: {kind: token-budget, token_budget: 64}}]\n",
             "continuous-batching",
         ),
         # token_budget 不得小于任一生效的 max_running_requests
         (
             "sweep:\n  system:\n    max_running_requests: [2, 8]\n"
-            "    scheduler_spec: [{kind: token-budget, token_budget: 4}]\n",
+            "    scheduler_spec: [{batching_policy: {kind: token-budget, token_budget: 4}}]\n",
             "不能小于",
         ),
-        ("sweep:\n  system:\n    scheduler_spec: [token-budget]\n", "token_budget"),
-        ("sweep:\n  system:\n    scheduler_spec: [{kind: token-budget, token_budget: 0}]\n", "greater than 0"),
-        ("sweep:\n  system:\n    scheduler_spec: [budgeted]\n", "does not match any of the expected tags"),
+        ("sweep:\n  system:\n    scheduler_spec: [{batching_policy: token-budget}]\n", "token_budget"),
+        (
+            "sweep:\n  system:\n    scheduler_spec: [{batching_policy: {kind: token-budget, token_budget: 0}}]\n",
+            "greater than 0",
+        ),
+        (
+            "sweep:\n  system:\n    scheduler_spec: [{batching_policy: budgeted}]\n",
+            "does not match any of the expected tags",
+        ),
+        ("sweep:\n  system:\n    scheduler_spec: [prefill-first]\n", "Input should be a valid dictionary"),
     ],
 )
 def test_invalid_scheduler_spec_combinations_are_rejected(tmp_path, tail, message):
@@ -366,7 +375,7 @@ def test_baseline_scheduler_spec_and_lockstep_rejection(tmp_path):
 
     text = _SCHEDULER_BASE.replace(
         "  caching_spec: dense-kv-cache\n",
-        "  caching_spec: dense-kv-cache\n  scheduler_spec: {kind: token-budget, token_budget: 4}\n",
+        "  caching_spec: dense-kv-cache\n  scheduler_spec: {batching_policy: {kind: token-budget, token_budget: 4}}\n",
     )
     (case,) = load_suite_spec(_write(tmp_path, text)).cases
     assert case.scheduler_spec.scheduler_config == SchedulerConfig(TokenBudgetConfig(4))
@@ -376,7 +385,7 @@ name: demo
 system:
   engine_mode: lockstep
   batching_method: fixed-batching
-  scheduler_spec: {kind: token-budget, token_budget: 4}
+  scheduler_spec: {batching_policy: {kind: token-budget, token_budget: 4}}
 workload: {id: w, count: 1, prompt_len: 8, output_len: 4}
 """
     with pytest.raises(ValueError, match="lockstep suite 不支持 token-budget"):
@@ -395,7 +404,7 @@ def test_system_spec_scheduler_spec_default_engine_config():
         {
             "engine_mode": {"kind": "scheduler", "max_running_requests": 4},
             "batching_method": "continuous-batching",
-            "scheduler_spec": {"kind": "token-budget", "token_budget": 128},
+            "scheduler_spec": {"batching_policy": {"kind": "token-budget", "token_budget": 128}},
         }
     )
     assert budget_sys.default_engine_config.scheduler_config == SchedulerConfig(TokenBudgetConfig(128))

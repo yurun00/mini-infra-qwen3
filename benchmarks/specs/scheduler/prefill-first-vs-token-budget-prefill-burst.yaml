@@ -14,19 +14,19 @@ system:
     max_running_requests: 8
   batching_method: continuous-batching
   caching_spec: {kind: paged-kv-cache, block_size: 16}
-  scheduler_spec: prefill-first
+  scheduler_spec: {batching_policy: prefill-first}
 sweep:
   system:
     caching_spec:
       - dense-kv-cache
       - {kind: paged-kv-cache, block_size: 16}
     scheduler_spec:
-      - prefill-first
-      - {kind: token-budget, token_budget: 256}
-      - {kind: token-budget, token_budget: 512}
-      - {kind: token-budget, token_budget: 1024}
-      - {kind: token-budget, token_budget: 2048}
-      - {kind: token-budget, token_budget: 4096}
+      - {batching_policy: prefill-first}
+      - {batching_policy: {kind: token-budget, token_budget: 256}}
+      - {batching_policy: {kind: token-budget, token_budget: 512}}
+      - {batching_policy: {kind: token-budget, token_budget: 1024}}
+      - {batching_policy: {kind: token-budget, token_budget: 2048}}
+      - {batching_policy: {kind: token-budget, token_budget: 4096}}
 workload:
   id: prefill_burst
   groups:

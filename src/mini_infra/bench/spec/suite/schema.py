@@ -201,15 +201,19 @@ class SuiteSpec(_Strict):
                 "scheduler suite 必须提供 system.engine_mode.max_running_requests（或在 sweep.system 中扫描）"
             )
 
-        token_budget_specs = [spec for spec in effective_scheduler_specs if isinstance(spec, TokenBudgetSpec)]
+        token_budget_specs = [
+            spec.batching_policy
+            for spec in effective_scheduler_specs
+            if isinstance(spec.batching_policy, TokenBudgetSpec)
+        ]
         if not token_budget_specs:
             return
         if any(method is not BatchingMethod.CONTINUOUS for method in effective_batching_methods):
             raise ValueError("token-budget 调度策略要求生效的 batching_method 全部为 continuous-batching")
         max_mrr = max(effective_mrrs)
-        for spec in token_budget_specs:
-            if spec.token_budget < max_mrr:
-                raise ValueError(f"token_budget={spec.token_budget} 不能小于生效的 max_running_requests={max_mrr}")
+        for policy in token_budget_specs:
+            if policy.token_budget < max_mrr:
+                raise ValueError(f"token_budget={policy.token_budget} 不能小于生效的 max_running_requests={max_mrr}")
 
     def _check_lockstep(
         self,
@@ -219,7 +223,7 @@ class SuiteSpec(_Strict):
     ) -> None:
         if self.sweep.system.max_running_requests is not None:
             raise ValueError("lockstep suite 不支持 max_running_requests")
-        if any(isinstance(s, TokenBudgetSpec) for s in effective_scheduler_specs):
+        if any(isinstance(s.batching_policy, TokenBudgetSpec) for s in effective_scheduler_specs):
             raise ValueError("lockstep suite 不支持 token-budget 调度策略")
         if any(isinstance(c, PagedCacheSpec) for c in effective_caching_specs):
             raise ValueError("lockstep suite 不支持 paged-kv-cache")

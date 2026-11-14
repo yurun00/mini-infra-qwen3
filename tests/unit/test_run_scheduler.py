@@ -596,7 +596,9 @@ system:
   caching_spec: dense-kv-cache
 sweep:
   system:
-    scheduler_spec: [prefill-first, {kind: token-budget, token_budget: 4}]
+    scheduler_spec:
+      - {batching_policy: prefill-first}
+      - {batching_policy: {kind: token-budget, token_budget: 4}}
 workload:
   id: burst
   groups:

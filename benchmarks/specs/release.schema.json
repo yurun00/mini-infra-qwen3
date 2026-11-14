@@ -159,7 +159,7 @@
     },
     "PrefillFirstSpec": {
       "additionalProperties": false,
-      "description": "prefill-first 迭代调度策略（默认）：WaitingQueue 有可入场请求即整批 Prefill。",
+      "description": "prefill-first 单步组批策略（默认）：WaitingQueue 有可入场请求即整批 Prefill。",
       "properties": {
         "kind": {
           "const": "prefill-first",
@@ -238,6 +238,35 @@
       "title": "SchedulerEngineSpec",
       "type": "object"
     },
+    "SchedulerSpec": {
+      "additionalProperties": false,
+      "description": "迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。",
+      "properties": {
+        "batching_policy": {
+          "default": {
+            "kind": "prefill-first"
+          },
+          "discriminator": {
+            "mapping": {
+              "prefill-first": "#/$defs/PrefillFirstSpec",
+              "token-budget": "#/$defs/TokenBudgetSpec"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PrefillFirstSpec"
+            },
+            {
+              "$ref": "#/$defs/TokenBudgetSpec"
+            }
+          ],
+          "title": "Batching Policy"
+        }
+      },
+      "title": "SchedulerSpec",
+      "type": "object"
+    },
     "SystemSpec": {
       "additionalProperties": false,
       "properties": {
@@ -288,25 +317,12 @@
           "title": "Caching Spec"
         },
         "scheduler_spec": {
+          "$ref": "#/$defs/SchedulerSpec",
           "default": {
-            "kind": "prefill-first"
-          },
-          "discriminator": {
-            "mapping": {
-              "prefill-first": "#/$defs/PrefillFirstSpec",
-              "token-budget": "#/$defs/TokenBudgetSpec"
-            },
-            "propertyName": "kind"
-          },
-          "oneOf": [
-            {
-              "$ref": "#/$defs/PrefillFirstSpec"
-            },
-            {
-              "$ref": "#/$defs/TokenBudgetSpec"
+            "batching_policy": {
+              "kind": "prefill-first"
             }
-          ],
-          "title": "Scheduler Spec"
+          }
         }
       },
       "required": [
@@ -318,7 +334,7 @@
     },
     "TokenBudgetSpec": {
       "additionalProperties": false,
-      "description": "token-budget 迭代调度策略：padded prompt token 预算限制单次 Prefill，并启用 decode protection。",
+      "description": "token-budget 单步组批策略：padded prompt token 预算限制单次 Prefill，并启用 decode protection。",
       "properties": {
         "kind": {
           "const": "token-budget",

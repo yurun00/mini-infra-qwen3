@@ -307,45 +307,55 @@ CachingSpec = Annotated[
 
 
 class PrefillFirstSpec(_Strict):
-    """prefill-first 迭代调度策略（默认）：WaitingQueue 有可入场请求即整批 Prefill。"""
+    """prefill-first 单步组批策略（默认）：WaitingQueue 有可入场请求即整批 Prefill。"""
 
     kind: Literal["prefill-first"] = PrefillFirstConfig.kind
 
     @property
-    def scheduler_config(self) -> SchedulerConfig:
-        return SchedulerConfig(PrefillFirstConfig())
+    def batching_policy(self) -> PrefillFirstConfig:
+        return PrefillFirstConfig()
 
 
 class TokenBudgetSpec(_Strict):
-    """token-budget 迭代调度策略：padded prompt token 预算限制单次 Prefill，并启用 decode protection。"""
+    """token-budget 单步组批策略：padded prompt token 预算限制单次 Prefill，并启用 decode protection。"""
 
     kind: Literal["token-budget"] = TokenBudgetConfig.kind
     token_budget: PositiveInt
 
     @property
-    def scheduler_config(self) -> SchedulerConfig:
-        return SchedulerConfig(TokenBudgetConfig(self.token_budget))
+    def batching_policy(self) -> TokenBudgetConfig:
+        return TokenBudgetConfig(self.token_budget)
 
 
-def _normalize_scheduler(raw: Any) -> Any:
-    """归一化 scheduler_spec 输入：将标量字符串提升为标准判别字典。"""
+def _normalize_batching_policy(raw: Any) -> Any:
+    """归一化 batching_policy 输入：将标量字符串提升为标准判别字典。"""
     if isinstance(raw, str):
         return {"kind": raw}
     return raw
 
 
-SchedulerSpec = Annotated[
+BatchingPolicySpec = Annotated[
     PrefillFirstSpec | TokenBudgetSpec,
     Field(discriminator="kind"),
-    BeforeValidator(_normalize_scheduler),
+    BeforeValidator(_normalize_batching_policy),
 ]
+
+
+class SchedulerSpec(_Strict):
+    """迭代级调度器配置声明（与 core.SchedulerConfig 对齐）。"""
+
+    batching_policy: BatchingPolicySpec = PrefillFirstSpec()
+
+    @property
+    def scheduler_config(self) -> SchedulerConfig:
+        return SchedulerConfig(batching_policy=self.batching_policy.batching_policy)
 
 
 class SystemSpec(_Strict):
     engine_mode: EngineModeSpec
     batching_method: BatchingMethod
     caching_spec: CachingSpec = DenseCacheSpec()
-    scheduler_spec: SchedulerSpec = PrefillFirstSpec()
+    scheduler_spec: SchedulerSpec = SchedulerSpec()
 
     @property
     def default_engine_config(self) -> EngineConfig:
@@ -376,6 +386,7 @@ CheckSpec = Literal["free_batch_slot_at_t0"] | MinMaxRunningRequestsCheck | MinO
 __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
+    "BatchingPolicySpec",
     "CachingSpec",
     "CheckSpec",
     "ConstantArrival",

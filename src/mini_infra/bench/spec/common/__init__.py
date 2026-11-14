@@ -13,6 +13,7 @@ from mini_infra.bench.spec.common.raw import deep_merge, load_raw_spec, spec_sha
 from mini_infra.bench.spec.common.schema import (
     AlternatingLength,
     ArrivalSpec,
+    BatchingPolicySpec,
     CachingSpec,
     CheckSpec,
     ConstantArrival,
@@ -49,6 +50,7 @@ from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, interpol
 __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
+    "BatchingPolicySpec",
     "CachingSpec",
     "CheckSpec",
     "ConstantArrival",
