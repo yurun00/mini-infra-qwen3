@@ -284,6 +284,7 @@ class ScheduleEvent:
     kv_cache_pool_bytes: int = 0
     cache_realign_moved_bytes: int = 0
     accessed_kv_cache_tokens: int = 0
+    is_oversize_prefill: bool = False  # 透传 SchedulerOutput：token-budget 下队头单独超预算放行的 PREFILL
 
 
 @dataclass(frozen=True)
@@ -305,6 +306,18 @@ class ScheduleMetrics(Generic[_MetricT]):
     itl_ms_p50: _MetricT
     itl_ms_p95: _MetricT
     itl_ms_max: _MetricT
+    num_prefill_steps: _MetricT
+    num_decode_steps: _MetricT
+    max_consecutive_prefill_steps: _MetricT  # 最长连续 PREFILL 事件数：衡量 Prefill burst 对在途 Decode 的阻塞
+    num_oversize_prefill_steps: _MetricT
+
+
+def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
+    longest = streak = 0
+    for event in events:
+        streak = streak + 1 if event.phase is SchedulePhase.PREFILL else 0
+        longest = max(longest, streak)
+    return longest
 
 
 def summarize_schedule(
@@ -409,6 +422,10 @@ def summarize_schedule(
         itl_ms_p50=percentile(itls, 50),
         itl_ms_p95=percentile(itls, 95),
         itl_ms_max=max(itls, default=0.0),
+        num_prefill_steps=sum(1 for e in events if e.phase is SchedulePhase.PREFILL),
+        num_decode_steps=sum(1 for e in events if e.phase is SchedulePhase.DECODE),
+        max_consecutive_prefill_steps=_max_consecutive_prefill_steps(events),
+        num_oversize_prefill_steps=sum(1 for e in events if e.is_oversize_prefill),
     )
     trace = GenerationTrace(
         step_latencies_ms=[event.step_ms for event in events],

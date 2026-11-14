@@ -46,10 +46,11 @@ def test_scheduler_suites_registry():
             "dense-vs-paged-long-short-stress",
             "dense-vs-paged-length-ratio",
             "dense-vs-paged-block-size",
+            "prefill-first-vs-token-budget-prefill-burst",
         ]
     )
     suites = get_all_benchmark_suites("scheduler")
-    assert len(suites) == 7
+    assert len(suites) == 8
     for suite in suites:
         assert isinstance(suite, BenchmarkSuite)
         assert isinstance(suite.cases, tuple)
@@ -314,6 +315,10 @@ def test_compute_comparisons():
             itl_ms_p50=dist(10.0),
             itl_ms_p95=dist(12.0),
             itl_ms_max=dist(15.0),
+            num_prefill_steps=dist(1.0),
+            num_decode_steps=dist(63.0),
+            max_consecutive_prefill_steps=dist(1.0),
+            num_oversize_prefill_steps=dist(0.0),
         )
         key = CaseKey(
             workload_id=wid,

@@ -266,6 +266,10 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
     print("排队延迟 p50/p95: %.2f / %.2f ms" % (sm.queue_ms_p50, sm.queue_ms_p95))
     print("TTFT p50/p95: %.2f / %.2f ms" % (sm.ttft_ms_p50, sm.ttft_ms_p95))
     print("ITL p50/p95/max: %.2f / %.2f / %.2f ms" % (sm.itl_ms_p50, sm.itl_ms_p95, sm.itl_ms_max))
+    print(
+        "调度步数 Prefill/Decode: %d / %d，最长连续 Prefill: %d 步，oversize prefill: %d 次"
+        % (sm.num_prefill_steps, sm.num_decode_steps, sm.max_consecutive_prefill_steps, sm.num_oversize_prefill_steps)
+    )
     print("Cache 管理耗时占比: %.2f%%" % (sm.cache_management_fraction * 100))
     info = result.batch_info
     if info is not None and info.running_capacity_utilization is not None:

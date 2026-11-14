@@ -60,7 +60,18 @@ class SchedulerCaseResult:
             f"slot_util {slot_util * 100:.1f}% | "
             f"ttft_p95 {self.schedule_metrics.ttft_ms_p95.mean:.2f} ms | "
             f"itl_p95 {self.schedule_metrics.itl_ms_p95.mean:.2f} ms"
-            f"{cache_info}{pool_info}"
+            f"{cache_info}{pool_info}{self._format_token_budget_info()}"
+        )
+
+    def _format_token_budget_info(self) -> str:
+        """token-budget 用例追加预算、最长连续 Prefill 步数与 oversize prefill 次数；prefill-first 不输出。"""
+        if self.key.token_budget is None:
+            return ""
+        sm = self.schedule_metrics
+        return (
+            f" | budget {self.key.token_budget}"
+            f" | max_pf_streak {sm.max_consecutive_prefill_steps.median:.0f}"
+            f" | oversize {sm.num_oversize_prefill_steps.median:.0f}"
         )
 
     def to_record_dict(self) -> dict[str, Any]:
@@ -110,6 +121,10 @@ class SchedulerCaseResult:
                 "itl_ms_p50": sm.itl_ms_p50.to_dict(),
                 "itl_ms_p95": sm.itl_ms_p95.to_dict(),
                 "itl_ms_max": sm.itl_ms_max.to_dict(),
+                "num_prefill_steps": sm.num_prefill_steps.to_dict(),
+                "num_decode_steps": sm.num_decode_steps.to_dict(),
+                "max_consecutive_prefill_steps": sm.max_consecutive_prefill_steps.to_dict(),
+                "num_oversize_prefill_steps": sm.num_oversize_prefill_steps.to_dict(),
             },
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
@@ -214,6 +229,14 @@ class SchedulerCaseResult:
             itl_ms_p50=DistributionStats.from_samples([r.schedule_metrics.itl_ms_p50 for r in runs]),
             itl_ms_p95=DistributionStats.from_samples([r.schedule_metrics.itl_ms_p95 for r in runs]),
             itl_ms_max=DistributionStats.from_samples([r.schedule_metrics.itl_ms_max for r in runs]),
+            num_prefill_steps=DistributionStats.from_samples([r.schedule_metrics.num_prefill_steps for r in runs]),
+            num_decode_steps=DistributionStats.from_samples([r.schedule_metrics.num_decode_steps for r in runs]),
+            max_consecutive_prefill_steps=DistributionStats.from_samples(
+                [r.schedule_metrics.max_consecutive_prefill_steps for r in runs]
+            ),
+            num_oversize_prefill_steps=DistributionStats.from_samples(
+                [r.schedule_metrics.num_oversize_prefill_steps for r in runs]
+            ),
         )
 
         batch_infos = [r.batch_info for r in runs if r.batch_info is not None]

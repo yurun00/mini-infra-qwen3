@@ -15,7 +15,7 @@ sequenceDiagram
     participant S as core.IterationScheduler
     L->>L: waiting_queue.extend(arrival_queue.pop_arrived(clock_ms))
     L->>S: schedule(waiting_queue, running_queue)
-    S-->>L: SchedulerOutput(phase, scheduled_requests, num_scheduled_tokens) | None
+    S-->>L: SchedulerOutput(phase, scheduled_requests, num_scheduled_tokens, is_oversize_prefill) | None
     alt PREFILL
         L->>B: execute_prefill(admitted)
     else DECODE
@@ -56,7 +56,7 @@ sequenceDiagram
 
 ### 2. 软预算与 oversize prefill
 
-无 Chunked Prefill 时长 Prompt 无法拆分。若队头请求单独已超预算，则让它独自 Prefill（oversize prefill），保证 FCFS 队列一定有进展。因此：非 oversize 的 Prefill 满足 `num_scheduled_tokens ≤ token_budget`；oversize Prefill 只含 1 个请求。
+无 Chunked Prefill 时长 Prompt 无法拆分。若队头请求单独已超预算，则让它独自 Prefill（oversize prefill），保证 FCFS 队列一定有进展。因此：非 oversize 的 Prefill 满足 `num_scheduled_tokens ≤ token_budget`；oversize Prefill 只含 1 个请求，并以 `SchedulerOutput.is_oversize_prefill` 标记，经 `ScheduleEvent.is_oversize_prefill` 透传。
 
 ### 3. decode protection
 
@@ -70,13 +70,25 @@ RunningQueue 非空且上一步是 PREFILL 时，强制执行一步 DECODE。本
 | 2 | DECODE | DECODE（decode protection） |
 | 3 | DECODE | PREFILL [2, 3]（6 tokens） |
 
-## 四、不变量与验证
+## 四、迭代调度步数类指标
+
+`summarize_schedule` 由事件流汇总到 `ScheduleMetrics`（Record 中为 `schedule.*`，多轮测量聚合为 `DistributionStats`）：
+
+| 指标 | 含义 |
+|---|---|
+| `num_prefill_steps` / `num_decode_steps` | PREFILL / DECODE 事件数 |
+| `max_consecutive_prefill_steps` | 最长连续 PREFILL 事件数：衡量 Prefill burst 对在途 Decode 的阻塞；token-budget 在 RunningQueue 非空时恒为 1（decode protection） |
+| `num_oversize_prefill_steps` | oversize prefill 事件数：预算过小（或长 Prompt 过多）时偏高 |
+
+早于 token-budget 的历史 Record 无这些字段，Schema 中为 `Optional`（不回填），绘图与报告缺失时跳过。
+
+## 五、不变量与验证
 
 - 两种策略只决定「谁在哪一步入场」，`position_ids`、block table 寻址与因果可见范围仍由 worker 保证，逐请求输出与串行 `generate` 逐 Token 一致。
 - CPU：`tests/unit/test_scheduler.py`（决策单测）、`test_continuous.py` / `test_paged_scheduler.py`（串行一致性与事件不变量）、`test_compare_schedulers.py`、`mini-infra verify smoke`（`check_token_budget_scheduling`）。
 - GPU：`mini-infra verify schedulers-token-budget`（`compare_schedulers_token_budget.py` 错峰 Burst 轨迹与指标对比）与 `tests/gpu/parity/test_scheduler_batch_parity.py` 在 `float32` 下覆盖 Dense / Paged × 预算（含 oversize prefill）。
 
-## 五、使用
+## 六、使用
 
 ```bash
 # 单独启用 token-budget
@@ -98,4 +110,13 @@ config = EngineConfig(
     max_running_requests=4,
     scheduler_config=TokenBudgetConfig(256),
 )
+```
+
+受控实验套件 `prefill-first-vs-token-budget-prefill-burst`（YAML 的 `scheduler_spec` 扫描轴与 `caching_spec` 同构，见 [声明式评测规范](../benchmarks/spec-schema.md)）：
+
+```bash
+mini-infra bench sweep --engine scheduler --tag dev --suite prefill-first-vs-token-budget-prefill-burst \
+  --output tmp/results/prefill-burst.local.json
+mini-infra bench scheduler case --tag dev --caching-method paged-kv-cache --max-running-requests 8 \
+  --scheduling-policy token-budget --token-budget 512 --prompt-lens 128 2048 128 1024 --arrival-times-ms 0 0 50 50
 ```

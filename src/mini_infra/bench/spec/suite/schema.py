@@ -6,7 +6,7 @@ YAML 是外部输入边界：这里一次性完成全部校验，下游（expand
 
     name / engine / description
     execution:  warmup / repeats / interleave
-    system:     max_running_requests / batching_method[] / caching_spec[] / paged
+    system:     engine_mode / batching_method / caching_spec / scheduler_spec
     workload:   vars / id / (groups | 单组简写字段)
     sweep:      workload（dict-of-lists 笛卡尔积，或 list-of-dicts 显式场景）/ system
     comparison: metrics / group_by / baseline
@@ -31,8 +31,10 @@ from mini_infra.bench.spec.common.schema import (
     PagedCacheSpec,
     PositiveInt,
     SchedulerEngineSpec,
+    SchedulerSpec,
     SuiteEngine,
     SystemSpec,
+    TokenBudgetSpec,
     _Strict,
 )
 from mini_infra.engine import BatchingMethod
@@ -60,6 +62,7 @@ class SystemSweepSpec(_Strict):
     max_running_requests: Annotated[list[PositiveInt], Field(min_length=1)] | None = None
     batching_method: Annotated[list[BatchingMethod], Field(min_length=1)] | None = None
     caching_spec: Annotated[list[CachingSpec], Field(min_length=1)] | None = None
+    scheduler_spec: Annotated[list[SchedulerSpec], Field(min_length=1)] | None = None
 
 
 class SweepSpec(_Strict):
@@ -140,8 +143,10 @@ class SuiteSpec(_Strict):
         1. sweep.workload 变量一致性：扫描的变量必须预先在 workload.vars 中声明，防止变量名拼写错误；
         2. 引擎特异性约束：
            - scheduler: 必须明确指定 max_running_requests（在 system 基线或 sweep.system 中）；
+             token-budget 要求生效的 batching_method 全部为 continuous-batching，且 token_budget 不小于每个生效的
+             max_running_requests（与 engine.config.validate_engine_config 同一约束，在展开前提前拒绝）；
            - lockstep: 严格限制仅走固定批次和 Dense 路径，禁止使用 scheduler 特性
-             （如并发容量、PagedKV、Continuous Batching 等）。
+             （如并发容量、PagedKV、Continuous Batching、token-budget 等）。
         """
         # 1. 检查 sweep.workload 变量是否存在于 workload.vars 中
         template_vars = self.workload.vars
@@ -164,24 +169,58 @@ class SuiteSpec(_Strict):
             if self.sweep.system.batching_method is not None
             else [self.system.batching_method]
         )
+        effective_scheduler_specs = (
+            self.sweep.system.scheduler_spec
+            if self.sweep.system.scheduler_spec is not None
+            else [self.system.scheduler_spec]
+        )
 
         # 3. 根据引擎类别校验对应特性的支持边界
         if isinstance(self.system.engine_mode, SchedulerEngineSpec):
-            if self.system.engine_mode.max_running_requests is None and self.sweep.system.max_running_requests is None:
-                raise ValueError(
-                    "scheduler suite 必须提供 system.engine_mode.max_running_requests（或在 sweep.system 中扫描）"
-                )
+            self._check_scheduler(
+                self.system.engine_mode,
+                effective_batching_methods,
+                effective_scheduler_specs,
+            )
         else:
-            self._check_lockstep(effective_caching_specs, effective_batching_methods)
+            self._check_lockstep(effective_caching_specs, effective_batching_methods, effective_scheduler_specs)
         return self
+
+    def _check_scheduler(
+        self,
+        engine_mode: SchedulerEngineSpec,
+        effective_batching_methods: list[BatchingMethod],
+        effective_scheduler_specs: list[SchedulerSpec],
+    ) -> None:
+        if self.sweep.system.max_running_requests is not None:
+            effective_mrrs = self.sweep.system.max_running_requests
+        elif engine_mode.max_running_requests is not None:
+            effective_mrrs = [engine_mode.max_running_requests]
+        else:
+            raise ValueError(
+                "scheduler suite 必须提供 system.engine_mode.max_running_requests（或在 sweep.system 中扫描）"
+            )
+
+        token_budget_specs = [spec for spec in effective_scheduler_specs if isinstance(spec, TokenBudgetSpec)]
+        if not token_budget_specs:
+            return
+        if any(method is not BatchingMethod.CONTINUOUS for method in effective_batching_methods):
+            raise ValueError("token-budget 调度策略要求生效的 batching_method 全部为 continuous-batching")
+        max_mrr = max(effective_mrrs)
+        for spec in token_budget_specs:
+            if spec.token_budget < max_mrr:
+                raise ValueError(f"token_budget={spec.token_budget} 不能小于生效的 max_running_requests={max_mrr}")
 
     def _check_lockstep(
         self,
         effective_caching_specs: list[CachingSpec],
         effective_batching_methods: list[BatchingMethod],
+        effective_scheduler_specs: list[SchedulerSpec],
     ) -> None:
         if self.sweep.system.max_running_requests is not None:
             raise ValueError("lockstep suite 不支持 max_running_requests")
+        if any(isinstance(s, TokenBudgetSpec) for s in effective_scheduler_specs):
+            raise ValueError("lockstep suite 不支持 token-budget 调度策略")
         if any(isinstance(c, PagedCacheSpec) for c in effective_caching_specs):
             raise ValueError("lockstep suite 不支持 paged-kv-cache")
         if BatchingMethod.CONTINUOUS in effective_batching_methods:

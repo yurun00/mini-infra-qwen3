@@ -386,14 +386,6 @@ def check_paged_kv_cache(model):
     print("Dense 与 Paged Continuous Batching 输出一致")
 
 
-def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
-    longest = streak = 0
-    for event in events:
-        streak = streak + 1 if event.phase is SchedulePhase.PREFILL else 0
-        longest = max(longest, streak)
-    return longest
-
-
 def _num_padded_prompt_tokens(events: Sequence[ScheduleEvent]) -> int:
     return sum(e.num_scheduled_tokens for e in events if e.phase is SchedulePhase.PREFILL)
 
@@ -420,10 +412,11 @@ def check_token_budget_scheduling(model):
     )
 
     assert [s.token_ids for s in token_budget_run.sequences] == [s.token_ids for s in prefill_first.sequences]
-    assert _max_consecutive_prefill_steps(prefill_first.events) > 1
-    assert _max_consecutive_prefill_steps(token_budget_run.events) == 1
+    assert prefill_first.schedule_metrics.max_consecutive_prefill_steps > 1
+    assert token_budget_run.schedule_metrics.max_consecutive_prefill_steps == 1
+    assert token_budget_run.schedule_metrics.num_oversize_prefill_steps == 0  # 本负载不触发 oversize prefill
     budget_prefills = [e for e in token_budget_run.events if e.phase is SchedulePhase.PREFILL]
-    assert all(e.num_scheduled_tokens <= token_budget for e in budget_prefills)  # 本负载不触发 oversize prefill
+    assert all(e.num_scheduled_tokens <= token_budget for e in budget_prefills)
     assert _num_padded_prompt_tokens(token_budget_run.events) <= _num_padded_prompt_tokens(prefill_first.events)
     paged_profile = token_budget_run.memory.kv_cache.paged_cache
     assert paged_profile is not None and paged_profile.block_reuse_count > 0

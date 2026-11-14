@@ -275,6 +275,7 @@ def test_scheduler_token_budget_decisions():
     decision = IterationScheduler(PrefillFirstConfig(), CONTINUOUS).schedule(wq, rq)
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [0, 1, 2]
+    assert not decision.is_oversize_prefill
 
     # token-budget=6：[3] 计 3 ≤ 6；[3, 5] 计 2 × 5 = 10 > 6，只取队头
     budgeted = IterationScheduler(TokenBudgetConfig(6), CONTINUOUS)
@@ -282,12 +283,14 @@ def test_scheduler_token_budget_decisions():
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [0]
     assert decision.num_scheduled_tokens == 3
+    assert not decision.is_oversize_prefill
 
     # 上一步是 PREFILL 且 RunningQueue 非空：decode protection 强制 DECODE
     wq, rq = queues(waiting[1:])
     decision = budgeted.schedule(wq, rq)
     assert decision is not None and decision.phase is SchedulePhase.DECODE
     assert decision.num_scheduled_tokens == len(rq)
+    assert not decision.is_oversize_prefill
 
     # 队头单独超预算：oversize prefill 独自执行，避免永久阻塞 FCFS 队列
     oversize = IterationScheduler(TokenBudgetConfig(6), CONTINUOUS)
@@ -295,28 +298,32 @@ def test_scheduler_token_budget_decisions():
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [2]
     assert decision.num_scheduled_tokens == 9
+    assert decision.is_oversize_prefill
 
 
 @pytest.mark.parametrize(
-    ("prompt_lens", "token_budget", "capacity", "expected"),
+    ("prompt_lens", "token_budget", "capacity", "expected", "is_oversize"),
     [
         # padded 计费：2、2×3、3×3 = 9 恰好等于预算（含边界），第 4 个请求 4×3 = 12 超预算
-        ([2, 3, 3, 1], 9, 4, [0, 1, 2]),
+        ([2, 3, 3, 1], 9, 4, [0, 1, 2], False),
         # FCFS 不跳过队头：[4, 8] 计 16 > 8 即停，即使后面的 1 Token 请求放得下
-        ([4, 8, 1], 8, 3, [0]),
+        ([4, 8, 1], 8, 3, [0], False),
         # 与 batch slot 约束取交集：预算充足时由 free batch slot 数截断
-        ([1, 1, 1, 1], 100, 2, [0, 1]),
+        ([1, 1, 1, 1], 100, 2, [0, 1], False),
+        # 队头单独恰好等于预算：不算 oversize
+        ([5, 1], 5, 2, [0], False),
         # oversize prefill：队头 7 > 预算 5，单独放行
-        ([7, 1], 5, 2, [0]),
+        ([7, 1], 5, 2, [0], True),
     ],
 )
-def test_scheduler_token_budget_selects_fcfs_prefix(prompt_lens, token_budget, capacity, expected):
+def test_scheduler_token_budget_selects_fcfs_prefix(prompt_lens, token_budget, capacity, expected, is_oversize):
     wq = WaitingQueue(make_states_with_prompt_lens(prompt_lens))
     out = IterationScheduler(TokenBudgetConfig(token_budget), CONTINUOUS).schedule(wq, RunningQueue(capacity))
 
     assert out is not None and out.phase is SchedulePhase.PREFILL
     assert indices(out.scheduled_requests) == expected
     assert out.num_scheduled_tokens == len(expected) * max(prompt_lens[i] for i in expected)
+    assert out.is_oversize_prefill is is_oversize
 
 
 def test_scheduler_token_budget_with_paged_admission_takes_intersection():

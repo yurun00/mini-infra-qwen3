@@ -196,11 +196,13 @@ class SchedulerOutput:
 
     num_scheduled_tokens：PREFILL 为左 Padding 后实际送入模型的 padded prompt token 数
     （len(scheduled_requests) × max(prompt_len)）；DECODE 为运行中请求数（每请求 1 个 Token）。
+    is_oversize_prefill：token-budget 下队头请求单独已超预算、被单独放行的 PREFILL（oversize prefill）。
     """
 
     phase: SchedulePhase
     scheduled_requests: tuple[RequestState, ...]
     num_scheduled_tokens: int
+    is_oversize_prefill: bool = False
 
 
 def _num_padded_prompt_tokens(states: Sequence[RequestState]) -> int:
@@ -208,11 +210,13 @@ def _num_padded_prompt_tokens(states: Sequence[RequestState]) -> int:
     return len(states) * max(state.request.prompt_len for state in states)
 
 
-def _select_within_budget(candidates: tuple[RequestState, ...], token_budget: int) -> tuple[RequestState, ...]:
+def _select_within_budget(
+    candidates: tuple[RequestState, ...], token_budget: int
+) -> tuple[tuple[RequestState, ...], bool]:
     """按 FCFS 取 padded prompt token 数不超过 token_budget 的最长前缀；队头放不下即停，不向后跳选。
 
     无 Chunked Prefill 时长 Prompt 无法拆分：若队头请求单独已超预算，则让它独自执行（oversize prefill），
-    避免其永久阻塞 FCFS 队列。
+    避免其永久阻塞 FCFS 队列。返回 (入选前缀, 是否为 oversize prefill)。
     """
     num_selected = 0
     max_prompt_len = 0
@@ -222,7 +226,9 @@ def _select_within_budget(candidates: tuple[RequestState, ...], token_budget: in
             break
         num_selected += 1
         max_prompt_len = next_max_prompt_len
-    return candidates[: max(num_selected, 1)]
+    if num_selected == 0:
+        return candidates[:1], True
+    return candidates[:num_selected], False
 
 
 class IterationScheduler:
@@ -273,11 +279,12 @@ class IterationScheduler:
             candidates = candidates[:num_admissible]
         return candidates
 
-    def _prefill_output(self, selected: tuple[RequestState, ...]) -> SchedulerOutput:
+    def _prefill_output(self, selected: tuple[RequestState, ...], is_oversize_prefill: bool) -> SchedulerOutput:
         return SchedulerOutput(
             phase=SchedulePhase.PREFILL,
             scheduled_requests=selected,
             num_scheduled_tokens=_num_padded_prompt_tokens(selected),
+            is_oversize_prefill=is_oversize_prefill,
         )
 
     def _decode_output(self, running_queue: RunningQueue) -> SchedulerOutput:
@@ -292,7 +299,7 @@ class IterationScheduler:
         admission_candidates = self._admission_candidates(waiting_queue, running_queue)
         if isinstance(config, PrefillFirstConfig):
             if admission_candidates:
-                return self._prefill_output(admission_candidates)
+                return self._prefill_output(admission_candidates, is_oversize_prefill=False)
             if running_queue:
                 return self._decode_output(running_queue)
             return None
@@ -300,7 +307,8 @@ class IterationScheduler:
         if running_queue and self._last_phase is SchedulePhase.PREFILL:
             return self._decode_output(running_queue)
         if admission_candidates:
-            return self._prefill_output(_select_within_budget(admission_candidates, config.token_budget))
+            selected, is_oversize_prefill = _select_within_budget(admission_candidates, config.token_budget)
+            return self._prefill_output(selected, is_oversize_prefill)
         if running_queue:
             return self._decode_output(running_queue)
         return None

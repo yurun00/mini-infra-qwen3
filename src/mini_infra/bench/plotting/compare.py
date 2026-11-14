@@ -26,6 +26,7 @@ _LATENCY_KEYS = {
     "queue_ms_p95",
     "ttft_ms_p95",
     "itl_ms_p95",
+    "itl_ms_max",
 }
 # 吞吐/利用率类指标（越大越好，变化比计算为 target / base 提升比）
 _THROUGHPUT_KEYS = {

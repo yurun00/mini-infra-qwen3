@@ -171,11 +171,29 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
             f"- 🔹 **Decode 步间延迟（ITL）**：P50 = `{itl_p50:.2f} ms`，"
             f"P95 = `{itl_p95:.2f} ms`，Max = `{itl_max:.2f} ms`。"
         )
+        # 迭代调度步数类指标：早于 token-budget 的历史记录无此字段，缺失时跳过
+        pf_streak = sched.get("max_consecutive_prefill_steps")
+        if pf_streak is not None:
+            num_prefill = float((sched.get("num_prefill_steps") or {}).get("median", 0.0))
+            num_decode = float((sched.get("num_decode_steps") or {}).get("median", 0.0))
+            num_oversize = float((sched.get("num_oversize_prefill_steps") or {}).get("median", 0.0))
+            lines.append(
+                f"- 🔹 **迭代调度步数**：Prefill `{num_prefill:.0f}` 步 / Decode `{num_decode:.0f}` 步，"
+                f"最长连续 Prefill `{float(pf_streak.get('median', 0.0)):.0f}` 步，"
+                f"oversize prefill `{num_oversize:.0f}` 次。"
+            )
         if itl_max > itl_p50 * 1.4:
+            is_token_budget = "token-budget" in str(w.get("engine_config", ""))
+            next_step = (
+                "**Chunked Prefill**，将长 Prompt 拆分为小块与 Decode 交织执行"
+                "（软预算下 oversize prefill 仍会整段阻塞）。"
+                if is_token_budget
+                else "**token-budget 调度策略**（`--scheduling-policy token-budget`）限制单次 Prefill 规模并启用 "
+                "decode protection，再演进到 **Chunked Prefill**。"
+            )
             lines.append(
                 "- 🟡 **观测到新请求 Prefill 插队导致的 Decode 尾延迟毛刺（ITL Max > 1.4x P50）**："
-                "建议下一步演进引入 **Token Budget 调度器与 Chunked Prefill**，"
-                "将长 Prompt 拆分为小块与 Decode 交织执行。"
+                f"建议引入 {next_step}"
             )
         lines.append("")
 

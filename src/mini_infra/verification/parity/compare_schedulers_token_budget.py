@@ -11,7 +11,6 @@ import torch
 from mini_infra.core import (
     PagedCacheConfig,
     PrefillFirstConfig,
-    SchedulePhase,
     TokenBudgetConfig,
     make_requests,
 )
@@ -44,18 +43,7 @@ DEFAULT_BUDGETS = [8, 8, 2, 8, 3, 8]
 DEFAULT_ARRIVALS = [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
 
 
-def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
-    longest = streak = 0
-    for event in events:
-        streak = streak + 1 if event.phase is SchedulePhase.PREFILL else 0
-        longest = max(longest, streak)
-    return longest
-
-
-def _compact_trace(
-    events: Sequence[ScheduleEvent],
-    token_budget: int | None = None,
-) -> list[dict[str, Any]]:
+def _compact_trace(events: Sequence[ScheduleEvent]) -> list[dict[str, Any]]:
     return [
         {
             "step_idx": step_idx,
@@ -63,11 +51,7 @@ def _compact_trace(
             "admitted_request_ids": list(event.admitted_request_ids),
             "finished_request_ids": list(event.finished_request_ids),
             "num_scheduled_tokens": event.num_scheduled_tokens,
-            "is_oversize_prefill": (
-                event.phase is SchedulePhase.PREFILL
-                and token_budget is not None
-                and event.num_scheduled_tokens > token_budget
-            ),
+            "is_oversize_prefill": event.is_oversize_prefill,
         }
         for step_idx, event in enumerate(events)
     ]
@@ -88,7 +72,10 @@ def _summarize_policy_metrics(run: ScheduleResult) -> dict[str, float | int]:
         "itl_ms_max": sm.itl_ms_max,
         "padding_efficiency": bi.padding_efficiency if bi is not None else 0.0,
         "slot_utilization": bi.slot_utilization if bi is not None else 0.0,
-        "max_consecutive_prefill_steps": _max_consecutive_prefill_steps(run.events),
+        "num_prefill_steps": sm.num_prefill_steps,
+        "num_decode_steps": sm.num_decode_steps,
+        "max_consecutive_prefill_steps": sm.max_consecutive_prefill_steps,
+        "num_oversize_prefill_steps": sm.num_oversize_prefill_steps,
     }
 
 
@@ -143,7 +130,7 @@ def run_compare_schedulers(
         "prefill_first_token_ids": prefill_first_token_ids,
         "token_budget_token_ids": token_budget_token_ids,
         "prefill_first_trace": _compact_trace(prefill_first.events),
-        "token_budget_trace": _compact_trace(budgeted.events, token_budget=token_budget),
+        "token_budget_trace": _compact_trace(budgeted.events),
         "prefill_first_metrics": prefill_first_metrics,
         "token_budget_metrics": token_budget_metrics,
     }

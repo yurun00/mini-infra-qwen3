@@ -100,6 +100,7 @@ def _run_schedule_loop(
                     kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
                     cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
                     accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
+                    is_oversize_prefill=output.is_oversize_prefill,
                 )
             )
             backend.retire(finished, running_queue)

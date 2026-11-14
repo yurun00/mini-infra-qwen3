@@ -16,9 +16,15 @@ from mini_infra.core import (
     KVCacheConfig,
     KVCacheKind,
     PagedCacheConfig,
+    PrefillFirstConfig,
     Request,
+    SchedulerConfig,
+    SchedulingPolicyKind,
+    TokenBudgetConfig,
     kv_cache_config_from_str,
     make_requests,
+    parse_scheduling_policy_kind,
+    scheduler_config_from_str,
 )
 from mini_infra.engine.config import BatchingMethod, EngineConfig, FeatureFlag
 
@@ -53,6 +59,8 @@ class CaseDimension(str, Enum):
     MAX_RUNNING_REQUESTS = "max_running_requests"
     BLOCK_SIZE = "block_size"
     NUM_BLOCKS = "num_blocks"
+    SCHEDULING_POLICY = "scheduling_policy"
+    TOKEN_BUDGET = "token_budget"
 
     @classmethod
     def from_str(cls, name: str) -> CaseDimension:
@@ -81,6 +89,9 @@ class CaseDimension(str, Enum):
 class CaseKey:
     """用例全局唯一身份键：聚合 workload_id、caching_method、batching_method、max_running_requests 等全展平维度。
 
+    嵌套配置按 kind + 专属字段展平（caching_method + block_size / num_blocks、scheduling_policy + token_budget）；
+    新增维度取默认值时不进入 canonical_id / to_dict / 缩写名，保证既有用例身份与历史记录不变。
+
     符合现代推理评测规范：
     1. 不可变哈希（frozen=True）且纯标量正交存储
     2. 字段与 CaseDimension 1:1 严格同构反射（`getattr(self, d.value)`）
@@ -95,6 +106,8 @@ class CaseKey:
     flags: frozenset[FeatureFlag] = frozenset()
     block_size: int | None = None
     num_blocks: int | None = None
+    scheduling_policy: SchedulingPolicyKind = PrefillFirstConfig.kind
+    token_budget: int | None = None
 
     @property
     def engine_config(self) -> EngineConfig:
@@ -108,7 +121,12 @@ class CaseKey:
             batching_method=self.batching_method,
             max_running_requests=self.max_running_requests,
             flags=self.flags,
+            scheduler_config=scheduler_config_from_str(self.scheduling_policy, token_budget=self.token_budget),
         )
+
+    @property
+    def _is_default_scheduling_policy(self) -> bool:
+        return self.scheduling_policy == PrefillFirstConfig.kind
 
     def value(self, dim: CaseDimension | str) -> CaseDimensionValue:
         """基于正交维度枚举的零分支反射提取。"""
@@ -139,6 +157,10 @@ class CaseKey:
             parts.append(f"block={self.block_size}")
         if self.num_blocks is not None:
             parts.append(f"num_blocks={self.num_blocks}")
+        if not self._is_default_scheduling_policy:
+            parts.append(f"sched={self.scheduling_policy}")
+        if self.token_budget is not None:
+            parts.append(f"budget={self.token_budget}")
         return "/".join(parts)
 
     @property
@@ -153,16 +175,24 @@ class CaseKey:
 
     @property
     def abbreviated_engine_config(self) -> str:
-        """提取策略名各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。"""
+        """提取策略名各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。
+
+        非默认调度策略追加在末尾（如 paged-kv-cache+continuous-batching+token-budget -> pkc+cb+tb）。
+        """
         cache_label = "no-cache" if self.caching_method == "none" else self.caching_method
         parts = [*sorted(f.value for f in self.flags), cache_label]
         if self.batching_method != BatchingMethod.NONE:
             parts.append(self.batching_method.value)
+        if not self._is_default_scheduling_policy:
+            parts.append(self.scheduling_policy)
         return "+".join("".join(w[0] for w in part.replace("_", "-").split("-") if w) for part in parts)
 
     @property
     def abbreviated_display_name(self) -> str:
-        """提取用例键的缩写显示名（如 [vol] | dkc+cb | mrr=16 或 [lss] | pkc+cb | mrr=16 | blk-sz=16）。"""
+        """提取用例键的缩写显示名。
+
+        如 [vol] | dkc+cb | mrr=16、[lss] | pkc+cb | mrr=16 | blk-sz=16 或 [pre_bur] | pkc+cb+tb | mrr=8 | budget=512。
+        """
         parts = [
             f"[{self.abbreviated_workload_id}]",
             self.abbreviated_engine_config,
@@ -171,6 +201,8 @@ class CaseKey:
             parts.append(f"mrr={self.max_running_requests}")
         if self.block_size is not None:
             parts.append(f"blk-sz={self.block_size}")
+        if self.token_budget is not None:
+            parts.append(f"budget={self.token_budget}")
         return " | ".join(parts)
 
     def __str__(self) -> str:
@@ -192,6 +224,10 @@ class CaseKey:
             data["block_size"] = self.block_size
         if self.num_blocks is not None:
             data["num_blocks"] = self.num_blocks
+        if not self._is_default_scheduling_policy:
+            data["scheduling_policy"] = self.scheduling_policy
+        if self.token_budget is not None:
+            data["token_budget"] = self.token_budget
         return data
 
     @classmethod
@@ -208,6 +244,8 @@ class CaseKey:
             flags=frozenset(FeatureFlag(f) for f in raw_flags) if raw_flags else frozenset(),
             block_size=int(data["block_size"]) if data.get("block_size") is not None else None,
             num_blocks=int(data["num_blocks"]) if data.get("num_blocks") is not None else None,
+            scheduling_policy=parse_scheduling_policy_kind(data.get("scheduling_policy")),
+            token_budget=int(data["token_budget"]) if data.get("token_budget") is not None else None,
         )
 
 
@@ -276,6 +314,7 @@ class BenchmarkCase:
     kv_cache_config: KVCacheConfig = DenseCacheConfig()
     max_running_requests: int | None = None
     flags: frozenset[FeatureFlag] = frozenset()
+    scheduler_config: SchedulerConfig = PrefillFirstConfig()
     suite_name: str | None = None
     engine: Literal["scheduler", "lockstep"] = "scheduler"
 
@@ -292,6 +331,7 @@ class BenchmarkCase:
             batching_method=self.batching_method,
             max_running_requests=self.max_running_requests,
             flags=self.flags,
+            scheduler_config=self.scheduler_config,
         )
 
     @property
@@ -301,6 +341,7 @@ class BenchmarkCase:
     @property
     def key(self) -> CaseKey:
         paged = self.kv_cache_config if isinstance(self.kv_cache_config, PagedCacheConfig) else None
+        budget = self.scheduler_config if isinstance(self.scheduler_config, TokenBudgetConfig) else None
         return CaseKey(
             workload_id=self.workload_id,
             caching_method=self.kv_cache_config.kind,
@@ -309,6 +350,8 @@ class BenchmarkCase:
             flags=self.flags,
             block_size=paged.block_size if paged is not None else None,
             num_blocks=paged.num_blocks if paged is not None else None,
+            scheduling_policy=self.scheduler_config.kind,
+            token_budget=budget.token_budget if budget is not None else None,
         )
 
     def format_summary(self) -> str:

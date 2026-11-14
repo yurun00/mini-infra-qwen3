@@ -313,6 +313,92 @@ def test_invalid_scheduler_specs_are_rejected_at_load(tmp_path, mutation, messag
         load_suite_spec(_write(tmp_path, mutation(_SCHEDULER_BASE)))
 
 
+def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
+    from mini_infra.core import PrefillFirstConfig, TokenBudgetConfig
+
+    text = (
+        _SCHEDULER_BASE
+        + "sweep:\n  system:\n"
+        + "    caching_spec: [dense-kv-cache, paged-kv-cache]\n"
+        + "    scheduler_spec: [prefill-first, {kind: token-budget, token_budget: 64}]\n"
+    )
+    loaded = load_suite_spec(_write(tmp_path, text))
+    assert [(cs.caching_spec.kind, cs.scheduler_spec.scheduler_config) for cs in loaded.cases] == [
+        ("dense-kv-cache", PrefillFirstConfig()),
+        ("dense-kv-cache", TokenBudgetConfig(64)),
+        ("paged-kv-cache", PrefillFirstConfig()),
+        ("paged-kv-cache", TokenBudgetConfig(64)),
+    ]
+    suite = BenchmarkSuite.from_spec(loaded)
+    assert [c.key.token_budget for c in suite.cases] == [None, 64, None, 64]
+    # 基线 system 未声明 scheduler_spec 时默认 prefill-first，既有 suite 的 engine_config 字符串不变
+    default_suite = BenchmarkSuite.from_spec(load_suite_spec(_write(tmp_path, _SCHEDULER_BASE)))
+    assert [str(m) for m in default_suite.engine_configs()] == ["dense-kv-cache+continuous-batching+mrr=4"]
+
+
+@pytest.mark.parametrize(
+    ("tail", "message"),
+    [
+        # token-budget 仅支持 continuous-batching（含 sweep 中任一生效的 batching_method）
+        (
+            "sweep:\n  system:\n    batching_method: [fixed-batching, continuous-batching]\n"
+            "    scheduler_spec: [{kind: token-budget, token_budget: 64}]\n",
+            "continuous-batching",
+        ),
+        # token_budget 不得小于任一生效的 max_running_requests
+        (
+            "sweep:\n  system:\n    max_running_requests: [2, 8]\n"
+            "    scheduler_spec: [{kind: token-budget, token_budget: 4}]\n",
+            "不能小于",
+        ),
+        ("sweep:\n  system:\n    scheduler_spec: [token-budget]\n", "token_budget"),
+        ("sweep:\n  system:\n    scheduler_spec: [{kind: token-budget, token_budget: 0}]\n", "greater than 0"),
+        ("sweep:\n  system:\n    scheduler_spec: [budgeted]\n", "does not match any of the expected tags"),
+    ],
+)
+def test_invalid_scheduler_spec_combinations_are_rejected(tmp_path, tail, message):
+    with pytest.raises(Exception, match=message):
+        load_suite_spec(_write(tmp_path, _SCHEDULER_BASE + tail))
+
+
+def test_baseline_scheduler_spec_and_lockstep_rejection(tmp_path):
+    text = _SCHEDULER_BASE.replace(
+        "  caching_spec: dense-kv-cache\n",
+        "  caching_spec: dense-kv-cache\n  scheduler_spec: {kind: token-budget, token_budget: 4}\n",
+    )
+    (case,) = load_suite_spec(_write(tmp_path, text)).cases
+    assert case.scheduler_spec.scheduler_config.token_budget == 4
+
+    lockstep = """
+name: demo
+system:
+  engine_mode: lockstep
+  batching_method: fixed-batching
+  scheduler_spec: {kind: token-budget, token_budget: 4}
+workload: {id: w, count: 1, prompt_len: 8, output_len: 4}
+"""
+    with pytest.raises(ValueError, match="lockstep suite 不支持 token-budget"):
+        load_suite_spec(_write(tmp_path, lockstep))
+
+
+def test_system_spec_scheduler_spec_default_engine_config():
+    """验证 SystemSpec.scheduler_spec 解析与 default_engine_config 透传。"""
+    from mini_infra.bench.spec.common import SystemSpec
+    from mini_infra.core import PrefillFirstConfig, TokenBudgetConfig
+
+    default_sys = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "continuous-batching"})
+    assert default_sys.default_engine_config.scheduler_config == PrefillFirstConfig()
+
+    budget_sys = SystemSpec.model_validate(
+        {
+            "engine_mode": {"kind": "scheduler", "max_running_requests": 4},
+            "batching_method": "continuous-batching",
+            "scheduler_spec": {"kind": "token-budget", "token_budget": 128},
+        }
+    )
+    assert budget_sys.default_engine_config.scheduler_config == TokenBudgetConfig(128)
+
+
 def test_filename_must_match_name(tmp_path):
     with pytest.raises(ValueError, match="文件名"):
         load_suite_spec(_write(tmp_path, _SCHEDULER_BASE, name="other"))
