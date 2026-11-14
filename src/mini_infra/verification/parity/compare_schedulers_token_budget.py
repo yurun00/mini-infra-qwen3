@@ -11,6 +11,7 @@ import torch
 from mini_infra.core import (
     PagedCacheConfig,
     PrefillFirstConfig,
+    SchedulerConfig,
     TokenBudgetConfig,
     make_requests,
 )
@@ -105,14 +106,14 @@ def run_compare_schedulers(
     )
 
     prefill_first = run_scheduler(
-        base_config.with_scheduler_config(PrefillFirstConfig()),
+        base_config.with_scheduler_config(SchedulerConfig(PrefillFirstConfig())),
         model,
         requests,
         eos_token_id=eos_token_id,
         stop_on_eos=False,
     )
     budgeted = run_scheduler(
-        base_config.with_scheduler_config(TokenBudgetConfig(token_budget)),
+        base_config.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(token_budget))),
         model,
         requests,
         eos_token_id=eos_token_id,

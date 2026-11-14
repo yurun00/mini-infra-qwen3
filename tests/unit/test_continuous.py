@@ -9,6 +9,7 @@ from mini_infra.core import (
     DenseCacheConfig,
     Request,
     SchedulePhase,
+    SchedulerConfig,
     TokenBudgetConfig,
     make_requests,
 )
@@ -314,7 +315,7 @@ def run_token_budget(model, requests, capacity, token_budget, eos=-1, **kwargs):
             DenseCacheConfig(),
             batching_method=BatchingMethod.CONTINUOUS,
             max_running_requests=capacity,
-            scheduler_config=TokenBudgetConfig(token_budget),
+            scheduler_config=SchedulerConfig(TokenBudgetConfig(token_budget)),
         ),
         model,
         requests,
@@ -414,7 +415,9 @@ def test_run_scheduler_rejects_invalid_token_budget(model):
     with pytest.raises(ValueError, match="仅支持 continuous-batching"):
         run_scheduler(
             EngineConfig(
-                DenseCacheConfig(), batching_method=BatchingMethod.FIXED, scheduler_config=TokenBudgetConfig(8)
+                DenseCacheConfig(),
+                batching_method=BatchingMethod.FIXED,
+                scheduler_config=SchedulerConfig(TokenBudgetConfig(8)),
             ),
             model,
             requests,

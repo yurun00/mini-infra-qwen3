@@ -12,6 +12,7 @@ from mini_infra.core import (
     KVCacheManager,
     PagedCacheConfig,
     SchedulePhase,
+    SchedulerConfig,
     TokenBudgetConfig,
     make_requests,
 )
@@ -408,7 +409,11 @@ def check_token_budget_scheduling(model):
     )
     prefill_first = run_scheduler(base_config, model, requests, -1, stop_on_eos=False)
     token_budget_run = run_scheduler(
-        base_config.with_scheduler_config(TokenBudgetConfig(token_budget)), model, requests, -1, stop_on_eos=False
+        base_config.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(token_budget))),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
     )
 
     assert [s.token_ids for s in token_budget_run.sequences] == [s.token_ids for s in prefill_first.sequences]

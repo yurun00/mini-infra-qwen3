@@ -317,7 +317,7 @@ class BenchmarkCase:
     kv_cache_config: KVCacheConfig = DenseCacheConfig()
     max_running_requests: int | None = None
     flags: frozenset[FeatureFlag] = frozenset()
-    scheduler_config: SchedulerConfig = PrefillFirstConfig()
+    scheduler_config: SchedulerConfig = SchedulerConfig()
     suite_name: str | None = None
     engine: Literal["scheduler", "lockstep"] = "scheduler"
 
@@ -344,7 +344,8 @@ class BenchmarkCase:
     @property
     def key(self) -> CaseKey:
         paged = self.kv_cache_config if isinstance(self.kv_cache_config, PagedCacheConfig) else None
-        budget = self.scheduler_config if isinstance(self.scheduler_config, TokenBudgetConfig) else None
+        policy = self.scheduler_config.batching_policy
+        budget = policy if isinstance(policy, TokenBudgetConfig) else None
         return CaseKey(
             workload_id=self.workload_id,
             caching_method=self.kv_cache_config.kind,
@@ -353,7 +354,7 @@ class BenchmarkCase:
             flags=self.flags,
             block_size=paged.block_size if paged is not None else None,
             num_blocks=paged.num_blocks if paged is not None else None,
-            batching_policy=self.scheduler_config.kind,
+            batching_policy=policy.kind,
             token_budget=budget.token_budget if budget is not None else None,
         )
 

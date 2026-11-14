@@ -316,9 +316,9 @@ class IterationScheduler:
         )
 
     def _decide(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> SchedulerOutput | None:
-        config = self.scheduler_config
+        policy = self.scheduler_config.batching_policy
         admission_candidates = self._admission_candidates(waiting_queue, running_queue)
-        if isinstance(config, PrefillFirstConfig):
+        if isinstance(policy, PrefillFirstConfig):
             if admission_candidates:
                 return self._prefill_output(admission_candidates, is_oversize_prefill=False)
             if running_queue:
@@ -328,7 +328,7 @@ class IterationScheduler:
         if running_queue and self._last_phase is SchedulePhase.PREFILL:
             return self._decode_output(running_queue)
         if admission_candidates:
-            selected, is_oversize_prefill = _select_within_budget(admission_candidates, config.token_budget)
+            selected, is_oversize_prefill = _select_within_budget(admission_candidates, policy.token_budget)
             return self._prefill_output(selected, is_oversize_prefill)
         if running_queue:
             return self._decode_output(running_queue)

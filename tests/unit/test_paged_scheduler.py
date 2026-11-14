@@ -11,6 +11,7 @@ from mini_infra.core import (
     PagedCacheConfig,
     PrefillFirstConfig,
     SchedulePhase,
+    SchedulerConfig,
     TokenBudgetConfig,
     make_requests,
     required_pool_blocks,
@@ -49,7 +50,9 @@ def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, token_budget
             PagedCacheConfig(**config),
             batching_method=BatchingMethod.CONTINUOUS,
             max_running_requests=capacity,
-            scheduler_config=PrefillFirstConfig() if token_budget is None else TokenBudgetConfig(token_budget),
+            scheduler_config=SchedulerConfig(
+                PrefillFirstConfig() if token_budget is None else TokenBudgetConfig(token_budget)
+            ),
         ),
         model,
         requests,

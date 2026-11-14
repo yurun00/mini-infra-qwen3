@@ -536,7 +536,7 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
 
     from mini_infra.cli import build_parser
     from mini_infra.cli.commands.bench import scheduler as sched_cmd
-    from mini_infra.core import TokenBudgetConfig
+    from mini_infra.core import SchedulerConfig, TokenBudgetConfig
 
     tiny_model = build_tiny_model()
     captured: dict[str, EngineConfig] = {}
@@ -560,7 +560,7 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
         [*common, "--batching-policy", "token-budget", "--token-budget", "4", "--output", str(out_path)]
     )
     assert sched_cmd.handle_case(args) == 0
-    assert captured["config"].scheduler_config == TokenBudgetConfig(4)
+    assert captured["config"].scheduler_config == SchedulerConfig(TokenBudgetConfig(4))
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
     assert saved["engine_config"] == "dense-kv-cache+continuous-batching+mrr=2+token-budget(token_budget=4)"

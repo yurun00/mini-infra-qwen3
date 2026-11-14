@@ -13,7 +13,14 @@ from mini_infra.bench.scheduler.plan import (
     build_scheduler_run_plan,
     format_scheduler_run_plan,
 )
-from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig, Request, TokenBudgetConfig
+from mini_infra.core import (
+    DenseCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+    Request,
+    SchedulerConfig,
+    TokenBudgetConfig,
+)
 from mini_infra.engine import BatchingMethod
 
 
@@ -107,7 +114,7 @@ def test_case_key_batching_policy_dimensions():
         batching_method=BatchingMethod.CONTINUOUS,
         kv_cache_config=PagedCacheConfig(block_size=16),
         max_running_requests=8,
-        scheduler_config=TokenBudgetConfig(512),
+        scheduler_config=SchedulerConfig(TokenBudgetConfig(512)),
     )
     key = budget_case.key
     assert key.batching_policy == "token-budget"

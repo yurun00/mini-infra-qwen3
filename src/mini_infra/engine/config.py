@@ -44,14 +44,14 @@ class EngineConfig:
     - max_running_requests: 调度队列最大并发请求数（None 表示不限，按工作负载请求总数推导）。
     - flags: 正交的布尔型功能开关集合。
     - scheduler_config: 迭代级调度器配置（当前承载 batching_policy：PrefillFirstConfig / TokenBudgetConfig；
-      TODO 后续可扩展聚合 queue_policy 与 preemption_mode，对标 vLLM SchedulerConfig）。
+      TODO 后续可扩展聚合 max_running_requests、queue_policy 与 preemption_mode，对标 vLLM SchedulerConfig）。
     """
 
     kv_cache_config: KVCacheConfig = NoCacheConfig()
     batching_method: BatchingMethod = BatchingMethod.NONE
     max_running_requests: int | None = None
     flags: frozenset[FeatureFlag] = frozenset()
-    scheduler_config: SchedulerConfig = PrefillFirstConfig()
+    scheduler_config: SchedulerConfig = SchedulerConfig()
 
     def __post_init__(self) -> None:
         if self.max_running_requests is not None and self.max_running_requests < 1:
@@ -97,8 +97,8 @@ class EngineConfig:
         if self.max_running_requests is not None:
             parts.append(f"mrr={self.max_running_requests}")
         # 默认 prefill-first 不输出，保证历史 Record 的 engine_config 标识不变
-        if not isinstance(self.scheduler_config, PrefillFirstConfig):
-            parts.append(str(self.scheduler_config))
+        if not isinstance(self.scheduler_config.batching_policy, PrefillFirstConfig):
+            parts.append(str(self.scheduler_config.batching_policy))
         return "+".join(parts)
 
 
@@ -112,13 +112,14 @@ def _validate_scheduler_config(
     token-budget 仅对 continuous-batching 有意义（fixed 的 wave barrier 与 none 串行都不存在跨步入场决策）；
     且 token_budget 不得小于并发上限，否则一次完整 Decode 即超预算（对标 vLLM max_num_batched_tokens >= max_num_seqs）。
     """
-    if not isinstance(scheduler_config, TokenBudgetConfig):
+    policy = scheduler_config.batching_policy
+    if not isinstance(policy, TokenBudgetConfig):
         return
     if batching_method is not BatchingMethod.CONTINUOUS:
         raise ValueError(f"token-budget 组批策略仅支持 continuous-batching，实际为 {batching_method.value}")
-    if max_running_requests is not None and scheduler_config.token_budget < max_running_requests:
+    if max_running_requests is not None and policy.token_budget < max_running_requests:
         raise ValueError(
-            f"token_budget={scheduler_config.token_budget} 不能小于 max_running_requests={max_running_requests}，"
+            f"token_budget={policy.token_budget} 不能小于 max_running_requests={max_running_requests}，"
             "否则一次完整 Decode 即超预算"
         )
 

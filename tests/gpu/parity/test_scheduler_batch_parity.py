@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, TokenBudgetConfig, make_requests
+from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, TokenBudgetConfig, make_requests
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
@@ -82,7 +82,7 @@ def test_continuous_batching_gpu_parity() -> None:
                 kv_cache_config,
                 batching_method=BatchingMethod.CONTINUOUS,
                 max_running_requests=2,
-                scheduler_config=TokenBudgetConfig(token_budget),
+                scheduler_config=SchedulerConfig(TokenBudgetConfig(token_budget)),
             ),
             model,
             requests,

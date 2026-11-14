@@ -13,6 +13,7 @@ from mini_infra.core import (
     NoCacheConfig,
     PagedCacheConfig,
     PrefillFirstConfig,
+    SchedulerConfig,
     TokenBudgetConfig,
 )
 from mini_infra.engine import BatchingMethod, EngineConfig
@@ -311,8 +312,8 @@ class PrefillFirstSpec(_Strict):
     kind: Literal["prefill-first"] = PrefillFirstConfig.kind
 
     @property
-    def scheduler_config(self) -> PrefillFirstConfig:
-        return PrefillFirstConfig()
+    def scheduler_config(self) -> SchedulerConfig:
+        return SchedulerConfig(PrefillFirstConfig())
 
 
 class TokenBudgetSpec(_Strict):
@@ -322,8 +323,8 @@ class TokenBudgetSpec(_Strict):
     token_budget: PositiveInt
 
     @property
-    def scheduler_config(self) -> TokenBudgetConfig:
-        return TokenBudgetConfig(self.token_budget)
+    def scheduler_config(self) -> SchedulerConfig:
+        return SchedulerConfig(TokenBudgetConfig(self.token_budget))
 
 
 def _normalize_scheduler(raw: Any) -> Any:

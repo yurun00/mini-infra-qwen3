@@ -7,7 +7,9 @@ from mini_infra.core import (
     NoCacheConfig,
     PagedCacheConfig,
     PrefillFirstConfig,
+    SchedulerConfig,
     TokenBudgetConfig,
+    batching_policy_from_str,
     kv_cache_config_from_str,
     parse_batching_policy_kind,
     parse_kv_cache_kind,
@@ -62,7 +64,7 @@ def test_engine_config_default():
     assert cfg.kv_cache_config == NoCacheConfig()
     assert cfg.batching_method == BatchingMethod.NONE
     assert cfg.max_running_requests is None
-    assert cfg.scheduler_config == PrefillFirstConfig()
+    assert cfg.scheduler_config == SchedulerConfig(PrefillFirstConfig())
     assert not cfg.has_kv_cache
     assert not cfg.is_batch
     assert str(cfg) == "no-cache"
@@ -124,11 +126,16 @@ def test_batching_policy_kind_and_config_from_str():
     assert parse_batching_policy_kind(None) == "prefill-first"
     assert parse_batching_policy_kind("prefill-first") == "prefill-first"
     assert parse_batching_policy_kind("token-budget") == "token-budget"
-    assert scheduler_config_from_str(None) == PrefillFirstConfig()
-    assert scheduler_config_from_str("prefill-first", token_budget=64) == PrefillFirstConfig()
-    assert scheduler_config_from_str("token-budget", token_budget=64) == TokenBudgetConfig(64)
+    assert batching_policy_from_str(None) == PrefillFirstConfig()
+    assert batching_policy_from_str("prefill-first", token_budget=64) == PrefillFirstConfig()
+    assert batching_policy_from_str("token-budget", token_budget=64) == TokenBudgetConfig(64)
+    assert scheduler_config_from_str(None) == SchedulerConfig(PrefillFirstConfig())
+    assert scheduler_config_from_str("prefill-first", token_budget=64) == SchedulerConfig(PrefillFirstConfig())
+    assert scheduler_config_from_str("token-budget", token_budget=64) == SchedulerConfig(TokenBudgetConfig(64))
     assert str(PrefillFirstConfig()) == "prefill-first"
     assert str(TokenBudgetConfig(2048)) == "token-budget(token_budget=2048)"
+    assert str(SchedulerConfig()) == "prefill-first"
+    assert str(SchedulerConfig(TokenBudgetConfig(2048))) == "token-budget(token_budget=2048)"
 
     with pytest.raises(ValueError, match="未知 batching policy"):
         parse_batching_policy_kind("budgeted")
@@ -140,36 +147,40 @@ def test_batching_policy_kind_and_config_from_str():
 
 def test_engine_config_with_scheduler_config():
     base = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS, max_running_requests=4)
-    budgeted = base.with_scheduler_config(TokenBudgetConfig(256))
-    assert budgeted.scheduler_config == TokenBudgetConfig(256)
+    budgeted = base.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(256)))
+    assert budgeted.scheduler_config == SchedulerConfig(TokenBudgetConfig(256))
     assert budgeted != base
     # 默认 prefill-first 不进入标识，保证历史 Record 的 engine_config 字符串不变
     assert str(base) == "dense-kv-cache+continuous-batching+mrr=4"
     assert str(budgeted) == "dense-kv-cache+continuous-batching+mrr=4+token-budget(token_budget=256)"
-    assert budgeted.with_scheduler_config(PrefillFirstConfig()) == base
+    assert budgeted.with_scheduler_config(SchedulerConfig(PrefillFirstConfig())) == base
 
     # 其他 with_* 方法保留 scheduler_config
-    assert budgeted.with_flag(FeatureFlag.PLACEHOLDER).scheduler_config == TokenBudgetConfig(256)
-    assert budgeted.with_kv_cache_config(PagedCacheConfig()).scheduler_config == TokenBudgetConfig(256)
-    assert budgeted.with_batching_method(BatchingMethod.FIXED).scheduler_config == TokenBudgetConfig(256)
+    assert budgeted.with_flag(FeatureFlag.PLACEHOLDER).scheduler_config == SchedulerConfig(TokenBudgetConfig(256))
+    assert budgeted.with_kv_cache_config(PagedCacheConfig()).scheduler_config == SchedulerConfig(TokenBudgetConfig(256))
+    assert budgeted.with_batching_method(BatchingMethod.FIXED).scheduler_config == SchedulerConfig(
+        TokenBudgetConfig(256)
+    )
     assert budgeted.with_max_running_requests(8).max_running_requests == 8
 
 
 def test_validate_engine_config_scheduler_rules():
     continuous = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
-    validate_engine_config(continuous.with_scheduler_config(TokenBudgetConfig(1)))
+    validate_engine_config(continuous.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(1))))
     validate_engine_config(
         EngineConfig(
             PagedCacheConfig(),
             batching_method=BatchingMethod.CONTINUOUS,
             max_running_requests=4,
-            scheduler_config=TokenBudgetConfig(4),
+            scheduler_config=SchedulerConfig(TokenBudgetConfig(4)),
         )
     )
     for method in (BatchingMethod.FIXED, BatchingMethod.NONE):
         with pytest.raises(ValueError, match="token-budget 组批策略仅支持 continuous-batching"):
             validate_engine_config(
-                EngineConfig(DenseCacheConfig(), batching_method=method, scheduler_config=TokenBudgetConfig(8))
+                EngineConfig(
+                    DenseCacheConfig(), batching_method=method, scheduler_config=SchedulerConfig(TokenBudgetConfig(8))
+                )
             )
     with pytest.raises(ValueError, match="不能小于 max_running_requests"):
         validate_engine_config(
@@ -177,7 +188,7 @@ def test_validate_engine_config_scheduler_rules():
                 DenseCacheConfig(),
                 batching_method=BatchingMethod.CONTINUOUS,
                 max_running_requests=8,
-                scheduler_config=TokenBudgetConfig(7),
+                scheduler_config=SchedulerConfig(TokenBudgetConfig(7)),
             )
         )
     # prefill-first 不受任何调度规则约束
@@ -186,6 +197,6 @@ def test_validate_engine_config_scheduler_rules():
             DenseCacheConfig(),
             batching_method=BatchingMethod.FIXED,
             max_running_requests=1,
-            scheduler_config=PrefillFirstConfig(),
+            scheduler_config=SchedulerConfig(PrefillFirstConfig()),
         )
     )

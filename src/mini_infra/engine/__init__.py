@@ -1,6 +1,7 @@
 """推理与 Serving 执行引擎域：包含模型执行器、批状态机、批处理调度循环、运行模式与结果类型。"""
 
 from mini_infra.core import (
+    BatchingPolicy,
     DenseCacheConfig,
     KVCacheConfig,
     NoCacheConfig,
@@ -50,6 +51,7 @@ __all__ = [
     "AggregationOptions",
     "BatchScheduleInfo",
     "BatchingMethod",
+    "BatchingPolicy",
     "DenseCacheConfig",
     "EngineConfig",
     "FeatureFlag",

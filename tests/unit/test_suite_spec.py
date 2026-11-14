@@ -314,7 +314,7 @@ def test_invalid_scheduler_specs_are_rejected_at_load(tmp_path, mutation, messag
 
 
 def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
-    from mini_infra.core import PrefillFirstConfig, TokenBudgetConfig
+    from mini_infra.core import PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
 
     text = (
         _SCHEDULER_BASE
@@ -324,10 +324,10 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
     )
     loaded = load_suite_spec(_write(tmp_path, text))
     assert [(cs.caching_spec.kind, cs.scheduler_spec.scheduler_config) for cs in loaded.cases] == [
-        ("dense-kv-cache", PrefillFirstConfig()),
-        ("dense-kv-cache", TokenBudgetConfig(64)),
-        ("paged-kv-cache", PrefillFirstConfig()),
-        ("paged-kv-cache", TokenBudgetConfig(64)),
+        ("dense-kv-cache", SchedulerConfig(PrefillFirstConfig())),
+        ("dense-kv-cache", SchedulerConfig(TokenBudgetConfig(64))),
+        ("paged-kv-cache", SchedulerConfig(PrefillFirstConfig())),
+        ("paged-kv-cache", SchedulerConfig(TokenBudgetConfig(64))),
     ]
     suite = BenchmarkSuite.from_spec(loaded)
     assert [c.key.token_budget for c in suite.cases] == [None, 64, None, 64]
@@ -362,12 +362,14 @@ def test_invalid_scheduler_spec_combinations_are_rejected(tmp_path, tail, messag
 
 
 def test_baseline_scheduler_spec_and_lockstep_rejection(tmp_path):
+    from mini_infra.core import SchedulerConfig, TokenBudgetConfig
+
     text = _SCHEDULER_BASE.replace(
         "  caching_spec: dense-kv-cache\n",
         "  caching_spec: dense-kv-cache\n  scheduler_spec: {kind: token-budget, token_budget: 4}\n",
     )
     (case,) = load_suite_spec(_write(tmp_path, text)).cases
-    assert case.scheduler_spec.scheduler_config.token_budget == 4
+    assert case.scheduler_spec.scheduler_config == SchedulerConfig(TokenBudgetConfig(4))
 
     lockstep = """
 name: demo
@@ -384,10 +386,10 @@ workload: {id: w, count: 1, prompt_len: 8, output_len: 4}
 def test_system_spec_scheduler_spec_default_engine_config():
     """验证 SystemSpec.scheduler_spec 解析与 default_engine_config 透传。"""
     from mini_infra.bench.spec.common import SystemSpec
-    from mini_infra.core import PrefillFirstConfig, TokenBudgetConfig
+    from mini_infra.core import PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
 
     default_sys = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "continuous-batching"})
-    assert default_sys.default_engine_config.scheduler_config == PrefillFirstConfig()
+    assert default_sys.default_engine_config.scheduler_config == SchedulerConfig(PrefillFirstConfig())
 
     budget_sys = SystemSpec.model_validate(
         {
@@ -396,7 +398,7 @@ def test_system_spec_scheduler_spec_default_engine_config():
             "scheduler_spec": {"kind": "token-budget", "token_budget": 128},
         }
     )
-    assert budget_sys.default_engine_config.scheduler_config == TokenBudgetConfig(128)
+    assert budget_sys.default_engine_config.scheduler_config == SchedulerConfig(TokenBudgetConfig(128))
 
 
 def test_filename_must_match_name(tmp_path):

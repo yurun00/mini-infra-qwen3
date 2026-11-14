@@ -51,12 +51,12 @@ sequenceDiagram
 
 ## 二、scheduler config
 
-通过 `EngineConfig.scheduler_config` 选择策略（判别式联合 `SchedulerConfig`，与 `KVCacheConfig` 同构）：
+通过 `EngineConfig.scheduler_config`（`SchedulerConfig(batching_policy=...)`）选择策略，其 `batching_policy` 为判别式联合 `BatchingPolicy = PrefillFirstConfig | TokenBudgetConfig`：
 
-| 配置 | batching policy | 行为 |
+| `SchedulerConfig` | `batching_policy` | 行为 |
 |---|---|---|
-| `PrefillFirstConfig()`（默认） | `prefill-first` | 入场上限内的 FCFS 前缀整批 Prefill；无可入场请求才 Decode |
-| `TokenBudgetConfig(token_budget)` | `token-budget` | 入场上限内再按 token budget 截断 FCFS 前缀，并启用 decode protection |
+| `SchedulerConfig(PrefillFirstConfig())`（默认） | `prefill-first` | 入场上限内的 FCFS 前缀整批 Prefill；无可入场请求才 Decode |
+| `SchedulerConfig(TokenBudgetConfig(token_budget))` | `token-budget` | 入场上限内再按 token budget 截断 FCFS 前缀，并启用 decode protection |
 
 约束（`validate_engine_config` 与 `run_scheduler` 校验）：
 
@@ -118,13 +118,13 @@ mini-infra run --batching-method continuous-batching \
 ```
 
 ```python
-from mini_infra import BatchingMethod, EngineConfig, PagedCacheConfig, TokenBudgetConfig
+from mini_infra import BatchingMethod, EngineConfig, PagedCacheConfig, SchedulerConfig, TokenBudgetConfig
 
 config = EngineConfig(
     PagedCacheConfig(block_size=16),
     batching_method=BatchingMethod.CONTINUOUS,
     max_running_requests=4,
-    scheduler_config=TokenBudgetConfig(256),
+    scheduler_config=SchedulerConfig(TokenBudgetConfig(256)),
 )
 ```
 

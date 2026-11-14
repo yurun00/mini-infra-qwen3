@@ -14,7 +14,14 @@ from mini_infra.cli.commands.run import (
     shrink_budgets,
     uses_scheduler,
 )
-from mini_infra.core import DenseCacheConfig, NoCacheConfig, PagedCacheConfig, PrefillFirstConfig, TokenBudgetConfig
+from mini_infra.core import (
+    DenseCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+    PrefillFirstConfig,
+    SchedulerConfig,
+    TokenBudgetConfig,
+)
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
@@ -75,11 +82,19 @@ def test_run_config_token_budget_matches_prefill_first(diverse_model):
     opts = make_opts()
     prefill_first = run_config(cont, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
     budgeted = run_config(
-        cont.with_scheduler_config(TokenBudgetConfig(4)), diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True
+        cont.with_scheduler_config(SchedulerConfig(TokenBudgetConfig(4))),
+        diverse_model,
+        SEQS,
+        SEQS,
+        budgets,
+        opts,
+        via_scheduler=True,
     )
     assert [s.token_ids for s in budgeted.sequences] == [s.token_ids for s in prefill_first.sequences]
 
-    fixed = EngineConfig(KV, batching_method=BatchingMethod.FIXED, scheduler_config=TokenBudgetConfig(4))
+    fixed = EngineConfig(
+        KV, batching_method=BatchingMethod.FIXED, scheduler_config=SchedulerConfig(TokenBudgetConfig(4))
+    )
     with pytest.raises(ValueError, match="仅支持 continuous-batching"):
         run_config(fixed, diverse_model, SEQS, SEQS, budgets, opts, via_scheduler=True)
 
@@ -198,7 +213,7 @@ def test_build_engine_config_from_flat_args():
         batching_method=BatchingMethod.CONTINUOUS,
         max_running_requests=4,
         flags=frozenset({FeatureFlag.PLACEHOLDER}),
-        scheduler_config=TokenBudgetConfig(64),
+        scheduler_config=SchedulerConfig(TokenBudgetConfig(64)),
     )
 
 
@@ -222,13 +237,19 @@ def test_resolve_compare_feature_overrides_one_arg_and_keeps_the_rest():
     configs, _ = resolve_compare_feature(
         parse_run_args(*base, "--compare-feature", "batching-policy", "prefill-first", "token-budget")
     )
-    assert [c.scheduler_config for c in configs] == [PrefillFirstConfig(), TokenBudgetConfig(64)]
+    assert [c.scheduler_config for c in configs] == [
+        SchedulerConfig(PrefillFirstConfig()),
+        SchedulerConfig(TokenBudgetConfig(64)),
+    ]
 
     # 嵌套字段的数值参数同样可直接对比
     configs, _ = resolve_compare_feature(
         parse_run_args(*base, "--batching-policy", "token-budget", "--compare-feature", "token-budget", "128", "256")
     )
-    assert [c.scheduler_config for c in configs] == [TokenBudgetConfig(128), TokenBudgetConfig(256)]
+    assert [c.scheduler_config for c in configs] == [
+        SchedulerConfig(TokenBudgetConfig(128)),
+        SchedulerConfig(TokenBudgetConfig(256)),
+    ]
 
     # 默认不限的整型参数接受 none
     configs, _ = resolve_compare_feature(

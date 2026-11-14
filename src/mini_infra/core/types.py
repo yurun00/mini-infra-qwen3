@@ -158,20 +158,37 @@ class TokenBudgetConfig:
         return f"{self.kind}(token_budget={self.token_budget})"
 
 
-# 当前 SchedulerConfig 仅承载维度 2（batching_policy）的判别式联合；
-# TODO: 引入 queue_policy（priority / srtf）或 preemption_mode（recompute / swap）时，
-# 演进为聚合 `queue_policy`、`batching_policy`、`preemption_mode` 与 `watermark` 的复合配置。
-SchedulerConfig = PrefillFirstConfig | TokenBudgetConfig
+BatchingPolicy = PrefillFirstConfig | TokenBudgetConfig
 
 
-def scheduler_config_from_str(kind: str | None, *, token_budget: int | None = None) -> SchedulerConfig:
-    """根据 batching policy 标识与可选预算构造对应的 SchedulerConfig 实例（prefill-first 忽略 token_budget）。"""
+def batching_policy_from_str(kind: str | None, *, token_budget: int | None = None) -> BatchingPolicy:
+    """根据 batching policy 标识与可选预算构造对应的 BatchingPolicy 实例（prefill-first 忽略 token_budget）。"""
     parsed = parse_batching_policy_kind(kind)
     if parsed == "prefill-first":
         return PrefillFirstConfig()
     if token_budget is None:
         raise ValueError("token-budget 组批策略必须指定 token_budget")
     return TokenBudgetConfig(token_budget)
+
+
+@dataclass(frozen=True)
+class SchedulerConfig:
+    """迭代级调度器配置（对标 vLLM SchedulerConfig）。
+
+    - batching_policy: 单步组批与阶段准入策略（PrefillFirstConfig / TokenBudgetConfig）。
+    - TODO: 后续聚合 max_running_requests、queue_policy（priority / srtf）、
+      preemption_mode（recompute / swap）与 watermark。
+    """
+
+    batching_policy: BatchingPolicy = PrefillFirstConfig()
+
+    def __str__(self) -> str:
+        return str(self.batching_policy)
+
+
+def scheduler_config_from_str(kind: str | None, *, token_budget: int | None = None) -> SchedulerConfig:
+    """根据 batching policy 标识与可选预算构造对应的 SchedulerConfig 实例（prefill-first 忽略 token_budget）。"""
+    return SchedulerConfig(batching_policy=batching_policy_from_str(kind, token_budget=token_budget))
 
 
 class BatchingMethod(str, Enum):
@@ -251,6 +268,7 @@ __all__ = [
     "BATCHING_POLICY_KINDS",
     "KV_CACHE_KINDS",
     "BatchingMethod",
+    "BatchingPolicy",
     "BatchingPolicyKind",
     "DenseCacheConfig",
     "KVCacheConfig",
@@ -262,6 +280,7 @@ __all__ = [
     "SchedulerConfig",
     "SequenceOutput",
     "TokenBudgetConfig",
+    "batching_policy_from_str",
     "collapse_uniform",
     "kv_cache_config_from_str",
     "parse_batching_policy_kind",
