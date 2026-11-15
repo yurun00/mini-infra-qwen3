@@ -44,8 +44,10 @@ def check_correctness(
 ) -> CorrectnessReport:
     """正确性门禁：固定 prompt 的 greedy 输出必须与 golden 一致。"""
     ids = torch.tensor([tokenizer.encode_chat_prompt(GOLDEN_PROMPT)], device=device)
+    # Golden 基准为单请求（batch=1）bfloat16 输出；单请求校验时将并发容量置空（按请求数推导为 1），
+    # 避免 DenseSlotCache 因预分配空闲 batch slot 触发 cuBLAS GEMV -> Tensor Core GEMM 算子切换舍入翻转
     res = generate(
-        config,
+        config.with_max_running_requests(None),
         model,
         ids,
         GOLDEN_MAX_OUTPUT_TOKENS,

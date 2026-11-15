@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from mini_infra.bench.spec.common.checks import run_check
-from mini_infra.bench.spec.common.schema import SchedulerSpec
 from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
 from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
 
@@ -14,7 +13,6 @@ class ResolvedReleaseScale:
 
     scale: ReleaseScale
     seed: int
-    scheduler_spec: SchedulerSpec
     workload: ResolvedWorkloadSpec
 
 
@@ -22,15 +20,9 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
     """展开三档负载；seed 缺省取 default_seed。"""
     effective_seed = spec.default_seed if seed is None else seed
     resolved: dict[ReleaseScale, ResolvedReleaseScale] = {}
-    base_scheduler = spec.system.scheduler_spec
+    max_running_requests = spec.system.scheduler_spec.max_running_requests
     for scale in RELEASE_SCALES:
         scale_spec = spec.scales[scale]
-        effective_scheduler = (
-            scale_spec.scheduler_spec.inherit_from(base_scheduler)
-            if scale_spec.scheduler_spec is not None
-            else base_scheduler
-        )
-        effective_mrr = effective_scheduler.max_running_requests
         body = {**scale_spec.workload, "seed": effective_seed, "seed_salt": scale_spec.seed_salt}
         workload = resolve_workload_body(
             f"{spec.engine}_{scale}", body, {}, context=f"release {spec.engine}/{scale} (seed={effective_seed})"
@@ -39,14 +31,13 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
             run_check(
                 check,
                 context=f"release {spec.engine}/{scale}",
-                max_running_requests=effective_mrr,
+                max_running_requests=max_running_requests,
                 output_budgets=workload.output_budgets,
                 arrival_ms=workload.arrival_ms,
             )
         resolved[scale] = ResolvedReleaseScale(
             scale=scale,
             seed=effective_seed,
-            scheduler_spec=effective_scheduler,
             workload=workload,
         )
     return resolved

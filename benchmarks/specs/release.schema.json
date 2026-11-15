@@ -178,17 +178,6 @@
           "title": "Seed Salt",
           "type": "integer"
         },
-        "scheduler_spec": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SchedulerSpec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "workload": {
           "type": "object",
           "description": "单组简写（count / prompt_len / output_len / arrival_ms）或 groups；字段含义见 $defs.GroupSpec",

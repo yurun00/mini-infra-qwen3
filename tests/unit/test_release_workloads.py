@@ -19,7 +19,6 @@ def _encode(w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int) -> d
         return list(x) if isinstance(x, tuple) else x
 
     loaded = get_release_spec(engine)
-    resolved = loaded.resolve(seed)[scale]
     return {
         "engine_config": str(loaded.default_engine_config),
         "num_total_requests": w.num_total_requests,
@@ -27,7 +26,7 @@ def _encode(w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int) -> d
         "max_new_tokens": as_list(w.output_budgets),
         "seed": seed,
         "scale": scale,
-        "max_running_requests": resolved.scheduler_spec.max_running_requests,
+        "max_running_requests": loaded.default_engine_config.scheduler_config.max_running_requests,
         "arrival_times_ms": as_list(w.arrival_ms) if engine == "scheduler" else None,
         "warmup": loaded.spec.execution.warmup,
         "repeats": loaded.spec.execution.repeats,
@@ -54,7 +53,7 @@ def test_default_seed_is_the_standard_seed(engine):
 
 def test_release_default_modes():
     assert str(get_release_spec("lockstep").default_engine_config) == "dense-kv-cache+fixed-batching"
-    assert str(get_release_spec("scheduler").default_engine_config) == "dense-kv-cache+continuous-batching"
+    assert str(get_release_spec("scheduler").default_engine_config) == "dense-kv-cache+continuous-batching+mrr=16"
 
 
 def test_release_seed_changes_workload():

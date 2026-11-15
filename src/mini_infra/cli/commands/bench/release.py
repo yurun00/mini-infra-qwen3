@@ -17,6 +17,15 @@
         --batching-method fixed-batching \
         --skip-regression
 
+    # 发布 v0.6.0 (Scheduler: Token Budget)
+    mini-infra bench release \
+        --engine scheduler \
+        --tag v0.6.0 \
+        --release-feature "token budget" \
+        --caching-method paged-kv-cache \
+        --batching-policy token-budget \
+        --token-budget 512
+
     # 发布 v0.5.0 (Scheduler: Paged KV Cache)
     mini-infra bench release \
         --engine scheduler \
@@ -55,7 +64,14 @@ from mini_infra.bench.paths import (
     SCHEDULER_RESULT_HISTORY_DIR,
 )
 from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, get_release_spec
-from mini_infra.core import KV_CACHE_KINDS, PagedCacheConfig, kv_cache_config_from_str
+from mini_infra.core import (
+    BATCHING_POLICY_KINDS,
+    KV_CACHE_KINDS,
+    PagedCacheConfig,
+    TokenBudgetConfig,
+    kv_cache_config_from_str,
+    scheduler_config_from_str,
+)
 from mini_infra.engine import BatchingMethod, EngineConfig
 
 
@@ -158,6 +174,9 @@ def _build_scheduler_case_cmd(
     ]
     if isinstance(config.kv_cache_config, PagedCacheConfig) and block_size is not None:
         cmd.extend(["--block-size", str(block_size)])
+    policy = config.scheduler_config.batching_policy
+    if isinstance(policy, TokenBudgetConfig):
+        cmd.extend(["--batching-policy", policy.kind, "--token-budget", str(policy.token_budget)])
     if scale is not None:
         cmd.extend(["--scale", str(scale)])
     if seed is not None:
@@ -255,6 +274,18 @@ def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="Paged KV Cache 的 physical block 大小（默认: 16，仅 paged-kv-cache 时生效）",
     )
     p.add_argument(
+        "--batching-policy",
+        choices=list(BATCHING_POLICY_KINDS),
+        default=None,
+        help="覆盖单步组批策略（默认: prefill-first，仅 scheduler 引擎支持 token-budget）",
+    )
+    p.add_argument(
+        "--token-budget",
+        type=int,
+        default=None,
+        help="token-budget 策略下单次 Prefill 的 padded prompt token 上限（仅 scheduler 引擎生效）",
+    )
+    p.add_argument(
         "--profiling-mode",
         choices=["dedicated-pass", "all-repeats", "none"],
         default=None,
@@ -338,7 +369,19 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
         loaded = get_release_spec("scheduler")
         default_bm = loaded.default_engine_config.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
-        target_config = EngineConfig(kv_cache_config, batching_method=bm)
+        max_running = loaded.default_engine_config.scheduler_config.max_running_requests or 16
+        default_policy = loaded.default_engine_config.scheduler_config.batching_policy.kind
+        policy_kind = getattr(args, "batching_policy", None) or default_policy
+        scheduler_config = scheduler_config_from_str(
+            policy_kind,
+            max_running_requests=max_running,
+            token_budget=getattr(args, "token_budget", None),
+        )
+        target_config = EngineConfig(
+            kv_cache_config,
+            batching_method=bm,
+            scheduler_config=scheduler_config,
+        )
         block_size = getattr(args, "block_size", None)
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"
@@ -354,7 +397,7 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
                         args.tag,
                         args.release_feature,
                         config=target_config,
-                        max_running_requests=res_scale.scheduler_spec.max_running_requests or 4,
+                        max_running_requests=max_running,
                         warmup=loaded.spec.execution.warmup,
                         repeats=loaded.spec.execution.repeats,
                         scale=sc,

@@ -103,11 +103,6 @@ def build_benchmark_record(
     return _BENCHMARK_RECORD_ADAPTER.validate_python(payload)
 
 
-def _strip_mrr_suffix(engine_config_str: str) -> str:
-    """剥离 engine_config 字符串末尾的 +mrr=N（供跨 scale 策略一致性比对）。"""
-    return "+".join(p for p in engine_config_str.split("+") if not p.startswith("mrr="))
-
-
 def _check_single_case_constraint(
     rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord,
     source: str | Path,
@@ -118,7 +113,7 @@ def _check_single_case_constraint(
     if len(rec.cases) == 1:
         return
     scales = [c.scale for c in rec.cases]
-    configs = {_strip_mrr_suffix(c.engine_config) for c in rec.cases}
+    configs = {c.engine_config for c in rec.cases}
     if (
         rec.suite is None
         and len(configs) == 1
@@ -179,8 +174,7 @@ def save_benchmark_record(output: Path, record: BaseModel, is_dirty: bool = Fals
             isinstance(existing, dict)
             and existing.get("tag") == payload.get("tag")
             and existing.get("engine") == payload.get("engine")
-            and _strip_mrr_suffix(str(existing.get("engine_config", "")))
-            == _strip_mrr_suffix(str(payload.get("engine_config", "")))
+            and existing.get("engine_config") == payload.get("engine_config")
         ):
             new_scale = new_cases[0]["scale"]
             merged_cases = [

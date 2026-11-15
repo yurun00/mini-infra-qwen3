@@ -5,6 +5,8 @@
 description: Lockstep 标准伪随机负载：分层对数均匀的 prompt 长度与输出预算，所有请求同时开始。
 default_seed: 42
 execution: {warmup: 2, repeats: 5}
+# system 定义缺省基线配置；实际发布评测时，`mini-infra bench release` 会按版本通过 CLI 参数
+# （如 --no-kv-cache、--batching-method）覆盖对应字段（见 RELEASE.md）。
 system:
   engine_mode: lockstep
   batching_method: fixed-batching

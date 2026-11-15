@@ -195,3 +195,29 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "[2/5] 开始执行: 运行 Scheduler 基准 [medium]" in out_scheduler
     assert "[3/5] 开始执行: 运行 Scheduler 基准 [large]" in out_scheduler
     assert "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.4.0.json" in out_scheduler
+
+    # Test scheduler token-budget dry-run
+    rc_token_budget = main(
+        [
+            "bench",
+            "release",
+            "--engine",
+            "scheduler",
+            "--tag",
+            "v0.6.0",
+            "--release-feature",
+            "token budget",
+            "--caching-method",
+            "paged-kv-cache",
+            "--batching-policy",
+            "token-budget",
+            "--token-budget",
+            "512",
+            "--dry-run",
+        ]
+    )
+    assert rc_token_budget == 0
+    out_token_budget = capsys.readouterr().out
+    assert out_token_budget.count("--caching-method paged-kv-cache") == 3
+    assert out_token_budget.count("--batching-policy token-budget --token-budget 512") == 3
+    assert "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.6.0.json" in out_token_budget

@@ -4,6 +4,7 @@
   "42": {
    "large": {
     "arrival_times_ms": null,
+    "engine_config": "dense-kv-cache+fixed-batching",
     "max_new_tokens": [
      69,
      146,
@@ -23,7 +24,6 @@
      93
     ],
     "max_running_requests": null,
-    "engine_config": "dense-kv-cache+fixed-batching",
     "num_total_requests": 16,
     "prompt_len": [
      269,
@@ -50,6 +50,7 @@
    },
    "medium": {
     "arrival_times_ms": null,
+    "engine_config": "dense-kv-cache+fixed-batching",
     "max_new_tokens": [
      94,
      45,
@@ -61,7 +62,6 @@
      51
     ],
     "max_running_requests": null,
-    "engine_config": "dense-kv-cache+fixed-batching",
     "num_total_requests": 8,
     "prompt_len": [
      200,
@@ -80,6 +80,7 @@
    },
    "small": {
     "arrival_times_ms": null,
+    "engine_config": "dense-kv-cache+fixed-batching",
     "max_new_tokens": [
      15,
      30,
@@ -87,7 +88,6 @@
      21
     ],
     "max_running_requests": null,
-    "engine_config": "dense-kv-cache+fixed-batching",
     "num_total_requests": 4,
     "prompt_len": [
      40,
@@ -104,6 +104,7 @@
   "7": {
    "large": {
     "arrival_times_ms": null,
+    "engine_config": "dense-kv-cache+fixed-batching",
     "max_new_tokens": [
      106,
      91,
@@ -123,7 +124,6 @@
      66
     ],
     "max_running_requests": null,
-    "engine_config": "dense-kv-cache+fixed-batching",
     "num_total_requests": 16,
     "prompt_len": [
      382,
@@ -150,6 +150,7 @@
    },
    "medium": {
     "arrival_times_ms": null,
+    "engine_config": "dense-kv-cache+fixed-batching",
     "max_new_tokens": [
      92,
      52,
@@ -161,7 +162,6 @@
      65
     ],
     "max_running_requests": null,
-    "engine_config": "dense-kv-cache+fixed-batching",
     "num_total_requests": 8,
     "prompt_len": [
      123,
@@ -180,6 +180,7 @@
    },
    "small": {
     "arrival_times_ms": null,
+    "engine_config": "dense-kv-cache+fixed-batching",
     "max_new_tokens": [
      14,
      25,
@@ -187,7 +188,6 @@
      19
     ],
     "max_running_requests": null,
-    "engine_config": "dense-kv-cache+fixed-batching",
     "num_total_requests": 4,
     "prompt_len": [
      57,
@@ -271,6 +271,7 @@
      8996.3,
      9328.7
     ],
+    "engine_config": "dense-kv-cache+continuous-batching+mrr=16",
     "max_new_tokens": [
      165,
      172,
@@ -338,7 +339,6 @@
      113
     ],
     "max_running_requests": 16,
-    "engine_config": "dense-kv-cache+continuous-batching",
     "num_total_requests": 64,
     "prompt_len": [
      776,
@@ -446,6 +446,7 @@
      2698.1,
      2777.7
     ],
+    "engine_config": "dense-kv-cache+continuous-batching+mrr=16",
     "max_new_tokens": [
      40,
      67,
@@ -480,8 +481,7 @@
      74,
      50
     ],
-    "max_running_requests": 8,
-    "engine_config": "dense-kv-cache+continuous-batching",
+    "max_running_requests": 16,
     "num_total_requests": 32,
     "prompt_len": [
      113,
@@ -541,6 +541,7 @@
      368.7,
      374.4
     ],
+    "engine_config": "dense-kv-cache+continuous-batching+mrr=16",
     "max_new_tokens": [
      25,
      10,
@@ -559,8 +560,7 @@
      14,
      20
     ],
-    "max_running_requests": 4,
-    "engine_config": "dense-kv-cache+continuous-batching",
+    "max_running_requests": 16,
     "num_total_requests": 16,
     "prompt_len": [
      35,
@@ -654,6 +654,7 @@
      7969.4,
      8089.6
     ],
+    "engine_config": "dense-kv-cache+continuous-batching+mrr=16",
     "max_new_tokens": [
      175,
      131,
@@ -721,7 +722,6 @@
      71
     ],
     "max_running_requests": 16,
-    "engine_config": "dense-kv-cache+continuous-batching",
     "num_total_requests": 64,
     "prompt_len": [
      524,
@@ -829,6 +829,7 @@
      2013.5,
      2027.3
     ],
+    "engine_config": "dense-kv-cache+continuous-batching+mrr=16",
     "max_new_tokens": [
      40,
      35,
@@ -863,8 +864,7 @@
      42,
      60
     ],
-    "max_running_requests": 8,
-    "engine_config": "dense-kv-cache+continuous-batching",
+    "max_running_requests": 16,
     "num_total_requests": 32,
     "prompt_len": [
      195,
@@ -924,6 +924,7 @@
      638.8,
      745.3
     ],
+    "engine_config": "dense-kv-cache+continuous-batching+mrr=16",
     "max_new_tokens": [
      14,
      21,
@@ -942,8 +943,7 @@
      27,
      25
     ],
-    "max_running_requests": 4,
-    "engine_config": "dense-kv-cache+continuous-batching",
+    "max_running_requests": 16,
     "num_total_requests": 16,
     "prompt_len": [
      20,

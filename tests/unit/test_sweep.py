@@ -397,11 +397,15 @@ def test_builtin_release_specs_are_valid():
 def _release_raw(engine="scheduler", **override):
     scale = {
         "seed_salt": 1,
-        "scheduler_spec": {"max_running_requests": 4},
         "workload": {"count": 4, "prompt_len": 8, "output_len": 4},
     }
     system = (
-        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_spec": "dense-kv-cache"}
+        {
+            "engine_mode": "scheduler",
+            "batching_method": "continuous-batching",
+            "caching_spec": "dense-kv-cache",
+            "scheduler_spec": {"max_running_requests": 4},
+        }
         if engine == "scheduler"
         else {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_spec": "dense-kv-cache"}
     )
@@ -418,22 +422,16 @@ def test_release_spec_validation():
     ReleaseSpec.model_validate(_release_raw())
     with pytest.raises(ValueError, match="恰好包含"):
         ReleaseSpec.model_validate(_release_raw(scales={"small": _release_raw()["scales"]["small"]}))
-    no_mrr = {"seed_salt": 1, "workload": {"count": 4, "prompt_len": 8, "output_len": 4}}
-    with pytest.raises(ValueError, match="必须提供 max_running_requests"):
-        ReleaseSpec.model_validate(_release_raw(scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr}))
-    # 允许在 system.scheduler_spec 提供默认 max_running_requests 供各 scale 继承
-    system_with_mrr = {
+    system_without_mrr = {
         "engine_mode": "scheduler",
         "batching_method": "continuous-batching",
         "caching_spec": "dense-kv-cache",
-        "scheduler_spec": {"max_running_requests": 4},
     }
-    inherited = ReleaseSpec.model_validate(
-        _release_raw(system=system_with_mrr, scales={"small": no_mrr, "medium": no_mrr, "large": no_mrr})
-    )
-    assert inherited.system.scheduler_spec.max_running_requests == 4
+    with pytest.raises(ValueError, match="必须.*提供 max_running_requests"):
+        ReleaseSpec.model_validate(_release_raw(system=system_without_mrr))
     with pytest.raises(ValueError, match="不支持"):
-        ReleaseSpec.model_validate(_release_raw(engine="lockstep"))
+        bad_lockstep_sys = {**_release_raw("lockstep")["system"], "scheduler_spec": {"max_running_requests": 4}}
+        ReleaseSpec.model_validate(_release_raw(system=bad_lockstep_sys))
     with pytest.raises(ValueError, match="interleave"):
         ReleaseSpec.model_validate(_release_raw(execution={"interleave": ["batching_method"]}))
 
@@ -445,10 +443,12 @@ def _write_release(
     checks: str = "[]",
 ) -> Path:
     path = tmp_path / f"{name}.yaml"
-    scale = f"{{seed_salt: 1, scheduler_spec: {{max_running_requests: 4}}, workload: {workload}}}"
+    scale = f"{{seed_salt: 1, workload: {workload}}}"
+    mrr_part = ", scheduler_spec: {max_running_requests: 4}" if name == "scheduler" else ""
+    sys_str = f"{{engine_mode: {name}, batching_method: continuous-batching, caching_spec: dense-kv-cache{mrr_part}}}"
     path.write_text(
         f"default_seed: 42\n"
-        f"system: {{engine_mode: {name}, batching_method: continuous-batching, caching_spec: dense-kv-cache}}\n"
+        f"system: {sys_str}\n"
         f"checks: {checks}\n"
         f"scales: {{small: {scale}, medium: {scale}, large: {scale}}}\n",
         encoding="utf-8",

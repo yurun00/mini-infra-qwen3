@@ -36,8 +36,7 @@ release_spec      = [ "extends:" path_str ]
                                   "large:" scale_spec "}"
                     [ "checks:" "[" check_spec { "," check_spec } "]" ] ;
 
-scale_spec        = "{" "seed_salt:" int
-                        [ "," "scheduler_spec:" scheduler_spec ] ","
+scale_spec        = "{" "seed_salt:" int ","
                         "workload:" "{" workload_body "}" "}" ;
 
 (* ========================================================================== *)
@@ -226,7 +225,7 @@ sweep.workload（外层场景）
 
 版本发布使用的 `small` / `medium` / `large` 三档标准负载声明在 [`benchmarks/specs/release/{lockstep,scheduler}.yaml`](../../benchmarks/specs/release/)，由 `mini-infra bench release` 经 `mini_infra.bench.spec.release` 加载：
 - 顶层声明 `default_seed`、`system`、`execution`、`checks` 与 `scales`（必须恰好包含 `small`、`medium`、`large` 三档）。
-- 每档 `ScaleSpec` 声明独立的 `seed_salt`（避免三档抽样序列同构）、`workload` 以及可选的 `scheduler_spec`（覆盖 `system.scheduler_spec`）。
+- 每档 `ScaleSpec` 声明独立的 `seed_salt`（避免三档抽样序列同构）与 `workload`。
 - 运行 `mini-infra bench release --seed N` 时仅替换顶层 `default_seed`。
 
 > [!WARNING]
