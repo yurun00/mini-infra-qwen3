@@ -12,12 +12,10 @@ from mini_infra.core.block_manager import (
     required_pool_blocks,
 )
 from mini_infra.core.request import Request, RequestState
-from mini_infra.core.scheduler import RunningQueue
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
-from mini_infra.profiling import MemorySnapshotTracker
 from mini_infra.worker import PagedKVCachePool, PagedRunner
 
 __all__ = ["PagedScheduleBackend"]
@@ -51,8 +49,6 @@ class PagedScheduleBackend(ScheduleBackend):
         super().__init__(model, max_running_requests, batching_method)
         config = model.config  # type: ignore[attr-defined]
         self.runner = PagedRunner(model, pad_token_id)
-        self.snapshot_tracker = MemorySnapshotTracker()
-        self.snapshot_tracker.start()
         self.snapshot_tracker.record_stage("00_paged_before_pool_init")
         self.pool = PagedKVCachePool(
             num_layers=config.num_hidden_layers,
@@ -70,18 +66,16 @@ class PagedScheduleBackend(ScheduleBackend):
     def kv_cache_config(self) -> KVCacheConfig:
         return self.paged_cache_config
 
-    def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
-        prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in admitted])
+    def execute_prefill(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
+        prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in scheduled_requests])
         self.snapshot_tracker.record_stage("02_paged_prefill_forward_done")
-        cache_lengths = [s.cache_length for s in admitted]
+        cache_lengths = [s.cache_length for s in scheduled_requests]
         synchronize(self.device)
         cache_start = time.perf_counter()
-        for state in admitted:
-            self.kv_cache_manager.allocate_slots(state.request.request_idx, state.cache_length)
         self.runner.store_prefill(
             self.pool,
             prefill_out.prefill_cache,
-            [self.kv_cache_manager.block_table(s.request.request_idx) for s in admitted],
+            [self.kv_cache_manager.block_table(s.request.request_idx) for s in scheduled_requests],
             cache_lengths,
         )
         synchronize(self.device)
@@ -95,24 +89,21 @@ class PagedScheduleBackend(ScheduleBackend):
             next_tokens=next_tokens,
             model_ms=model_ms,
             cache_ms=cache_ms,
-            physical_batch_size=len(admitted),
+            physical_batch_size=len(scheduled_requests),
             live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.pool.bytes_per_block,
             kv_cache_pool_bytes=self.pool.total_bytes,
             cache_realign_moved_bytes=0,
             accessed_kv_cache_tokens=0,
         )
 
-    def execute_decode(self, running_queue: RunningQueue) -> ScheduleStepOutput:
-        active_before = len(running_queue)
+    def execute_decode(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
+        active_before = len(scheduled_requests)
         synchronize(self.device)
         prepare_start = time.perf_counter()
-        for state in running_queue:
-            if not self.kv_cache_manager.allocate_slots(state.request.request_idx, 1):
-                raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
         input_ids, position_ids, metadata = self.runner.prepare_decode_inputs(
-            [self.kv_cache_manager.block_table(s.request.request_idx) for s in running_queue],
-            last_tokens=[s.generated[-1] for s in running_queue],
-            positions=[s.cache_length for s in running_queue],
+            [self.kv_cache_manager.block_table(s.request.request_idx) for s in scheduled_requests],
+            last_tokens=[s.generated[-1] for s in scheduled_requests],
+            positions=[s.cache_length for s in scheduled_requests],
             block_size=self.block_size,
         )
         synchronize(self.device)
@@ -127,19 +118,8 @@ class PagedScheduleBackend(ScheduleBackend):
             live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.pool.bytes_per_block,
             kv_cache_pool_bytes=self.pool.total_bytes,
             cache_realign_moved_bytes=0,
-            accessed_kv_cache_tokens=sum(s.cache_length + 1 for s in running_queue),
+            accessed_kv_cache_tokens=sum(s.cache_length + 1 for s in scheduled_requests),
         )
-
-    def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
-        for state in finished:
-            self.kv_cache_manager.free(state.request.request_idx)
-        running_queue.retire(finished)
-        if not running_queue:
-            self.snapshot_tracker.stop()
-
-    def __del__(self) -> None:
-        if hasattr(self, "snapshot_tracker"):
-            self.snapshot_tracker.stop()
 
     def collect_paged_cache_profile(self) -> PagedCacheProfile:
         return PagedCacheProfile(

@@ -13,10 +13,10 @@ import torch
 
 from mini_infra.core.block_manager import KVCacheManager
 from mini_infra.core.request import RequestState
-from mini_infra.core.scheduler import RunningQueue
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import allocated_memory_mb, reset_peak_memory, synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
+from mini_infra.profiling import MemorySnapshotTracker
 
 __all__ = ["ScheduleBackend", "ScheduleStepOutput"]
 
@@ -48,11 +48,13 @@ class ScheduleBackend(abc.ABC):
         self.device = next(model.parameters()).device
         self.max_running_requests = max_running_requests
         self.batching_method = batching_method
-        # Paged 后端持有的逻辑块管理器，交给 core.IterationScheduler 做 KV 显存准入；Dense 后端为 None
+        # Paged 后端创建的逻辑块管理器，交由 core.IterationScheduler 统管块分配与释放；Dense 后端为 None
         self.kv_cache_manager: KVCacheManager | None = None
         synchronize(self.device)
         self.baseline_mb = allocated_memory_mb(self.device)
         reset_peak_memory(self.device)
+        self.snapshot_tracker = MemorySnapshotTracker()
+        self.snapshot_tracker.start()
 
     @property
     @abc.abstractmethod
@@ -61,20 +63,23 @@ class ScheduleBackend(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def execute_prefill(self, admitted: list[RequestState]) -> ScheduleStepOutput:
+    def execute_prefill(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
         """执行一批新请求的 Prefill 前向，将 KV 写入缓存并返回首个 Token 与耗时。"""
         ...
 
     @abc.abstractmethod
-    def execute_decode(self, running_queue: RunningQueue) -> ScheduleStepOutput:
+    def execute_decode(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
         """为当前运行中请求组装输入，执行一步增量 Decode 并写回缓存。"""
         ...
 
-    @abc.abstractmethod
-    def retire(self, finished: Sequence[RequestState], running_queue: RunningQueue) -> None:
-        """回收已结束请求的 batch slot 或物理块资源，并在空闲时执行重置。"""
-        ...
+    def retire(self, finished: Sequence[RequestState], *, is_idle: bool) -> None:
+        """回收已结束请求的物理缓存资源，并在无活跃请求（is_idle）时执行重置（默认无操作）。"""
+        return None
 
     def collect_paged_cache_profile(self) -> PagedCacheProfile | None:
         """运行结束后采集 Paged physical block pool 画像（Dense 后端无 physical block pool，返回 None）。"""
         return None
+
+    def __del__(self) -> None:
+        if hasattr(self, "snapshot_tracker"):
+            self.snapshot_tracker.stop()

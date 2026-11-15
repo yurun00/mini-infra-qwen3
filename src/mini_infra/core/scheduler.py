@@ -247,7 +247,7 @@ def _select_within_budget(
 
 
 class IterationScheduler:
-    """迭代级请求调度器：在每个调度步决策执行一次 Prefill batch 或一次 Decode batch。
+    """迭代级请求调度器（对标 vLLM V1 Scheduler）：持有等待/运行队列与逻辑块管理器，驱动单步调度与状态闭环。
 
     入场决策全部收敛于此，依次取 WaitingQueue 就绪前缀的交集（均为前缀截断，可交换、可组合）：
     1. batching method 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等
@@ -270,31 +270,79 @@ class IterationScheduler:
         batching_method: BatchingMethod,
         kv_cache_manager: KVCacheManager | None = None,
     ) -> None:
+        if scheduler_config.max_running_requests is None:
+            raise ValueError("scheduler_config.max_running_requests 必须为已解析的正整数")
         self.scheduler_config = scheduler_config
         self.batching_method = batching_method
-        # Paged 路径的逻辑块管理器（只读查询空闲块）；Dense 路径为 None，不受 KV 显存约束
+        self.waiting_queue = WaitingQueue()
+        self.running_queue = RunningQueue(scheduler_config.max_running_requests)
+        # Paged 路径的逻辑块管理器（由本调度器统一执行 allocate_slots / free）；Dense 路径为 None
         self.kv_cache_manager = kv_cache_manager
         self._last_phase: SchedulePhase | None = None
 
-    def schedule(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> SchedulerOutput | None:
-        """根据就绪队列与运行队列生成本步调度计划；空闲（两队列均为空）时返回 None。
+    @property
+    def has_unfinished_requests(self) -> bool:
+        """等待队列或运行队列中是否仍有未完成请求。"""
+        return bool(self.waiting_queue or self.running_queue)
 
-        waiting_queue 只含已到达请求（到达过滤由 engine 主循环按逻辑时钟完成），故无需传入 clock_ms。
-        """
-        output = self._decide(waiting_queue, running_queue)
-        if output is not None:
-            self._last_phase = output.phase
+    def add_requests(self, states: Iterable[RequestState]) -> None:
+        """将已到达请求推入等待队列。"""
+        self.waiting_queue.extend(states)
+
+    def schedule(self, clock_ms: float) -> SchedulerOutput | None:
+        """生成本步调度计划并原子执行队列转移、batch slot 分配与 Paged 逻辑块分配；空闲时返回 None。"""
+        output = self._decide()
+        if output is None:
+            return None
+        if output.phase is SchedulePhase.PREFILL:
+            admitted = self.running_queue.admit(
+                self.waiting_queue.pop_batch(len(output.scheduled_requests)),
+                clock_ms,
+            )
+            if self.kv_cache_manager is not None:
+                for state in admitted:
+                    assert self.kv_cache_manager.allocate_slots(state.request.request_idx, state.cache_length)
+        else:
+            if self.kv_cache_manager is not None:
+                for state in output.scheduled_requests:
+                    if not self.kv_cache_manager.allocate_slots(state.request.request_idx, 1):
+                        raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
+        self._last_phase = output.phase
         return output
 
-    def _admission_candidates(
-        self, waiting_queue: WaitingQueue, running_queue: RunningQueue
-    ) -> tuple[RequestState, ...]:
+    def update_from_output(
+        self,
+        scheduler_output: SchedulerOutput,
+        token_ids: Sequence[int],
+        clock_ms: float,
+        eos_token_id: int | None = None,
+        stop_on_eos: bool = True,
+    ) -> list[RequestState]:
+        """根据本步前向产出的 Token 推进请求状态，回收已完成请求的逻辑块与 batch slot。"""
+        if scheduler_output.phase is SchedulePhase.DECODE:
+            for state in scheduler_output.scheduled_requests:
+                state.cache_length += 1
+        finished = self.running_queue.process_step_output(
+            token_ids,
+            clock_ms,
+            eos_token_id,
+            stop_on_eos,
+            states=scheduler_output.scheduled_requests,
+        )
+        if finished:
+            if self.kv_cache_manager is not None:
+                for state in finished:
+                    self.kv_cache_manager.free(state.request.request_idx)
+            self.running_queue.retire(finished)
+        return finished
+
+    def _admission_candidates(self) -> tuple[RequestState, ...]:
         """batching、batch slot 与 KV 显存约束下可入场的 WaitingQueue FCFS 前缀。"""
         is_continuous = self.batching_method is BatchingMethod.CONTINUOUS
-        can_admit = running_queue.can_admit() if is_continuous else not running_queue
+        can_admit = self.running_queue.can_admit() if is_continuous else not self.running_queue
         if not can_admit:
             return ()
-        candidates = waiting_queue.requests[: running_queue.num_free_batch_slots]
+        candidates = self.waiting_queue.requests[: self.running_queue.num_free_batch_slots]
         if self.kv_cache_manager is not None:
             num_admissible = self.kv_cache_manager.num_admissible([s.request.prompt_len for s in candidates])
             candidates = candidates[:num_admissible]
@@ -308,28 +356,28 @@ class IterationScheduler:
             is_oversize_prefill=is_oversize_prefill,
         )
 
-    def _decode_output(self, running_queue: RunningQueue) -> SchedulerOutput:
+    def _decode_output(self) -> SchedulerOutput:
         return SchedulerOutput(
             phase=SchedulePhase.DECODE,
-            scheduled_requests=running_queue.requests,
-            num_scheduled_tokens=len(running_queue),
+            scheduled_requests=self.running_queue.requests,
+            num_scheduled_tokens=len(self.running_queue),
         )
 
-    def _decide(self, waiting_queue: WaitingQueue, running_queue: RunningQueue) -> SchedulerOutput | None:
+    def _decide(self) -> SchedulerOutput | None:
         policy = self.scheduler_config.batching_policy
-        admission_candidates = self._admission_candidates(waiting_queue, running_queue)
+        admission_candidates = self._admission_candidates()
         if isinstance(policy, PrefillFirstConfig):
             if admission_candidates:
                 return self._prefill_output(admission_candidates, is_oversize_prefill=False)
-            if running_queue:
-                return self._decode_output(running_queue)
+            if self.running_queue:
+                return self._decode_output()
             return None
 
-        if running_queue and self._last_phase is SchedulePhase.PREFILL:
-            return self._decode_output(running_queue)
+        if self.running_queue and self._last_phase is SchedulePhase.PREFILL:
+            return self._decode_output()
         if admission_candidates:
             selected, is_oversize_prefill = _select_within_budget(admission_candidates, policy.token_budget)
             return self._prefill_output(selected, is_oversize_prefill)
-        if running_queue:
-            return self._decode_output(running_queue)
+        if self.running_queue:
+            return self._decode_output()
         return None

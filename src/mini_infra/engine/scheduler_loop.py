@@ -27,10 +27,8 @@ from mini_infra.core import (
     NoCacheConfig,
     PagedCacheConfig,
     Request,
-    RunningQueue,
     SchedulePhase,
     SchedulerConfig,
-    WaitingQueue,
     prepare_schedule,
 )
 from mini_infra.core.types import BatchingMethod
@@ -54,74 +52,51 @@ def _run_schedule_loop(
     eos_token_id: int | None,
     stop_on_eos: bool = True,
 ) -> ScheduleResult:
-    """采用三级队列（ArrivalQueue -> WaitingQueue -> RunningQueue）驱动统一的调度主循环。"""
+    """采用三级队列（ArrivalQueue -> IterationScheduler[WaitingQueue -> RunningQueue]）驱动统一的调度主循环。"""
     device = backend.device
     states, arrival_queue, clock_ms = prepare_schedule(requests, max_running_requests)
-    waiting_queue = WaitingQueue()
-    running_queue = RunningQueue(max_running_requests)
-    scheduler = IterationScheduler(scheduler_config, backend.batching_method, backend.kv_cache_manager)
+    scheduler = IterationScheduler(
+        scheduler_config.with_max_running_requests(max_running_requests),
+        backend.batching_method,
+        backend.kv_cache_manager,
+    )
     events: list[ScheduleEvent] = []
     wall_start = time.perf_counter()
 
-    while arrival_queue or waiting_queue or running_queue:
-        # 1. 外部到达：把当前时刻已到达的请求从 arrival_queue 移入 waiting_queue
-        arrived = arrival_queue.pop_arrived(clock_ms)
-        waiting_queue.extend(arrived)
+    while arrival_queue or scheduler.has_unfinished_requests:
+        # 1. 外部到达：把当前时刻已到达的请求从 arrival_queue 移入 scheduler 等待队列
+        scheduler.add_requests(arrival_queue.pop_arrived(clock_ms))
 
-        # 2. 迭代调度决策：batching / batch slot / KV 显存 / 策略约束全部由 IterationScheduler 统一决策
-        output = scheduler.schedule(waiting_queue, running_queue)
+        # 2. 迭代调度决策与资源分配：batching / batch slot / 逻辑 KV 块 / 策略约束全部由 IterationScheduler 统一完成
+        output = scheduler.schedule(clock_ms)
         if output is None:
             # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）
             clock_ms = arrival_queue.next_arrival_ms()
             continue
 
-        # 3. 执行 Prefill 阶段
+        # 3. 后端执行本步前向（Prefill 或 Decode）
+        num_active_requests = len(scheduler.running_queue)
         if output.phase is SchedulePhase.PREFILL:
-            admitted = running_queue.admit(waiting_queue.pop_batch(len(output.scheduled_requests)), clock_ms)
-            step_output = backend.execute_prefill(admitted)
-            step_ms = step_output.model_ms + step_output.cache_ms
-            clock_ms += step_ms
-            finished = running_queue.process_step_output(
-                step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos, states=admitted
-            )
-            events.append(
-                ScheduleEvent(
-                    phase=SchedulePhase.PREFILL,
-                    admitted_request_ids=tuple(s.request.request_idx for s in admitted),
-                    finished_request_ids=tuple(s.request.request_idx for s in finished),
-                    physical_batch_size=step_output.physical_batch_size,
-                    num_active_requests=len(running_queue),
-                    num_generated_tokens=len(admitted),
-                    num_scheduled_tokens=output.num_scheduled_tokens,
-                    step_ms=step_ms,
-                    model_ms=step_output.model_ms,
-                    cache_management_ms=step_output.cache_ms,
-                    live_kv_cache_bytes=step_output.live_kv_cache_bytes,
-                    kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
-                    cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
-                    accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
-                    is_oversize_prefill=output.is_oversize_prefill,
-                )
-            )
-            backend.retire(finished, running_queue)
-            continue
+            step_output = backend.execute_prefill(output.scheduled_requests)
+            admitted_request_ids = tuple(s.request.request_idx for s in output.scheduled_requests)
+        else:
+            step_output = backend.execute_decode(output.scheduled_requests)
+            admitted_request_ids = ()
 
-        # 4. 执行运行中请求 Decode 阶段
-        active_before = len(output.scheduled_requests)
-        step_output = backend.execute_decode(running_queue)
-        for state in running_queue:
-            state.cache_length += 1
+        # 4. 推进逻辑时钟并写回本步产出（Token 追加、EOS/预算判定、逻辑块与 batch slot 释放）
         step_ms = step_output.model_ms + step_output.cache_ms
         clock_ms += step_ms
-        finished = running_queue.process_step_output(step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
+        finished = scheduler.update_from_output(output, step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
+        backend.retire(finished, is_idle=not scheduler.running_queue)
+
         events.append(
             ScheduleEvent(
-                phase=SchedulePhase.DECODE,
-                admitted_request_ids=(),
+                phase=output.phase,
+                admitted_request_ids=admitted_request_ids,
                 finished_request_ids=tuple(s.request.request_idx for s in finished),
                 physical_batch_size=step_output.physical_batch_size,
-                num_active_requests=active_before,
-                num_generated_tokens=active_before,
+                num_active_requests=num_active_requests,
+                num_generated_tokens=len(output.scheduled_requests),
                 num_scheduled_tokens=output.num_scheduled_tokens,
                 step_ms=step_ms,
                 model_ms=step_output.model_ms,
@@ -130,9 +105,9 @@ def _run_schedule_loop(
                 kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
                 cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
                 accessed_kv_cache_tokens=step_output.accessed_kv_cache_tokens,
+                is_oversize_prefill=output.is_oversize_prefill,
             )
         )
-        backend.retire(finished, running_queue)
 
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000.0

@@ -20,34 +20,38 @@
 
 ---
 
-## 一、入场决策收敛于 `IterationScheduler.schedule`
+## 一、状态与入场决策收敛于 `IterationScheduler`
 
-调度主循环（`engine/scheduler_loop.py`）每一步按以下顺序执行：
+对齐 vLLM V1 `Scheduler`，`core.IterationScheduler` 内部直接持有 `WaitingQueue`、`RunningQueue` 与 `KVCacheManager`（Paged 路径），并在 `schedule()` 与 `update_from_output()` 内闭环完成队列状态流转与逻辑块分配/释放。调度主循环（`engine/scheduler_loop.py`）每一步按以下顺序执行：
 
 ```mermaid
 sequenceDiagram
     participant L as engine._run_schedule_loop
     participant B as ScheduleBackend
     participant S as core.IterationScheduler
-    L->>L: waiting_queue.extend(arrival_queue.pop_arrived(clock_ms))
-    L->>S: schedule(waiting_queue, running_queue)
+    L->>S: add_requests(arrival_queue.pop_arrived(clock_ms))
+    L->>S: schedule(clock_ms)
     S-->>L: SchedulerOutput(phase, scheduled_requests, num_scheduled_tokens, is_oversize_prefill) | None
     alt PREFILL
-        L->>B: execute_prefill(admitted)
+        L->>B: execute_prefill(output.scheduled_requests)
     else DECODE
-        L->>B: execute_decode(running_queue)
+        L->>B: execute_decode(output.scheduled_requests)
     else None
         L->>L: clock_ms = arrival_queue.next_arrival_ms()
     end
+    B-->>L: ScheduleStepOutput
+    L->>S: update_from_output(output, next_tokens, clock_ms, eos_token_id, stop_on_eos)
+    S-->>L: finished
+    L->>B: retire(finished, is_idle=not scheduler.running_queue)
 ```
 
-- **`IterationScheduler(scheduler_config, batching_method, kv_cache_manager)`**（纯 CPU control plane）在 `schedule()` 内一次完成全部入场决策，依次在 WaitingQueue 的 FCFS 前缀上取交集：
-  1. batching 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等 RunningQueue 排空（wave barrier）；
-  2. batch slot 约束：至多 `RunningQueue.num_free_batch_slots` 个；
+- **`IterationScheduler(scheduler_config, batching_method, kv_cache_manager)`**（纯 CPU control plane）在 `schedule(clock_ms)` 内一次完成全部入场决策与逻辑资源分配，依次在 `waiting_queue` 的 FCFS 前缀上取交集：
+  1. batching 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等 `running_queue` 排空（wave barrier）；
+  2. batch slot 约束：至多 `running_queue.num_free_batch_slots` 个；
   3. KV 显存约束（仅 Paged，`kv_cache_manager` 非 None）：`KVCacheManager.num_admissible` 可容纳的前缀；
   4. 策略约束：token budget 截断与 decode protection（见下文）。
 - 所有约束都是 **FCFS 前缀截断**，可交换、可组合；**不跳过队头**：队头放不下就停，不往后找更短的请求（与 vLLM V1 一致）。
-- **到达过滤**由 engine 主循环按逻辑时钟完成（engine 层持有时钟），WaitingQueue 只含已到达请求，故 `schedule()` 无需 `clock_ms`；`ScheduleBackend` 只负责执行与资源回收（`KVCacheManager` 仍由 Paged 后端持有，`IterationScheduler` 只读查询）。
+- **状态与逻辑块生命周期闭环**：`schedule(clock_ms)` 原子执行 `waiting_queue.pop_batch`、`running_queue.admit` 及 `kv_cache_manager.allocate_slots`；前向完成后，`update_from_output(...)` 推进 `cache_length`、追加 Token、对完成请求执行 `kv_cache_manager.free` 与 `running_queue.retire`；`ScheduleBackend` 只消费 `Sequence[RequestState]` 执行算子与物理缓存读写，对 `RunningQueue` 完全无感知。
 
 ## 二、scheduler config
 
