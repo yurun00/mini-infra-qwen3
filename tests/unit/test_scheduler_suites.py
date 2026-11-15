@@ -308,6 +308,7 @@ def test_compute_comparisons():
             busy_ms=dist(makespan),
             cache_management_ms=dist(10.0),
             cache_management_fraction=dist(0.01),
+            scheduler_ms=dist(0.5),
             queue_ms_p50=dist(0.0),
             queue_ms_p95=dist(0.0),
             ttft_ms_p50=dist(20.0),

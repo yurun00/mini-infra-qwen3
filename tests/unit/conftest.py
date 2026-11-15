@@ -41,12 +41,14 @@ def _assert_token_budget_invariants(result: ScheduleResult, token_budget: int) -
     for prev, curr in zip(result.events, result.events[1:]):
         if prev.phase is SchedulePhase.PREFILL and curr.phase is SchedulePhase.PREFILL:
             assert prev.num_active_requests == len(prev.finished_request_ids)
-    # 步数类指标与事件流一致
+    # 步数与计时指标与事件流一致
     sm = result.schedule_metrics
     phases = [event.phase for event in result.events]
     assert sm.num_prefill_steps == phases.count(SchedulePhase.PREFILL)
     assert sm.num_decode_steps == phases.count(SchedulePhase.DECODE)
     assert sm.num_oversize_prefill_steps == sum(event.is_oversize_prefill for event in result.events)
+    assert all(event.scheduler_ms >= 0.0 for event in result.events)
+    assert sm.scheduler_ms == pytest.approx(sum(event.scheduler_ms for event in result.events))
 
 
 @pytest.fixture

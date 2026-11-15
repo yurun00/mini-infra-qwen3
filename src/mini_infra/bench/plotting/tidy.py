@@ -184,6 +184,7 @@ def records_to_wide_df(
         "busy_ms",
         "cache_management_ms",
         "cache_management_fraction",
+        "scheduler_ms",
         "queue_ms_p50",
         "queue_ms_p95",
         "ttft_ms_p50",

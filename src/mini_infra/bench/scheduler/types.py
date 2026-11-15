@@ -112,6 +112,7 @@ class SchedulerCaseResult:
                 "busy_ms": sm.busy_ms.to_dict(),
                 "cache_management_ms": sm.cache_management_ms.to_dict(),
                 "cache_management_fraction": sm.cache_management_fraction.to_dict(),
+                "scheduler_ms": sm.scheduler_ms.to_dict(),
                 "queue_ms_p50": sm.queue_ms_p50.to_dict(),
                 "queue_ms_p95": sm.queue_ms_p95.to_dict(),
                 "ttft_ms_p50": sm.ttft_ms_p50.to_dict(),
@@ -220,6 +221,7 @@ class SchedulerCaseResult:
             cache_management_fraction=DistributionStats.from_samples(
                 [r.schedule_metrics.cache_management_fraction for r in runs]
             ),
+            scheduler_ms=DistributionStats.from_samples([r.schedule_metrics.scheduler_ms for r in runs]),
             queue_ms_p50=DistributionStats.from_samples([r.schedule_metrics.queue_ms_p50 for r in runs]),
             queue_ms_p95=DistributionStats.from_samples([r.schedule_metrics.queue_ms_p95 for r in runs]),
             ttft_ms_p50=DistributionStats.from_samples([r.schedule_metrics.ttft_ms_p50 for r in runs]),

@@ -280,6 +280,7 @@ class ScheduleEvent:
     step_ms: float
     model_ms: float
     cache_management_ms: float
+    scheduler_ms: float
     live_kv_cache_bytes: int
     kv_cache_pool_bytes: int = 0
     cache_realign_moved_bytes: int = 0
@@ -297,6 +298,7 @@ class ScheduleMetrics(Generic[_MetricT]):
     busy_ms: _MetricT
     cache_management_ms: _MetricT
     cache_management_fraction: _MetricT
+    scheduler_ms: _MetricT
     queue_ms_p50: _MetricT
     queue_ms_p95: _MetricT
     ttft_ms_p50: _MetricT
@@ -353,6 +355,7 @@ def summarize_schedule(
     busy_ms = sum(e.step_ms for e in events)
     model_ms = sum(e.model_ms for e in events)
     cache_ms = sum(e.cache_management_ms for e in events)
+    scheduler_ms = sum(e.scheduler_ms for e in events)
     prefill_ms = sum(e.step_ms for e in events if e.phase is SchedulePhase.PREFILL)
     e2e_wall_ms = e2e_wall_ms if e2e_wall_ms is not None else busy_ms
     num_output_tokens = sum(r.num_output_tokens for r in requests)
@@ -413,6 +416,7 @@ def summarize_schedule(
         busy_ms=busy_ms,
         cache_management_ms=cache_ms,
         cache_management_fraction=cache_ms / busy_ms if busy_ms else 0.0,
+        scheduler_ms=scheduler_ms,
         queue_ms_p50=percentile([r.queue_ms for r in requests], 50),
         queue_ms_p95=percentile([r.queue_ms for r in requests], 95),
         ttft_ms_p50=percentile([r.ttft_ms for r in requests], 50),

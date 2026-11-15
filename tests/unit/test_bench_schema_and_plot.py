@@ -369,6 +369,7 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path
     current = _make_single_case_scheduler_dict("dev", budget_config, 2200.0, 60.0)
     schedule = current["cases"][0]["schedule"]
     for key, value in (
+        ("scheduler_ms", 1.2),
         ("num_prefill_steps", 6.0),
         ("num_decode_steps", 40.0),
         ("max_consecutive_prefill_steps", 1.0),

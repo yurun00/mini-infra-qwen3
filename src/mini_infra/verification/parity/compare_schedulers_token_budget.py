@@ -64,6 +64,7 @@ def _summarize_policy_metrics(run: ScheduleResult) -> dict[str, float | int]:
     return {
         "makespan_ms": sm.makespan_ms,
         "busy_ms": sm.busy_ms,
+        "scheduler_ms": sm.scheduler_ms,
         "queue_ms_p50": sm.queue_ms_p50,
         "queue_ms_p95": sm.queue_ms_p95,
         "ttft_ms_p50": sm.ttft_ms_p50,

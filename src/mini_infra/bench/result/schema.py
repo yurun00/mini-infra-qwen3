@@ -129,6 +129,7 @@ class ScheduleMetricsRecord(_RecordModel):
     busy_ms: DistributionStatsRecord
     cache_management_ms: DistributionStatsRecord
     cache_management_fraction: DistributionStatsRecord
+    scheduler_ms: DistributionStatsRecord | None = None
     queue_ms_p50: DistributionStatsRecord
     queue_ms_p95: DistributionStatsRecord
     ttft_ms_p50: DistributionStatsRecord

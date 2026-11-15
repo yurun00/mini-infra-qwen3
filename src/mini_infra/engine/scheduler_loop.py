@@ -62,9 +62,11 @@ def _run_schedule_loop(
     )
     events: list[ScheduleEvent] = []
     wall_start = time.perf_counter()
+    pending_scheduler_ms = 0.0
 
     while arrival_queue or scheduler.has_unfinished_requests:
         # 1. 外部到达：把当前时刻已到达的请求从 arrival_queue 移入 scheduler 等待队列
+        sched_start = time.perf_counter()
         scheduler.add_requests(arrival_queue.pop_arrived(clock_ms))
 
         # 2. 迭代调度决策与资源分配：batching / batch slot / 逻辑 KV 块 / 策略约束全部由 IterationScheduler 统一完成
@@ -72,7 +74,9 @@ def _run_schedule_loop(
         if output is None:
             # 既无运行中请求、也无等待中请求：时钟直接跳到下一个到达时间（逻辑时间线，不真实 sleep）
             clock_ms = arrival_queue.next_arrival_ms()
+            pending_scheduler_ms += (time.perf_counter() - sched_start) * 1000.0
             continue
+        pending_scheduler_ms += (time.perf_counter() - sched_start) * 1000.0
 
         # 3. 后端执行本步前向（Prefill 或 Decode）
         num_active_requests = len(scheduler.running_queue)
@@ -86,7 +90,10 @@ def _run_schedule_loop(
         # 4. 推进逻辑时钟并写回本步产出（Token 追加、EOS/预算判定、逻辑块与 batch slot 释放）
         step_ms = step_output.model_ms + step_output.cache_ms
         clock_ms += step_ms
+        update_start = time.perf_counter()
         finished = scheduler.update_from_output(output, step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
+        scheduler_ms = pending_scheduler_ms + (time.perf_counter() - update_start) * 1000.0
+        pending_scheduler_ms = 0.0
         backend.retire(finished, is_idle=not scheduler.running_queue)
 
         events.append(
@@ -101,6 +108,7 @@ def _run_schedule_loop(
                 step_ms=step_ms,
                 model_ms=step_output.model_ms,
                 cache_management_ms=step_output.cache_ms,
+                scheduler_ms=scheduler_ms,
                 live_kv_cache_bytes=step_output.live_kv_cache_bytes,
                 kv_cache_pool_bytes=step_output.kv_cache_pool_bytes,
                 cache_realign_moved_bytes=step_output.cache_realign_moved_bytes,
