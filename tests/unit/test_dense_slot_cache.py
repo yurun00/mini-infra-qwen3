@@ -19,9 +19,9 @@ def model():
 
 def prefill(model, prompts: list[list[int]]) -> KVCache:
     """对一批 Prompt 做左 Padding Prefill，返回 Cache。"""
-    input_ids, mask, positions, _ = _left_pad_sequences(prompts, 0, CPU)
+    input_ids, attention_mask, position_ids, _ = _left_pad_sequences(prompts, 0, CPU)
     with torch.inference_mode():
-        _, present = model(input_ids, attention_mask=mask, position_ids=positions)
+        _, present = model(input_ids, attention_mask=attention_mask, position_ids=position_ids)
     return KVCache(present)
 
 

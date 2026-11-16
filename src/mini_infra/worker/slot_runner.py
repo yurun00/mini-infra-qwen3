@@ -42,14 +42,14 @@ def _prepare_decode_inputs(
         raise RuntimeError("Cache 尚未分配，无法构造 Decode 输入")
     token_ids = [pad_token_id] * slot_cache.capacity
     pos_list = [0] * slot_cache.capacity
-    active = [False] * slot_cache.capacity
+    is_active = [False] * slot_cache.capacity
     for batch_slot_idx, token_id, pos in zip(running_batch_slot_indices, last_tokens, positions):
         token_ids[batch_slot_idx] = token_id
         pos_list[batch_slot_idx] = pos
-        active[batch_slot_idx] = True
+        is_active[batch_slot_idx] = True
     input_ids = torch.tensor(token_ids, dtype=torch.long, device=slot_cache.device).unsqueeze(1)
     position_ids = torch.tensor(pos_list, dtype=torch.long, device=slot_cache.device).unsqueeze(1)
-    active_mask = torch.tensor(active, dtype=torch.bool, device=slot_cache.device).unsqueeze(1)
+    active_mask = torch.tensor(is_active, dtype=torch.bool, device=slot_cache.device).unsqueeze(1)
     attention_mask = torch.cat((slot_cache.history_mask, active_mask), dim=1)
     return input_ids, position_ids, attention_mask
 

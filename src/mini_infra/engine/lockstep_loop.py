@@ -40,7 +40,7 @@ class LockstepState:
 
     # 动态 batch slot 生命周期与跟踪
     generated_counts: list[int]
-    curr_active: list[bool]
+    is_active: list[bool]
     active_counts_per_step: list[int]
     outputs: list[list[int]]
     completion_steps: list[int | None]
@@ -62,7 +62,7 @@ class LockstepState:
             budgets=budgets,
             max_steps=max_steps,
             generated_counts=[0] * batch_size,
-            curr_active=[True] * batch_size,
+            is_active=[True] * batch_size,
             active_counts_per_step=[],
             outputs=[[] for _ in range(batch_size)],
             completion_steps=[None] * batch_size,
@@ -77,11 +77,11 @@ class LockstepState:
         stop_on_eos: bool,
     ) -> bool:
         """更新各 batch slot 输出 Token、预算/EOS 判定并返回是否所有 batch slot 均已完成（纯 CPU 列表操作）。"""
-        num_active = sum(1 for a in self.curr_active if a)
+        num_active = sum(1 for a in self.is_active if a)
         self.active_counts_per_step.append(num_active)
 
         for i in range(self.batch_size):
-            if not self.curr_active[i]:
+            if not self.is_active[i]:
                 continue
             token = next_tokens[i]
             self.generated_counts[i] += 1
@@ -91,11 +91,11 @@ class LockstepState:
             reached_budget = self.generated_counts[i] >= self.budgets[i]
 
             if stopped_by_eos or reached_budget:
-                self.curr_active[i] = False
+                self.is_active[i] = False
                 self.completion_steps[i] = step + 1
                 self.finish_reasons[i] = "stop" if stopped_by_eos else "max_tokens"
 
-        return not any(self.curr_active)
+        return not any(self.is_active)
 
     def _next_positions(self) -> list[int]:
         """计算当前活跃 batch slot 在 Decode 阶段的 position_id（即已生成的总长度 - 1）。"""
@@ -191,7 +191,7 @@ def run_lockstep(
 
             runner.prepare_next_inputs(
                 batch,
-                curr_active=state.curr_active,
+                is_active=state.is_active,
                 next_positions=state._next_positions(),
                 next_tokens=step_out.next_tokens,
                 use_cache=use_cache,

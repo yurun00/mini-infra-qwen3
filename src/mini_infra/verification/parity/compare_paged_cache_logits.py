@@ -92,12 +92,12 @@ def compare_paged_prompt(
         # Dense Decode
         dense_input = torch.tensor([[next_token]], dtype=torch.long, device=device)
         dense_pos = torch.tensor([[position]], dtype=torch.long, device=device)
-        dense_mask = torch.ones((1, position + 1), dtype=torch.bool, device=device)
+        attention_mask = torch.ones((1, position + 1), dtype=torch.bool, device=device)
         dense_meta = DenseAttentionMetadata(tuple(dense_cache))
         dense_logits, dense_cache = model(
             dense_input,
             position_ids=dense_pos,
-            attention_mask=dense_mask,
+            attention_mask=attention_mask,
             attn_metadata=dense_meta,
         )
 

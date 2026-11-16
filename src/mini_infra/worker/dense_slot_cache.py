@@ -135,13 +135,13 @@ class DenseSlotCache:
         assert self.kv_cache is not None and self.history_mask is not None
         moved_bytes = cache_size_bytes(self.kv_cache)
         for layer_idx, (key, value) in enumerate(self.kv_cache):
-            zeros = torch.zeros(
+            kv_zeros = torch.zeros(
                 (self.capacity, key.shape[1], padding_len, key.shape[3]), dtype=key.dtype, device=self.device
             )
-            self.kv_cache.key_cache[layer_idx] = torch.cat((zeros, key), dim=2)
-            self.kv_cache.value_cache[layer_idx] = torch.cat((zeros, value), dim=2)
-        mask_padding = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
-        self.history_mask = torch.cat((mask_padding, self.history_mask), dim=1)
+            self.kv_cache.key_cache[layer_idx] = torch.cat((kv_zeros, key), dim=2)
+            self.kv_cache.value_cache[layer_idx] = torch.cat((kv_zeros, value), dim=2)
+        mask_zeros = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
+        self.history_mask = torch.cat((mask_zeros, self.history_mask), dim=1)
         return moved_bytes
 
 

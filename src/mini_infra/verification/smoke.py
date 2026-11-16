@@ -115,11 +115,11 @@ def check_fixed_batching(model):
     request_b = [11, 13]
     request_c = [17, 19]
 
-    padded, mask, positions, lengths = _left_pad_sequences([request_a, request_b], 0, device)
-    assert padded.tolist() == [[3, 5, 7, 9], [0, 0, 11, 13]]
-    assert mask.tolist() == [[True] * 4, [False, False, True, True]]
-    assert positions.tolist() == [[0, 1, 2, 3], [0, 0, 0, 1]]
-    assert lengths.tolist() == [4, 2]
+    input_ids, attention_mask, position_ids, prompt_lengths = _left_pad_sequences([request_a, request_b], 0, device)
+    assert input_ids.tolist() == [[3, 5, 7, 9], [0, 0, 11, 13]]
+    assert attention_mask.tolist() == [[True] * 4, [False, False, True, True]]
+    assert position_ids.tolist() == [[0, 1, 2, 3], [0, 0, 0, 1]]
+    assert prompt_lengths.tolist() == [4, 2]
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
     fixed_batching_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)

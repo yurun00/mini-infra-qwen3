@@ -143,7 +143,7 @@ class LockstepRunner(BaseModelRunner):
     def prepare_next_inputs(
         self,
         batch: LockstepInputBatch,
-        curr_active: Sequence[bool],
+        is_active: Sequence[bool],
         next_positions: Sequence[int],
         next_tokens: Sequence[int],
         use_cache: bool = True,
@@ -154,16 +154,16 @@ class LockstepRunner(BaseModelRunner):
         use_cache=True 时 curr_input_ids / curr_position_ids 为 [B, 1]（long, contiguous），
         use_cache=False 时 full_input_ids / full_position_ids 为 [B, S_prev + 1]（long, contiguous）。
         """
-        active_tensor = torch.tensor(curr_active, dtype=torch.bool, device=self.device).unsqueeze(1)
+        active_mask = torch.tensor(is_active, dtype=torch.bool, device=self.device).unsqueeze(1)
         step_tokens = torch.tensor(next_tokens, dtype=torch.long, device=self.device).unsqueeze(1)
         pos_tensor = torch.tensor(next_positions, dtype=torch.long, device=self.device).unsqueeze(1)
         pad_tensor = torch.full_like(step_tokens, self.pad_token_id)
         zero_pos = torch.zeros_like(pos_tensor)
 
-        masked_tokens = torch.where(active_tensor, step_tokens, pad_tensor)
-        masked_pos = torch.where(active_tensor, pos_tensor, zero_pos)
+        masked_tokens = torch.where(active_mask, step_tokens, pad_tensor)
+        masked_pos = torch.where(active_mask, pos_tensor, zero_pos)
 
-        batch.attention_mask = torch.cat((batch.attention_mask, active_tensor), dim=1)
+        batch.attention_mask = torch.cat((batch.attention_mask, active_mask), dim=1)
         if use_cache:
             batch.curr_input_ids = masked_tokens
             batch.curr_position_ids = masked_pos

@@ -33,9 +33,9 @@ def make_pool(model, num_blocks=16, block_size=BLOCK_SIZE) -> PagedKVCachePool:
 
 
 def prefill_cache(model, prompts: list[list[int]]) -> KVCache:
-    input_ids, mask, positions, _ = _left_pad_sequences(prompts, 0, CPU)
+    input_ids, attention_mask, position_ids, _ = _left_pad_sequences(prompts, 0, CPU)
     with torch.inference_mode():
-        _, present = model(input_ids, attention_mask=mask, position_ids=positions)
+        _, present = model(input_ids, attention_mask=attention_mask, position_ids=position_ids)
     return KVCache(present)
 
 

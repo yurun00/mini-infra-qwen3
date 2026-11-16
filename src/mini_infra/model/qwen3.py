@@ -221,13 +221,13 @@ class Qwen3Attention(nn.Module):
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
-        causal_mask: torch.Tensor,
+        attn_bias: torch.Tensor,
     ) -> torch.Tensor:
         """对完整历史 K/V 做 GQA Attention，返回 o_proj 前的隐藏表示。
 
         query:       [batch_size, num_heads, query_len, head_dim],    model_dtype, contiguous
         key / value: [batch_size, num_kv_heads, kv_len, head_dim],    model_dtype, contiguous / non-contiguous
-        causal_mask: [batch_size, 1, query_len, kv_len],              model_dtype, contiguous
+        attn_bias:   [batch_size, 1, query_len, kv_len],              model_dtype, contiguous
 
         Returns:
             attention_output: [batch_size, query_len, num_heads * head_dim], model_dtype, contiguous
@@ -241,7 +241,7 @@ class Qwen3Attention(nn.Module):
         # transpose(2, 3): [batch_size, num_heads, head_dim, kv_len]（non-contiguous 视图，直接由 matmul 消费）
         # -> attention_scores: [batch_size, num_heads, query_len, kv_len], model_dtype, contiguous
         attention_scores = torch.matmul(query, attention_key.transpose(2, 3)) * self.scaling
-        attention_scores = attention_scores + causal_mask
+        attention_scores = attention_scores + attn_bias
 
         # Softmax 显式升维 float32 归一化后再转回 model_dtype，防止低精度指数溢出。
         attention_probs = F.softmax(attention_scores, dim=-1, dtype=torch.float32)
@@ -296,7 +296,7 @@ class Qwen3Attention(nn.Module):
         hidden_states: torch.Tensor,
         cosine: torch.Tensor,
         sine: torch.Tensor,
-        causal_mask: torch.Tensor,
+        attn_bias: torch.Tensor,
         past_key_value: PastKeyValue | None = None,
         kv_pool: PastKeyValue | None = None,
         attn_metadata: PagedAttentionMetadata | None = None,
@@ -305,7 +305,7 @@ class Qwen3Attention(nn.Module):
 
         hidden_states:  [batch_size, query_len, hidden_size], model_dtype, contiguous
         cosine / sine:  [batch_size, query_len, head_dim],    model_dtype, contiguous
-        causal_mask:    [batch_size, 1, query_len, kv_len],   model_dtype, contiguous
+        attn_bias:      [batch_size, 1, query_len, kv_len],   model_dtype, contiguous
         past_key_value: Dense 历史 (key, value)，各 [batch_size, num_kv_heads, past_len, head_dim]，
                         model_dtype，contiguous
         kv_pool:        Paged 单层 physical block pool (key_pool, value_pool)，
@@ -331,7 +331,7 @@ class Qwen3Attention(nn.Module):
         else:
             present_key_value = (key, value)
 
-        attention_output = self.o_proj(self._attend(query, key, value, causal_mask))
+        attention_output = self.o_proj(self._attend(query, key, value, attn_bias))
         return attention_output, present_key_value
 
 
@@ -370,7 +370,7 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         cosine: torch.Tensor,
         sine: torch.Tensor,
-        causal_mask: torch.Tensor,
+        attn_bias: torch.Tensor,
         past_key_value: PastKeyValue | None = None,
         kv_pool: PastKeyValue | None = None,
         attn_metadata: PagedAttentionMetadata | None = None,
@@ -379,7 +379,7 @@ class Qwen3DecoderLayer(nn.Module):
 
         hidden_states: [batch_size, query_len, hidden_size], model_dtype, contiguous
         cosine / sine: [batch_size, query_len, head_dim],    model_dtype, contiguous
-        causal_mask:   [batch_size, 1, query_len, kv_len],   model_dtype, contiguous
+        attn_bias:     [batch_size, 1, query_len, kv_len],   model_dtype, contiguous
 
         Returns:
             hidden_states:     [batch_size, query_len, hidden_size], model_dtype, contiguous
@@ -391,7 +391,7 @@ class Qwen3DecoderLayer(nn.Module):
             normalized,
             cosine,
             sine,
-            causal_mask,
+            attn_bias,
             past_key_value=past_key_value,
             kv_pool=kv_pool,
             attn_metadata=attn_metadata,
@@ -475,15 +475,14 @@ class Qwen3Model(nn.Module):
         position_ids = position_ids.to(device=device, dtype=torch.long)
 
         # query_positions: [query_len], key_positions: [kv_len]
-        # -> future: [1, kv_len] > [query_len, 1] -> [query_len, kv_len], bool, contiguous
+        # -> causal_mask: [1, kv_len] <= [query_len, 1] -> [query_len, kv_len], bool, contiguous
         query_positions = torch.arange(past_len, kv_len, device=device)
         key_positions = torch.arange(kv_len, device=device)
-        future = key_positions.unsqueeze(0) > query_positions.unsqueeze(1)
-        # (~future).unsqueeze(0): [1, query_len, kv_len] & attention_mask.unsqueeze(1): [batch_size, 1, kv_len]
-        # -> allowed: [batch_size, query_len, kv_len], bool, contiguous
-        allowed = (~future).unsqueeze(0) & attention_mask.unsqueeze(1)
-        # unsqueeze(1): [batch_size, 1, query_len, kv_len], bool, contiguous（对齐 num_heads 广播维）
-        return position_ids, allowed.unsqueeze(1)
+        causal_mask = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
+        # causal_mask.view: [1, 1, query_len, kv_len] & attention_mask.view: [batch_size, 1, 1, kv_len]
+        # -> allowed_mask: [batch_size, 1, query_len, kv_len], bool, contiguous（对齐 num_heads 广播维）
+        allowed_mask = causal_mask.view(1, 1, query_len, kv_len) & attention_mask.view(batch_size, 1, 1, kv_len)
+        return position_ids, allowed_mask
 
     def _build_paged_inputs(
         self,
@@ -492,7 +491,7 @@ class Qwen3Model(nn.Module):
         metadata: PagedAttentionMetadata,
         dtype: torch.dtype,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """校验 Paged Decode 输入并构造广播加性掩码。
+        """校验 Paged Decode 输入并构造广播加性注意力偏置。
 
         input_ids:    [batch_size, 1], long, contiguous / 切片视图
         position_ids: [batch_size, 1], long, contiguous / 切片视图
@@ -501,7 +500,7 @@ class Qwen3Model(nn.Module):
 
         Returns:
             position_ids: [batch_size, 1],                    long,  保持输入视图
-            causal_mask:  [batch_size, 1, 1, max_history_len], dtype, contiguous
+            attn_bias:    [batch_size, 1, 1, max_history_len], dtype, contiguous
         """
         if input_ids.ndim != 2 or input_ids.shape[1] != 1:
             raise ValueError("Paged Decode 的 input_ids 必须是形状为 [batch, 1] 的 Tensor")
@@ -511,21 +510,22 @@ class Qwen3Model(nn.Module):
         if len(kv_pools) != len(self.layers):
             raise ValueError("kv_pools 层数与模型层数不一致")
 
-        # 加性掩码 [batch_size, 1, 1, max_history_len]（max_history_len = max_blocks * block_size）：
+        # 加性注意力偏置 [batch_size, 1, 1, max_history_len]（max_history_len = max_blocks * block_size）：
         # 仅前 context_lens[b] 个有效位置为 0.0，其余（尾块未写满位置、右侧补齐的 null block）填 dtype 最小值屏蔽。
         # block_tables: [batch_size, max_blocks], key_pool: [num_blocks, block_size, num_kv_heads, head_dim]
         max_history_len = metadata.block_tables.shape[1] * kv_pools[0][0].shape[1]
         # positions: [max_history_len], long, contiguous（0 .. max_history_len - 1）
         positions = torch.arange(max_history_len, device=input_ids.device)
-        # visible: [1, max_history_len] < [batch_size, 1] -> [batch_size, max_history_len], bool, contiguous
-        visible = positions.unsqueeze(0) < metadata.context_lens.unsqueeze(1)
-        # causal_mask: [batch_size, max_history_len], model_dtype, contiguous
-        causal_mask = torch.zeros(visible.shape, dtype=dtype, device=input_ids.device)
-        causal_mask.masked_fill_(~visible, torch.finfo(dtype).min)
-        # view -> [batch_size, 1, 1, max_history_len], model_dtype, contiguous
+        # allowed_mask: [1, max_history_len] < [batch_size, 1] -> [batch_size, max_history_len]
+        #   -> view: [batch_size, 1, 1, max_history_len], bool, contiguous
+        allowed_mask = (positions.unsqueeze(0) < metadata.context_lens.unsqueeze(1)).view(
+            input_ids.shape[0], 1, 1, max_history_len
+        )
+        # attn_bias: [batch_size, 1, 1, max_history_len], model_dtype, contiguous
         # （对齐 _attend 中 attention_scores [batch_size, num_heads, 1, max_history_len] 的广播维度）
-        causal_mask = causal_mask.view(visible.shape[0], 1, 1, max_history_len)
-        return position_ids, causal_mask
+        attn_bias = torch.zeros(allowed_mask.shape, dtype=dtype, device=input_ids.device)
+        attn_bias.masked_fill_(~allowed_mask, torch.finfo(dtype).min)
+        return position_ids, attn_bias
 
     def forward(
         self,
@@ -549,16 +549,16 @@ class Qwen3Model(nn.Module):
         if isinstance(attn_metadata, PagedAttentionMetadata):
             if position_ids is None:
                 raise ValueError("Paged Decode 必须提供 position_ids")
-            position_ids, causal_mask = self._build_paged_inputs(
+            position_ids, attn_bias = self._build_paged_inputs(
                 input_ids, position_ids, attn_metadata, hidden_states.dtype
             )
         else:
             past_key_values = None if attn_metadata is None else attn_metadata.past_key_values
-            position_ids, allowed = self._prepare_position_ids_and_allowed_mask(
+            position_ids, allowed_mask = self._prepare_position_ids_and_allowed_mask(
                 input_ids, attention_mask, position_ids, past_key_values
             )
-            causal_mask = torch.zeros(allowed.shape, dtype=hidden_states.dtype, device=hidden_states.device)
-            causal_mask.masked_fill_(~allowed, torch.finfo(hidden_states.dtype).min)
+            attn_bias = torch.zeros(allowed_mask.shape, dtype=hidden_states.dtype, device=hidden_states.device)
+            attn_bias.masked_fill_(~allowed_mask, torch.finfo(hidden_states.dtype).min)
 
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
 
@@ -575,7 +575,7 @@ class Qwen3Model(nn.Module):
                 hidden_states,
                 cosine,
                 sine,
-                causal_mask,
+                attn_bias,
                 past_key_value=layer_past,
                 kv_pool=layer_kv_pool,
                 attn_metadata=attn_metadata if is_paged else None,
