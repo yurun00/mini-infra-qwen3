@@ -103,9 +103,9 @@ def kv_cache_config_from_str(
 #      - 注意区分：与宏观批处理机制 `BatchingMethod`（none / fixed-batching / continuous-batching）正交；
 #        `BatchingMethod` 决定跨步生命周期（是否有 wave barrier），`BatchingPolicyKind` 决定单步组批规则。
 #      - 当前取值："prefill-first"（有可入场请求即整批 Prefill）| "token-budget"（受单步 padded prompt token
-#        软预算约束并启用 decode protection）。
-#      - TODO 演进："chunked-prefill"（vLLM V1 统一 Token-Budget 范式：解除 P/D 互斥，先扣减在途 Decode 预算，
-#        剩余预算将长 Prompt 切块混批执行）。
+#        软预算约束并启用 decode protection）| "chunked-prefill"（长 Prompt 按 token budget 硬预算切成 chunk，
+#        跨多步推进 Prefill，并沿用 decode protection；仍为 P/D 相位互斥，仅支持 paged-kv-cache）。
+#      - TODO 演进：chunk 与 Decode 同一次前向混批（vLLM V1 统一 Token-Budget 范式，需 varlen Attention 支持）。
 #
 #   3. 抢占/驱逐模式 `preemption_mode` (PreemptionMode) — [TODO: 待演进]
 #      - 回答问题：Decode 步追加新 Token 导致 free_block_queue 耗尽时，被选中的 Victim 请求如何处置？
@@ -117,8 +117,8 @@ def kv_cache_config_from_str(
 #      - 回答问题：Prefill 准入时预留多少比例空闲 physical blocks 作安全垫，防止接纳后立刻在 Decode 步触发抢占抖动？
 # ============================================================================
 
-BatchingPolicyKind = Literal["prefill-first", "token-budget"]
-BATCHING_POLICY_KINDS: tuple[BatchingPolicyKind, ...] = ("prefill-first", "token-budget")
+BatchingPolicyKind = Literal["prefill-first", "token-budget", "chunked-prefill"]
+BATCHING_POLICY_KINDS: tuple[BatchingPolicyKind, ...] = ("prefill-first", "token-budget", "chunked-prefill")
 
 
 def parse_batching_policy_kind(value: str | None) -> BatchingPolicyKind:
@@ -127,6 +127,8 @@ def parse_batching_policy_kind(value: str | None) -> BatchingPolicyKind:
         return "prefill-first"
     if value == "token-budget":
         return "token-budget"
+    if value == "chunked-prefill":
+        return "chunked-prefill"
     raise ValueError(f"未知 batching policy: {value}，可选策略: {list(BATCHING_POLICY_KINDS)}")
 
 
@@ -158,7 +160,28 @@ class TokenBudgetConfig:
         return f"{self.kind}(token_budget={self.token_budget})"
 
 
-BatchingPolicy = PrefillFirstConfig | TokenBudgetConfig
+@dataclass(frozen=True)
+class ChunkedPrefillConfig:
+    """chunked-prefill 组批策略：单步 Prefill 以 token budget 为硬预算，长 Prompt 切成 chunk 跨多步推进。
+
+    token_budget: 单次 Prefill 的 padded chunk token 上限（硬预算，恒满足 num_scheduled_tokens <= token_budget，
+    不存在 oversize prefill）；须不小于 max_running_requests，使每个占用 batch slot 的请求至少推进 1 个 Token。
+    """
+
+    kind: ClassVar[BatchingPolicyKind] = "chunked-prefill"
+    token_budget: int
+
+    def __post_init__(self) -> None:
+        if self.token_budget < 1:
+            raise ValueError("token_budget 必须大于 0")
+
+    def __str__(self) -> str:
+        return f"{self.kind}(token_budget={self.token_budget})"
+
+
+BatchingPolicy = PrefillFirstConfig | TokenBudgetConfig | ChunkedPrefillConfig
+# 携带 token_budget 的组批策略（token-budget 为软预算，chunked-prefill 为硬预算）
+BudgetedBatchingPolicy = TokenBudgetConfig | ChunkedPrefillConfig
 
 
 def batching_policy_from_str(kind: str | None, *, token_budget: int | None = None) -> BatchingPolicy:
@@ -167,7 +190,9 @@ def batching_policy_from_str(kind: str | None, *, token_budget: int | None = Non
     if parsed == "prefill-first":
         return PrefillFirstConfig()
     if token_budget is None:
-        raise ValueError("token-budget 组批策略必须指定 token_budget")
+        raise ValueError(f"{parsed} 组批策略必须指定 token_budget")
+    if parsed == "chunked-prefill":
+        return ChunkedPrefillConfig(token_budget)
     return TokenBudgetConfig(token_budget)
 
 
@@ -176,7 +201,7 @@ class SchedulerConfig:
     """迭代级调度器配置（对标 vLLM SchedulerConfig）。
 
     - max_running_requests: 调度队列最大并发请求数（None 表示不限，按工作负载请求总数推导；对标 vLLM max_num_seqs）。
-    - batching_policy: 单步组批与阶段准入策略（PrefillFirstConfig / TokenBudgetConfig）。
+    - batching_policy: 单步组批与阶段准入策略（PrefillFirstConfig / TokenBudgetConfig / ChunkedPrefillConfig）。
     - TODO: 后续聚合 queue_policy（priority / srtf）、
       preemption_mode（recompute / swap）与 watermark。
     """
@@ -294,6 +319,8 @@ __all__ = [
     "BatchingMethod",
     "BatchingPolicy",
     "BatchingPolicyKind",
+    "BudgetedBatchingPolicy",
+    "ChunkedPrefillConfig",
     "DenseCacheConfig",
     "KVCacheConfig",
     "KVCacheKind",

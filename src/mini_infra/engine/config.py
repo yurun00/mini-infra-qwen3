@@ -6,12 +6,13 @@ from enum import Enum
 from mini_infra.core.types import (
     BatchingMethod,
     BatchingPolicy,
+    BudgetedBatchingPolicy,
+    ChunkedPrefillConfig,
     KVCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
     PrefillFirstConfig,
     SchedulerConfig,
-    TokenBudgetConfig,
 )
 
 
@@ -107,14 +108,15 @@ def _validate_scheduler_config(
 ) -> None:
     """校验 SchedulerConfig 与批处理策略的组合；max_running_requests 为 None（未推导）时跳过预算下限校验。
 
-    token-budget 仅对 continuous-batching 有意义（fixed 的 wave barrier 与 none 串行都不存在跨步入场决策）；
-    且 token_budget 不得小于并发上限，否则一次完整 Decode 即超预算（对标 vLLM max_num_batched_tokens >= max_num_seqs）。
+    token-budget / chunked-prefill 仅对 continuous-batching 有意义（fixed 的 wave barrier 与 none 串行都不存在
+    跨步入场决策）；且 token_budget 不得小于并发上限，否则一次完整 Decode 即超预算（对标 vLLM
+    max_num_batched_tokens >= max_num_seqs），chunked-prefill 下还会使部分在途请求无法推进 1 个 Token。
     """
     policy = scheduler_config.batching_policy
-    if not isinstance(policy, TokenBudgetConfig):
+    if not isinstance(policy, BudgetedBatchingPolicy):
         return
     if batching_method is not BatchingMethod.CONTINUOUS:
-        raise ValueError(f"token-budget 组批策略仅支持 continuous-batching，实际为 {batching_method.value}")
+        raise ValueError(f"{policy.kind} 组批策略仅支持 continuous-batching，实际为 {batching_method.value}")
     mrr = scheduler_config.max_running_requests
     if mrr is not None and policy.token_budget < mrr:
         raise ValueError(
@@ -133,6 +135,10 @@ def validate_engine_config(config: EngineConfig) -> None:
         raise ValueError(
             "continuous-batching 依赖 KV Cache，请将 kv_cache_config 设为 DenseCacheConfig 或 PagedCacheConfig"
         )
+    if isinstance(config.scheduler_config.batching_policy, ChunkedPrefillConfig) and not isinstance(
+        config.kv_cache_config, PagedCacheConfig
+    ):
+        raise ValueError("chunked-prefill 组批策略仅支持 paged-kv-cache（chunk 的历史 K/V 取自 physical block pool）")
     _validate_scheduler_config(config.scheduler_config, config.batching_method)
 
 

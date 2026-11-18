@@ -69,7 +69,8 @@ def compare_paged_prompt(
         pool,
         prefill_cache=prefill_cache,
         block_tables=[manager.block_table(0)],
-        cache_lengths=[len(token_ids)],
+        chunk_lens=[len(token_ids)],
+        start_positions=[0],
     )
 
     steps: list[dict[str, Any]] = []

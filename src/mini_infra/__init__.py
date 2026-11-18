@@ -1,6 +1,7 @@
 from mini_infra.core import (
     ArrivalQueue,
     BatchingPolicy,
+    ChunkedPrefillConfig,
     DenseCacheConfig,
     IterationScheduler,
     KVCacheConfig,
@@ -79,6 +80,7 @@ __all__ = [
     "BatchScheduleInfo",
     "BatchingMethod",
     "BatchingPolicy",
+    "ChunkedPrefillConfig",
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
     "DenseCacheConfig",

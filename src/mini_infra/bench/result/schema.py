@@ -144,6 +144,10 @@ class ScheduleMetricsRecord(_RecordModel):
     num_decode_steps: DistributionStatsRecord | None = None
     max_consecutive_prefill_steps: DistributionStatsRecord | None = None
     num_oversize_prefill_steps: DistributionStatsRecord | None = None
+    # chunked-prefill 引入的 Prefill 步规模类指标：早于 chunked-prefill 的历史记录无此字段，缺省为 None（不回填）
+    num_prefill_chunks: DistributionStatsRecord | None = None
+    max_prefill_step_tokens: DistributionStatsRecord | None = None
+    max_prefill_step_ms: DistributionStatsRecord | None = None
 
 
 # ============================================================================

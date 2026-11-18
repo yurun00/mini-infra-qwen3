@@ -80,9 +80,10 @@
 | sampler | `worker/sampler.py` 的 `greedy_sample` | data plane 设备端贪心采样算子：只吃 logits 张量、吐 token 张量，不感知请求状态与计时 |
 | history mask | `DenseSlotCache.history_mask` | 标记各 batch slot 内历史 token 有效位置（右对齐）的布尔掩码 |
 | scheduler | `ArrivalQueue` / `WaitingQueue` / `RunningQueue` / `IterationScheduler` / `run_scheduler` | 调度器概念词统一小写；`Lockstep` 因对应 `LockstepState` / `LockstepRunner` 类保留大写 |
-| scheduler output | `SchedulerOutput` | 单步迭代调度的决策产出：承载本步阶段（`phase`）、被选中请求快照（`scheduled_requests`）、本步计费 Token 数（`num_scheduled_tokens`）与 oversize prefill 标记（`is_oversize_prefill`） |
-| batching policy | `BatchingPolicy` / `BatchingPolicyKind`（`prefill-first` / `token-budget`） | `SchedulerConfig.batching_policy` 单步组批策略 |
-| token budget | `TokenBudgetConfig.token_budget` | 单次 Prefill 允许的 padded prompt token 上限（软预算），须不小于 `max_running_requests` |
+| scheduler output | `SchedulerOutput` | 单步迭代调度的决策产出：承载本步阶段（`phase`）、被选中请求快照（`scheduled_requests`）、本步计费 Token 数（`num_scheduled_tokens`）、prefill chunk 列表（`prefill_chunks`）与 oversize prefill 标记（`is_oversize_prefill`） |
+| batching policy | `BatchingPolicy` / `BatchingPolicyKind`（`prefill-first` / `token-budget` / `chunked-prefill`） | `SchedulerConfig.batching_policy` 单步组批策略 |
+| token budget | `TokenBudgetConfig.token_budget` / `ChunkedPrefillConfig.token_budget` | 单次 Prefill 允许的 padded token 上限，须不小于 `max_running_requests`；token-budget 为软预算（oversize prefill），chunked-prefill 为硬预算 |
+| prefill chunk | `PrefillChunk(state, start, end)`、`RequestState.cache_length` | chunked-prefill 一次 Prefill 步为单个请求划定的 Prompt 区间 `[start, end)`；`cache_length < prompt_len` 的 RUNNING 请求处于 chunked prefill 中间态（不另设状态，对标 vLLM `num_computed_tokens`） |
 | control plane / data plane / compute plane | 分层图 ③④⑤ | 模块 `import torch` 且持有张量即 data plane；纯 CPU 决策即 control plane；纯张量算子计算即 compute plane |
 
 **命名与反混用红线**

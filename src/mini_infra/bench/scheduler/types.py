@@ -64,7 +64,7 @@ class SchedulerCaseResult:
         )
 
     def _format_token_budget_info(self) -> str:
-        """token-budget 用例追加预算、最长连续 Prefill 步数与 oversize prefill 次数；prefill-first 不输出。"""
+        """带 token_budget 的用例追加预算、最长连续 Prefill 步数、oversize prefill 次数与最长 Prefill 步耗时。"""
         if self.key.token_budget is None:
             return ""
         sm = self.schedule_metrics
@@ -72,6 +72,7 @@ class SchedulerCaseResult:
             f" | budget {self.key.token_budget}"
             f" | max_pf_streak {sm.max_consecutive_prefill_steps.median:.0f}"
             f" | oversize {sm.num_oversize_prefill_steps.median:.0f}"
+            f" | max_pf_step {sm.max_prefill_step_ms.median:.2f} ms"
         )
 
     def to_record_dict(self) -> dict[str, Any]:
@@ -126,6 +127,9 @@ class SchedulerCaseResult:
                 "num_decode_steps": sm.num_decode_steps.to_dict(),
                 "max_consecutive_prefill_steps": sm.max_consecutive_prefill_steps.to_dict(),
                 "num_oversize_prefill_steps": sm.num_oversize_prefill_steps.to_dict(),
+                "num_prefill_chunks": sm.num_prefill_chunks.to_dict(),
+                "max_prefill_step_tokens": sm.max_prefill_step_tokens.to_dict(),
+                "max_prefill_step_ms": sm.max_prefill_step_ms.to_dict(),
             },
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
@@ -239,6 +243,11 @@ class SchedulerCaseResult:
             num_oversize_prefill_steps=DistributionStats.from_samples(
                 [r.schedule_metrics.num_oversize_prefill_steps for r in runs]
             ),
+            num_prefill_chunks=DistributionStats.from_samples([r.schedule_metrics.num_prefill_chunks for r in runs]),
+            max_prefill_step_tokens=DistributionStats.from_samples(
+                [r.schedule_metrics.max_prefill_step_tokens for r in runs]
+            ),
+            max_prefill_step_ms=DistributionStats.from_samples([r.schedule_metrics.max_prefill_step_ms for r in runs]),
         )
 
         batch_infos = [r.batch_info for r in runs if r.batch_info is not None]

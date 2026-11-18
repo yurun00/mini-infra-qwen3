@@ -81,8 +81,8 @@ def _run_schedule_loop(
         # 3. 后端执行本步前向（Prefill 或 Decode）
         num_active_requests = len(scheduler.running_queue)
         if output.phase is SchedulePhase.PREFILL:
-            step_output = backend.execute_prefill(output.scheduled_requests)
-            admitted_request_ids = tuple(s.request.request_idx for s in output.scheduled_requests)
+            step_output = backend.execute_prefill(output.prefill_chunks)
+            admitted_request_ids = tuple(c.state.request.request_idx for c in output.prefill_chunks if c.start == 0)
         else:
             step_output = backend.execute_decode(output.scheduled_requests)
             admitted_request_ids = ()
@@ -103,7 +103,7 @@ def _run_schedule_loop(
                 finished_request_ids=tuple(s.request.request_idx for s in finished),
                 physical_batch_size=step_output.physical_batch_size,
                 num_active_requests=num_active_requests,
-                num_generated_tokens=len(output.scheduled_requests),
+                num_generated_tokens=len(step_output.next_tokens),
                 num_scheduled_tokens=output.num_scheduled_tokens,
                 step_ms=step_ms,
                 model_ms=step_output.model_ms,

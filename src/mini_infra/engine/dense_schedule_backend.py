@@ -6,6 +6,7 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core.request import RequestState
+from mini_infra.core.scheduler import PrefillChunk
 from mini_infra.core.types import BatchingMethod, DenseCacheConfig, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
@@ -34,11 +35,12 @@ class DenseScheduleBackend(ScheduleBackend):
     def kv_cache_config(self) -> KVCacheConfig:
         return DenseCacheConfig()
 
-    def execute_prefill(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
+    def execute_prefill(self, chunks: Sequence[PrefillChunk]) -> ScheduleStepOutput:
+        scheduled_requests = [c.state for c in chunks]
         prefill_out = self.runner.run_prefill_step([s.request.token_ids for s in scheduled_requests])
         self.snapshot_tracker.record_stage("02_dense_prefill_forward_done")
         batch_slot_indices = [s.batch_slot_idx for s in scheduled_requests]
-        cache_lengths = [s.cache_length for s in scheduled_requests]
+        cache_lengths = [c.end for c in chunks]
         if self.is_continuous:
             synchronize(self.device)
             cache_start = time.perf_counter()

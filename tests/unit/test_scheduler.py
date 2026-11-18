@@ -7,8 +7,10 @@ import pytest
 from mini_infra.core import (
     ArrivalQueue,
     BatchingMethod,
+    ChunkedPrefillConfig,
     IterationScheduler,
     KVCacheManager,
+    PrefillChunk,
     PrefillFirstConfig,
     Request,
     RequestState,
@@ -205,10 +207,12 @@ def test_scheduler_prefill_first_decisions():
         phase=SchedulePhase.PREFILL,
         scheduled_requests=tuple(states[:2]),
         num_scheduled_tokens=2 * 3,
+        prefill_chunks=(PrefillChunk(states[0], 0, 3), PrefillChunk(states[1], 0, 3)),
     )
     assert len(scheduler.waiting_queue) == 1
     assert len(scheduler.running_queue) == 2
     assert [s.batch_slot_idx for s in states[:2]] == [0, 1]
+    scheduler.update_from_output(out, [5, 5], clock_ms=0.5)
 
     # 2. batch slot 用尽但存在运行中请求：生成 DECODE 计划，每个运行中请求计 1 个 Token
     out_decode = scheduler.schedule(clock_ms=1.0)
@@ -235,6 +239,7 @@ def test_scheduler_wave_barrier_blocks_admission_until_running_queue_drains(batc
     scheduler.add_requests(states[:1])
     first = scheduler.schedule(clock_ms=0.0)
     assert first is not None and first.phase is SchedulePhase.PREFILL
+    scheduler.update_from_output(first, [5], clock_ms=0.5)
     scheduler.add_requests(states[1:])
 
     # 仍有 free batch slot，但 wave barrier 要求 RunningQueue 排空后才入场下一波
@@ -301,12 +306,13 @@ def test_scheduler_update_from_output_advances_cache_length_and_frees_paged_bloc
     # Prefill 步：请求 1 预算为 1，在 Prefill 后立即完成并归还物理块与 batch slot
     prefill_out = scheduler.schedule(clock_ms=0.0)
     assert prefill_out is not None and prefill_out.phase is SchedulePhase.PREFILL
+    assert states[0].cache_length == 0  # 前向完成前 cache_length 尚未推进
     assert manager.num_used_blocks == 2
     finished_prefill = scheduler.update_from_output(
         prefill_out, [10, 11], clock_ms=1.0, eos_token_id=None, stop_on_eos=False
     )
     assert indices(finished_prefill) == [1]
-    assert states[0].cache_length == 4  # Prefill 步不递增 cache_length
+    assert states[0].cache_length == 4  # update_from_output 将 cache_length 推进至 chunk.end
     assert manager.num_used_blocks == 1  # 请求 1 的物理块已归还
     assert indices(scheduler.running_queue.requests) == [0]
 
@@ -331,6 +337,7 @@ def test_scheduler_prefill_first_has_no_decode_protection():
 
     first = scheduler.schedule(clock_ms=0.0)
     assert first is not None and first.phase is SchedulePhase.PREFILL
+    scheduler.update_from_output(first, [5], clock_ms=0.5)
     scheduler.add_requests(states[1:])
     second = scheduler.schedule(clock_ms=1.0)
     assert second is not None and second.phase is SchedulePhase.PREFILL
@@ -345,7 +352,7 @@ def test_scheduler_token_budget_decisions():
         SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig()),
         CONTINUOUS,
     )
-    pf_scheduler.running_queue.admit([RequestState(Request(99, (11, 12), 4))], clock_ms=0.0)
+    pf_scheduler.running_queue.admit([RequestState(Request(99, (11, 12), 4), cache_length=2)], clock_ms=0.0)
     pf_scheduler.add_requests(make_states_with_prompt_lens([3, 5, 9]))
     decision = pf_scheduler.schedule(clock_ms=0.0)
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
@@ -357,13 +364,14 @@ def test_scheduler_token_budget_decisions():
         SchedulerConfig(max_running_requests=4, batching_policy=TokenBudgetConfig(6)),
         CONTINUOUS,
     )
-    budgeted.running_queue.admit([RequestState(Request(99, (11, 12), 4))], clock_ms=0.0)
+    budgeted.running_queue.admit([RequestState(Request(99, (11, 12), 4), cache_length=2)], clock_ms=0.0)
     budgeted.add_requests(make_states_with_prompt_lens([3, 5, 9]))
     decision = budgeted.schedule(clock_ms=0.0)
     assert decision is not None and decision.phase is SchedulePhase.PREFILL
     assert indices(decision.scheduled_requests) == [0]
     assert decision.num_scheduled_tokens == 3
     assert not decision.is_oversize_prefill
+    budgeted.update_from_output(decision, [5], clock_ms=0.5)
 
     # 上一步是 PREFILL 且 RunningQueue 非空：decode protection 强制 DECODE
     decision = budgeted.schedule(clock_ms=1.0)
@@ -435,18 +443,212 @@ def test_scheduler_token_budget_decode_protection_lifecycle():
     scheduler.add_requests(make_states_with_prompt_lens([2, 2, 2]))
 
     # PREFILL -> (running 非空) DECODE -> PREFILL：decode protection 只阻止紧邻的第二个 PREFILL
-    first = scheduler.schedule(clock_ms=0.0)
-    assert first is not None and first.phase is SchedulePhase.PREFILL
-    second = scheduler.schedule(clock_ms=1.0)
-    assert second is not None and second.phase is SchedulePhase.DECODE
-    third = scheduler.schedule(clock_ms=2.0)
-    assert third is not None and third.phase is SchedulePhase.PREFILL
+    first = step(scheduler, 0.0)
+    assert first.phase is SchedulePhase.PREFILL
+    second = step(scheduler, 1.0)
+    assert second.phase is SchedulePhase.DECODE
+    third = step(scheduler, 2.0)
+    assert third.phase is SchedulePhase.PREFILL
 
     # 刚入场的请求在 Prefill 当步全部结束（RunningQueue 为空）：允许紧接着再 PREFILL
     scheduler.running_queue.retire(list(scheduler.running_queue.requests))
-    fourth = scheduler.schedule(clock_ms=3.0)
-    assert fourth is not None and fourth.phase is SchedulePhase.PREFILL
+    fourth = step(scheduler, 3.0)
+    assert fourth.phase is SchedulePhase.PREFILL
 
     # 两队列均为空：空闲返回 None
     scheduler.running_queue.retire(list(scheduler.running_queue.requests))
     assert scheduler.schedule(clock_ms=4.0) is None
+
+
+# ---------------------------------------------------------------------------
+# chunked-prefill：Prompt 按 token budget 硬预算切 chunk，跨步推进
+# ---------------------------------------------------------------------------
+
+
+def chunked_scheduler(token_budget: int, capacity: int, manager: KVCacheManager | None = None) -> IterationScheduler:
+    return IterationScheduler(
+        SchedulerConfig(max_running_requests=capacity, batching_policy=ChunkedPrefillConfig(token_budget)),
+        CONTINUOUS,
+        manager,
+    )
+
+
+def chunk_ranges(out: SchedulerOutput) -> list[tuple[int, int, int]]:
+    return [(c.state.request.request_idx, c.start, c.end) for c in out.prefill_chunks]
+
+
+def step(scheduler: IterationScheduler, clock_ms: float) -> SchedulerOutput:
+    """调度一步并以占位 Token 推进状态（chunked 中间 chunk 不产出 Token）。"""
+    out = scheduler.schedule(clock_ms)
+    assert out is not None
+    if out.phase is SchedulePhase.PREFILL:
+        num_tokens = sum(c.is_last for c in out.prefill_chunks)
+    else:
+        num_tokens = len(out.scheduled_requests)
+    scheduler.update_from_output(out, [7] * num_tokens, clock_ms, eos_token_id=None, stop_on_eos=False)
+    return out
+
+
+def test_chunked_prefill_config_validation_and_str():
+    with pytest.raises(ValueError, match="token_budget"):
+        ChunkedPrefillConfig(0)
+    assert str(ChunkedPrefillConfig(64)) == "chunked-prefill(token_budget=64)"
+
+
+def test_chunked_prefill_splits_prompt_across_steps_with_shared_budget():
+    """chunked 计划：候选数 n 时每请求 chunk 上限 token_budget // n，尾 chunk 更短；n 随请求进入 Decode 而减小。"""
+    scheduler = chunked_scheduler(token_budget=8, capacity=4)
+    scheduler.add_requests(make_states_with_prompt_lens([10, 10, 3]))
+
+    first = step(scheduler, 0.0)  # n=3 -> 上限 2
+    assert chunk_ranges(first) == [(0, 0, 2), (1, 0, 2), (2, 0, 2)]
+    assert first.num_scheduled_tokens == 3 * 2
+    assert not first.is_oversize_prefill
+    assert len(scheduler.waiting_queue) == 0 and len(scheduler.running_queue) == 3
+
+    second = step(scheduler, 1.0)  # 请求 2 仅剩 1 Token（尾 chunk 更短），写满后立即产出首 Token 进入 Decode
+    assert chunk_ranges(second) == [(0, 2, 4), (1, 2, 4), (2, 2, 3)]
+    assert second.num_scheduled_tokens == 3 * 2
+
+    # 请求 2 进入 Decode：decode protection 强制插入一步仅含请求 2 的 DECODE（在途 chunked prefill 请求不参与）
+    decode = step(scheduler, 2.0)
+    assert decode.phase is SchedulePhase.DECODE
+    assert indices(decode.scheduled_requests) == [2]
+    assert decode.num_scheduled_tokens == 1
+
+    third = step(scheduler, 3.0)  # n=2 -> 上限 4
+    assert chunk_ranges(third) == [(0, 4, 8), (1, 4, 8)]
+    assert third.num_scheduled_tokens == 2 * 4
+
+
+def test_chunked_prefill_decode_protection_alternates_prefill_and_decode():
+    scheduler = chunked_scheduler(token_budget=4, capacity=2)
+    scheduler.add_requests(make_states_with_prompt_lens([2, 12]))
+
+    phases = []
+    for clock_ms in range(6):
+        out = step(scheduler, float(clock_ms))
+        phases.append(out.phase)
+    # 请求 0 首步写满进入 Decode；此后请求 1 的 chunk 与 Decode 严格交替，不连续两步 PREFILL
+    assert phases[0] is SchedulePhase.PREFILL
+    assert phases[1:] == [
+        SchedulePhase.DECODE,
+        SchedulePhase.PREFILL,
+        SchedulePhase.DECODE,
+        SchedulePhase.PREFILL,
+        SchedulePhase.DECODE,
+    ]
+
+
+def test_chunked_prefill_without_decoders_runs_consecutive_prefill_steps():
+    scheduler = chunked_scheduler(token_budget=3, capacity=1)
+    scheduler.add_requests(make_states_with_prompt_lens([7]))
+
+    out = step(scheduler, 0.0)
+    assert chunk_ranges(out) == [(0, 0, 3)]
+    # 在途 chunked prefill 请求不是 Decode 请求：不触发 decode protection，可连续 PREFILL 直到写满
+    second = step(scheduler, 1.0)
+    assert second.phase is SchedulePhase.PREFILL
+    assert chunk_ranges(second) == [(0, 3, 6)]
+    third = step(scheduler, 2.0)
+    assert chunk_ranges(third) == [(0, 6, 7)]
+    assert third.prefill_chunks[0].is_last
+
+
+def test_chunked_prefill_never_exceeds_hard_budget_and_covers_every_prompt_once():
+    prompt_lens = [17, 3, 9, 1, 25, 6, 12]
+    budget = 7
+    scheduler = chunked_scheduler(token_budget=budget, capacity=4)
+    states = make_states_with_prompt_lens(prompt_lens)
+    scheduler.add_requests(states)
+
+    covered: dict[int, list[tuple[int, int]]] = {i: [] for i in range(len(prompt_lens))}
+    for clock_ms in range(200):
+        if not scheduler.has_unfinished_requests:
+            break
+        out = step(scheduler, float(clock_ms))
+        if out.phase is SchedulePhase.PREFILL:
+            assert out.num_scheduled_tokens <= budget
+            assert out.num_scheduled_tokens == len(out.prefill_chunks) * max(c.num_tokens for c in out.prefill_chunks)
+            assert not out.is_oversize_prefill
+            assert indices(out.scheduled_requests) == [c.state.request.request_idx for c in out.prefill_chunks]
+            for chunk in out.prefill_chunks:
+                covered[chunk.state.request.request_idx].append((chunk.start, chunk.end))
+    assert not scheduler.has_unfinished_requests
+    # 每个请求的 chunk 首尾相接、恰好覆盖 [0, prompt_len)
+    for request_idx, ranges in covered.items():
+        assert ranges[0][0] == 0 and ranges[-1][1] == prompt_lens[request_idx]
+        assert all(left[1] == right[0] for left, right in zip(ranges, ranges[1:]))
+
+
+def test_chunked_prefill_partial_chunk_produces_no_token_and_keeps_request_prefilling():
+    scheduler = chunked_scheduler(token_budget=2, capacity=2)
+    states = make_states_with_prompt_lens([5])
+    scheduler.add_requests(states)
+
+    out = scheduler.schedule(0.0)
+    assert out is not None and chunk_ranges(out) == [(0, 0, 2)]
+    assert states[0].cache_length == 0 and states[0].is_prefilling  # chunk 处理完前 cache_length 不推进
+    assert scheduler.update_from_output(out, [], 1.0) == []
+    assert states[0].cache_length == 2 and states[0].is_prefilling
+    assert states[0].generated == [] and states[0].first_token_ms is None
+    assert scheduler.running_queue.prefilling_requests == (states[0],)
+    assert scheduler.running_queue.decoding_requests == ()
+
+    step(scheduler, 1.0)  # [2, 4)
+    last = scheduler.schedule(2.0)  # [4, 5)
+    assert last is not None and last.prefill_chunks[0].is_last
+    assert states[0].cache_length == 4 and states[0].is_prefilling
+    scheduler.update_from_output(last, [9], 3.0, eos_token_id=None, stop_on_eos=False)
+    assert not states[0].is_prefilling and states[0].generated == [9] and states[0].first_token_ms == 3.0
+    assert states[0].cache_length == 5  # 首个 Token 的 K/V 由下一步 Decode 写入，cache_length 仍为 prompt_len
+
+
+def test_chunked_prefill_allocates_blocks_per_chunk():
+    manager = KVCacheManager(block_size=4, num_blocks=8)
+    scheduler = chunked_scheduler(token_budget=6, capacity=2, manager=manager)
+    scheduler.add_requests(make_states_with_prompt_lens([10]))
+
+    step(scheduler, 0.0)  # [0, 6)：2 块
+    assert manager.num_used_blocks == 2
+    step(scheduler, 1.0)  # [6, 10)：累计 10 Token -> 3 块
+    assert manager.num_used_blocks == 3
+    assert len(manager.block_table(0)) == 3
+
+
+def test_chunked_prefill_admission_reserves_blocks_of_in_flight_prompts():
+    """在途请求尚未写入的 Prompt 块先行预留：新请求不能抢占，否则两个半截 Prefill 互相等块而卡死。"""
+    manager = KVCacheManager(block_size=4, num_blocks=6)  # 5 个可分配块
+    scheduler = chunked_scheduler(token_budget=4, capacity=4, manager=manager)
+    scheduler.add_requests(make_states_with_prompt_lens([12, 12]))  # 各需 3 块
+
+    # 步 1：请求 0 入场（3 <= 5），请求 1 在扣除请求 0 之外仅剩 2 块 -> 不入场；chunk 上限随候选数 1 为 4
+    first = step(scheduler, 0.0)
+    assert chunk_ranges(first) == [(0, 0, 4)]
+    assert manager.num_used_blocks == 1
+
+    # 步 2：空闲 4 块，但请求 0 仍需追加 2 块 -> 可用 2 块，请求 1（需 3 块）仍不能入场
+    second = step(scheduler, 1.0)
+    assert chunk_ranges(second) == [(0, 4, 8)]
+    assert len(scheduler.waiting_queue) == 1
+
+    third = step(scheduler, 2.0)
+    assert chunk_ranges(third) == [(0, 8, 12)]
+    assert manager.num_used_blocks == 3
+    # 请求 0 写满后释放前，剩余 2 块不足以容纳请求 1
+    assert len(scheduler.waiting_queue) == 1
+
+
+def test_chunked_prefill_chunk_allocation_failure_fails_loudly():
+    """Decode 增长吞掉了为 chunked prefill 预留的块：显式报错（未实现抢占），而不是静默写坏 block table。"""
+    manager = KVCacheManager(block_size=4, num_blocks=4)  # 3 个可分配块
+    scheduler = chunked_scheduler(token_budget=4, capacity=2, manager=manager)
+    scheduler.add_requests(make_states_with_prompt_lens([4, 8]))
+    first = step(scheduler, 0.0)  # 请求 0 [0, 4) 写满（1 块）；请求 1 (8 Token, 2 块) 受预留约束 3-0 >= 2 入场
+    assert chunk_ranges(first) == [(0, 0, 2), (1, 0, 2)]
+    assert manager.allocate_slots(99, 4)  # 外部占走剩余的块，模拟 Decode 增长吞掉预留
+    assert manager.free_block_queue.num_free_blocks == 0
+    step(scheduler, 1.0)  # 请求 0 写满进入 Decode；请求 1 [2, 4) 仍在已持有的 1 块内
+    with pytest.raises(RuntimeError, match="物理块已耗尽"):
+        for clock_ms in range(2, 6):
+            step(scheduler, float(clock_ms))

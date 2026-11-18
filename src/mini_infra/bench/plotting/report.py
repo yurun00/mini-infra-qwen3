@@ -182,15 +182,33 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
                 f"最长连续 Prefill `{float(pf_streak.get('median', 0.0)):.0f}` 步，"
                 f"oversize prefill `{num_oversize:.0f}` 次。"
             )
-        if itl_max > itl_p50 * 1.4:
-            is_token_budget = "token-budget" in str(w.get("engine_config", ""))
-            next_step = (
-                "**Chunked Prefill**，将长 Prompt 拆分为小块与 Decode 交织执行"
-                "（软预算下 oversize prefill 仍会整段阻塞）。"
-                if is_token_budget
-                else "**token-budget 组批策略**（`--batching-policy token-budget`）限制单次 Prefill 规模并启用 "
-                "decode protection，再演进到 **Chunked Prefill**。"
+        # Prefill 步规模类指标：早于 chunked-prefill 的历史记录无此字段，缺失时跳过
+        max_pf_tokens = sched.get("max_prefill_step_tokens")
+        max_pf_ms = sched.get("max_prefill_step_ms")
+        if max_pf_tokens is not None and max_pf_ms is not None:
+            num_chunks = float((sched.get("num_prefill_chunks") or {}).get("median", 0.0))
+            lines.append(
+                f"- 🔹 **Prefill 步规模**：共 `{num_chunks:.0f}` 个 Prompt chunk，"
+                f"单步最大 padded token `{float(max_pf_tokens.get('median', 0.0)):.0f}`，"
+                f"最长 Prefill 步 `{float(max_pf_ms.get('median', 0.0)):.2f} ms`（在途 Decode 的阻塞上界）。"
             )
+        if itl_max > itl_p50 * 1.4:
+            engine_config = str(w.get("engine_config", ""))
+            if "chunked-prefill" in engine_config:
+                next_step = (
+                    "**更小的 token_budget** 以缩短单步 Prefill，或演进到 **chunk 与 Decode 同一次前向混批**"
+                    "（需 varlen Attention）。"
+                )
+            elif "token-budget" in engine_config:
+                next_step = (
+                    "**Chunked Prefill 组批策略**（`--batching-policy chunked-prefill`，需 paged-kv-cache），"
+                    "将长 Prompt 切成 chunk 与 Decode 交织执行（软预算下 oversize prefill 仍会整段阻塞）。"
+                )
+            else:
+                next_step = (
+                    "**token-budget 组批策略**（`--batching-policy token-budget`）限制单次 Prefill 规模并启用 "
+                    "decode protection，再演进到 **Chunked Prefill**（`--batching-policy chunked-prefill`）。"
+                )
             lines.append(
                 "- 🟡 **观测到新请求 Prefill 插队导致的 Decode 尾延迟毛刺（ITL Max > 1.4x P50）**："
                 f"建议引入 {next_step}"
@@ -209,7 +227,7 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
         if is_paged:
             lines.append(
                 "- 👉 **下一步核心演进方向**：引入 **Prefix Cache（前缀缓存与物理块复用）** 与 "
-                "**Chunked Prefill / 融合 Paged Attention Kernel**，"
+                "**融合 Paged Attention Kernel**，"
                 "按物理 Block 按需复用长 Prompt 并消除 Prefill 阶段的高峰值激活与跨层 gather 拷贝开销。"
             )
         else:

@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 from mini_infra.bench.format import format_lengths
 from mini_infra.core import (
     BatchingPolicyKind,
+    BudgetedBatchingPolicy,
     DenseCacheConfig,
     KVCacheConfig,
     KVCacheKind,
@@ -20,7 +21,6 @@ from mini_infra.core import (
     PrefillFirstConfig,
     Request,
     SchedulerConfig,
-    TokenBudgetConfig,
     kv_cache_config_from_str,
     make_requests,
     parse_batching_policy_kind,
@@ -348,7 +348,7 @@ class BenchmarkCase:
     def key(self) -> CaseKey:
         paged = self.kv_cache_config if isinstance(self.kv_cache_config, PagedCacheConfig) else None
         policy = self.scheduler_config.batching_policy
-        budget = policy if isinstance(policy, TokenBudgetConfig) else None
+        budget = policy if isinstance(policy, BudgetedBatchingPolicy) else None
         return CaseKey(
             workload_id=self.workload_id,
             caching_method=self.kv_cache_config.kind,

@@ -374,6 +374,9 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path
         ("num_decode_steps", 40.0),
         ("max_consecutive_prefill_steps", 1.0),
         ("num_oversize_prefill_steps", 2.0),
+        ("num_prefill_chunks", 9.0),
+        ("max_prefill_step_tokens", 256.0),
+        ("max_prefill_step_ms", 31.5),
     ):
         schedule[key] = {"median": value, "mean": value}
     schedule["itl_ms_max"] = {"median": 120.0, "mean": 120.0}
@@ -384,6 +387,8 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path
     assert isinstance(rec_current, SchedulerBenchmarkRecord)
     assert rec_legacy.cases[0].schedule.max_consecutive_prefill_steps is None
     assert rec_current.cases[0].schedule.max_consecutive_prefill_steps is not None
+    assert rec_legacy.cases[0].schedule.max_prefill_step_ms is None
+    assert rec_current.cases[0].schedule.max_prefill_step_ms is not None
 
     wide_df = records_to_wide_df([rec_legacy, rec_current])
     assert wide_df["max_consecutive_prefill_steps.median"].isna().iloc[0]
@@ -403,5 +408,7 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path
     assert "最长连续 Prefill `1` 步" in current_guidance
     assert "oversize prefill `2` 次" in current_guidance
     assert "Chunked Prefill" in current_guidance
+    assert "共 `9` 个 Prompt chunk" in current_guidance
+    assert "最长 Prefill 步 `31.50 ms`" in current_guidance
     legacy_guidance = generate_optimization_guidance(rec_legacy)
     assert "迭代调度步数" not in legacy_guidance
