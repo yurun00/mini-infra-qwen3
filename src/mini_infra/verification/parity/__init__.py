@@ -8,4 +8,5 @@
 - compare_batch_lockstep：Lockstep 齐步批处理不同 Batch Size / 排列 / Padding 变种的请求隔离与数值等价性验证
 - compare_batch_scheduler：Scheduler 批处理（Fixed 与 Continuous）动态请求归属与输出一致性验证
 - compare_schedulers_token_budget：prefill-first 与 token-budget 两种迭代级调度策略的输出一致性与调度轨迹验证
+- compare_chunked_prefill：token-budget 与 chunked-prefill 的输出一致性、首 Token Logits 误差与调度轨迹验证
 """

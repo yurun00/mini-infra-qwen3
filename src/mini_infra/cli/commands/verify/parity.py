@@ -1,7 +1,7 @@
 """CLI 子命令：mini-infra verify 数值对齐与请求隔离验证。
 
 包含 transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget /
-paged-cache-logits / paged-cache-scheduler。
+chunked-prefill / paged-cache-logits / paged-cache-scheduler。
 """
 
 import argparse
@@ -13,6 +13,12 @@ from mini_infra.model import (
 from mini_infra.verification.parity.compare_batch_lockstep import execute_compare_lockstep_batch
 from mini_infra.verification.parity.compare_batch_scheduler import execute_compare_scheduler_batch
 from mini_infra.verification.parity.compare_cache import execute_compare_cache
+from mini_infra.verification.parity.compare_chunked_prefill import (
+    DEFAULT_PROMPTS as DEFAULT_CHUNKED_PREFILL_PROMPTS,
+)
+from mini_infra.verification.parity.compare_chunked_prefill import (
+    execute_compare_chunked_prefill,
+)
 from mini_infra.verification.parity.compare_paged_cache_logits import (
     DEFAULT_PROMPTS as DEFAULT_PAGED_PROMPTS,
 )
@@ -169,6 +175,35 @@ def _add_schedulers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     return parser
 
 
+def _add_chunked_prefill_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
+    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--prompts",
+        nargs="+",
+        default=DEFAULT_CHUNKED_PREFILL_PROMPTS,
+        help="待测试的一条或多条 prompt",
+    )
+    parser.add_argument(
+        "--dtype",
+        choices=("float32", "bfloat16"),
+        default="float32",
+        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
+    )
+    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument(
+        "--token-budget",
+        type=int,
+        default=32,
+        help="单次 Prefill 的 padded token 预算（默认: 32）",
+    )
+    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
+    parser.add_argument("--max-running-requests", type=int, default=4, help="调度器最大并发请求数（默认: 4）")
+    parser.add_argument("--logits-atol", type=float, default=1e-4, help="首 Token Logits 最大绝对误差阈值")
+    parser.add_argument("--output", help="可选 JSON 输出路径")
+    return parser
+
+
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """注册 parity 相关验证命令，直接挂载到 verify 下。"""
     p_tf = subparsers.add_parser("transformers", help="与 Hugging Face Transformers 对齐")
@@ -193,6 +228,13 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     _add_schedulers_args(p_sched)
     p_sched.set_defaults(func=_handle_schedulers)
+
+    p_chunked = subparsers.add_parser(
+        "chunked-prefill",
+        help="token-budget 与 chunked-prefill 的输出一致性、首 Token Logits 误差与轨迹验证",
+    )
+    _add_chunked_prefill_args(p_chunked)
+    p_chunked.set_defaults(func=_handle_chunked_prefill)
 
     p_paged = subparsers.add_parser("paged-cache-logits", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
     _add_paged_cache_args(p_paged)
@@ -262,6 +304,21 @@ def _handle_schedulers(args: argparse.Namespace) -> int:
         block_size=args.block_size,
         max_running_requests=args.max_running_requests,
         dtype=args.dtype,
+        output=args.output,
+    )
+
+
+def _handle_chunked_prefill(args: argparse.Namespace) -> int:
+    return execute_compare_chunked_prefill(
+        model=args.model,
+        revision=args.revision,
+        prompts=args.prompts,
+        max_new_tokens=args.max_new_tokens,
+        token_budget=args.token_budget,
+        block_size=args.block_size,
+        max_running_requests=args.max_running_requests,
+        dtype=args.dtype,
+        logits_atol=args.logits_atol,
         output=args.output,
     )
 

@@ -44,6 +44,7 @@ def test_cli_subcommand_helps():
         ["verify", "batch-lockstep", "--help"],
         ["verify", "batch-scheduler", "--help"],
         ["verify", "schedulers-token-budget", "--help"],
+        ["verify", "chunked-prefill", "--help"],
         ["verify", "paged-cache-logits", "--help"],
         ["verify", "paged-cache-scheduler", "--help"],
         ["bench", "lockstep", "case", "--help"],

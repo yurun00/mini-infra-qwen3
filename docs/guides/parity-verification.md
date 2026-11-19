@@ -16,6 +16,7 @@
 | **4. Scheduler 批调度** | `compare_batch_scheduler.py` | `mini-infra verify batch-scheduler` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py` | `float32` | 验证 Continuous、Paged KV Cache 与 Fixed 调度下的动态 batch slot / block table 绑定、Mask 管理与串行基准对齐 |
 | **5. Paged KV Cache 对照** | `compare_paged_cache_logits.py` / `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache-logits` / `paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` / `-k scheduler` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token Logits 误差在容差内、Greedy 输出一致，以及 Scheduler 环境下多 Block Size 输出一致性与入场轨迹 |
 | **6. 迭代调度策略对照** | `compare_schedulers_token_budget.py` | `mini-infra verify schedulers-token-budget` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k schedulers` | `float32` | 在错峰 Burst 负载下验证 `prefill-first` 与 `token-budget` 的逐请求输出一致性、单步轨迹与 decode protection（最大连续 Prefill 步数对比） |
+| **7. Chunked Prefill 对照** | `compare_chunked_prefill.py` | `mini-infra verify chunked-prefill` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k chunked_prefill` | `float32` | 在含超长 Prompt 的错峰负载下验证 `token-budget` 与 `chunked-prefill` 的逐请求输出一致性、首 Token Logits 误差（`atol <= 1e-4`）与硬预算轨迹 |
 
 ---
 
@@ -252,11 +253,48 @@ pytest tests/unit/test_compare_schedulers.py
 
 ---
 
+### 7. Chunked Prefill 对照（`token-budget` vs `chunked-prefill`）
+
+* **对应源码**：[`src/mini_infra/verification/parity/compare_chunked_prefill.py`](../../src/mini_infra/verification/parity/compare_chunked_prefill.py)
+* **核心目标**：在包含超长 Prompt 的 4 条错峰负载（`arrival_ms = [0.0, 1.0, 1.0, 1.0]`，`token_budget = 32`，`max_running_requests = 4`）下，对照 `token-budget`（软预算、触发 oversize prefill）与 `chunked-prefill`（硬预算、Prompt 分块）的逐请求输出一致性、单步调度轨迹与聚合指标，并逐请求验证分块 Prefill 与整段 Prefill 的首 Token Logits 最大绝对误差。
+
+#### CLI 运行指令
+```bash
+# 默认参数运行（4 条长短悬殊错峰请求，并发 4，token_budget=32，block_size=16）
+mini-infra verify chunked-prefill
+
+# 自定义预算与导出 JSON 结果
+mini-infra verify chunked-prefill \
+  --max-new-tokens 8 \
+  --token-budget 32 \
+  --block-size 16 \
+  --max-running-requests 4 \
+  --dtype float32 \
+  --logits-atol 1e-4 \
+  --output tmp/parity_chunked_prefill.json
+```
+
+#### Pytest 运行指令
+```bash
+# 1. GPU 真实权重对照
+pytest tests/gpu/parity/test_scheduler_batch_parity.py -k chunked_prefill
+
+# 2. CPU 单元逻辑测试
+pytest tests/unit/test_compare_chunked_prefill.py
+```
+
+* **判定标准**：
+  - `tokens_match` 为 `True`（`token-budget` 与 `chunked-prefill` 逐请求生成序列完全一致）；
+  - `float32` 下 `max_first_token_logit_error <= logits_atol`（默认 `1e-4`）；
+  - `chunked-prefill` 的 `num_oversize_prefill_steps == 0` 且 `max_prefill_step_tokens <= token_budget`。
+
+---
+
 ## 三、一键运行全部验证
 
 ### 1. 使用 CLI 依次执行全部对齐命令
 ```bash
-# 执行全部 7 项精度对齐命令
+# 执行全部 8 项精度对齐命令
 mini-infra verify transformers
 mini-infra verify cache
 mini-infra verify batch-lockstep
@@ -264,6 +302,7 @@ mini-infra verify paged-cache-logits
 mini-infra verify paged-cache-scheduler
 mini-infra verify batch-scheduler
 mini-infra verify schedulers-token-budget
+mini-infra verify chunked-prefill
 ```
 
 ### 2. 使用 Pytest 一键回归全部 GPU 对齐测试

@@ -79,7 +79,7 @@ mini-infra-qwen3/
 │       │   ├── main.py                # 根命令 mini-infra 注册与分发
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
-│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget / paged-cache-logits / paged-cache-scheduler)
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget / chunked-prefill / paged-cache-logits / paged-cache-scheduler)
 │       │       └── bench/             # mini-infra bench (lockstep / scheduler / suites / sweep / plot / check-regression / release)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
@@ -91,7 +91,8 @@ mini-infra-qwen3/
 │       │       ├── compare_transformers.py # 与 Transformers 对齐
 │       │       ├── compare_batch_lockstep.py # Lockstep 齐步批处理不同变种的请求隔离与数值对齐
 │       │       ├── compare_batch_scheduler.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
-│       │       └── compare_schedulers_token_budget.py # prefill-first 与 token-budget 迭代级调度策略输出与轨迹对齐
+│       │       ├── compare_schedulers_token_budget.py # prefill-first 与 token-budget 迭代级调度策略输出与轨迹对齐
+│       │       └── compare_chunked_prefill.py         # token-budget 与 chunked-prefill 输出、首 Token Logits 与轨迹对齐
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── paths.py               # 基准测试与报告标准目录常量
 │           ├── env.py                 # 硬件 GPU、宿主机与 Git 环境元数据采集
