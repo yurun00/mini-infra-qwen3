@@ -78,10 +78,10 @@ def test_free_returns_blocks_and_allows_reuse():
 
 def test_num_admissible_is_fcfs_prefix_bounded_by_free_blocks():
     manager = KVCacheManager(block_size=4, num_blocks=6)  # 5 个可分配块
-    assert manager.num_admissible([8, 4, 4]) == 3  # 2 + 1 + 1
-    assert manager.num_admissible([8, 12, 1]) == 2  # 2 + 3 恰好用尽 5 块，第三个放不下
-    assert manager.num_admissible([24, 4]) == 0  # 队首放不下则整体不入场（不越过队首，保持 FCFS）
-    assert manager.num_admissible([]) == 0
+    assert manager.num_admissible([8, 4, 4], 0) == 3  # 2 + 1 + 1
+    assert manager.num_admissible([8, 12, 1], 0) == 2  # 2 + 3 恰好用尽 5 块，第三个放不下
+    assert manager.num_admissible([24, 4], 0) == 0  # 队首放不下则整体不入场（不越过队首，保持 FCFS）
+    assert manager.num_admissible([], 0) == 0
 
 
 def test_required_pool_blocks_sums_the_longest_concurrent_requests():

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core import (
+    ChunkedPrefillConfig,
     DenseCacheConfig,
     KVCacheManager,
     PagedCacheConfig,
@@ -311,7 +312,7 @@ def check_paged_kv_cache(model):
     old_block_ids = list(manager.block_table(0))
     assert len(old_block_ids) == 2
     assert manager.num_used_blocks * block_size == 8
-    runner.store_prefill(pool, KVCache(expected_layers), [old_block_ids], [6])
+    runner.store_prefill(pool, KVCache(expected_layers), [old_block_ids], [6], [0])
 
     for layer_idx, (exp_key, exp_val) in enumerate(expected_layers):
         key_pool, val_pool = pool.kv_pools[layer_idx]
@@ -347,7 +348,7 @@ def check_paged_kv_cache(model):
     assert manager.block_reuse_count == 1
 
     short_layers = [(k[:, :, :2, :], v[:, :, :2, :]) for k, v in expected_layers]
-    runner.store_prefill(pool, KVCache(short_layers), [manager.block_table(1)], [2])
+    runner.store_prefill(pool, KVCache(short_layers), [manager.block_table(1)], [2], [0])
     for layer_idx, (exp_key, exp_val) in enumerate(short_layers):
         key_pool, val_pool = pool.kv_pools[layer_idx]
         b0 = manager.block_table(1)[0]
@@ -453,6 +454,44 @@ def check_token_budget_scheduling(model):
     print("token-budget 调度：预算拆分、decode protection 与 prefill-first 输出一致性检查通过")
 
 
+def check_chunked_prefill_scheduling(model):
+    """验证 chunked-prefill 调度：长 Prompt 被硬预算切成多个 chunk，与 prefill-first 逐请求输出一致。"""
+    token_budget = 6
+    sequences = [
+        [3, 5, 7],
+        [11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59],
+        [61, 67, 71, 73, 79],
+        [2, 4],
+    ]
+    requests = make_requests(sequences, [6, 4, 3, 2], [0.0, 0.0, 0.1, 0.1])
+    base_config = EngineConfig(
+        PagedCacheConfig(block_size=4),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=3),
+    )
+    prefill_first = run_scheduler(base_config, model, requests, -1, stop_on_eos=False)
+    chunked = run_scheduler(
+        base_config.with_batching_policy(ChunkedPrefillConfig(token_budget)),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
+    )
+
+    assert [s.token_ids for s in chunked.sequences] == [s.token_ids for s in prefill_first.sequences]
+    metrics = chunked.schedule_metrics
+    assert metrics.max_prefill_step_tokens <= token_budget < prefill_first.schedule_metrics.max_prefill_step_tokens
+    assert metrics.num_oversize_prefill_steps == 0
+    assert metrics.num_prefill_chunks > len(requests)  # 13-token Prompt 无法在 6 token 预算内一步写满
+    # 每个请求恰入场一次；在途请求存在时不出现连续两步 PREFILL
+    assert sorted(i for e in chunked.events for i in e.admitted_request_ids) == list(range(len(requests)))
+    for prev, curr in zip(chunked.events, chunked.events[1:]):
+        if prev.phase is SchedulePhase.PREFILL and curr.phase is SchedulePhase.PREFILL:
+            assert prev.num_generated_tokens == len(prev.finished_request_ids)
+
+    print("chunked-prefill 调度：Prompt 分块、硬预算与 prefill-first 输出一致性检查通过")
+
+
 def run_smoke_test():
     model = build_tiny_model()
     check_output_shape_and_tied_weights(model)
@@ -462,11 +501,13 @@ def run_smoke_test():
     check_continuous_batching(model)
     check_paged_kv_cache(model)
     check_token_budget_scheduling(model)
+    check_chunked_prefill_scheduling(model)
 
 
 __all__ = [
     "build_tiny_model",
     "check_causal_mask",
+    "check_chunked_prefill_scheduling",
     "check_continuous_batching",
     "check_fixed_batching",
     "check_kv_cache_correctness",

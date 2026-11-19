@@ -17,6 +17,7 @@ class PagedKVCachePool:
     - block 0 为 null block（永不分配），整池以 0 初始化：释放的块不清零（读取经 context_lens 屏蔽），
       但所有位置恒为有限值，避免 0 概率 × 未初始化 NaN 污染 Attention 输出。
     - slot = physical_block_id * block_size + offset，即 [num_blocks * block_size, ...] 展平视图的行号。
+    - chunked prefill：每个 chunk 前向后经 write_prefill 追加写入后续 slot，下一个 chunk 经 gather_blocks 读回历史。
     """
 
     def __init__(
@@ -50,6 +51,26 @@ class PagedKVCachePool:
         """整个 physical block pool（含 null block）占用的显存字节数。"""
         return self.num_blocks * self.bytes_per_block
 
+    def gather_blocks(self, block_ids: torch.Tensor) -> tuple[tuple[torch.Tensor, torch.Tensor], ...]:
+        """按 block table 取块，逐层拼出历史 K/V 视图（chunked prefill 的前序 chunk 历史）。
+
+        block_ids: [batch, num_gathered_blocks], long；右侧以 null block 补齐，补齐位由调用方经 attention_mask 屏蔽
+
+        Returns:
+            逐层 (key, value)，各 [batch, num_kv_heads, num_gathered_blocks * block_size, head_dim]，
+            model dtype，非连续视图（gather 产出 [batch, blocks * block_size, num_kv_heads, head_dim]
+            经 transpose(1, 2)，直接喂模型 torch.cat / matmul）。
+        """
+        batch_size, num_gathered_blocks = block_ids.shape
+        history_shape = (batch_size, num_gathered_blocks * self.block_size, self.num_kv_heads, self.head_dim)
+        return tuple(
+            (
+                key_pool[block_ids].view(history_shape).transpose(1, 2),
+                value_pool[block_ids].view(history_shape).transpose(1, 2),
+            )
+            for key_pool, value_pool in self.kv_pools
+        )
+
     def write_prefill(
         self,
         prefill_cache: KVCache,
@@ -57,7 +78,7 @@ class PagedKVCachePool:
         token_positions: torch.Tensor,
         slot_mapping: torch.Tensor,
     ) -> None:
-        """把左 Padding Prefill 产生的有效 Token K/V 一次性散写入 slot（每层一次 index_copy_，无按请求循环）。
+        """把左 Padding Prefill（整段 Prompt 或 chunk）产生的有效 Token K/V 一次性散写入 slot（每层一次 index_copy_）。
 
         prefill_cache:   逐层 (key, value)，各 [batch, num_kv_heads, padded_len, head_dim]
         token_rows:      [num_tokens] long，每个有效 Token 所在的 row

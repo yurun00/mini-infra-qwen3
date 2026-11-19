@@ -273,7 +273,7 @@ class ScheduleEvent:
     phase: SchedulePhase
     admitted_request_ids: tuple[int, ...]  # 本事件入场的 request_idx
     finished_request_ids: tuple[int, ...]  # 本事件结束的 request_idx
-    physical_batch_size: int  # 模型实际执行的行数（含空闲/已结束 batch slot）
+    physical_batch_size: int  # 模型实际执行的行数（含空闲/已结束 batch slot；PREFILL 为本步 chunk 数）
     num_active_requests: int  # 事件期间仍在占用 batch slot 的请求数
     num_generated_tokens: int  # 本事件产出的有效 Token 数
     num_scheduled_tokens: int  # 本事件计费 Token 数（透传 SchedulerOutput：PREFILL 为 padded prompt token 数）
@@ -312,6 +312,11 @@ class ScheduleMetrics(Generic[_MetricT]):
     num_decode_steps: _MetricT
     max_consecutive_prefill_steps: _MetricT  # 最长连续 PREFILL 事件数：衡量 Prefill burst 对在途 Decode 的阻塞
     num_oversize_prefill_steps: _MetricT
+    num_prefill_chunks: _MetricT  # PREFILL 步内各请求的 Prompt 区间总数；非 chunked-prefill 策略下等于请求数
+    max_prefill_step_tokens: (
+        _MetricT  # 单个 PREFILL 步的最大 padded chunk token 数（chunked-prefill 下 <= token_budget）
+    )
+    max_prefill_step_ms: _MetricT  # 单个 PREFILL 步的最长耗时：在途 Decode 被 Prefill 阻塞的上界，直接决定 itl_ms_max
 
 
 def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
@@ -356,7 +361,8 @@ def summarize_schedule(
     model_ms = sum(e.model_ms for e in events)
     cache_ms = sum(e.cache_management_ms for e in events)
     scheduler_ms = sum(e.scheduler_ms for e in events)
-    prefill_ms = sum(e.step_ms for e in events if e.phase is SchedulePhase.PREFILL)
+    prefill_events = [e for e in events if e.phase is SchedulePhase.PREFILL]
+    prefill_ms = sum(e.step_ms for e in prefill_events)
     e2e_wall_ms = e2e_wall_ms if e2e_wall_ms is not None else busy_ms
     num_output_tokens = sum(r.num_output_tokens for r in requests)
     total_executed_slots = sum(e.physical_batch_size for e in events)
@@ -372,7 +378,7 @@ def summarize_schedule(
     accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
     num_prompt_tokens = sum(state.request.prompt_len for state in states)
-    num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in events if e.phase is SchedulePhase.PREFILL)
+    num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in prefill_events)
     if num_padded_prompt_tokens == 0:
         num_padded_prompt_tokens = num_prompt_tokens
     padding_efficiency = num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0
@@ -426,10 +432,13 @@ def summarize_schedule(
         itl_ms_p50=percentile(itls, 50),
         itl_ms_p95=percentile(itls, 95),
         itl_ms_max=max(itls, default=0.0),
-        num_prefill_steps=sum(1 for e in events if e.phase is SchedulePhase.PREFILL),
+        num_prefill_steps=len(prefill_events),
         num_decode_steps=sum(1 for e in events if e.phase is SchedulePhase.DECODE),
         max_consecutive_prefill_steps=_max_consecutive_prefill_steps(events),
         num_oversize_prefill_steps=sum(1 for e in events if e.is_oversize_prefill),
+        num_prefill_chunks=sum(e.physical_batch_size for e in prefill_events),
+        max_prefill_step_tokens=max((e.num_scheduled_tokens for e in prefill_events), default=0),
+        max_prefill_step_ms=max((e.step_ms for e in prefill_events), default=0.0),
     )
     trace = GenerationTrace(
         step_latencies_ms=[event.step_ms for event in events],

@@ -13,6 +13,7 @@ import torch
 
 from mini_infra.core.block_manager import KVCacheManager
 from mini_infra.core.request import RequestState
+from mini_infra.core.scheduler import PrefillChunk
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import allocated_memory_mb, reset_peak_memory, synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
@@ -63,8 +64,11 @@ class ScheduleBackend(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def execute_prefill(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
-        """执行一批新请求的 Prefill 前向，将 KV 写入缓存并返回首个 Token 与耗时。"""
+    def execute_prefill(self, chunks: Sequence[PrefillChunk]) -> ScheduleStepOutput:
+        """执行一批 Prompt 区间（整段 Prompt 或 chunk）的 Prefill 前向，将 KV 写入缓存并返回耗时。
+
+        ScheduleStepOutput.next_tokens 仅覆盖本步写满 Prompt 的请求（PrefillChunk.is_last），按 chunks 次序。
+        """
         ...
 
     @abc.abstractmethod

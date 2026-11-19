@@ -322,6 +322,9 @@ def test_compute_comparisons():
             num_decode_steps=dist(63.0),
             max_consecutive_prefill_steps=dist(1.0),
             num_oversize_prefill_steps=dist(0.0),
+            num_prefill_chunks=dist(8.0),
+            max_prefill_step_tokens=dist(512.0),
+            max_prefill_step_ms=dist(20.0),
         )
         key = CaseKey(
             workload_id=wid,

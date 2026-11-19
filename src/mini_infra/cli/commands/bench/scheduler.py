@@ -66,13 +66,14 @@ def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--batching-policy",
         choices=list(BATCHING_POLICY_KINDS),
         default=PrefillFirstConfig.kind,
-        help="迭代级单步组批策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
+        help="迭代级单步组批策略：token-budget / chunked-prefill 仅支持 continuous-batching，"
+        "chunked-prefill 另需 paged-kv-cache（默认: %(default)s）",
     )
     p.add_argument(
         "--token-budget",
         type=int,
         default=None,
-        help="token-budget 策略下单次 Prefill 的 padded prompt token 上限，须不小于 --max-running-requests",
+        help="token-budget / chunked-prefill 策略下单次 Prefill 的 padded token 上限，须不小于 --max-running-requests",
     )
     p.add_argument("--prompt-length", type=int, default=128, help="统一输入 Prompt 长度（默认: 128）")
     p.add_argument("--prompt-lens", type=int, nargs="+", default=None, help="逐请求输入 Prompt 长度列表（可选）")

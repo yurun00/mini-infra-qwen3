@@ -79,12 +79,13 @@ _ENGINE_CONFIG_ARGS: dict[str, dict[str, Any]] = {
     "--batching-policy": {
         "default": PrefillFirstConfig.kind,
         "choices": list(BATCHING_POLICY_KINDS),
-        "help": "迭代级单步组批策略，token-budget 仅支持 continuous-batching（默认: %(default)s）",
+        "help": "迭代级单步组批策略：token-budget / chunked-prefill 仅支持 continuous-batching，"
+        "chunked-prefill 另需 paged-kv-cache（默认: %(default)s）",
     },
     "--token-budget": {
         "type": int,
         "default": None,
-        "help": "token-budget 策略下单次 Prefill 的 padded prompt token 上限，须不小于并发上限",
+        "help": "token-budget / chunked-prefill 策略下单次 Prefill 的 padded token 上限，须不小于并发上限",
     },
     "--feature-flags": {
         "type": _parse_feature_flags,
@@ -272,6 +273,10 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
     print(
         "调度步数 Prefill/Decode: %d / %d，最长连续 Prefill: %d 步，oversize prefill: %d 次"
         % (sm.num_prefill_steps, sm.num_decode_steps, sm.max_consecutive_prefill_steps, sm.num_oversize_prefill_steps)
+    )
+    print(
+        "Prefill chunk 数: %d，单步最大 padded token: %d，最长 Prefill 步: %.2f ms"
+        % (sm.num_prefill_chunks, sm.max_prefill_step_tokens, sm.max_prefill_step_ms)
     )
     print("Cache 管理耗时占比: %.2f%%" % (sm.cache_management_fraction * 100))
     info = result.batch_info

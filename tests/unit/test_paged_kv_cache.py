@@ -79,6 +79,7 @@ def test_store_prefill_scatters_each_request_to_its_own_blocks(model):
         prefill_cache(model, prompts),
         [manager.block_table(i) for i in range(len(prompts))],
         [len(p) for p in prompts],
+        [0] * len(prompts),
     )
 
     for idx, prompt in enumerate(prompts):
@@ -120,6 +121,7 @@ def test_paged_decode_logits_match_dense_decode(model, block_size):
         prefill_cache(model, prompts),
         [manager.block_table(i) for i in range(len(prompts))],
         [len(p) for p in prompts],
+        [0] * len(prompts),
     )
 
     # 各请求独立的 Dense 参考：单请求 Prefill + 逐步 Decode
@@ -170,7 +172,9 @@ def test_paged_decode_ignores_stale_data_in_recycled_blocks(model):
 
     def decode_once(request_idx: int, prompt: list[int]) -> torch.Tensor:
         manager.allocate_slots(request_idx, len(prompt))
-        runner.store_prefill(pool, prefill_cache(model, [prompt]), [manager.block_table(request_idx)], [len(prompt)])
+        runner.store_prefill(
+            pool, prefill_cache(model, [prompt]), [manager.block_table(request_idx)], [len(prompt)], [0]
+        )
         manager.allocate_slots(request_idx, 1)
         input_ids, position_ids, metadata = runner.prepare_decode_inputs(
             [manager.block_table(request_idx)], [7], [len(prompt)], block_size
@@ -190,7 +194,7 @@ def test_paged_decode_ignores_stale_data_in_recycled_blocks(model):
     fresh_manager_pool = make_pool(model, num_blocks=8, block_size=block_size)
     fresh = KVCacheManager(block_size, num_blocks=8)
     fresh.allocate_slots(1, 2)
-    runner.store_prefill(fresh_manager_pool, prefill_cache(model, [[17, 19]]), [fresh.block_table(1)], [2])
+    runner.store_prefill(fresh_manager_pool, prefill_cache(model, [[17, 19]]), [fresh.block_table(1)], [2], [0])
     fresh.allocate_slots(1, 1)
     input_ids, position_ids, metadata = runner.prepare_decode_inputs([fresh.block_table(1)], [7], [2], block_size)
     with torch.inference_mode():
@@ -201,3 +205,76 @@ def test_paged_decode_ignores_stale_data_in_recycled_blocks(model):
         )
 
     torch.testing.assert_close(recycled, expected, atol=1e-6, rtol=0)
+
+
+@pytest.mark.parametrize("block_size", [1, 3, 4, 16])
+def test_chunked_prefill_matches_one_shot_prefill_kv_and_first_token(model, block_size):
+    """分轮 chunk Prefill（同批各行 start 不同）后，pool 内逐请求 K/V 与整段 Prefill 一致，末 chunk 首 Token 一致。"""
+    prompts = [[(j * 5 + 3) % 80 + 1 for j in range(11)], [(j * 7 + 2) % 80 + 1 for j in range(6)]]
+    # 每轮 (请求, start, end)；第 2 轮两行 start 分别为 5 与 2，覆盖历史长度不等的左 Padding 与 null block 补齐
+    rounds = [[(0, 0, 5), (1, 0, 2)], [(0, 5, 8), (1, 2, 6)], [(0, 8, 11)]]
+    manager = KVCacheManager(block_size, num_blocks=64)
+    pool = make_pool(model, num_blocks=64, block_size=block_size)
+    runner = PagedRunner(model)
+    first_tokens: dict[int, int] = {}
+
+    with torch.inference_mode():
+        for chunks in rounds:
+            for request_idx, start, end in chunks:
+                assert manager.allocate_slots(request_idx, end - start)
+            block_tables = [manager.block_table(request_idx) for request_idx, _, _ in chunks]
+            starts = [start for _, start, _ in chunks]
+            out = runner.run_prefill_chunk_step(
+                [prompts[request_idx][start:end] for request_idx, start, end in chunks], starts, block_tables, pool
+            )
+            runner.store_prefill(
+                pool, out.prefill_cache, block_tables, [end - start for _, start, end in chunks], starts
+            )
+            for (request_idx, _, end), token in zip(chunks, out.next_tokens):
+                if end == len(prompts[request_idx]):
+                    first_tokens[request_idx] = token
+
+    for request_idx, prompt in enumerate(prompts):
+        reference = prefill_cache(model, [prompt])
+        input_ids, attention_mask, position_ids, _ = _left_pad_sequences([prompt], 0, CPU)
+        with torch.inference_mode():
+            logits, _ = model(input_ids, attention_mask=attention_mask, position_ids=position_ids)
+        assert first_tokens[request_idx] == int(logits[0, -1].argmax())
+        for layer, (ref_key, ref_value) in enumerate(reference):
+            key, value = gather_request_kv(pool, layer, manager.block_table(request_idx), len(prompt))
+            torch.testing.assert_close(key, ref_key[0], atol=1e-5, rtol=0)
+            torch.testing.assert_close(value, ref_value[0], atol=1e-5, rtol=0)
+
+
+def test_chunk_prefill_with_no_history_is_identical_to_whole_prompt_prefill(model):
+    """全部行 start 为 0：与 BaseModelRunner.run_prefill_step 的整段 Prompt Prefill 逐位一致（baseline 路径不变）。"""
+    prompts = [[3, 5, 7, 9, 11, 13], [17, 19, 23]]
+    runner = PagedRunner(model)
+    pool = make_pool(model)
+    block_tables = [[1, 2], [3]]
+
+    with torch.inference_mode():
+        chunk_out = runner.run_prefill_chunk_step(prompts, [0, 0], block_tables, pool)
+        whole_out = runner.run_prefill_step(prompts)
+
+    assert chunk_out.next_tokens == whole_out.next_tokens
+    for (chunk_key, chunk_value), (whole_key, whole_value) in zip(chunk_out.prefill_cache, whole_out.prefill_cache):
+        assert torch.equal(chunk_key, whole_key) and torch.equal(chunk_value, whole_value)
+
+
+def test_gather_blocks_returns_per_layer_history_views(model):
+    pool = make_pool(model, num_blocks=6, block_size=BLOCK_SIZE)
+    for key_pool, value_pool in pool.kv_pools:
+        key_pool.copy_(torch.arange(key_pool.numel(), dtype=torch.float32).view_as(key_pool))
+        value_pool.copy_(key_pool + 0.5)
+    block_ids = torch.tensor([[2, 4], [5, 0]], dtype=torch.long)
+
+    gathered = pool.gather_blocks(block_ids)
+
+    config = model.config
+    assert len(gathered) == config.num_hidden_layers
+    key, value = gathered[0]
+    assert tuple(key.shape) == (2, config.num_key_value_heads, 2 * BLOCK_SIZE, config.head_dim) == tuple(value.shape)
+    key_pool, value_pool = pool.kv_pools[0]
+    torch.testing.assert_close(key[0].transpose(0, 1), torch.cat([key_pool[2], key_pool[4]], dim=0))
+    torch.testing.assert_close(value[1].transpose(0, 1), torch.cat([value_pool[5], value_pool[0]], dim=0))

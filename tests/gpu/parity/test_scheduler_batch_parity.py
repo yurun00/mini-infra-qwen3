@@ -9,7 +9,14 @@ from __future__ import annotations
 import pytest
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, TokenBudgetConfig, make_requests
+from mini_infra.core import (
+    ChunkedPrefillConfig,
+    DenseCacheConfig,
+    PagedCacheConfig,
+    SchedulerConfig,
+    TokenBudgetConfig,
+    make_requests,
+)
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
@@ -103,6 +110,26 @@ def test_continuous_batching_gpu_parity() -> None:
         for token_budget in (2, 32)
     }
 
+    # chunked-prefill 调度（仅 Paged）：预算 2（= 并发上限，每请求每步 1 个 Token）、8（Prompt 被切成多个 chunk）、
+    # 256（整段 Prompt 一步写满，退化为 prefill-first 的 Prefill 形态）
+    chunked_results = {
+        token_budget: run_scheduler(
+            EngineConfig(
+                PagedCacheConfig(block_size=16),
+                batching_method=BatchingMethod.CONTINUOUS,
+                scheduler_config=SchedulerConfig(
+                    max_running_requests=2,
+                    batching_policy=ChunkedPrefillConfig(token_budget),
+                ),
+            ),
+            model,
+            requests,
+            eos_token_id=eos_token_id,
+            stop_on_eos=False,
+        )
+        for token_budget in (2, 8, 256)
+    }
+
     # 3. 逐个请求运行单请求 generate 作为 Golden Truth
     single_config = EngineConfig(DenseCacheConfig())
     single_opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=False)
@@ -134,6 +161,17 @@ def test_continuous_batching_gpu_parity() -> None:
             assert budgeted.sequences[request_idx].token_ids == expected, (
                 f"token-budget {key} output divergence for req {request_idx}"
             )
+
+        for token_budget, chunked in chunked_results.items():
+            assert chunked.sequences[request_idx].token_ids == expected, (
+                f"chunked-prefill token_budget={token_budget} output divergence for req {request_idx}"
+            )
+    for token_budget, chunked in chunked_results.items():
+        assert chunked.schedule_metrics.max_prefill_step_tokens <= token_budget
+        assert chunked.schedule_metrics.num_oversize_prefill_steps == 0
+    # 预算 2 把每个 Prompt 逐 Token 切分：chunk 数远多于请求数
+    assert chunked_results[2].schedule_metrics.num_prefill_chunks > len(requests)
+    assert chunked_results[256].schedule_metrics.num_prefill_chunks == len(requests)
 
     # 5. 指标健康检查
     assert cont_result.metrics.e2e_wall_ms > 0

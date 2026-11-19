@@ -3,6 +3,7 @@
 import pytest
 
 from mini_infra.core import (
+    ChunkedPrefillConfig,
     DenseCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
@@ -218,3 +219,35 @@ def test_validate_engine_config_scheduler_rules():
             scheduler_config=SchedulerConfig(max_running_requests=1, batching_policy=PrefillFirstConfig()),
         )
     )
+
+
+def test_chunked_prefill_policy_kind_config_and_str():
+    assert parse_batching_policy_kind("chunked-prefill") == "chunked-prefill"
+    assert batching_policy_from_str("chunked-prefill", token_budget=64) == ChunkedPrefillConfig(64)
+    assert scheduler_config_from_str("chunked-prefill", max_running_requests=4, token_budget=64) == SchedulerConfig(
+        max_running_requests=4, batching_policy=ChunkedPrefillConfig(64)
+    )
+    assert str(ChunkedPrefillConfig(64)) == "chunked-prefill(token_budget=64)"
+    with pytest.raises(ValueError, match="chunked-prefill 组批策略必须指定 token_budget"):
+        scheduler_config_from_str("chunked-prefill")
+
+    config = EngineConfig(
+        PagedCacheConfig(),
+        batching_method=BatchingMethod.CONTINUOUS,
+        scheduler_config=SchedulerConfig(max_running_requests=4, batching_policy=ChunkedPrefillConfig(256)),
+    )
+    assert str(config) == "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)"
+
+
+def test_validate_engine_config_chunked_prefill_rules():
+    policy = ChunkedPrefillConfig(8)
+    paged = EngineConfig(PagedCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
+    validate_engine_config(paged.with_batching_policy(policy))
+    validate_engine_config(paged.with_max_running_requests(8).with_batching_policy(policy))  # 预算恰等于并发上限
+
+    with pytest.raises(ValueError, match="chunked-prefill 组批策略仅支持 paged-kv-cache"):
+        validate_engine_config(paged.with_kv_cache_config(DenseCacheConfig()).with_batching_policy(policy))
+    with pytest.raises(ValueError, match="chunked-prefill 组批策略仅支持 continuous-batching"):
+        validate_engine_config(paged.with_batching_method(BatchingMethod.FIXED).with_batching_policy(policy))
+    with pytest.raises(ValueError, match="不能小于 max_running_requests"):
+        validate_engine_config(paged.with_max_running_requests(9).with_batching_policy(policy))

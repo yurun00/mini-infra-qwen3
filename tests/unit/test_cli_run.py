@@ -15,6 +15,7 @@ from mini_infra.cli.commands.run import (
     uses_scheduler,
 )
 from mini_infra.core import (
+    ChunkedPrefillConfig,
     DenseCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
@@ -74,6 +75,27 @@ def test_run_args_parse_batching_policy_and_token_budget():
     assert args.token_budget == 256
     with pytest.raises(SystemExit):
         parser.parse_args(["--batching-policy", "budgeted"])
+
+
+def test_run_args_build_chunked_prefill_engine_config():
+    parser = add_run_args(argparse.ArgumentParser())
+    args = parser.parse_args(
+        [
+            "--caching-method",
+            "paged-kv-cache",
+            "--batching-method",
+            "continuous-batching",
+            "--batching-policy",
+            "chunked-prefill",
+            "--token-budget",
+            "128",
+            "--max-running-requests",
+            "4",
+        ]
+    )
+    config = build_engine_config(args)
+    assert config.scheduler_config.batching_policy == ChunkedPrefillConfig(128)
+    assert config.scheduler_config.max_running_requests == 4
 
 
 def test_run_config_token_budget_matches_prefill_first(diverse_model):

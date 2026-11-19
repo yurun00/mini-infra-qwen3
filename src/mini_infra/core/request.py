@@ -57,12 +57,17 @@ class RequestState:
     status: RequestStatus = RequestStatus.WAITING
     generated: list[int] = field(default_factory=list)
     batch_slot_idx: int | None = None
-    cache_length: int = 0
+    cache_length: int = 0  # 已调度写入 KV Cache 的 Token 数：Prefill 按 chunk 推进（至 prompt_len），Decode 逐步 +1
     admitted_ms: float | None = None
     first_token_ms: float | None = None
     completion_ms: float | None = None
     token_times_ms: list[float] = field(default_factory=list)
     finish_reason: str = "max_tokens"  # "stop"（命中 EOS）或 "max_tokens"（达到预算上限）
+
+    @property
+    def is_prefilling(self) -> bool:
+        """已入场（占用 batch slot）但 Prompt 尚未全部写入 KV Cache：处于 chunked prefill 中间态。"""
+        return self.status is RequestStatus.RUNNING and self.cache_length < self.request.prompt_len
 
     def append_token(
         self,

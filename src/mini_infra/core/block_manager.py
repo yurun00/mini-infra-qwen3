@@ -115,9 +115,13 @@ class KVCacheManager:
         """请求当前的 Block Table（逻辑块号 -> 物理块号），只读使用。"""
         return self._block_tables[request_idx]
 
-    def num_admissible(self, prompt_lens: Sequence[int]) -> int:
-        """按 FCFS 次序，当前空闲块最多能为前多少个请求分配 Prompt 所需的块。"""
-        budget = self.free_block_queue.num_free_blocks
+    def num_admissible(self, prompt_lens: Sequence[int], num_reserved_blocks: int) -> int:
+        """按 FCFS 次序，扣除 num_reserved_blocks 后的空闲块最多能为前多少个请求分配 Prompt 所需的块。
+
+        num_reserved_blocks：已入场但 Prompt 尚未写满的 chunked prefill 请求仍需追加的块数，
+        先行预留以保证其后续 chunk 的块分配不会被新入场请求抢占而卡死。
+        """
+        budget = self.free_block_queue.num_free_blocks - num_reserved_blocks
         admissible = 0
         for prompt_len in prompt_lens:
             need = num_blocks_for_tokens(prompt_len, self.block_size)

@@ -36,7 +36,7 @@
 ### 2. 调度器与时钟模拟：`ArrivalQueue` & `run_scheduler`
 
 * **FCFS 就绪队列**：维护逻辑时间线 `arrival_ms`。队列中的请求在 `clock_ms >= arrival_ms` 时就绪，严格按照先来先服务（First-Come-First-Served）原则出队。
-* **Prefill 优先级策略**（默认 `prefill-first`，可切换为 `token-budget`，详见 [迭代级调度策略](iteration-scheduling.md)）：
+* **Prefill 优先级策略**（默认 `prefill-first`，可切换为 `token-budget` / `chunked-prefill`，详见 [迭代级调度策略](iteration-scheduling.md)）：
   * 若当前有 free batch slot 且队列中有就绪请求，优先执行新请求的 Prefill（可多请求拼接左 Padding 批处理），将其写入 `DenseSlotCache`，并产生第 1 个输出 Token。
   * 若当前没有 free batch slot 或无就绪请求，则针对所有活跃 batch slot 并发执行一步单 Token Decode。
 * **零静默回退（Zero Silent Fallback）**：

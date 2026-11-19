@@ -199,6 +199,9 @@ def records_to_wide_df(
         "num_decode_steps",
         "max_consecutive_prefill_steps",
         "num_oversize_prefill_steps",
+        "num_prefill_chunks",
+        "max_prefill_step_tokens",
+        "max_prefill_step_ms",
     )
     for key in sched_exclusive_keys:
         for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
