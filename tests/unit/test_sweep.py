@@ -434,6 +434,65 @@ def test_release_spec_validation():
         ReleaseSpec.model_validate(_release_raw(system=bad_lockstep_sys))
     with pytest.raises(ValueError, match="interleave"):
         ReleaseSpec.model_validate(_release_raw(execution={"interleave": ["batching_method"]}))
+    cp_dense = {
+        **_release_raw("scheduler")["system"],
+        "scheduler_spec": {
+            "max_running_requests": 4,
+            "batching_policy": {"kind": "chunked-prefill", "token_budget": 8},
+        },
+    }
+    with pytest.raises(ValueError, match="paged-kv-cache"):
+        ReleaseSpec.model_validate(_release_raw(system=cp_dense))
+    cp_paged = {**cp_dense, "caching_spec": "paged-kv-cache"}
+    assert ReleaseSpec.model_validate(_release_raw(system=cp_paged)).engine == "scheduler"
+
+
+def test_release_cli_dry_run_forwards_chunked_prefill_and_validates(capsys):
+    assert (
+        main(
+            [
+                "bench",
+                "release",
+                "--engine",
+                "scheduler",
+                "--tag",
+                "dev",
+                "--release-feature",
+                "chunked prefill",
+                "--caching-method",
+                "paged-kv-cache",
+                "--batching-policy",
+                "chunked-prefill",
+                "--token-budget",
+                "512",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "--batching-policy chunked-prefill --token-budget 512" in out
+
+    with pytest.raises(ValueError, match="paged-kv-cache"):
+        main(
+            [
+                "bench",
+                "release",
+                "--engine",
+                "scheduler",
+                "--tag",
+                "dev",
+                "--release-feature",
+                "bad",
+                "--caching-method",
+                "dense-kv-cache",
+                "--batching-policy",
+                "chunked-prefill",
+                "--token-budget",
+                "512",
+                "--dry-run",
+            ]
+        )
 
 
 def _write_release(

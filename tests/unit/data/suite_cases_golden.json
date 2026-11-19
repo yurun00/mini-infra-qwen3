@@ -4270,6 +4270,543 @@
    "max_running_requests": 8,
    "repeats": 3,
    "warmup": 1
+  },
+  "token-budget-vs-chunked-prefill-long-prompt": {
+   "cases": [
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=256)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "60c0e29abc58d3f0",
+       2048,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "long_prompt_interference"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "60c0e29abc58d3f0",
+       2048,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "long_prompt_interference"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=512)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "60c0e29abc58d3f0",
+       2048,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "long_prompt_interference"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=512)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "60c0e29abc58d3f0",
+       2048,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "long_prompt_interference"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=1024)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "60c0e29abc58d3f0",
+       2048,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "long_prompt_interference"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=1024)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "60c0e29abc58d3f0",
+       2048,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "long_prompt_interference"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_policy": "token-budget"
+    },
+    "group_by": [
+     "workload_id",
+     "token_budget"
+    ],
+    "metrics": [
+     {
+      "kind": "reduction",
+      "name": "ITL-max",
+      "path": "schedule_metrics.itl_ms_max"
+     },
+     {
+      "kind": "reduction",
+      "name": "ITL-p95",
+      "path": "schedule_metrics.itl_ms_p95"
+     },
+     {
+      "kind": "speedup",
+      "name": "TTFT-p95",
+      "path": "schedule_metrics.ttft_ms_p95"
+     },
+     {
+      "kind": "reduction",
+      "name": "max-prefill-ms",
+      "path": "schedule_metrics.max_prefill_step_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "peak-mem",
+      "path": "memory.peak_allocated_mb"
+     }
+    ]
+   },
+   "engine_configs": [
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=256)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=512)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=512)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=1024)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=1024)"
+   ],
+   "interleave": [
+    "batching_policy"
+   ],
+   "max_running_requests": 4,
+   "repeats": 3,
+   "warmup": 1
+  },
+  "token-budget-vs-chunked-prefill-no-decode-control": {
+   "cases": [
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=256)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "c2f6f22f939fe0a9",
+       2048,
+       8,
+       0.0
+      ]
+     ],
+     "workload_id": "no_decode_control"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "c2f6f22f939fe0a9",
+       2048,
+       8,
+       0.0
+      ]
+     ],
+     "workload_id": "no_decode_control"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=512)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "c2f6f22f939fe0a9",
+       2048,
+       8,
+       0.0
+      ]
+     ],
+     "workload_id": "no_decode_control"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=512)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "c2f6f22f939fe0a9",
+       2048,
+       8,
+       0.0
+      ]
+     ],
+     "workload_id": "no_decode_control"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=1024)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "c2f6f22f939fe0a9",
+       2048,
+       8,
+       0.0
+      ]
+     ],
+     "workload_id": "no_decode_control"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=1024)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "c2f6f22f939fe0a9",
+       2048,
+       8,
+       0.0
+      ]
+     ],
+     "workload_id": "no_decode_control"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_policy": "token-budget"
+    },
+    "group_by": [
+     "workload_id",
+     "token_budget"
+    ],
+    "metrics": [
+     {
+      "kind": "reduction",
+      "name": "ITL-max",
+      "path": "schedule_metrics.itl_ms_max"
+     },
+     {
+      "kind": "reduction",
+      "name": "ITL-p95",
+      "path": "schedule_metrics.itl_ms_p95"
+     },
+     {
+      "kind": "speedup",
+      "name": "TTFT-p95",
+      "path": "schedule_metrics.ttft_ms_p95"
+     },
+     {
+      "kind": "reduction",
+      "name": "max-prefill-ms",
+      "path": "schedule_metrics.max_prefill_step_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "peak-mem",
+      "path": "memory.peak_allocated_mb"
+     }
+    ]
+   },
+   "engine_configs": [
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=256)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=512)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=512)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=1024)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=1024)"
+   ],
+   "interleave": [
+    "batching_policy"
+   ],
+   "max_running_requests": 4,
+   "repeats": 3,
+   "warmup": 1
+  },
+  "token-budget-vs-chunked-prefill-short-control": {
+   "cases": [
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=256)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "short_prompt_control"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)",
+     "max_running_requests": 4,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "cae28ea48eceac3e",
+       128,
+       48,
+       0.0
+      ],
+      [
+       1,
+       "0d53034ca2d4e2b7",
+       128,
+       48,
+       0.0
+      ],
+      [
+       2,
+       "1aa183206fe5ae35",
+       128,
+       8,
+       200.0
+      ]
+     ],
+     "workload_id": "short_prompt_control"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "batching_policy": "token-budget"
+    },
+    "group_by": [
+     "workload_id",
+     "token_budget"
+    ],
+    "metrics": [
+     {
+      "kind": "reduction",
+      "name": "ITL-max",
+      "path": "schedule_metrics.itl_ms_max"
+     },
+     {
+      "kind": "reduction",
+      "name": "ITL-p95",
+      "path": "schedule_metrics.itl_ms_p95"
+     },
+     {
+      "kind": "speedup",
+      "name": "TTFT-p95",
+      "path": "schedule_metrics.ttft_ms_p95"
+     },
+     {
+      "kind": "reduction",
+      "name": "max-prefill-ms",
+      "path": "schedule_metrics.max_prefill_step_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "peak-mem",
+      "path": "memory.peak_allocated_mb"
+     }
+    ]
+   },
+   "engine_configs": [
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+token-budget(token_budget=256)",
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=4+chunked-prefill(token_budget=256)"
+   ],
+   "interleave": [
+    "batching_policy"
+   ],
+   "max_running_requests": 4,
+   "repeats": 3,
+   "warmup": 1
   }
  },
  "vocab_size": 1000

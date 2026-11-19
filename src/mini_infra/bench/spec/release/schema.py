@@ -11,7 +11,9 @@ from typing import Annotated, Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from mini_infra.bench.spec.common.schema import (
+    BudgetedBatchingPolicySpec,
     CheckSpec,
+    ChunkedPrefillSpec,
     ExecutionSpec,
     GroupSpec,
     LockstepEngineSpec,
@@ -19,10 +21,9 @@ from mini_infra.bench.spec.common.schema import (
     PagedCacheSpec,
     SuiteEngine,
     SystemSpec,
-    TokenBudgetSpec,
     _Strict,
 )
-from mini_infra.engine import EngineConfig
+from mini_infra.engine import BatchingMethod, EngineConfig
 
 ReleaseScale = Literal["small", "medium", "large"]
 RELEASE_SCALES: tuple[ReleaseScale, ...] = ("small", "medium", "large")
@@ -66,14 +67,24 @@ class ReleaseSpec(_Strict):
                 raise ValueError("lockstep release 不支持 paged-kv-cache")
             if self.system.scheduler_spec.max_running_requests is not None:
                 raise ValueError("lockstep release 不支持 max_running_requests")
-            if isinstance(self.system.scheduler_spec.batching_policy, TokenBudgetSpec):
-                raise ValueError("lockstep release 不支持 token-budget 调度策略")
+            policy = self.system.scheduler_spec.batching_policy
+            if isinstance(policy, BudgetedBatchingPolicySpec):
+                raise ValueError(f"lockstep release 不支持 {policy.kind} 调度策略")
             for check in self.checks:
                 if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):
                     raise ValueError(f"lockstep release 不支持检查 {check!r}")
         else:
-            if self.system.scheduler_spec.max_running_requests is None:
+            mrr = self.system.scheduler_spec.max_running_requests
+            if mrr is None:
                 raise ValueError("scheduler release 必须在 system.scheduler_spec 中提供 max_running_requests")
+            policy = self.system.scheduler_spec.batching_policy
+            if isinstance(policy, BudgetedBatchingPolicySpec):
+                if self.system.batching_method is not BatchingMethod.CONTINUOUS:
+                    raise ValueError(f"{policy.kind} 调度策略要求 batching_method 为 continuous-batching")
+                if policy.token_budget < mrr:
+                    raise ValueError(f"token_budget={policy.token_budget} 不能小于 max_running_requests={mrr}")
+                if isinstance(policy, ChunkedPrefillSpec) and not isinstance(self.system.caching_spec, PagedCacheSpec):
+                    raise ValueError("chunked-prefill 调度策略要求 caching_spec 为 paged-kv-cache")
         return self
 
 

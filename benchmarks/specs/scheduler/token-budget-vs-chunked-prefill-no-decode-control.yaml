@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: token-budget-vs-chunked-prefill-no-decode-control
+extends: _bases/token_budget_vs_chunked_prefill.yaml
+description: >-
+  无并行 Decode 负对照实验：移除初始在途 Decode 请求，仅运行单个 2048-token 长 Prompt 并扫描 token budget（256 / 512 / 1024），
+  验证无在途 Decode 保护对象时无长尾 ITL 毛刺削减，单独量化分块粒度对长请求 TTFT、吞吐与峰值显存的影响。
+workload:
+  id: no_decode_control
+  groups:
+    - {count: 1, prompt_len: "${arriving_prompt_len}", output_len: 8, arrival_ms: 0}
+checks: []

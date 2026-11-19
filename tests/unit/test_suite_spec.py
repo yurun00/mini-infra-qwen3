@@ -411,6 +411,31 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
             "sweep:\n  system:\n    scheduler_spec: [{batching_policy: budgeted}]\n",
             "does not match any of the expected tags",
         ),
+        # chunked-prefill 除要求 continuous-batching 外，还要求生效的 caching_spec 全部为 paged-kv-cache
+        (
+            "sweep:\n  system:\n    scheduler_spec:\n"
+            "      - {batching_policy: {kind: chunked-prefill, token_budget: 64}}\n",
+            "paged-kv-cache",
+        ),
+        (
+            "sweep:\n  system:\n    caching_spec: [dense-kv-cache, paged-kv-cache]\n"
+            "    scheduler_spec:\n"
+            "      - {batching_policy: {kind: chunked-prefill, token_budget: 64}}\n",
+            "paged-kv-cache",
+        ),
+        (
+            "sweep:\n  system:\n    batching_method: [fixed-batching, continuous-batching]\n"
+            "    caching_spec: [paged-kv-cache]\n"
+            "    scheduler_spec:\n"
+            "      - {batching_policy: {kind: chunked-prefill, token_budget: 64}}\n",
+            "continuous-batching",
+        ),
+        (
+            "sweep:\n  system:\n    caching_spec: [paged-kv-cache]\n"
+            "    scheduler_spec:\n"
+            "      - {batching_policy: {kind: chunked-prefill, token_budget: 2}}\n",
+            "不能小于",
+        ),
         ("sweep:\n  system:\n    scheduler_spec: [prefill-first]\n", "Input should be a valid dictionary"),
     ],
 )
@@ -443,11 +468,15 @@ workload: {id: w, count: 1, prompt_len: 8, output_len: 4}
     with pytest.raises(ValueError, match="lockstep suite 不支持 token-budget"):
         load_suite_spec(_write(tmp_path, lockstep))
 
+    lockstep_cp = lockstep.replace("token-budget", "chunked-prefill")
+    with pytest.raises(ValueError, match="lockstep suite 不支持 chunked-prefill"):
+        load_suite_spec(_write(tmp_path, lockstep_cp))
+
 
 def test_system_spec_scheduler_spec_default_engine_config():
     """验证 SystemSpec.scheduler_spec 解析与 default_engine_config 透传。"""
     from mini_infra.bench.spec.common import SystemSpec
-    from mini_infra.core import PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
+    from mini_infra.core import ChunkedPrefillConfig, PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
 
     default_sys = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "continuous-batching"})
     assert default_sys.default_engine_config.scheduler_config == SchedulerConfig(batching_policy=PrefillFirstConfig())
@@ -465,6 +494,22 @@ def test_system_spec_scheduler_spec_default_engine_config():
     assert budget_sys.default_engine_config.scheduler_config == SchedulerConfig(
         max_running_requests=4,
         batching_policy=TokenBudgetConfig(128),
+    )
+
+    chunked_sys = SystemSpec.model_validate(
+        {
+            "engine_mode": "scheduler",
+            "batching_method": "continuous-batching",
+            "caching_spec": "paged-kv-cache",
+            "scheduler_spec": {
+                "max_running_requests": 4,
+                "batching_policy": {"kind": "chunked-prefill", "token_budget": 256},
+            },
+        }
+    )
+    assert chunked_sys.default_engine_config.scheduler_config == SchedulerConfig(
+        max_running_requests=4,
+        batching_policy=ChunkedPrefillConfig(256),
     )
 
 

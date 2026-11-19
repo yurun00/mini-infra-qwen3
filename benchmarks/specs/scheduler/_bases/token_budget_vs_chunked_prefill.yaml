@@ -1,0 +1,42 @@
+# token-budget-vs-chunked-prefill-* 系列的共同基底：
+# t=0 先启动 2 个 128-token 在途 Decode 请求，200 ms 插入 1 个目标请求。
+# 在相同 Paged KV Cache、并发上限与 token budget 下对照软预算 token-budget（oversize prefill）与硬预算 chunked-prefill。
+# 本文件缺少 name，不是可运行 suite；仅供 extends 引用。
+execution:
+  warmup: 1
+  repeats: 3
+  interleave: [batching_policy]
+system:
+  engine_mode: scheduler
+  batching_method: continuous-batching
+  caching_spec: {kind: paged-kv-cache, block_size: 16}
+  scheduler_spec:
+    max_running_requests: 4
+    batching_policy: {kind: token-budget, token_budget: 256}
+sweep:
+  system:
+    scheduler_spec:
+      - {batching_policy: {kind: token-budget, token_budget: 256}}
+      - {batching_policy: {kind: chunked-prefill, token_budget: 256}}
+      - {batching_policy: {kind: token-budget, token_budget: 512}}
+      - {batching_policy: {kind: chunked-prefill, token_budget: 512}}
+      - {batching_policy: {kind: token-budget, token_budget: 1024}}
+      - {batching_policy: {kind: chunked-prefill, token_budget: 1024}}
+workload:
+  vars:
+    arriving_prompt_len: 2048
+  id: long_prompt_interference
+  groups:
+    - {count: 2, prompt_len: 128, output_len: 48, arrival_ms: 0}
+    - {count: 1, prompt_len: "${arriving_prompt_len}", output_len: 8, arrival_ms: 200}
+checks: [free_batch_slot_at_t0]
+comparison:
+  group_by: [workload_id, token_budget]
+  baseline: {batching_policy: token-budget}
+  metrics:
+    - {path: schedule_metrics.itl_ms_max, kind: reduction, name: ITL-max}
+    - {path: schedule_metrics.itl_ms_p95, kind: reduction, name: ITL-p95}
+    - {path: schedule_metrics.ttft_ms_p95, kind: speedup, name: TTFT-p95}
+    - {path: schedule_metrics.max_prefill_step_ms, kind: reduction, name: max-prefill-ms}
+    - {path: metrics.throughput_tok_s, kind: gain, name: throughput}
+    - {path: memory.peak_allocated_mb, kind: reduction, name: peak-mem}

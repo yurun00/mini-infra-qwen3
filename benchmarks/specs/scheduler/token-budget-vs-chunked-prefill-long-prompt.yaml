@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: token-budget-vs-chunked-prefill-long-prompt
+extends: _bases/token_budget_vs_chunked_prefill.yaml
+description: >-
+  2 个 128-token 请求持续 Decode，200 ms 到达 1 个 2048-token 超预算长 Prompt；扫描 token budget（256 / 512 / 1024），
+  对比软预算 token-budget（oversize prefill）与硬预算 chunked-prefill 对在途 Decode 尾延迟（ITL max）、TTFT P95、吞吐与峰值显存的权衡。

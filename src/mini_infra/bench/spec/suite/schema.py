@@ -23,8 +23,10 @@ from pydantic import Field, field_validator, model_validator
 from mini_infra.bench.cases import CaseDimension
 from mini_infra.bench.comparison import MetricKind
 from mini_infra.bench.spec.common.schema import (
+    BudgetedBatchingPolicySpec,
     CachingSpec,
     CheckSpec,
+    ChunkedPrefillSpec,
     ExecutionSpec,
     GroupSpec,
     MinMaxRunningRequestsCheck,
@@ -33,7 +35,6 @@ from mini_infra.bench.spec.common.schema import (
     SchedulerSpec,
     SuiteEngine,
     SystemSpec,
-    TokenBudgetSpec,
     _Strict,
 )
 from mini_infra.engine import BatchingMethod
@@ -187,6 +188,7 @@ class SuiteSpec(_Strict):
         # 3. 根据引擎类别校验对应特性的支持边界
         if isinstance(self.system.engine_mode, SchedulerEngineSpec):
             self._check_scheduler(
+                effective_caching_specs,
                 effective_batching_methods,
                 effective_scheduler_specs,
             )
@@ -196,6 +198,7 @@ class SuiteSpec(_Strict):
 
     def _check_scheduler(
         self,
+        effective_caching_specs: list[CachingSpec],
         effective_batching_methods: list[BatchingMethod],
         effective_scheduler_specs: list[SchedulerSpec],
     ) -> None:
@@ -205,16 +208,21 @@ class SuiteSpec(_Strict):
                 "（在 system.scheduler_spec 或 sweep.system.scheduler_spec 中指定）"
             )
 
-        token_budget_specs = [
-            spec for spec in effective_scheduler_specs if isinstance(spec.batching_policy, TokenBudgetSpec)
+        budgeted_specs = [
+            spec for spec in effective_scheduler_specs if isinstance(spec.batching_policy, BudgetedBatchingPolicySpec)
         ]
-        if not token_budget_specs:
+        if not budgeted_specs:
             return
         if any(method is not BatchingMethod.CONTINUOUS for method in effective_batching_methods):
-            raise ValueError("token-budget 调度策略要求生效的 batching_method 全部为 continuous-batching")
-        for spec in token_budget_specs:
+            kinds = sorted({spec.batching_policy.kind for spec in budgeted_specs})
+            raise ValueError(f"{'/'.join(kinds)} 调度策略要求生效的 batching_method 全部为 continuous-batching")
+        if any(isinstance(spec.batching_policy, ChunkedPrefillSpec) for spec in budgeted_specs) and any(
+            not isinstance(c, PagedCacheSpec) for c in effective_caching_specs
+        ):
+            raise ValueError("chunked-prefill 调度策略要求生效的 caching_spec 全部为 paged-kv-cache")
+        for spec in budgeted_specs:
             assert spec.max_running_requests is not None
-            assert isinstance(spec.batching_policy, TokenBudgetSpec)
+            assert isinstance(spec.batching_policy, BudgetedBatchingPolicySpec)
             if spec.batching_policy.token_budget < spec.max_running_requests:
                 raise ValueError(
                     f"token_budget={spec.batching_policy.token_budget} "
@@ -229,8 +237,9 @@ class SuiteSpec(_Strict):
     ) -> None:
         if any(s.max_running_requests is not None for s in effective_scheduler_specs):
             raise ValueError("lockstep suite 不支持 max_running_requests")
-        if any(isinstance(s.batching_policy, TokenBudgetSpec) for s in effective_scheduler_specs):
-            raise ValueError("lockstep suite 不支持 token-budget 调度策略")
+        for s in effective_scheduler_specs:
+            if isinstance(s.batching_policy, BudgetedBatchingPolicySpec):
+                raise ValueError(f"lockstep suite 不支持 {s.batching_policy.kind} 调度策略")
         if any(isinstance(c, PagedCacheSpec) for c in effective_caching_specs):
             raise ValueError("lockstep suite 不支持 paged-kv-cache")
         if BatchingMethod.CONTINUOUS in effective_batching_methods:
