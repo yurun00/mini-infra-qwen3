@@ -161,7 +161,7 @@ token-budget 的软预算无法切分长 Prompt：队头单独超预算时只能
 
 - 各策略只决定「谁在哪一步入场、每步算 Prompt 的哪一段」，`position_ids`、block table 寻址与因果可见范围仍由 worker 保证，逐请求输出与串行 `generate` 逐 Token 一致。
 - CPU：`tests/unit/test_scheduler.py`（决策单测，含 chunk 区间、硬预算、decode protection、入场预留）、`test_paged_kv_cache.py`（分轮 chunk 与整段 Prefill 的 K/V 与首 Token 等价）、`test_continuous.py` / `test_paged_scheduler.py`（串行一致性与事件不变量）、`test_compare_schedulers.py`、`mini-infra verify smoke`（`check_token_budget_scheduling` / `check_chunked_prefill_scheduling`）。
-- GPU：`mini-infra verify schedulers-token-budget`（`compare_schedulers_token_budget.py` 错峰 Burst 轨迹与指标对比）与 `tests/gpu/parity/test_scheduler_batch_parity.py` 在 `float32` 下覆盖 Dense / Paged × 预算（含 oversize prefill）及 Paged × chunked-prefill 预算（含每请求每步 1 个 Token 的极限切分）。
+- GPU：`mini-infra verify schedulers-token-budget`（`compare_schedulers_token_budget.py` 错峰 Burst 轨迹与指标对比）、`mini-infra verify chunked-prefill`（`compare_chunked_prefill.py` 超长 Prompt 下 `token-budget` vs `chunked-prefill` 逐 Token / 首 Token Logits 误差 / 轨迹对比）与 `tests/gpu/parity/test_scheduler_batch_parity.py` 在 `float32` 下覆盖 Dense / Paged × 预算（含 oversize prefill）及 Paged × chunked-prefill 预算（含每请求每步 1 个 Token 的极限切分）。
 
 ## 七、使用
 

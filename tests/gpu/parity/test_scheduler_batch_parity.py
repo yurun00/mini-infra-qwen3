@@ -209,3 +209,24 @@ def test_compare_schedulers_cli():
         )
         == 0
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
+def test_compare_chunked_prefill_cli():
+    from mini_infra.cli import main
+
+    assert (
+        main(
+            [
+                "verify",
+                "chunked-prefill",
+                "--max-new-tokens",
+                "4",
+                "--token-budget",
+                "32",
+                "--block-size",
+                "16",
+            ]
+        )
+        == 0
+    )
