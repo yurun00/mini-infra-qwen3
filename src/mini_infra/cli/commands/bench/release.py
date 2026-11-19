@@ -67,12 +67,12 @@ from mini_infra.bench.spec import RELEASE_SCALES, ReleaseScale, get_release_spec
 from mini_infra.core import (
     BATCHING_POLICY_KINDS,
     KV_CACHE_KINDS,
+    BudgetedBatchingPolicy,
     PagedCacheConfig,
-    TokenBudgetConfig,
     kv_cache_config_from_str,
     scheduler_config_from_str,
 )
-from mini_infra.engine import BatchingMethod, EngineConfig
+from mini_infra.engine import BatchingMethod, EngineConfig, validate_engine_config
 
 
 @dataclass(frozen=True)
@@ -175,7 +175,7 @@ def _build_scheduler_case_cmd(
     if isinstance(config.kv_cache_config, PagedCacheConfig) and block_size is not None:
         cmd.extend(["--block-size", str(block_size)])
     policy = config.scheduler_config.batching_policy
-    if isinstance(policy, TokenBudgetConfig):
+    if isinstance(policy, BudgetedBatchingPolicy):
         cmd.extend(["--batching-policy", policy.kind, "--token-budget", str(policy.token_budget)])
     if scale is not None:
         cmd.extend(["--scale", str(scale)])
@@ -277,13 +277,13 @@ def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         "--batching-policy",
         choices=list(BATCHING_POLICY_KINDS),
         default=None,
-        help="覆盖单步组批策略（默认: prefill-first，仅 scheduler 引擎支持 token-budget）",
+        help="覆盖单步组批策略（默认: prefill-first，仅 scheduler 引擎支持 token-budget / chunked-prefill）",
     )
     p.add_argument(
         "--token-budget",
         type=int,
         default=None,
-        help="token-budget 策略下单次 Prefill 的 padded prompt token 上限（仅 scheduler 引擎生效）",
+        help="token-budget / chunked-prefill 策略下单次 Prefill 的 padded token 上限（仅 scheduler 引擎生效）",
     )
     p.add_argument(
         "--profiling-mode",
@@ -382,6 +382,7 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
             batching_method=bm,
             scheduler_config=scheduler_config,
         )
+        validate_engine_config(target_config)
         block_size = getattr(args, "block_size", None)
         git = git_info()
         hist_file = SCHEDULER_RESULT_HISTORY_DIR / f"{git['commit']}_{args.tag}.json"

@@ -47,10 +47,13 @@ def test_scheduler_suites_registry():
             "dense-vs-paged-length-ratio",
             "dense-vs-paged-block-size",
             "prefill-first-vs-token-budget-prefill-burst",
+            "token-budget-vs-chunked-prefill-long-prompt",
+            "token-budget-vs-chunked-prefill-short-control",
+            "token-budget-vs-chunked-prefill-no-decode-control",
         ]
     )
     suites = get_all_benchmark_suites("scheduler")
-    assert len(suites) == 8
+    assert len(suites) == 11
     for suite in suites:
         assert isinstance(suite, BenchmarkSuite)
         assert isinstance(suite.cases, tuple)
@@ -519,3 +522,111 @@ def test_format_table_abbreviations():
         num_blocks=64,
     )
     assert paged_key.abbreviated_display_name == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
+
+
+def test_chunked_prefill_builtin_suites_and_negative_controls():
+    """验证 token-budget vs chunked-prefill 主实验与双负对照套件的展开与对比配对。"""
+    main_suite = get_benchmark_suite("scheduler", "token-budget-vs-chunked-prefill-long-prompt")
+    assert len(main_suite.cases) == 6
+    assert main_suite.interleave == (CaseDimension.BATCHING_POLICY,)
+    assert [(c.key.batching_policy, c.key.token_budget) for c in main_suite.cases] == [
+        ("token-budget", 256),
+        ("chunked-prefill", 256),
+        ("token-budget", 512),
+        ("chunked-prefill", 512),
+        ("token-budget", 1024),
+        ("chunked-prefill", 1024),
+    ]
+    prof = main_suite.cases[0].profile
+    assert prof.prompt_lens == (128, 128, 2048)
+    assert prof.output_budgets == (48, 48, 8)
+    assert prof.arrival_ms == (0.0, 0.0, 200.0)
+    assert main_suite.comparison is not None
+    assert main_suite.comparison.group_by == (CaseDimension.WORKLOAD_ID, CaseDimension.TOKEN_BUDGET)
+    assert main_suite.comparison.baseline == {CaseDimension.BATCHING_POLICY: "token-budget"}
+
+    short_ctrl = get_benchmark_suite("scheduler", "token-budget-vs-chunked-prefill-short-control")
+    assert len(short_ctrl.cases) == 2
+    assert [(c.key.batching_policy, c.key.token_budget) for c in short_ctrl.cases] == [
+        ("token-budget", 256),
+        ("chunked-prefill", 256),
+    ]
+    assert short_ctrl.cases[0].profile.prompt_lens == (128, 128, 128)
+
+    no_dec_ctrl = get_benchmark_suite("scheduler", "token-budget-vs-chunked-prefill-no-decode-control")
+    assert len(no_dec_ctrl.cases) == 6
+    assert no_dec_ctrl.cases[0].profile.prompt_lens == (2048,)
+    assert no_dec_ctrl.cases[0].profile.arrival_ms == (0.0,)
+
+
+def test_chunked_prefill_suite_end_to_end_cpu(tmp_path, diverse_model):
+    """CPU 端到端运行 token-budget vs chunked-prefill 迷你套件，验证指标对比与记录落盘校验。"""
+    from types import SimpleNamespace
+
+    import torch
+
+    from mini_infra.bench.efficiency import HardwarePeakSpecs
+    from mini_infra.bench.result import build_benchmark_record, validate_benchmark_record
+    from mini_infra.bench.scheduler.run_suite import run_suite
+    from mini_infra.bench.spec import load_suite_spec
+    from mini_infra.bench.suite import BenchmarkSuite
+
+    spec_path = tmp_path / "mini-chunked.yaml"
+    spec_path.write_text(
+        """name: mini-chunked
+execution: {warmup: 0, repeats: 2, interleave: [batching_policy]}
+system:
+  engine_mode: scheduler
+  batching_method: continuous-batching
+  caching_spec: {kind: paged-kv-cache, block_size: 4}
+  scheduler_spec: {max_running_requests: 3}
+sweep:
+  system:
+    scheduler_spec:
+      - {batching_policy: {kind: token-budget, token_budget: 4}}
+      - {batching_policy: {kind: chunked-prefill, token_budget: 4}}
+workload:
+  id: mini_interference
+  groups:
+    - {count: 2, prompt_len: 4, output_len: 4, arrival_ms: 0}
+    - {count: 1, prompt_len: 12, output_len: 2, arrival_ms: 0}
+comparison:
+  group_by: [workload_id, token_budget]
+  baseline: {batching_policy: token-budget}
+  metrics:
+    - {path: schedule_metrics.itl_ms_max, kind: reduction, name: ITL-max}
+    - {path: schedule_metrics.ttft_ms_p95, kind: speedup, name: TTFT-p95}
+    - {path: schedule_metrics.max_prefill_step_ms, kind: reduction, name: max-prefill-ms}
+""",
+        encoding="utf-8",
+    )
+    suite = BenchmarkSuite.from_spec(load_suite_spec(spec_path))
+    results = run_suite(diverse_model, torch.device("cpu"), suite, vocab_size=diverse_model.config.vocab_size)
+    assert len(results) == 2
+    tb_res, cp_res = results
+    assert tb_res.schedule_metrics.num_oversize_prefill_steps.median == 1.0
+    assert cp_res.schedule_metrics.num_oversize_prefill_steps.median == 0.0
+    assert cp_res.schedule_metrics.max_prefill_step_tokens.median <= 4.0
+
+    assert suite.comparison is not None
+    comps = compute_comparisons(results, suite.comparison)
+    assert [c.metric_name for c in comps] == ["ITL-max", "TTFT-p95", "max-prefill-ms"]
+
+    record = build_benchmark_record(
+        SimpleNamespace(tag="dev"),
+        diverse_model,
+        "|".join(str(m) for m in suite.engine_configs()),
+        results,
+        {},
+        {"gpu": "CPU"},
+        HardwarePeakSpecs(None, None),
+        None,
+        {"commit": "deadbeef", "dirty": False},
+        suite.warmup,
+        suite.repeats,
+        suite_info=suite.to_dict(),
+        engine="scheduler",
+        comparisons=comps,
+    )
+    validated = validate_benchmark_record(record.to_dict())
+    assert len(validated.cases) == 2 and len(validated.comparisons) == 3

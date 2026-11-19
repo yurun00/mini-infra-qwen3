@@ -9,6 +9,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 
 from mini_infra.bench.cases import CaseDimension
 from mini_infra.core import (
+    ChunkedPrefillConfig,
     DenseCacheConfig,
     NoCacheConfig,
     PagedCacheConfig,
@@ -342,6 +343,20 @@ class TokenBudgetSpec(_Strict):
         return TokenBudgetConfig(self.token_budget)
 
 
+class ChunkedPrefillSpec(_Strict):
+    """chunked-prefill 单步组批策略：padded chunk token 硬预算切分长 Prompt，并启用 decode protection。"""
+
+    kind: Literal["chunked-prefill"] = ChunkedPrefillConfig.kind
+    token_budget: PositiveInt
+
+    @property
+    def batching_policy(self) -> ChunkedPrefillConfig:
+        return ChunkedPrefillConfig(self.token_budget)
+
+
+BudgetedBatchingPolicySpec = TokenBudgetSpec | ChunkedPrefillSpec
+
+
 def _normalize_batching_policy(raw: Any) -> Any:
     """归一化 batching_policy 输入：将标量字符串提升为标准判别字典。"""
     if isinstance(raw, str):
@@ -350,7 +365,7 @@ def _normalize_batching_policy(raw: Any) -> Any:
 
 
 BatchingPolicySpec = Annotated[
-    PrefillFirstSpec | TokenBudgetSpec,
+    PrefillFirstSpec | TokenBudgetSpec | ChunkedPrefillSpec,
     Field(discriminator="kind"),
     BeforeValidator(_normalize_batching_policy),
 ]
@@ -404,8 +419,10 @@ __all__ = [
     "AlternatingLength",
     "ArrivalSpec",
     "BatchingPolicySpec",
+    "BudgetedBatchingPolicySpec",
     "CachingSpec",
     "CheckSpec",
+    "ChunkedPrefillSpec",
     "ConstantArrival",
     "ConstantLength",
     "DenseCacheSpec",

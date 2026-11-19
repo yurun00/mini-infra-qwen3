@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: token-budget-vs-chunked-prefill-short-control
+extends: _bases/token_budget_vs_chunked_prefill.yaml
+description: >-
+  短 Prompt 负对照实验：将 200 ms 到达的请求改为 128-token（不超过 token_budget=256），两条策略均单步完成 Prefill，
+  验证主实验的 ITL max 削减收益来自拆分超预算长 Prompt，而非分块状态机本身。
+workload:
+  vars:
+    arriving_prompt_len: 128
+  id: short_prompt_control
+sweep:
+  system:
+    scheduler_spec:
+      - {batching_policy: {kind: token-budget, token_budget: 256}}
+      - {batching_policy: {kind: chunked-prefill, token_budget: 256}}

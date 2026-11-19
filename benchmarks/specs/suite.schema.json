@@ -26,6 +26,28 @@
       "title": "CaseDimension",
       "type": "string"
     },
+    "ChunkedPrefillSpec": {
+      "additionalProperties": false,
+      "description": "chunked-prefill 单步组批策略：padded chunk token 硬预算切分长 Prompt，并启用 decode protection。",
+      "properties": {
+        "kind": {
+          "const": "chunked-prefill",
+          "default": "chunked-prefill",
+          "title": "Kind",
+          "type": "string"
+        },
+        "token_budget": {
+          "exclusiveMinimum": 0,
+          "title": "Token Budget",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "token_budget"
+      ],
+      "title": "ChunkedPrefillSpec",
+      "type": "object"
+    },
     "ComparisonSpec": {
       "additionalProperties": false,
       "properties": {
@@ -295,6 +317,7 @@
           },
           "discriminator": {
             "mapping": {
+              "chunked-prefill": "#/$defs/ChunkedPrefillSpec",
               "prefill-first": "#/$defs/PrefillFirstSpec",
               "token-budget": "#/$defs/TokenBudgetSpec"
             },
@@ -306,6 +329,9 @@
             },
             {
               "$ref": "#/$defs/TokenBudgetSpec"
+            },
+            {
+              "$ref": "#/$defs/ChunkedPrefillSpec"
             }
           ],
           "title": "Batching Policy"

@@ -225,6 +225,11 @@ mini-infra bench scheduler case \
 **prefill-first vs token-budget 对比套件（交替维度 `interleave=(batching_policy, token_budget)`）**：
 8. **`prefill-first-vs-token-budget-prefill-burst`**：4 个 128-token 请求持续 Decode，200 ms 突发到达 12 个长短混合 Prompt；扫描 token budget（256 / 512 / 1024 / 2048 / 4096）× Dense / Paged，对比在途请求 Decode 尾延迟（`itl_ms_max` / `itl_ms_p95`）、TTFT P95、吞吐与 padding 效率，并记录 `max_consecutive_prefill_steps` / `num_oversize_prefill_steps` 等迭代调度步数类指标（见 [迭代级组批与调度策略](../architecture/iteration-scheduling.md)）。
 
+**token-budget vs chunked-prefill 受控与负对照套件（交替维度 `interleave=(batching_policy,)`）**：
+9. **`token-budget-vs-chunked-prefill-long-prompt`**：2 个 128-token 请求持续 Decode，200 ms 到达 1 个 2048-token 超预算长 Prompt；扫描 token budget（256 / 512 / 1024），对比软预算 `token-budget`（oversize prefill）与硬预算 `chunked-prefill` 对在途 Decode 尾延迟（`itl_ms_max` / `itl_ms_p95`）、TTFT P95、单步最大 Prefill 耗时（`max_prefill_step_ms`）、吞吐与峰值显存的权衡。
+10. **`token-budget-vs-chunked-prefill-short-control`**（短 Prompt 负对照）：将 200 ms 到达的请求改为 128-token（不超过 `token_budget=256`），验证无可拆分长 Prompt 时无虚高 ITL max 削减收益。
+11. **`token-budget-vs-chunked-prefill-no-decode-control`**（无并行 Decode 负对照）：移除初始在途 Decode 请求，单跑 1 个 2048-token 长 Prompt 并扫描 token budget（256 / 512 / 1024），验证无在途 Decode 保护对象时无长尾 ITL 毛刺削减，单独量化分块粒度对长请求 TTFT、吞吐与峰值显存的影响。
+
 > [!NOTE]
 > 与 lockstep 一致：套件的 `warmup` / `repeats` 取自 YAML 的 `execution`，命令行 `--warmup` / `--repeats` 仅在显式传入时覆盖。
 

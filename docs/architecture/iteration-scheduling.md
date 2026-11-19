@@ -203,14 +203,21 @@ config = EngineConfig(
 )
 ```
 
-> [!NOTE]
-> 声明式评测套件（YAML `scheduler_spec` / release spec）尚未登记 `chunked-prefill`；当前经 `mini-infra run`、`mini-infra bench scheduler case` 与 Python API 使用。
-
-受控实验套件 `prefill-first-vs-token-budget-prefill-burst`（YAML 的 `scheduler_spec` 扫描轴与 `caching_spec` 同构，见 [声明式评测规范](../benchmarks/spec-schema.md)）：
+受控实验套件（YAML 的 `scheduler_spec` 扫描轴与 `caching_spec` 同构，见 [声明式评测规范](../benchmarks/spec-schema.md)）：
 
 ```bash
+# prefill-first vs token-budget（Prefill burst）
 mini-infra bench sweep --engine scheduler --tag dev --suite prefill-first-vs-token-budget-prefill-burst \
   --output tmp/results/prefill-burst.local.json
+
+# token-budget vs chunked-prefill（主实验 + 短 Prompt 负对照 + 无并行 Decode 负对照）
+mini-infra bench sweep --engine scheduler --tag dev \
+  --suite token-budget-vs-chunked-prefill-long-prompt \
+          token-budget-vs-chunked-prefill-short-control \
+          token-budget-vs-chunked-prefill-no-decode-control \
+  --output-dir tmp/results/chunked-prefill
+
+# 单用例评测
 mini-infra bench scheduler case --tag dev --caching-method paged-kv-cache --max-running-requests 8 \
-  --batching-policy token-budget --token-budget 512 --prompt-lens 128 2048 128 1024 --arrival-times-ms 0 0 50 50
+  --batching-policy chunked-prefill --token-budget 512 --prompt-lens 128 2048 128 1024 --arrival-times-ms 0 0 50 50
 ```
