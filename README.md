@@ -15,13 +15,14 @@
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
 - **Continuous Batching 调度与并发调度基准**：实现原生 `DenseSlotCache` batch slot 管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占 free batch slot，消除队头阻塞；内建 `mini-infra bench scheduler` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
 - **Paged KV Cache（PagedAttention 内存管理）**：基于 `PagedKVCachePool`（physical block pool）与 `KVCacheManager`（请求级 block table）的非连续显存分页分配，按需按块申请与即时归还，彻底消除最长序列预留造成的内部碎片与左侧扩容拷贝开销。
-- **Chunked Prefill 迭代级组批调度**：`chunked-prefill` 组批策略把长 Prompt 按 token budget 硬预算切成 chunk 跨步推进（仅 `paged-kv-cache` + `continuous-batching`），历史 K/V 经 block table 从 physical block pool 读回，新增 `num_prefill_chunks` / `max_prefill_step_tokens` / `max_prefill_step_ms` 指标，消除 oversize prefill 对在途 Decode 的整段阻塞。
 - **Token-Budget 迭代级组批调度**：在 `IterationScheduler` 中支持 `token-budget` 单步组批策略（batching policy），按 padded prompt tokens 预算控制单次 Prefill 规模并启用 decode protection，抑制突发到达请求对在途 Decode 尾延迟（ITL）的阻塞。
+- **Chunked Prefill 迭代级组批调度**：`chunked-prefill` 组批策略把长 Prompt 按 token budget 硬预算切成 chunk 跨步推进（仅 `paged-kv-cache` + `continuous-batching`），历史 K/V 经 block table 从 physical block pool 读回，新增 `num_prefill_chunks` / `max_prefill_step_tokens` / `max_prefill_step_ms` 指标，消除 oversize prefill 对在途 Decode 的整段阻塞。
 
 ### 规划中特性 (Roadmap)
 - [x] **Continuous Batching 调度**：支持多请求动态并发与动态组批（DenseSlotCache + `mini-infra bench scheduler`）
 - [x] **Paged KV Cache（PagedAttention 内存管理）**：physical block pool + block table 的非连续显存分页分配与碎片消除
 - [x] **Token-Budget 迭代级组批调度**：按 token budget 限制单次 Prefill 规模并启用 decode protection，平抑 Decode 尾延迟
+- [x] **Chunked Prefill 迭代级组批调度**：按 token budget 硬预算将长 Prompt 切块跨步推进，消除 oversize prefill 对在途 Decode 的整段阻塞
 - [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
 - [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
 - [ ] **Tensor Parallelism (TP)**：张量并行分布式推理

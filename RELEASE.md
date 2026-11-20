@@ -95,6 +95,15 @@ mini-infra bench release \
   --caching-method paged-kv-cache \
   --batching-policy token-budget \
   --token-budget 512
+
+# 5) 若为迭代级 Chunked Prefill 调度特性（如 v0.7.0 Chunked Prefill）：
+mini-infra bench release \
+  --engine scheduler \
+  --tag "v0.7.0" \
+  --release-feature "chunked prefill" \
+  --caching-method paged-kv-cache \
+  --batching-policy chunked-prefill \
+  --token-budget 512
 ```
 
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。
