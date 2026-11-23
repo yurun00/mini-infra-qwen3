@@ -15,6 +15,7 @@ from mini_infra.core import (
     KVCacheManager,
     PagedCacheConfig,
     Request,
+    RequestState,
     SchedulerConfig,
     make_requests,
     num_blocks_for_tokens,
@@ -138,7 +139,7 @@ def _compare_first_token_logits(
         if not manager.allocate_slots(request_idx, request.prompt_len - start):
             raise RuntimeError(f"请求 {request_idx} 分配物理块失败")
         cached_logits = _prefill_logits(model, runner, pool, sequence, start, manager.block_table(request_idx))
-        manager.cache_blocks(request_idx, request.token_ids, request.prompt_len)
+        manager.cache_blocks(RequestState(request, cache_length=request.prompt_len))
         errors[str(request_idx)] = float(
             torch.max(torch.abs(full_logits[0, -1, :].float().cpu() - cached_logits)).item()
         )

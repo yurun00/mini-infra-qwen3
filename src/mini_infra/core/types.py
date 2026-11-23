@@ -28,6 +28,7 @@ class NoCacheConfig:
     """不启用 KV Cache 的运行时配置。"""
 
     kind: ClassVar[KVCacheKind] = "none"
+    is_prefix_caching_enabled: ClassVar[bool] = False
 
     def __str__(self) -> str:
         return "no-cache"
@@ -38,6 +39,7 @@ class DenseCacheConfig:
     """Dense KV Cache（预分配连续 batch slot）的运行时配置。"""
 
     kind: ClassVar[KVCacheKind] = "dense-kv-cache"
+    is_prefix_caching_enabled: ClassVar[bool] = False
 
     def __str__(self) -> str:
         return self.kind

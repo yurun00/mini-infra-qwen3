@@ -16,6 +16,8 @@ from mini_infra.core import (
     PagedCacheConfig,
     PrefillFirstConfig,
     Request,
+    RequestState,
+    RequestStatus,
     SchedulePhase,
     SchedulerConfig,
     TokenBudgetConfig,
@@ -33,9 +35,9 @@ from mini_infra.entrypoints import GenerationOptions, generate
 
 def _prefill(manager: KVCacheManager, request: Request) -> list[int]:
     """模拟一次入场 + 整段 Prompt Prefill + K/V 落盘后登记 cached block，返回 block table。"""
-    manager.allocate_computed_blocks(request)
-    assert manager.allocate_slots(request.request_idx, request.prompt_len - manager.num_computed_tokens(request))
-    manager.cache_blocks(request.request_idx, request.token_ids, request.prompt_len)
+    hit_tokens = manager.allocate_computed_blocks(request)
+    assert manager.allocate_slots(request.request_idx, request.prompt_len - hit_tokens)
+    manager.cache_blocks(RequestState(request, cache_length=request.prompt_len))
     return manager.block_table(request.request_idx)
 
 
@@ -111,8 +113,10 @@ def test_num_admissible_charges_free_cached_hits_once():
     second = Request(2, (1, 2, 3, 4, 8), 1)  # 同样命中 [1, 2]，但已被 first 计费：只需新块 1
     third = Request(3, (7, 7, 7), 1)  # 需 2 块
 
-    assert manager.num_admissible([first, second, third], 0) == 2
-    assert manager.num_admissible([first, second], 1) == 1
+    assert manager.num_admissible([first, second, third], ()) == 2
+    # 在途请求（Prompt 3 Token = 2 块，已写 2 Token = 1 块）预留 1 块，剩余预算只够 first
+    in_flight = RequestState(Request(99, (7, 7, 7), 1), status=RequestStatus.RUNNING, cache_length=2)
+    assert manager.num_admissible([first, second], [in_flight]) == 1
 
 
 def test_disabled_manager_never_hits_or_caches():

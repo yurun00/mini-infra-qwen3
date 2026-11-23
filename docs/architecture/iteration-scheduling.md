@@ -48,7 +48,7 @@ sequenceDiagram
 - **`IterationScheduler(scheduler_config, batching_method, kv_cache_manager)`**（纯 CPU control plane）在 `schedule(clock_ms)` 内一次完成全部入场决策与逻辑资源分配，依次在 `waiting_queue` 的 FCFS 前缀上取交集：
   1. batching 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等 `running_queue` 排空（wave barrier）；
   2. batch slot 约束：至多 `running_queue.num_free_batch_slots` 个；
-  3. KV 显存约束（仅 Paged，`kv_cache_manager` 非 None）：`KVCacheManager.num_admissible` 在预留 chunked prefill 在途请求尚未写入的 Prompt 块之后可容纳的前缀；
+  3. KV 显存约束：`kv_cache_manager.num_admissible` 在预留 chunked prefill 在途请求尚未写入的 Prompt 块之后可容纳的前缀（Dense 路径注入 `NullKVCacheManager`，不施加块约束）；
   4. 策略约束：token budget 截断与 decode protection（见下文）。
 - 所有约束都是 **FCFS 前缀截断**，可交换、可组合；**不跳过队头**：队头放不下就停，不往后找更短的请求（与 vLLM V1 一致）。
 - **状态与逻辑块生命周期闭环**：`schedule(clock_ms)` 原子执行 `waiting_queue.pop_batch`、`running_queue.admit` 及 `kv_cache_manager.allocate_slots`；前向完成后，`update_from_output(...)` 统一推进 `cache_length`（PREFILL 按完成的 chunk 推进至 `chunk.end`，DECODE 递增 1）、为产出 Token 的请求追加 Token（chunked prefill 的中间 chunk 不产出 Token）、对完成请求执行 `kv_cache_manager.free` 与 `running_queue.retire`；`ScheduleBackend` 只消费 `PrefillChunk` / `Sequence[RequestState]` 执行算子与物理缓存读写，对 `RunningQueue` 完全无感知。
@@ -124,7 +124,7 @@ token-budget 的软预算无法切分长 Prompt：队头单独超预算时只能
 ### 4. Paged KV Cache：逐 chunk 分配与入场预留
 
 - **逐 chunk 分配**：`schedule()` 对每个 chunk 调用 `KVCacheManager.allocate_slots(request_idx, chunk.num_tokens)` 追加块（累计 Token 数判定是否跨块边界）。
-- **入场预留**：`num_admissible(prompt_lens, num_reserved_blocks)` 先扣除在途 chunked prefill 请求尚未写入的 Prompt 块，保证新请求不抢占其后续 chunk 的块，避免两个半截 Prefill 互相等块而卡死。Decode 增长吞掉预留块时 `allocate_slots` 失败，显式 `RuntimeError`（未实现抢占，见 `preemption_mode` TODO）。
+- **入场预留**：`num_admissible(requests, prefilling_states)` 先扣除在途 chunked prefill 请求尚未写入的 Prompt 块，保证新请求不抢占其后续 chunk 的块，避免两个半截 Prefill 互相等块而卡死。Decode 增长吞掉预留块时 `allocate_slots` 失败，显式 `RuntimeError`（未实现抢占，见 `preemption_mode` TODO）。
 - **worker 路径**：`PagedRunner.run_prefill_chunk_step` 把各行 chunk 左 Padding，历史 K/V 经 block table 由 `PagedKVCachePool.gather_blocks` 读回并作为 `DenseAttentionMetadata.past_key_values` 喂模型（模型层无感知，仍是 Tensor-In / Tensor-Out）；`attention_mask` 的历史部分只放行前 `start` 个位置，真实 Token 的 `position_ids` 从 `start` 连续递增，与整段 Prompt 一次 Prefill 严格等价；全部行 `start == 0` 时无历史，与整段 Prompt 走同一前向路径。前向后 `PagedRunner.store_prefill` 按各行 `start_positions` 把 chunk 的 K/V 散写入 physical block pool。
 
 ### 5. 与参考实现 chapter_07 的功能对照

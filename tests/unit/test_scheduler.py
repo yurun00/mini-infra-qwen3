@@ -5,7 +5,9 @@ from collections.abc import Sequence
 import pytest
 
 from mini_infra.core import (
+    NULL_KV_CACHE_MANAGER,
     ArrivalQueue,
+    BaseKVCacheManager,
     BatchingMethod,
     ChunkedPrefillConfig,
     IterationScheduler,
@@ -465,7 +467,9 @@ def test_scheduler_token_budget_decode_protection_lifecycle():
 # ---------------------------------------------------------------------------
 
 
-def chunked_scheduler(token_budget: int, capacity: int, manager: KVCacheManager | None = None) -> IterationScheduler:
+def chunked_scheduler(
+    token_budget: int, capacity: int, manager: BaseKVCacheManager = NULL_KV_CACHE_MANAGER
+) -> IterationScheduler:
     return IterationScheduler(
         SchedulerConfig(max_running_requests=capacity, batching_policy=ChunkedPrefillConfig(token_budget)),
         CONTINUOUS,

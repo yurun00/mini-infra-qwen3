@@ -25,7 +25,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from mini_infra.core.block_manager import KVCacheManager, num_blocks_for_tokens
+from mini_infra.core.block_manager import NULL_KV_CACHE_MANAGER, BaseKVCacheManager
 from mini_infra.core.request import (
     Request,
     RequestState,
@@ -323,7 +323,7 @@ class IterationScheduler:
         self,
         scheduler_config: SchedulerConfig,
         batching_method: BatchingMethod,
-        kv_cache_manager: KVCacheManager | None = None,
+        kv_cache_manager: BaseKVCacheManager = NULL_KV_CACHE_MANAGER,
     ) -> None:
         if scheduler_config.max_running_requests is None:
             raise ValueError("scheduler_config.max_running_requests 必须为已解析的正整数")
@@ -331,7 +331,7 @@ class IterationScheduler:
         self.batching_method = batching_method
         self.waiting_queue = WaitingQueue()
         self.running_queue = RunningQueue(scheduler_config.max_running_requests)
-        # Paged 路径的逻辑块管理器（由本调度器统一执行 allocate_slots / free）；Dense 路径为 None
+        # 逻辑块管理器（Paged 为 KVCacheManager，Dense 默认为无操作的 NullKVCacheManager）
         self.kv_cache_manager = kv_cache_manager
         self._last_phase: SchedulePhase | None = None
 
@@ -345,7 +345,7 @@ class IterationScheduler:
         self.waiting_queue.extend(states)
 
     def schedule(self, clock_ms: float) -> SchedulerOutput | None:
-        """生成本步调度计划并原子执行队列转移、batch slot 分配与 Paged 逻辑块分配；空闲时返回 None。"""
+        """生成本步调度计划并原子执行队列转移、batch slot 分配与逻辑块分配；空闲时返回 None。"""
         output = self._decide()
         if output is None:
             return None
@@ -355,12 +355,15 @@ class IterationScheduler:
             # 先为全部新入场请求引用 prefix cache 命中块，再统一追加新块：
             # 新块分配可能从 free block queue 队首淘汰空闲 cached block，先引用可保证已规划的命中不被淘汰
             for state in admitted:
-                self._allocate_computed_blocks(state)
-            for chunk in output.prefill_chunks:
-                self._allocate_slots(chunk.state, chunk.num_tokens)
+                hit_tokens = self.kv_cache_manager.allocate_computed_blocks(state.request)
+                state.prefix_cache_hit_tokens = hit_tokens
+                state.cache_length = hit_tokens
+            allocations = [(chunk.state, chunk.num_tokens) for chunk in output.prefill_chunks]
         else:
-            for state in output.scheduled_requests:
-                self._allocate_slots(state, 1)
+            allocations = [(state, 1) for state in output.scheduled_requests]
+        for state, num_new_tokens in allocations:
+            if not self.kv_cache_manager.allocate_slots(state.request.request_idx, num_new_tokens):
+                raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
         self._last_phase = output.phase
         return output
 
@@ -380,12 +383,12 @@ class IterationScheduler:
         if scheduler_output.phase is SchedulePhase.DECODE:
             for state in scheduler_output.scheduled_requests:
                 state.cache_length += 1
-                self._cache_blocks(state)
+                self.kv_cache_manager.cache_blocks(state)
             producers = scheduler_output.scheduled_requests
         else:
             for chunk in scheduler_output.prefill_chunks:
                 chunk.state.cache_length = chunk.end
-                self._cache_blocks(chunk.state)
+                self.kv_cache_manager.cache_blocks(chunk.state)
             producers = tuple(chunk.state for chunk in scheduler_output.prefill_chunks if chunk.is_last)
         finished = self.running_queue.process_step_output(
             token_ids,
@@ -395,58 +398,16 @@ class IterationScheduler:
             states=producers,
         )
         if finished:
-            if self.kv_cache_manager is not None:
-                for state in finished:
-                    self.kv_cache_manager.free(state.request.request_idx)
+            for state in finished:
+                self.kv_cache_manager.free(state.request.request_idx)
             self.running_queue.retire(finished)
         return finished
-
-    def _allocate_computed_blocks(self, state: RequestState) -> None:
-        """Paged 路径为新入场请求引用 prefix cache 命中块，并以命中长度作为已写入 KV Cache 的起点；Dense 路径无操作。"""
-        if self.kv_cache_manager is None:
-            return
-        state.prefix_cache_hit_tokens = self.kv_cache_manager.allocate_computed_blocks(state.request)
-        state.cache_length = state.prefix_cache_hit_tokens
-
-    def _allocate_slots(self, state: RequestState, num_new_tokens: int) -> None:
-        """Paged 路径为请求追加 num_new_tokens 个 Token 的缓存位；Dense 路径无逻辑块，无操作。"""
-        if self.kv_cache_manager is None:
-            return
-        if not self.kv_cache_manager.allocate_slots(state.request.request_idx, num_new_tokens):
-            raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
-
-    def _cache_blocks(self, state: RequestState) -> None:
-        """本步 K/V 落盘后把请求新写满的块登记为 cached block；Dense 路径或未启用 prefix caching 时无操作。
-
-        Prefill 区间内的 Token 全部取自 Prompt；Decode 仅在恰好写满一个块时拼接 Prompt 与生成 Token。
-        """
-        manager = self.kv_cache_manager
-        if manager is None or not manager.is_prefix_caching_enabled:
-            return
-        if state.cache_length <= state.request.prompt_len:
-            token_ids: Sequence[int] = state.request.token_ids
-        elif state.cache_length % manager.block_size == 0:
-            token_ids = (*state.request.token_ids, *state.generated)
-        else:
-            return
-        manager.cache_blocks(state.request.request_idx, token_ids, state.cache_length)
 
     def _num_computed_tokens(self, state: RequestState) -> int:
         """请求本步 Prefill 区间的起点：在途请求为已写入 KV Cache 的 Token 数；新请求为 prefix cache 命中 Token 数。"""
         if state.status is RequestStatus.RUNNING:
             return state.cache_length
-        if self.kv_cache_manager is None:
-            return 0
         return self.kv_cache_manager.num_computed_tokens(state.request)
-
-    def _num_reserved_blocks(self) -> int:
-        """chunked prefill 在途请求尚需追加的 Prompt 块数（须在新入场前预留）。"""
-        assert self.kv_cache_manager is not None
-        block_size = self.kv_cache_manager.block_size
-        return sum(
-            num_blocks_for_tokens(s.request.prompt_len, block_size) - num_blocks_for_tokens(s.cache_length, block_size)
-            for s in self.running_queue.prefilling_requests
-        )
 
     def _admission_candidates(self) -> tuple[RequestState, ...]:
         """batching、batch slot 与 KV 显存约束下可入场的 WaitingQueue FCFS 前缀。"""
@@ -455,12 +416,10 @@ class IterationScheduler:
         if not can_admit:
             return ()
         candidates = self.waiting_queue.requests[: self.running_queue.num_free_batch_slots]
-        if self.kv_cache_manager is not None:
-            num_admissible = self.kv_cache_manager.num_admissible(
-                [s.request for s in candidates], self._num_reserved_blocks()
-            )
-            candidates = candidates[:num_admissible]
-        return candidates
+        num_admissible = self.kv_cache_manager.num_admissible(
+            [s.request for s in candidates], self.running_queue.prefilling_requests
+        )
+        return candidates[:num_admissible]
 
     def _remaining_prompt_chunks(self, states: Sequence[RequestState]) -> tuple[PrefillChunk, ...]:
         """每个请求一个 chunk 覆盖 Prompt 剩余部分（prefill-first / token-budget 不切分 Prompt，跳过前缀命中）。"""

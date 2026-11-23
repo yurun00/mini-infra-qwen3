@@ -297,9 +297,7 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
 
 def print_result(config: EngineConfig, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
     print("\n[%s]" % config)
-    is_prefix_caching_enabled = (
-        isinstance(config.kv_cache_config, PagedCacheConfig) and config.kv_cache_config.is_prefix_caching_enabled
-    )
+    is_prefix_caching_enabled = config.kv_cache_config.is_prefix_caching_enabled
     for seq in result.sequences:
         print("请求 %d Token IDs: %s" % (seq.request_idx, seq.token_ids))
         print("请求 %d 输出: %s" % (seq.request_idx, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))

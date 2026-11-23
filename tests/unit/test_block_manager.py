@@ -1,13 +1,24 @@
 """Paged KV Cache 逻辑块管理（FreeKVCacheBlockQueue / KVCacheManager）的单元测试（纯 CPU control plane，无 torch）。"""
 
+from collections.abc import Sequence
+
 import pytest
 
 from mini_infra.core import (
     NULL_BLOCK_ID,
+    NULL_KV_CACHE_MANAGER,
+    BaseKVCacheManager,
+    BatchingMethod,
     FreeKVCacheBlockQueue,
+    IterationScheduler,
     KVCacheManager,
+    KVCacheStats,
+    NullKVCacheManager,
     PagedCacheConfig,
     Request,
+    RequestState,
+    RequestStatus,
+    SchedulerConfig,
     infer_num_blocks_in_pool,
     num_blocks_for_tokens,
 )
@@ -18,7 +29,7 @@ def test_num_blocks_for_tokens_rounds_up():
 
 
 def test_free_kv_cache_block_queue_never_hands_out_null_block_and_reuses_fifo():
-    queue = FreeKVCacheBlockQueue(num_blocks=5)
+    queue = FreeKVCacheBlockQueue(num_blocks=5, stats=KVCacheStats())
     assert queue.num_free_blocks == 4 and queue.num_used_blocks == 0
 
     first = queue.allocate(3)
@@ -34,7 +45,7 @@ def test_free_kv_cache_block_queue_never_hands_out_null_block_and_reuses_fifo():
 
 def test_free_kv_cache_block_queue_requires_at_least_one_allocatable_block():
     with pytest.raises(ValueError, match="num_blocks"):
-        FreeKVCacheBlockQueue(num_blocks=1)
+        FreeKVCacheBlockQueue(num_blocks=1, stats=KVCacheStats())
 
 
 def test_allocate_slots_appends_blocks_only_when_crossing_a_block_boundary():
@@ -83,13 +94,16 @@ def _request(request_idx: int, prompt_len: int) -> Request:
 def test_num_admissible_is_fcfs_prefix_bounded_by_free_blocks():
     manager = KVCacheManager(block_size=4, num_blocks=6)  # 5 个可分配块
 
-    def num_admissible(prompt_lens: list[int]) -> int:
-        return manager.num_admissible([_request(i, n) for i, n in enumerate(prompt_lens)], 0)
+    def num_admissible(prompt_lens: list[int], prefilling: Sequence[RequestState] = ()) -> int:
+        return manager.num_admissible([_request(i, n) for i, n in enumerate(prompt_lens)], prefilling)
 
     assert num_admissible([8, 4, 4]) == 3  # 2 + 1 + 1
     assert num_admissible([8, 12, 1]) == 2  # 2 + 3 恰好用尽 5 块，第三个放不下
     assert num_admissible([24, 4]) == 0  # 队首放不下则整体不入场（不越过队首，保持 FCFS）
     assert num_admissible([]) == 0
+    # 在途 chunked prefill 请求（Prompt 12 = 3 块，已写 4 = 1 块）预留 2 块，剩余预算 5 - 2 = 3 块
+    in_flight = RequestState(_request(99, 12), status=RequestStatus.RUNNING, cache_length=4)
+    assert num_admissible([8, 8], [in_flight]) == 1
 
 
 def test_infer_num_blocks_in_pool_sums_the_longest_concurrent_requests():
@@ -136,3 +150,22 @@ def test_block_manager_tracks_cold_allocation_reuse_release_and_peak():
     assert manager.stats.block_cold_allocation_count == 4
     assert manager.stats.block_reuse_count == 1
     assert manager.stats.peak_used_blocks == 3
+
+
+def test_null_kv_cache_manager_contract():
+    null_mgr = NULL_KV_CACHE_MANAGER
+    assert isinstance(null_mgr, NullKVCacheManager) and isinstance(null_mgr, BaseKVCacheManager)
+    requests = [_request(0, 100), _request(1, 200)]
+    in_flight = [RequestState(_request(99, 64), status=RequestStatus.RUNNING, cache_length=8)]
+    assert null_mgr.num_admissible(requests, in_flight) == 2
+    assert null_mgr.num_computed_tokens(requests[0]) == 0
+    assert null_mgr.allocate_computed_blocks(requests[0]) == 0
+    assert null_mgr.allocate_slots(0, 1000) is True
+    assert null_mgr.cache_blocks(RequestState(requests[0], cache_length=100)) is None
+    assert null_mgr.free(0) is None
+    assert (
+        IterationScheduler(SchedulerConfig(max_running_requests=2), BatchingMethod.CONTINUOUS).kv_cache_manager
+        is null_mgr
+    )
+    with pytest.raises(AttributeError):
+        null_mgr.extra = 1  # type: ignore[attr-defined]

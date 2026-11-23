@@ -11,12 +11,13 @@
 注意：本模块处于纯 CPU control plane，严禁 import torch 或持有任何 GPU 张量。
 """
 
+import abc
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from mini_infra.core.request import Request
+from mini_infra.core.request import Request, RequestState
 from mini_infra.core.types import PagedCacheConfig
 
 # vLLM 约定：block 0 为 null block，永不分配，仅用于 block table 右侧补齐，保证补齐位寻址合法。
@@ -91,12 +92,12 @@ class FreeKVCacheBlockQueue:
     以 OrderedDict 维护次序，支持 O(1) 的队首取出、队尾追加与按 ID 中途摘除（空闲 cached block 被重新命中）。
     """
 
-    def __init__(self, num_blocks: int, stats: KVCacheStats | None = None):
+    def __init__(self, num_blocks: int, stats: KVCacheStats):
         if num_blocks < 2:
             raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
         self.num_blocks = num_blocks
         self._free_block_ids: OrderedDict[int, None] = OrderedDict.fromkeys(range(NULL_BLOCK_ID + 1, num_blocks))
-        self.stats = stats if stats is not None else KVCacheStats()
+        self.stats = stats
 
     @property
     def num_free_blocks(self) -> int:
@@ -154,8 +155,8 @@ class BlockPool:
     - Active/Uncached 为请求私有块，恒有 ref_cnt == 1（未写满、未启用 prefix caching 或重复 hash）。
     """
 
-    def __init__(self, num_blocks: int, stats: KVCacheStats | None = None):
-        self.stats = stats if stats is not None else KVCacheStats()
+    def __init__(self, num_blocks: int):
+        self.stats = KVCacheStats()
         self.free_block_queue = FreeKVCacheBlockQueue(num_blocks, stats=self.stats)
         self.blocks = [KVCacheBlock(block_id) for block_id in range(num_blocks)]
         self._cached_block_id_by_hash: dict[BlockHash, int] = {}
@@ -213,7 +214,70 @@ class BlockPool:
         self._cached_block_id_by_hash[block_hash] = block_id
 
 
-class KVCacheManager:
+class BaseKVCacheManager(abc.ABC):
+    """IterationScheduler 依赖的逻辑块管理抽象契约（Paged 实际管理与 Dense 空对象共享）。"""
+
+    __slots__ = ()
+
+    @abc.abstractmethod
+    def num_admissible(self, requests: Sequence[Request], prefilling_states: Sequence[RequestState]) -> int:
+        """按 FCFS 次序返回 requests 中逻辑块容量可接纳的最长前缀长度（prefilling_states 为需预留后续块的在途请求）。"""
+        ...
+
+    @abc.abstractmethod
+    def num_computed_tokens(self, request: Request) -> int:
+        """新请求入场前可复用的已缓存 Prompt Token 数。"""
+        ...
+
+    @abc.abstractmethod
+    def allocate_computed_blocks(self, request: Request) -> int:
+        """新请求入场时引用已缓存块并建立初始映射，返回命中 Token 数。"""
+        ...
+
+    @abc.abstractmethod
+    def allocate_slots(self, request_idx: int, num_new_tokens: int) -> bool:
+        """为请求追加 num_new_tokens 个 Token 的缓存位；容量不足时不做任何分配并返回 False。"""
+        ...
+
+    @abc.abstractmethod
+    def cache_blocks(self, state: RequestState) -> None:
+        """本步 K/V 落盘后登记请求新写满的 cached block。"""
+        ...
+
+    @abc.abstractmethod
+    def free(self, request_idx: int) -> None:
+        """释放请求持有的全部逻辑块资源。"""
+        ...
+
+
+class NullKVCacheManager(BaseKVCacheManager):
+    """无逻辑块管理器的空对象实现（Dense 路径）：不施加块容量约束，分配恒成功，登记与释放均为空操作。"""
+
+    __slots__ = ()
+
+    def num_admissible(self, requests: Sequence[Request], prefilling_states: Sequence[RequestState]) -> int:
+        return len(requests)
+
+    def num_computed_tokens(self, request: Request) -> int:
+        return 0
+
+    def allocate_computed_blocks(self, request: Request) -> int:
+        return 0
+
+    def allocate_slots(self, request_idx: int, num_new_tokens: int) -> bool:
+        return True
+
+    def cache_blocks(self, state: RequestState) -> None:
+        return None
+
+    def free(self, request_idx: int) -> None:
+        return None
+
+
+NULL_KV_CACHE_MANAGER = NullKVCacheManager()
+
+
+class KVCacheManager(BaseKVCacheManager):
     """请求级 block table 管理：按 Token 数按需追加物理块，请求结束时整体释放引用。
 
     启用 prefix caching 时，额外负责 computed blocks 查找与入场引用（num_computed_tokens / allocate_computed_blocks）
@@ -274,14 +338,19 @@ class KVCacheManager:
         """请求入场时 prefix cache 可命中的 Token 数（恒为 block_size 的整数倍）。"""
         return len(self._get_computed_blocks(request)) * self.block_size
 
-    def num_admissible(self, requests: Sequence[Request], num_reserved_blocks: int) -> int:
-        """按 FCFS 次序，扣除 num_reserved_blocks 后的空闲块最多能为前多少个请求容纳 Prompt。
+    def num_admissible(self, requests: Sequence[Request], prefilling_states: Sequence[RequestState]) -> int:
+        """按 FCFS 次序，扣除在途 chunked prefill 预留块后的空闲块最多能为前多少个请求容纳 Prompt。
 
-        num_reserved_blocks：已入场但 Prompt 尚未写满的 chunked prefill 请求仍需追加的块数，
-        先行预留以保证其后续 chunk 的块分配不会被新入场请求抢占而卡死。
+        prefilling_states：已入场但 Prompt 尚未写满的 chunked prefill 请求，先行预留其尚需追加的 Prompt 块数，
+        保证后续 chunk 的块分配不会被新入场请求抢占而卡死。
         prefix cache 命中的块无需新分配；但其中引用计数为 0 的空闲 cached block 被引用后会离开 free block queue，
         同样消耗空闲额度（同批多个请求命中同一块只计一次）。
         """
+        num_reserved_blocks = sum(
+            num_blocks_for_tokens(s.request.prompt_len, self.block_size)
+            - num_blocks_for_tokens(s.cache_length, self.block_size)
+            for s in prefilling_states
+        )
         budget = self.num_free_blocks - num_reserved_blocks
         touched_block_ids: set[int] = set()
         admissible = 0
@@ -334,16 +403,24 @@ class KVCacheManager:
         self._num_tokens_by_request_idx[request_idx] = total_tokens
         return True
 
-    def cache_blocks(self, request_idx: int, token_ids: Sequence[int], num_computed_tokens: int) -> None:
-        """把请求前 num_computed_tokens 个 Token 中新写满的块登记为 cached block。
+    def cache_blocks(self, state: RequestState) -> None:
+        """本步 K/V 落盘后把请求前 state.cache_length 个 Token 中新写满的块登记为 cached block。
 
-        token_ids 须覆盖前 num_computed_tokens 个 Token（Prompt + 已写入 K/V 的生成 Token）。
+        Prefill 区间内的 Token 全部取自 Prompt；Decode 仅在恰好写满一个块时拼接 Prompt 与生成 Token。
         必须在本步前向与 K/V 落盘完成后调用：Prefill 的历史 K/V 在前向前读取，提前登记会让同批请求命中尚未写入的块。
         未启用 prefix caching 时无操作。
         """
         if not self.is_prefix_caching_enabled:
             return
+        num_computed_tokens = state.cache_length
+        if num_computed_tokens <= state.request.prompt_len:
+            token_ids: Sequence[int] = state.request.token_ids
+        elif num_computed_tokens % self.block_size == 0:
+            token_ids = (*state.request.token_ids, *state.generated)
+        else:
+            return
         num_full_blocks = num_computed_tokens // self.block_size
+        request_idx = state.request.request_idx
         num_cached_blocks = self._num_cached_blocks_by_request_idx.get(request_idx, 0)
         if num_full_blocks <= num_cached_blocks:
             return
@@ -375,6 +452,7 @@ class KVCacheManager:
 
 
 __all__ = [
+    "BaseKVCacheManager",
     "BlockHash",
     "BlockPool",
     "FreeKVCacheBlockQueue",
@@ -382,6 +460,8 @@ __all__ = [
     "KVCacheManager",
     "KVCacheStats",
     "NULL_BLOCK_ID",
+    "NULL_KV_CACHE_MANAGER",
+    "NullKVCacheManager",
     "PagedCacheConfig",
     "hash_block_tokens",
     "infer_num_blocks_in_pool",

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import torch
 
-from mini_infra.core.block_manager import KVCacheManager
+from mini_infra.core.block_manager import NULL_KV_CACHE_MANAGER, BaseKVCacheManager
 from mini_infra.core.request import RequestState
 from mini_infra.core.scheduler import PrefillChunk
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
@@ -49,8 +49,8 @@ class ScheduleBackend(abc.ABC):
         self.device = next(model.parameters()).device
         self.max_running_requests = max_running_requests
         self.batching_method = batching_method
-        # Paged 后端创建的逻辑块管理器，交由 core.IterationScheduler 统管块分配与释放；Dense 后端为 None
-        self.kv_cache_manager: KVCacheManager | None = None
+        # 交由 core.IterationScheduler 统管块分配与释放；Dense 后端沿用默认空对象，Paged 后端覆写为 KVCacheManager
+        self.kv_cache_manager: BaseKVCacheManager = NULL_KV_CACHE_MANAGER
         synchronize(self.device)
         self.baseline_mb = allocated_memory_mb(self.device)
         reset_peak_memory(self.device)
