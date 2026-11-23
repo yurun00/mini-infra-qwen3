@@ -12,6 +12,7 @@ from mini_infra.core import (
     DenseCacheConfig,
     KVCacheManager,
     PagedCacheConfig,
+    PrefillFirstConfig,
     SchedulePhase,
     SchedulerConfig,
     TokenBudgetConfig,
@@ -339,13 +340,14 @@ def check_paged_kv_cache(model):
     # 3. 释放请求 0 并验证 free block queue 的 FIFO 复用与脏尾部隔离
     manager.free(0)
     assert manager.num_used_blocks == 0
-    assert manager.block_release_count == 2
-    # 此时 free block queue 为 [3, 1, 2]；先分配 1 个块给占位请求 99 消费冷块 3，再为请求 1 分配 2 个 token
+    assert manager.stats.block_release_count == 2
+    # 逆序释放（尾块先入队）后 free block queue 为 [3, 2, 1]；
+    # 先分配 1 个块给占位请求 99 消费冷块 3，再为请求 1 分配 2 个 token，复用请求 0 的尾块
     assert manager.allocate_slots(99, 2)
     assert manager.block_table(99) == [3]
     assert manager.allocate_slots(1, 2)
-    assert manager.block_table(1)[0] == min(old_block_ids)
-    assert manager.block_reuse_count == 1
+    assert manager.block_table(1)[0] == old_block_ids[-1]
+    assert manager.stats.block_reuse_count == 1
 
     short_layers = [(k[:, :, :2, :], v[:, :, :2, :]) for k, v in expected_layers]
     runner.store_prefill(pool, KVCache(short_layers), [manager.block_table(1)], [2], [0])
@@ -492,6 +494,36 @@ def check_chunked_prefill_scheduling(model):
     print("chunked-prefill 调度：Prompt 分块、硬预算与 prefill-first 输出一致性检查通过")
 
 
+def check_prefix_caching(model):
+    """验证 prefix caching：共享前缀的后续请求命中 cached block、跳过其 Prefill，输出与未启用时逐位一致。"""
+    shared_prefix = [3, 5, 7, 11, 13, 17, 19, 23, 29]
+    sequences = [shared_prefix + suffix for suffix in ([31, 37], [41, 43, 47], [53])]
+    requests = make_requests(sequences, [4, 3, 5], [0.0, 0.0, 0.1])
+    for policy in (PrefillFirstConfig(), ChunkedPrefillConfig(4)):
+        config = EngineConfig(
+            PagedCacheConfig(block_size=4),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=1, batching_policy=policy),
+        )
+        disabled = run_scheduler(config, model, requests, -1, stop_on_eos=False)
+        enabled = run_scheduler(
+            config.with_kv_cache_config(PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True)),
+            model,
+            requests,
+            -1,
+            stop_on_eos=False,
+        )
+
+        assert [s.token_ids for s in enabled.sequences] == [s.token_ids for s in disabled.sequences]
+        # 并发 1：后续请求入场时前序请求的 9 Token 公共前缀已写满 2 个块（8 Token）
+        assert [s.prefix_cache_hit_tokens for s in enabled.sequences] == [0, 8, 8]
+        assert _num_padded_prompt_tokens(enabled.events) < _num_padded_prompt_tokens(disabled.events)
+        profile = enabled.memory.kv_cache.paged_cache
+        assert profile is not None and profile.prefix_cache_hit_tokens == 16
+
+    print("prefix caching：前缀命中、Prefill 跳过与未启用时输出一致性检查通过")
+
+
 def run_smoke_test():
     model = build_tiny_model()
     check_output_shape_and_tied_weights(model)
@@ -502,6 +534,7 @@ def run_smoke_test():
     check_paged_kv_cache(model)
     check_token_budget_scheduling(model)
     check_chunked_prefill_scheduling(model)
+    check_prefix_caching(model)
 
 
 __all__ = [
@@ -513,6 +546,7 @@ __all__ = [
     "check_kv_cache_correctness",
     "check_output_shape_and_tied_weights",
     "check_paged_kv_cache",
+    "check_prefix_caching",
     "check_token_budget_scheduling",
     "run_smoke_test",
 ]

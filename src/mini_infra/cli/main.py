@@ -10,7 +10,7 @@
     mini-infra bench check-regression [...]
     mini-infra verify smoke [...]
     mini-infra verify transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget [...]
-    mini-infra verify chunked-prefill / paged-cache-logits / paged-cache-scheduler [...]
+    mini-infra verify chunked-prefill / prefix-caching / paged-cache-logits / paged-cache-scheduler [...]
 """
 
 import argparse

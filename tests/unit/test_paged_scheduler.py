@@ -14,8 +14,8 @@ from mini_infra.core import (
     SchedulePhase,
     SchedulerConfig,
     TokenBudgetConfig,
+    infer_num_blocks_in_pool,
     make_requests,
-    required_pool_blocks,
 )
 from mini_infra.engine import (
     BatchingMethod,
@@ -141,7 +141,7 @@ def test_live_kv_bytes_track_used_blocks_and_stay_within_pool(model):
     result = run_paged(model, requests, 2, block_size=block_size)
 
     assert all(e.live_kv_cache_bytes % block_bytes == 0 for e in result.events)
-    pool_blocks = required_pool_blocks(requests, 2, block_size)
+    pool_blocks = infer_num_blocks_in_pool(requests, 2, block_size)
     assert max(e.live_kv_cache_bytes for e in result.events) <= (pool_blocks - 1) * block_bytes
     # 两个请求各 10 个 Token（5 + 6 - 1）-> 各 3 块；同时在池的峰值为 6 块
     assert max(e.live_kv_cache_bytes for e in result.events) == 6 * block_bytes

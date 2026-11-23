@@ -647,7 +647,7 @@ def test_chunked_prefill_chunk_allocation_failure_fails_loudly():
     first = step(scheduler, 0.0)  # 请求 0 [0, 4) 写满（1 块）；请求 1 (8 Token, 2 块) 受预留约束 3-0 >= 2 入场
     assert chunk_ranges(first) == [(0, 0, 2), (1, 0, 2)]
     assert manager.allocate_slots(99, 4)  # 外部占走剩余的块，模拟 Decode 增长吞掉预留
-    assert manager.free_block_queue.num_free_blocks == 0
+    assert manager.num_free_blocks == 0
     step(scheduler, 1.0)  # 请求 0 写满进入 Decode；请求 1 [2, 4) 仍在已持有的 1 块内
     with pytest.raises(RuntimeError, match="物理块已耗尽"):
         for clock_ms in range(2, 6):

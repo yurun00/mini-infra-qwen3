@@ -8,8 +8,8 @@ from mini_infra.core import (
     KVCacheManager,
     PagedCacheConfig,
     Request,
+    infer_num_blocks_in_pool,
     num_blocks_for_tokens,
-    required_pool_blocks,
 )
 
 
@@ -76,24 +76,32 @@ def test_free_returns_blocks_and_allows_reuse():
     assert sorted(manager.block_table(1) + manager.block_table(2)) == [1, 2, 3]
 
 
+def _request(request_idx: int, prompt_len: int) -> Request:
+    return Request(request_idx, tuple(range(1, prompt_len + 1)), 1)
+
+
 def test_num_admissible_is_fcfs_prefix_bounded_by_free_blocks():
     manager = KVCacheManager(block_size=4, num_blocks=6)  # 5 个可分配块
-    assert manager.num_admissible([8, 4, 4], 0) == 3  # 2 + 1 + 1
-    assert manager.num_admissible([8, 12, 1], 0) == 2  # 2 + 3 恰好用尽 5 块，第三个放不下
-    assert manager.num_admissible([24, 4], 0) == 0  # 队首放不下则整体不入场（不越过队首，保持 FCFS）
-    assert manager.num_admissible([], 0) == 0
+
+    def num_admissible(prompt_lens: list[int]) -> int:
+        return manager.num_admissible([_request(i, n) for i, n in enumerate(prompt_lens)], 0)
+
+    assert num_admissible([8, 4, 4]) == 3  # 2 + 1 + 1
+    assert num_admissible([8, 12, 1]) == 2  # 2 + 3 恰好用尽 5 块，第三个放不下
+    assert num_admissible([24, 4]) == 0  # 队首放不下则整体不入场（不越过队首，保持 FCFS）
+    assert num_admissible([]) == 0
 
 
-def test_required_pool_blocks_sums_the_longest_concurrent_requests():
+def test_infer_num_blocks_in_pool_sums_the_longest_concurrent_requests():
     requests = [
         Request(0, (1,) * 5, 4),  # 峰值 5+4-1=8 Token
         Request(1, (1,) * 3, 2),  # 4
         Request(2, (1,) * 9, 1),  # 9
     ]
     # 并发 2：最长两个是 9 与 8 -> ceil(9/4)+ceil(8/4)=3+2；另加 null block
-    assert required_pool_blocks(requests, 2, 4) == 1 + 3 + 2
+    assert infer_num_blocks_in_pool(requests, 2, 4) == 1 + 3 + 2
     # 并发不小于请求数：全部求和
-    assert required_pool_blocks(requests, 8, 4) == 1 + 3 + 2 + 1
+    assert infer_num_blocks_in_pool(requests, 8, 4) == 1 + 3 + 2 + 1
 
 
 def test_paged_cache_config_validates():
@@ -106,24 +114,25 @@ def test_paged_cache_config_validates():
 
 def test_block_manager_tracks_cold_allocation_reuse_release_and_peak():
     manager = KVCacheManager(block_size=4, num_blocks=5)  # 4 个可用块：1, 2, 3, 4
-    assert manager.block_cold_allocation_count == 0
-    assert manager.block_reuse_count == 0
-    assert manager.block_release_count == 0
-    assert manager.peak_used_blocks == 0
+    assert manager.stats.block_cold_allocation_count == 0
+    assert manager.stats.block_reuse_count == 0
+    assert manager.stats.block_release_count == 0
+    assert manager.stats.peak_used_blocks == 0
 
     # 首次分配 2 块 (1, 2)
     assert manager.allocate_slots(0, 8)
-    assert manager.block_cold_allocation_count == 2
-    assert manager.block_reuse_count == 0
-    assert manager.peak_used_blocks == 2
+    assert manager.stats.block_cold_allocation_count == 2
+    assert manager.stats.block_reuse_count == 0
+    assert manager.stats.peak_used_blocks == 2
 
     # 释放请求 0
     manager.free(0)
-    assert manager.block_release_count == 2
+    assert manager.stats.block_release_count == 2
     assert manager.num_used_blocks == 0
 
-    # 再次分配 3 块（FIFO 先取冷块 3, 4，再复用热块 1）
+    # 再次分配 3 块（FIFO 先取冷块 3, 4，再复用热块；free 逆序释放，故先复用块 2）
     assert manager.allocate_slots(1, 12)
-    assert manager.block_cold_allocation_count == 4
-    assert manager.block_reuse_count == 1
-    assert manager.peak_used_blocks == 3
+    assert manager.block_table(1) == [3, 4, 2]
+    assert manager.stats.block_cold_allocation_count == 4
+    assert manager.stats.block_reuse_count == 1
+    assert manager.stats.peak_used_blocks == 3

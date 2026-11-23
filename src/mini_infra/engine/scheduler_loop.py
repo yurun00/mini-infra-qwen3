@@ -82,7 +82,7 @@ def _run_schedule_loop(
         num_active_requests = len(scheduler.running_queue)
         if output.phase is SchedulePhase.PREFILL:
             step_output = backend.execute_prefill(output.prefill_chunks)
-            admitted_request_ids = tuple(c.state.request.request_idx for c in output.prefill_chunks if c.start == 0)
+            admitted_request_ids = tuple(c.state.request.request_idx for c in output.prefill_chunks if c.is_first)
         else:
             step_output = backend.execute_decode(output.scheduled_requests)
             admitted_request_ids = ()

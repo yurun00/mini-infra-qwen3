@@ -1,11 +1,16 @@
-"""调度核心领域包（纯 CPU control plane）：包含请求模型、三级调度队列、Paged KV Cache 逻辑块管理与基础状态/输出类型。"""
+"""调度核心领域包（纯 CPU control plane）：请求模型、三级调度队列、Paged KV Cache 逻辑块管理（含 prefix caching）。"""
 
 from mini_infra.core.block_manager import (
     NULL_BLOCK_ID,
+    BlockHash,
+    BlockPool,
     FreeKVCacheBlockQueue,
+    KVCacheBlock,
     KVCacheManager,
+    KVCacheStats,
+    hash_block_tokens,
+    infer_num_blocks_in_pool,
     num_blocks_for_tokens,
-    required_pool_blocks,
 )
 from mini_infra.core.request import (
     Request,
@@ -58,6 +63,8 @@ __all__ = [
     "BatchingMethod",
     "BatchingPolicy",
     "BatchingPolicyKind",
+    "BlockHash",
+    "BlockPool",
     "BudgetedBatchingPolicy",
     "ChunkedPrefillConfig",
     "DenseCacheConfig",
@@ -67,6 +74,7 @@ __all__ = [
     "KVCacheConfig",
     "KVCacheKind",
     "KVCacheManager",
+    "KVCacheStats",
     "NoCacheConfig",
     "PagedCacheConfig",
     "PrefillChunk",
@@ -84,13 +92,14 @@ __all__ = [
     "WaitingQueue",
     "batching_policy_from_str",
     "collapse_uniform",
+    "hash_block_tokens",
+    "infer_num_blocks_in_pool",
     "kv_cache_config_from_str",
     "make_requests",
     "num_blocks_for_tokens",
     "parse_batching_policy_kind",
     "parse_kv_cache_kind",
     "prepare_schedule",
-    "required_pool_blocks",
     "scheduler_config_from_str",
     "validate_requests",
 ]

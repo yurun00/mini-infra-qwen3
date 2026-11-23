@@ -12,7 +12,7 @@
 * [固定批处理与左填充机制 (Fixed Batching)](architecture/fixed-batching.md)：详解解码器左填充原理、因果掩码隔离保证、`LockstepState` 向量化状态机与利用率度量模型。
 * [连续批处理架构与调度原理 (Continuous Batching)](architecture/continuous-batching.md)：详解 Iteration-level Scheduling、batch slot 动态管理、Prefill 插队与请求生命周期状态机。
 * [迭代级组批与调度策略 (Iteration-level Batching & Scheduling Policy)](architecture/iteration-scheduling.md)：`IterationScheduler` / `SchedulerOutput` 决策与资源约束，`prefill-first`、`token-budget`（padded prompt tokens 成本模型、oversize prefill、decode protection）与 `chunked-prefill`（Prompt 分块、硬预算、逐 chunk 块分配与入场预留）。
-* [Paged KV Cache](architecture/paged-kv-cache.md)：physical block pool、block table、`slot_mapping` 寻址与 vLLM 对照及已知限制。
+* [Paged KV Cache](architecture/paged-kv-cache.md)：physical block pool、block table、`slot_mapping` 寻址、prefix caching（block hash、cached block 共享与惰性 LRU 淘汰）与 vLLM 对照及已知限制。
 
 ### 2. 实践与操作指南 (Guides)
 面向日常开发、调试与正确性验证的操作指引。

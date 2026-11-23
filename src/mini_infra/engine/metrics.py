@@ -39,7 +39,12 @@ class GenerationTrace:
 
 @dataclass(frozen=True)
 class PagedCacheProfile:
-    """Paged KV Cache 专属 physical block pool 画像。"""
+    """Paged KV Cache 专属 physical block pool 画像（含 prefix caching 统计）。
+
+    prefix_cache_block_eviction_count：空闲 cached block 被重新分配而淘汰 block hash 的次数；
+    prefix_cache_prompt_tokens / prefix_cache_hit_tokens：参与 prefix cache 匹配的 Prompt Token 总数与命中 Token 数
+    （未启用 prefix caching 时恒为 0）。
+    """
 
     block_size: int = 0
     bytes_per_block: int = 0
@@ -48,6 +53,16 @@ class PagedCacheProfile:
     block_cold_allocation_count: int = 0
     block_reuse_count: int = 0
     block_release_count: int = 0
+    prefix_cache_block_eviction_count: int = 0
+    prefix_cache_prompt_tokens: int = 0
+    prefix_cache_hit_tokens: int = 0
+
+    @property
+    def prefix_cache_hit_rate(self) -> float:
+        """prefix cache Token 命中率（命中 Token 数 / 查询 Prompt Token 数）。"""
+        return (
+            self.prefix_cache_hit_tokens / self.prefix_cache_prompt_tokens if self.prefix_cache_prompt_tokens else 0.0
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -58,6 +73,9 @@ class PagedCacheProfile:
             "block_cold_allocation_count": self.block_cold_allocation_count,
             "block_reuse_count": self.block_reuse_count,
             "block_release_count": self.block_release_count,
+            "prefix_cache_block_eviction_count": self.prefix_cache_block_eviction_count,
+            "prefix_cache_prompt_tokens": self.prefix_cache_prompt_tokens,
+            "prefix_cache_hit_tokens": self.prefix_cache_hit_tokens,
         }
 
 
@@ -156,6 +174,9 @@ def summarize_repeated_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) 
         block_cold_allocation_count=sum(p.block_cold_allocation_count for p in paged),
         block_reuse_count=sum(p.block_reuse_count for p in paged),
         block_release_count=sum(p.block_release_count for p in paged),
+        prefix_cache_block_eviction_count=sum(p.prefix_cache_block_eviction_count for p in paged),
+        prefix_cache_prompt_tokens=sum(p.prefix_cache_prompt_tokens for p in paged),
+        prefix_cache_hit_tokens=sum(p.prefix_cache_hit_tokens for p in paged),
     )
 
 
@@ -378,10 +399,12 @@ def summarize_schedule(
     accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
     num_prompt_tokens = sum(state.request.prompt_len for state in states)
+    # 实际送入前向的有效 Prompt Token 数：prefix cache 命中部分不参与 Prefill 计算（未启用时等于 num_prompt_tokens）
+    num_computed_prompt_tokens = num_prompt_tokens - sum(state.prefix_cache_hit_tokens for state in states)
     num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in prefill_events)
     if num_padded_prompt_tokens == 0:
-        num_padded_prompt_tokens = num_prompt_tokens
-    padding_efficiency = num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0
+        num_padded_prompt_tokens = num_computed_prompt_tokens
+    padding_efficiency = num_computed_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0
 
     gpu_time_ratio = (min(1.0, model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0) if is_cuda else None
     step_agg_metrics: StepAggregatedMetrics[float] = StepAggregatedMetrics(

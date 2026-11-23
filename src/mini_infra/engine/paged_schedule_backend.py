@@ -8,8 +8,8 @@ import torch
 from mini_infra.core.block_manager import (
     KVCacheManager,
     PagedCacheConfig,
+    infer_num_blocks_in_pool,
     num_blocks_for_tokens,
-    required_pool_blocks,
 )
 from mini_infra.core.request import Request, RequestState
 from mini_infra.core.scheduler import PrefillChunk
@@ -36,7 +36,7 @@ class PagedScheduleBackend(ScheduleBackend):
     ) -> None:
         self.paged_cache_config = paged_cache_config
         self.block_size = paged_cache_config.block_size
-        num_blocks = paged_cache_config.num_blocks or required_pool_blocks(
+        num_blocks = paged_cache_config.num_blocks or infer_num_blocks_in_pool(
             requests, max_running_requests, self.block_size
         )
         largest_request_blocks = max(
@@ -61,7 +61,9 @@ class PagedScheduleBackend(ScheduleBackend):
             device=self.device,
         )
         self.snapshot_tracker.record_stage("01_paged_pool_allocated")
-        self.kv_cache_manager = KVCacheManager(self.block_size, num_blocks)
+        self.kv_cache_manager = KVCacheManager(
+            self.block_size, num_blocks, is_prefix_caching_enabled=paged_cache_config.is_prefix_caching_enabled
+        )
 
     @property
     def kv_cache_config(self) -> KVCacheConfig:
@@ -128,12 +130,16 @@ class PagedScheduleBackend(ScheduleBackend):
         )
 
     def collect_paged_cache_profile(self) -> PagedCacheProfile:
+        stats = self.kv_cache_manager.stats
         return PagedCacheProfile(
             block_size=self.block_size,
             bytes_per_block=self.pool.bytes_per_block,
             num_blocks=self.pool.num_blocks,
-            peak_used_blocks=self.kv_cache_manager.peak_used_blocks,
-            block_cold_allocation_count=self.kv_cache_manager.block_cold_allocation_count,
-            block_reuse_count=self.kv_cache_manager.block_reuse_count,
-            block_release_count=self.kv_cache_manager.block_release_count,
+            peak_used_blocks=stats.peak_used_blocks,
+            block_cold_allocation_count=stats.block_cold_allocation_count,
+            block_reuse_count=stats.block_reuse_count,
+            block_release_count=stats.block_release_count,
+            prefix_cache_block_eviction_count=stats.prefix_cache_block_eviction_count,
+            prefix_cache_prompt_tokens=stats.prefix_cache_prompt_tokens,
+            prefix_cache_hit_tokens=stats.prefix_cache_hit_tokens,
         )

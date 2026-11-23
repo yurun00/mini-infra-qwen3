@@ -14,6 +14,9 @@
    TODO 支持 chunk 与 Decode 同一次前向混批。
 3. `preemption_mode`（抢占驱逐模式）：TODO 支持 Decode 阶段物理块耗尽时的 `recompute`（重算）与 `swap`（CPU 换入换出）。
 4. `watermark`（准入容量水印）：TODO 支持 Prefill 准入时预留空闲块安全垫。
+
+与上述维度正交的 Paged 存储特性 prefix caching（`PagedCacheConfig.is_prefix_caching_enabled`）：新请求的 Prefill
+区间从 prefix cache 命中长度起算，K/V 落盘后再登记新写满的 cached block（见 `core/block_manager.py`）。
 """
 
 import heapq
@@ -230,7 +233,8 @@ class PrefillChunk:
     """一次 Prefill 步为单个请求划定的 Prompt 区间 [start, end)（chunked prefill 的最小调度单元）。
 
     start 即本 chunk 之前已写入 KV Cache 的 Token 数（同时是 chunk 首 Token 的 position_ids）；
-    非 chunked-prefill 策略下恒为整段 Prompt：start == 0 且 end == prompt_len。
+    非 chunked-prefill 策略下恒覆盖 Prompt 剩余部分：start == prefix_cache_hit_tokens（prefix cache 命中长度，
+    未启用 prefix caching 时为 0）且 end == prompt_len。
     """
 
     state: RequestState
@@ -240,6 +244,11 @@ class PrefillChunk:
     @property
     def num_tokens(self) -> int:
         return self.end - self.start
+
+    @property
+    def is_first(self) -> bool:
+        """本 chunk 为请求入场步的首个 chunk（起点恰为 prefix cache 命中长度）。"""
+        return self.start == self.state.prefix_cache_hit_tokens
 
     @property
     def is_last(self) -> bool:
@@ -252,7 +261,7 @@ class SchedulerOutput:
     """单步迭代调度的决策产出：承载本步执行阶段、被选中请求快照与本步计费 Token 数。
 
     num_scheduled_tokens：PREFILL 为左 Padding 后实际送入模型的 padded chunk token 数
-    （len(prefill_chunks) × max(chunk.num_tokens)）；DECODE 为 Decode 请求数（每请求 1 个 Token）。
+    （len(prefill_chunks) × max(chunk.num_tokens)，prefix cache 命中部分不计费）；DECODE 为 Decode 请求数。
     prefill_chunks：仅 PREFILL 非空，与 scheduled_requests 一一对应；chunked-prefill 下可只覆盖 Prompt 的一段。
     is_oversize_prefill：token-budget 下队头请求单独已超预算、被单独放行的 PREFILL（oversize prefill）。
     """
@@ -264,30 +273,23 @@ class SchedulerOutput:
     prefill_chunks: tuple[PrefillChunk, ...] = ()
 
 
-def _whole_prompt_chunks(states: Sequence[RequestState]) -> tuple[PrefillChunk, ...]:
-    """每个请求整段 Prompt 一个 chunk（prefill-first / token-budget 不切分 Prompt）。"""
-    return tuple(PrefillChunk(state, 0, state.request.prompt_len) for state in states)
-
-
-def _select_within_budget(
-    candidates: tuple[RequestState, ...], token_budget: int
-) -> tuple[tuple[RequestState, ...], bool]:
-    """按 FCFS 取 padded prompt token 数不超过 token_budget 的最长前缀；队头放不下即停，不向后跳选。
+def _select_within_budget(chunks: tuple[PrefillChunk, ...], token_budget: int) -> tuple[tuple[PrefillChunk, ...], bool]:
+    """按 FCFS 取 padded chunk token 数不超过 token_budget 的最长前缀；队头放不下即停，不向后跳选。
 
     无 Chunked Prefill 时长 Prompt 无法拆分：若队头请求单独已超预算，则让它独自执行（oversize prefill），
     避免其永久阻塞 FCFS 队列。返回 (入选前缀, 是否为 oversize prefill)。
     """
     num_selected = 0
-    max_prompt_len = 0
-    for state in candidates:
-        next_max_prompt_len = max(max_prompt_len, state.request.prompt_len)
-        if (num_selected + 1) * next_max_prompt_len > token_budget:
+    max_chunk_len = 0
+    for chunk in chunks:
+        next_max_chunk_len = max(max_chunk_len, chunk.num_tokens)
+        if (num_selected + 1) * next_max_chunk_len > token_budget:
             break
         num_selected += 1
-        max_prompt_len = next_max_prompt_len
+        max_chunk_len = next_max_chunk_len
     if num_selected == 0:
-        return candidates[:1], True
-    return candidates[:num_selected], False
+        return chunks[:1], True
+    return chunks[:num_selected], False
 
 
 class IterationScheduler:
@@ -298,12 +300,16 @@ class IterationScheduler:
        RunningQueue 完全排空（wave barrier）；
     2. batch slot 约束：至多 RunningQueue.num_free_batch_slots 个；
     3. KV 显存约束（仅 Paged）：KVCacheManager 空闲 physical block 可容纳的前缀（须整段 Prompt 放得下，
-       并预留 chunked prefill 在途请求尚未写入的 Prompt 块；
+       并预留 chunked prefill 在途请求尚未写入的 Prompt 块；prefix cache 命中的块无需新分配；
        TODO(watermark): 后续在此支持预留 watermark 比例的空闲块防抢占抖动）；
     4. batching policy 约束：PrefillFirstConfig 不再截断；TokenBudgetConfig 按 token budget 截断，且 RunningQueue
        非空时禁止连续两步 PREFILL（decode protection），以限制 Prefill burst 对在途请求 ITL 的冲击；
        ChunkedPrefillConfig 不截断请求数而是切分 Prompt：在途 chunked prefill 请求与新入场请求共享 token budget
        （每请求 chunk 上限 token_budget // 候选数），同样启用 decode protection。
+
+    prefix caching（仅 Paged）：新请求的 Prefill 区间从 prefix cache 命中长度起算（命中部分不计入
+    token budget），入场时引用命中的 cached block；每步 K/V 落盘后（update_from_output）再把新写满的块登记为
+    cached block，保证同批请求只会命中 K/V 已写入的块。
 
     chunked prefill 在 update_from_output 内按完成 chunk 推进 RequestState.cache_length（已写 KV Cache 的 Token 数）；
     Prompt 写满的当步产出首个 Token，之后与 prefill-first 一致逐步 Decode。P/D 仍为相位互斥。
@@ -345,7 +351,11 @@ class IterationScheduler:
             return None
         if output.phase is SchedulePhase.PREFILL:
             num_new = sum(1 for chunk in output.prefill_chunks if chunk.state.status is RequestStatus.WAITING)
-            self.running_queue.admit(self.waiting_queue.pop_batch(num_new), clock_ms)
+            admitted = self.running_queue.admit(self.waiting_queue.pop_batch(num_new), clock_ms)
+            # 先为全部新入场请求引用 prefix cache 命中块，再统一追加新块：
+            # 新块分配可能从 free block queue 队首淘汰空闲 cached block，先引用可保证已规划的命中不被淘汰
+            for state in admitted:
+                self._allocate_computed_blocks(state)
             for chunk in output.prefill_chunks:
                 self._allocate_slots(chunk.state, chunk.num_tokens)
         else:
@@ -362,7 +372,7 @@ class IterationScheduler:
         eos_token_id: int | None = None,
         stop_on_eos: bool = True,
     ) -> list[RequestState]:
-        """根据本步前向产出的 Token 推进请求状态，回收已完成请求的逻辑块与 batch slot。
+        """根据本步前向产出的 Token 推进请求状态，登记新写满的 cached block，回收已完成请求的逻辑块与 batch slot。
 
         token_ids 与产出 Token 的请求一一对应：DECODE 为全部被调度请求；PREFILL 仅为本步写满 Prompt 的请求
         （chunked prefill 中间 chunk 不产出 Token）。
@@ -370,10 +380,12 @@ class IterationScheduler:
         if scheduler_output.phase is SchedulePhase.DECODE:
             for state in scheduler_output.scheduled_requests:
                 state.cache_length += 1
+                self._cache_blocks(state)
             producers = scheduler_output.scheduled_requests
         else:
             for chunk in scheduler_output.prefill_chunks:
                 chunk.state.cache_length = chunk.end
+                self._cache_blocks(chunk.state)
             producers = tuple(chunk.state for chunk in scheduler_output.prefill_chunks if chunk.is_last)
         finished = self.running_queue.process_step_output(
             token_ids,
@@ -389,12 +401,43 @@ class IterationScheduler:
             self.running_queue.retire(finished)
         return finished
 
+    def _allocate_computed_blocks(self, state: RequestState) -> None:
+        """Paged 路径为新入场请求引用 prefix cache 命中块，并以命中长度作为已写入 KV Cache 的起点；Dense 路径无操作。"""
+        if self.kv_cache_manager is None:
+            return
+        state.prefix_cache_hit_tokens = self.kv_cache_manager.allocate_computed_blocks(state.request)
+        state.cache_length = state.prefix_cache_hit_tokens
+
     def _allocate_slots(self, state: RequestState, num_new_tokens: int) -> None:
         """Paged 路径为请求追加 num_new_tokens 个 Token 的缓存位；Dense 路径无逻辑块，无操作。"""
         if self.kv_cache_manager is None:
             return
         if not self.kv_cache_manager.allocate_slots(state.request.request_idx, num_new_tokens):
             raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
+
+    def _cache_blocks(self, state: RequestState) -> None:
+        """本步 K/V 落盘后把请求新写满的块登记为 cached block；Dense 路径或未启用 prefix caching 时无操作。
+
+        Prefill 区间内的 Token 全部取自 Prompt；Decode 仅在恰好写满一个块时拼接 Prompt 与生成 Token。
+        """
+        manager = self.kv_cache_manager
+        if manager is None or not manager.is_prefix_caching_enabled:
+            return
+        if state.cache_length <= state.request.prompt_len:
+            token_ids: Sequence[int] = state.request.token_ids
+        elif state.cache_length % manager.block_size == 0:
+            token_ids = (*state.request.token_ids, *state.generated)
+        else:
+            return
+        manager.cache_blocks(state.request.request_idx, token_ids, state.cache_length)
+
+    def _num_computed_tokens(self, state: RequestState) -> int:
+        """请求本步 Prefill 区间的起点：在途请求为已写入 KV Cache 的 Token 数；新请求为 prefix cache 命中 Token 数。"""
+        if state.status is RequestStatus.RUNNING:
+            return state.cache_length
+        if self.kv_cache_manager is None:
+            return 0
+        return self.kv_cache_manager.num_computed_tokens(state.request)
 
     def _num_reserved_blocks(self) -> int:
         """chunked prefill 在途请求尚需追加的 Prompt 块数（须在新入场前预留）。"""
@@ -414,10 +457,16 @@ class IterationScheduler:
         candidates = self.waiting_queue.requests[: self.running_queue.num_free_batch_slots]
         if self.kv_cache_manager is not None:
             num_admissible = self.kv_cache_manager.num_admissible(
-                [s.request.prompt_len for s in candidates], self._num_reserved_blocks()
+                [s.request for s in candidates], self._num_reserved_blocks()
             )
             candidates = candidates[:num_admissible]
         return candidates
+
+    def _remaining_prompt_chunks(self, states: Sequence[RequestState]) -> tuple[PrefillChunk, ...]:
+        """每个请求一个 chunk 覆盖 Prompt 剩余部分（prefill-first / token-budget 不切分 Prompt，跳过前缀命中）。"""
+        return tuple(
+            PrefillChunk(state, self._num_computed_tokens(state), state.request.prompt_len) for state in states
+        )
 
     def _prefill_output(self, chunks: tuple[PrefillChunk, ...], is_oversize_prefill: bool = False) -> SchedulerOutput:
         return SchedulerOutput(
@@ -441,19 +490,17 @@ class IterationScheduler:
 
         候选数为 n 时每请求 chunk 上限为 token_budget // n（尾 chunk 可更短），故 padded 成本
         n × max(chunk) ≤ token_budget 恒成立；token_budget ≥ max_running_requests 保证上限至少为 1。
+        新请求的区间从 prefix cache 命中长度起算（命中长度 ≤ prompt_len - 1，至少推进 1 个 Token）。
         """
         candidates = (*self.running_queue.prefilling_requests, *self._admission_candidates())
         if not candidates:
             return ()
         chunk_cap = token_budget // len(candidates)
-        return tuple(
-            PrefillChunk(
-                state,
-                state.cache_length,
-                state.cache_length + min(state.request.prompt_len - state.cache_length, chunk_cap),
-            )
-            for state in candidates
-        )
+        chunks = []
+        for state in candidates:
+            start = self._num_computed_tokens(state)
+            chunks.append(PrefillChunk(state, start, start + min(state.request.prompt_len - start, chunk_cap)))
+        return tuple(chunks)
 
     def _decide(self) -> SchedulerOutput | None:
         policy = self.scheduler_config.batching_policy
@@ -470,7 +517,7 @@ class IterationScheduler:
         admission_candidates = self._admission_candidates()
         if isinstance(policy, PrefillFirstConfig):
             if admission_candidates:
-                return self._prefill_output(_whole_prompt_chunks(admission_candidates))
+                return self._prefill_output(self._remaining_prompt_chunks(admission_candidates))
             if self.running_queue:
                 return self._decode_output()
             return None
@@ -478,8 +525,10 @@ class IterationScheduler:
         if self.running_queue and self._last_phase is SchedulePhase.PREFILL:
             return self._decode_output()
         if admission_candidates:
-            selected, is_oversize_prefill = _select_within_budget(admission_candidates, policy.token_budget)
-            return self._prefill_output(_whole_prompt_chunks(selected), is_oversize_prefill)
+            selected, is_oversize_prefill = _select_within_budget(
+                self._remaining_prompt_chunks(admission_candidates), policy.token_budget
+            )
+            return self._prefill_output(selected, is_oversize_prefill)
         if self.running_queue:
             return self._decode_output()
         return None

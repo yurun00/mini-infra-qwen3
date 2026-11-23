@@ -48,11 +48,15 @@ class PagedCacheConfig:
     """Paged KV Cache 配置。
 
     block_size: 每块容纳的 Token 数；num_blocks: physical block pool 大小（含 null block），None 时按负载自动推导。
+    is_prefix_caching_enabled: 是否启用 prefix caching：写满的 physical block 按 block hash 登记为 cached block，
+    新请求复用最长公共前缀的 K/V 并跳过这段 Prompt 的 Prefill 计算；cached block 只占用空闲块（惰性淘汰），
+    不额外扩大 physical block pool。
     """
 
     kind: ClassVar[KVCacheKind] = "paged-kv-cache"
     block_size: int = 16
     num_blocks: int | None = None
+    is_prefix_caching_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.block_size < 1:
@@ -61,9 +65,13 @@ class PagedCacheConfig:
             raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
 
     def __str__(self) -> str:
+        params = [f"block_size={self.block_size}"]
         if self.num_blocks is not None:
-            return f"{self.kind}(block_size={self.block_size},num_blocks={self.num_blocks})"
-        return f"{self.kind}(block_size={self.block_size})"
+            params.append(f"num_blocks={self.num_blocks}")
+        # 未启用 prefix caching 时不输出，保证历史 Record 的 engine_config 标识不变
+        if self.is_prefix_caching_enabled:
+            params.append("prefix_caching")
+        return f"{self.kind}({','.join(params)})"
 
 
 KVCacheConfig = NoCacheConfig | DenseCacheConfig | PagedCacheConfig
@@ -74,9 +82,14 @@ def kv_cache_config_from_str(
     *,
     block_size: int | None = None,
     num_blocks: int | None = None,
+    is_prefix_caching_enabled: bool = False,
 ) -> KVCacheConfig:
-    """根据字符串标识与可选块参数构造对应的 KVCacheConfig 实例。"""
+    """根据字符串标识与可选块参数构造对应的 KVCacheConfig 实例（prefix caching 仅支持 paged-kv-cache）。"""
     parsed = parse_kv_cache_kind(kind)
+    if is_prefix_caching_enabled and parsed != PagedCacheConfig.kind:
+        raise ValueError(
+            f"prefix caching 仅支持 {PagedCacheConfig.kind}（cached block 为共享 physical block），实际为 {parsed}"
+        )
     if parsed == "none":
         return NoCacheConfig()
     if parsed == "dense-kv-cache":
@@ -84,6 +97,7 @@ def kv_cache_config_from_str(
     return PagedCacheConfig(
         block_size=block_size if block_size is not None else PagedCacheConfig.block_size,
         num_blocks=num_blocks,
+        is_prefix_caching_enabled=is_prefix_caching_enabled,
     )
 
 
@@ -272,6 +286,7 @@ class SequenceOutput:
     output_len: int
     finish_reason: str  # 结束原因: "stop"（命中 EOS）或 "max_tokens"（达到 Token 预算上限）
     completion_step: int | None = None
+    prefix_cache_hit_tokens: int = 0  # prefix cache 命中、跳过 Prefill 计算的 Prompt Token 数
 
 
 @dataclass(frozen=True)

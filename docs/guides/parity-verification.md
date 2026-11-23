@@ -17,6 +17,7 @@
 | **5. Paged KV Cache 对照** | `compare_paged_cache_logits.py` / `compare_paged_cache_scheduler.py` | `mini-infra verify paged-cache-logits` / `paged-cache-scheduler` | `pytest tests/gpu/parity/test_paged_cache_parity.py -k logits` / `-k scheduler` | `float32` | 验证 Dense 与 Paged KV Cache 逐 Token Logits 误差在容差内、Greedy 输出一致，以及 Scheduler 环境下多 Block Size 输出一致性与入场轨迹 |
 | **6. 迭代调度策略对照** | `compare_schedulers_token_budget.py` | `mini-infra verify schedulers-token-budget` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k schedulers` | `float32` | 在错峰 Burst 负载下验证 `prefill-first` 与 `token-budget` 的逐请求输出一致性、单步轨迹与 decode protection（最大连续 Prefill 步数对比） |
 | **7. Chunked Prefill 对照** | `compare_chunked_prefill.py` | `mini-infra verify chunked-prefill` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k chunked_prefill` | `float32` | 在含超长 Prompt 的错峰负载下验证 `token-budget` 与 `chunked-prefill` 的逐请求输出一致性、首 Token Logits 误差（`atol <= 1e-4`）与硬预算轨迹 |
+| **8. Prefix Caching 对照** | `compare_prefix_caching.py` | `mini-infra verify prefix-caching` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k prefix_caching` | `float32` | 在共享长前缀负载下验证 prefix caching 关闭 / 开启的逐请求输出一致性、命中前缀后只算剩余 Prompt 的首 Token Logits 误差（`atol <= 1e-4`）与 Prefill 计算量下降 |
 
 ---
 
@@ -290,11 +291,48 @@ pytest tests/unit/test_compare_chunked_prefill.py
 
 ---
 
+### 8. Prefix Caching 对照（prefix caching 关闭 vs 开启）
+
+* **对应源码**：[`src/mini_infra/verification/parity/compare_prefix_caching.py`](../../src/mini_infra/verification/parity/compare_prefix_caching.py)
+* **核心目标**：对应参考实现 chapter_08 的 `run_inference.py` / `compare_prefix_cache.py`。在 3 条共享长背景、问题不同的请求上（`chunked-prefill`，`token_budget = 64`，`block_size = 16`，`max_running_requests = 1`），唯一变量为 `PagedCacheConfig.is_prefix_caching_enabled`，对照逐请求输出、命中 Token 数与实际 Prefill 计算的 Prompt Token 数；并直接驱动 `KVCacheManager` + `PagedKVCachePool` 逐请求验证「命中前序请求 cached block 后只算剩余 Prompt」与「整段 Prompt 无缓存 Prefill」的首 Token Logits 最大绝对误差。
+
+#### CLI 运行指令
+```bash
+# 默认参数运行
+mini-infra verify prefix-caching
+
+# 自定义参数与导出 JSON 结果
+mini-infra verify prefix-caching \
+  --max-new-tokens 8 \
+  --token-budget 64 \
+  --block-size 16 \
+  --max-running-requests 1 \
+  --dtype float32 \
+  --logits-atol 1e-4 \
+  --output tmp/parity_prefix_caching.json
+```
+
+#### Pytest 运行指令
+```bash
+# 1. GPU 真实权重对照（含三种 batching policy × 并发 1/2 与单请求串行的逐 Token 对齐）
+pytest tests/gpu/parity/test_scheduler_batch_parity.py -k prefix_caching
+
+# 2. CPU 单元逻辑测试
+pytest tests/unit/test_compare_prefix_caching.py tests/unit/test_prefix_caching.py
+```
+
+* **判定标准**：
+  - 启用 prefix caching 后至少一个请求命中（`enabled_metrics.per_request_prefix_cache_hit_tokens` 之和 > 0）；
+  - `tokens_match` 为 `True`（关闭 / 开启逐请求生成序列完全一致）；
+  - `float32` 下 `max_first_token_logit_error <= logits_atol`（默认 `1e-4`）。
+
+---
+
 ## 三、一键运行全部验证
 
 ### 1. 使用 CLI 依次执行全部对齐命令
 ```bash
-# 执行全部 8 项精度对齐命令
+# 执行全部 9 项精度对齐命令
 mini-infra verify transformers
 mini-infra verify cache
 mini-infra verify batch-lockstep
@@ -303,6 +341,7 @@ mini-infra verify paged-cache-scheduler
 mini-infra verify batch-scheduler
 mini-infra verify schedulers-token-budget
 mini-infra verify chunked-prefill
+mini-infra verify prefix-caching
 ```
 
 ### 2. 使用 Pytest 一键回归全部 GPU 对齐测试

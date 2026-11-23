@@ -66,6 +66,12 @@ _ENGINE_CONFIG_ARGS: dict[str, dict[str, Any]] = {
         "default": None,
         "help": "Paged KV Cache physical block pool 大小（含 null block），默认按工作负载自动推导为不会耗尽的最小值",
     },
+    "--prefix-caching": {
+        "default": "disabled",
+        "choices": ["disabled", "enabled"],
+        "help": "Paged KV Cache 的 prefix caching：复用多请求公共前缀的 K/V 并跳过其 Prefill 计算，"
+        "仅支持 paged-kv-cache（默认: %(default)s）",
+    },
     "--batching-method": {
         "default": BatchingMethod.NONE.value,
         "choices": [m.value for m in BatchingMethod],
@@ -159,7 +165,12 @@ def register_parser(subparsers: argparse._SubParsersAction) -> argparse.Argument
 def build_engine_config(args: argparse.Namespace) -> EngineConfig:
     """由扁平的 CLI 参数合成嵌套的 EngineConfig（CLI 参数到配置结构的唯一映射点）。"""
     return EngineConfig(
-        kv_cache_config_from_str(args.caching_method, block_size=args.kv_block_size, num_blocks=args.num_kv_blocks),
+        kv_cache_config_from_str(
+            args.caching_method,
+            block_size=args.kv_block_size,
+            num_blocks=args.num_kv_blocks,
+            is_prefix_caching_enabled=args.prefix_caching == "enabled",
+        ),
         batching_method=BatchingMethod.from_str(args.batching_method),
         flags=args.feature_flags,
         scheduler_config=scheduler_config_from_str(
@@ -286,9 +297,21 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
 
 def print_result(config: EngineConfig, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
     print("\n[%s]" % config)
+    is_prefix_caching_enabled = (
+        isinstance(config.kv_cache_config, PagedCacheConfig) and config.kv_cache_config.is_prefix_caching_enabled
+    )
     for seq in result.sequences:
         print("请求 %d Token IDs: %s" % (seq.request_idx, seq.token_ids))
         print("请求 %d 输出: %s" % (seq.request_idx, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))
+        if is_prefix_caching_enabled:
+            print(
+                "请求 %d prefix cache 命中 Token 数: %d / %d"
+                % (seq.request_idx, seq.prefix_cache_hit_tokens, seq.prompt_len)
+            )
+    if isinstance(result, ScheduleResult):
+        num_prompt_tokens = sum(seq.prompt_len for seq in result.sequences)
+        num_computed_prompt_tokens = num_prompt_tokens - sum(seq.prefix_cache_hit_tokens for seq in result.sequences)
+        print("实际 Prefill 计算的 Prompt Token 数: %d / %d" % (num_computed_prompt_tokens, num_prompt_tokens))
 
     print("端到端 Wall-clock 延迟: %.2f ms" % result.metrics.e2e_wall_ms)
     print("端到端模型计算延迟: %.2f ms" % result.metrics.e2e_model_ms)
@@ -320,6 +343,16 @@ def print_result(config: EngineConfig, result, tokenizer: Qwen3Tokenizer, tensor
             "Paged physical block pool: block_size=%d, 峰值使用块=%d/%d"
             % (pc.block_size, pc.peak_used_blocks, pc.num_blocks)
         )
+        if is_prefix_caching_enabled:
+            print(
+                "Prefix cache: 命中 Token %d / Prompt Token %d（命中率 %.2f%%），淘汰块数=%d"
+                % (
+                    pc.prefix_cache_hit_tokens,
+                    pc.prefix_cache_prompt_tokens,
+                    pc.prefix_cache_hit_rate * 100,
+                    pc.prefix_cache_block_eviction_count,
+                )
+            )
     decode_times = result.trace.step_latencies_ms[1:]
     if decode_times:
         print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])

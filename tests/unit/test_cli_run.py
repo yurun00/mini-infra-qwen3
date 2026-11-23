@@ -234,6 +234,50 @@ def test_print_result_lockstep_has_no_schedule_metrics(diverse_model, capsys):
     assert "Cache 管理耗时占比" not in out
 
 
+def test_compare_feature_prefix_caching_disabled_vs_enabled(diverse_model, capsys):
+    """对应 chapter_08 run_inference.py：其余参数不变，仅切换 prefix caching，输出一致且命中共享前缀。"""
+    args = parse_run_args(
+        "--caching-method",
+        "paged-kv-cache",
+        "--kv-block-size",
+        "4",
+        "--batching-method",
+        "continuous-batching",
+        "--max-running-requests",
+        "1",
+        "--batching-policy",
+        "chunked-prefill",
+        "--token-budget",
+        "8",
+        "--compare-feature",
+        "prefix-caching",
+        "disabled",
+        "enabled",
+    )
+    (disabled_cfg, enabled_cfg), name = resolve_compare_feature(args)
+    assert name == "prefix-caching: disabled vs enabled"
+    assert disabled_cfg.kv_cache_config == PagedCacheConfig(block_size=4)
+    assert enabled_cfg.kv_cache_config == PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True)
+
+    shared_prefix = [3, 5, 7, 9, 11, 13, 15, 17, 19]
+    sequences = [shared_prefix + [21, 23], shared_prefix + [25]]
+    disabled = run_config(disabled_cfg, diverse_model, sequences, sequences, 3, make_opts(), via_scheduler=True)
+    enabled = run_config(enabled_cfg, diverse_model, sequences, sequences, 3, make_opts(), via_scheduler=True)
+    assert [s.token_ids for s in enabled.sequences] == [s.token_ids for s in disabled.sequences]
+    assert [s.prefix_cache_hit_tokens for s in enabled.sequences] == [0, 8]
+
+    print_result(enabled_cfg, enabled, FakeTokenizer())
+    out = capsys.readouterr().out
+    assert "请求 1 prefix cache 命中 Token 数: 8 / 10" in out
+    assert "实际 Prefill 计算的 Prompt Token 数: 13 / 21" in out
+    assert "Prefix cache: 命中 Token 8 / Prompt Token 21" in out
+
+
+def test_prefix_caching_flag_requires_paged_kv_cache():
+    with pytest.raises(ValueError, match="prefix caching 仅支持 paged-kv-cache"):
+        build_engine_config(parse_run_args("--prefix-caching", "enabled"))
+
+
 def parse_run_args(*argv: str) -> argparse.Namespace:
     return add_run_args(argparse.ArgumentParser()).parse_args(list(argv))
 

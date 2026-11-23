@@ -180,6 +180,7 @@ def aggregate_generation_results(
                     output_len=seq.output_len,
                     finish_reason=seq.finish_reason,
                     completion_step=seq.completion_step,
+                    prefix_cache_hit_tokens=seq.prefix_cache_hit_tokens,
                 )
             )
             request_counter += 1

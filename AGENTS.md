@@ -84,11 +84,15 @@
 | batching policy | `BatchingPolicy` / `BatchingPolicyKind`（`prefill-first` / `token-budget` / `chunked-prefill`） | `SchedulerConfig.batching_policy` 单步组批策略 |
 | token budget | `TokenBudgetConfig.token_budget` / `ChunkedPrefillConfig.token_budget` | 单次 Prefill 允许的 padded token 上限，须不小于 `max_running_requests`；token-budget 为软预算（oversize prefill），chunked-prefill 为硬预算 |
 | prefill chunk | `PrefillChunk(state, start, end)`、`RequestState.cache_length` | chunked-prefill 一次 Prefill 步为单个请求划定的 Prompt 区间 `[start, end)`；`cache_length < prompt_len` 的 RUNNING 请求处于 chunked prefill 中间态（不另设状态，对标 vLLM `num_computed_tokens`） |
+| prefix caching | `PagedCacheConfig.is_prefix_caching_enabled`、`KVCacheManager.num_computed_tokens` / `allocate_computed_blocks` / `cache_blocks` | Paged 路径复用多请求公共前缀 K/V 的特性；与 `batching_policy` 等调度维度正交 |
+| block hash | `BlockHash(hash_value, token_ids)`、`hash_block_tokens` | 满块的链式哈希（父块 `hash_value` + 本块 Token），覆盖从 Prompt 开头到本块的整段前缀 |
+| cached block | `KVCacheBlock.block_hash`、`BlockPool` | 已登记 block hash、可被多请求按 `ref_cnt` 共享的 physical block；`ref_cnt == 0` 时留在 free block queue 中（可命中、可惰性淘汰） |
+| computed blocks / prefix_cache_hit_tokens | `_get_computed_blocks` 返回值、`RequestState.prefix_cache_hit_tokens`、`SequenceOutput.prefix_cache_hit_tokens` | 新请求入场时命中的 cached block 前缀（至多 `(prompt_len - 1) // block_size` 块）及其 Token 数；Prefill 区间从 `prefix_cache_hit_tokens` 起算 |
 | control plane / data plane / compute plane | 分层图 ③④⑤ | 模块 `import torch` 且持有张量即 data plane；纯 CPU 决策即 control plane；纯张量算子计算即 compute plane |
 
 **命名与反混用红线**
 
-- **禁中文别名**：physical block pool 不写「物理块池 / 块池」，block table 不写「页表」，batch slot 不写「请求槽位 / 执行槽」；文档与注释用规范名，首次出现可附代码标识符。
+- **禁中文别名**：physical block pool 不写「物理块池 / 块池」，block table 不写「页表」，batch slot 不写「请求槽位 / 执行槽」，cached block 不写「缓存块」；文档与注释用规范名，首次出现可附代码标识符。
 - **三个「行/位」语义严禁互混**：`slot_mapping` 的 token 级 slot（写入地址）≠ dense 的 batch slot（请求并发位）≠ 单步前向的 row（临时 batch 行）。
 - **调度正交维度严禁互混**：`batching_method`（跨步机制：`none` / `fixed-batching` / `continuous-batching`）≠ `batching_policy`（单步组批：`prefill-first` / `token-budget`）≠ `queue_policy`（排队序：`fcfs` / `priority` / `srtf`）≠ `preemption_mode`（抢占：`recompute` / `swap`）。
 

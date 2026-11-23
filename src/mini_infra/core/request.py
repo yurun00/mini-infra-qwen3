@@ -58,6 +58,7 @@ class RequestState:
     generated: list[int] = field(default_factory=list)
     batch_slot_idx: int | None = None
     cache_length: int = 0  # 已调度写入 KV Cache 的 Token 数：Prefill 按 chunk 推进（至 prompt_len），Decode 逐步 +1
+    prefix_cache_hit_tokens: int = 0  # 入场时 prefix cache 命中、跳过 Prefill 计算的 Prompt Token 数
     admitted_ms: float | None = None
     first_token_ms: float | None = None
     completion_ms: float | None = None
@@ -98,6 +99,7 @@ class RequestState:
             output_len=len(self.generated),
             finish_reason=self.finish_reason,
             completion_step=completion_step,
+            prefix_cache_hit_tokens=self.prefix_cache_hit_tokens,
         )
 
     def to_request_metrics(self) -> RequestMetrics:
