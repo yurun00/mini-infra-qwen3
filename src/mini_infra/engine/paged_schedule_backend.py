@@ -1,4 +1,4 @@
-"""连续批处理的分页 KV Cache 调度后端（基于 PagedRunner、PagedKVCachePool 与 KVCacheManager）。"""
+"""连续批处理的分页 KV Cache 调度后端（基于 PagedRunner、PagedBlockCache 与 KVCacheManager）。"""
 
 import time
 from collections.abc import Sequence
@@ -17,13 +17,13 @@ from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
 from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
-from mini_infra.worker import PagedKVCachePool, PagedRunner
+from mini_infra.worker import PagedBlockCache, PagedRunner
 
 __all__ = ["PagedScheduleBackend"]
 
 
 class PagedScheduleBackend(ScheduleBackend):
-    """连续批处理与固定批次的分页 KV Cache 调度后端（基于 PagedRunner、PagedKVCachePool 与 KVCacheManager）。"""
+    """连续批处理与固定批次的分页 KV Cache 调度后端（基于 PagedRunner、PagedBlockCache 与 KVCacheManager）。"""
 
     def __init__(
         self,
@@ -51,7 +51,7 @@ class PagedScheduleBackend(ScheduleBackend):
         config = model.config  # type: ignore[attr-defined]
         self.runner = PagedRunner(model, pad_token_id)
         self.snapshot_tracker.record_stage("00_paged_before_pool_init")
-        self.pool = PagedKVCachePool(
+        self.paged_block_cache = PagedBlockCache(
             num_layers=config.num_hidden_layers,
             num_blocks=num_blocks,
             block_size=self.block_size,
@@ -73,13 +73,16 @@ class PagedScheduleBackend(ScheduleBackend):
         block_tables = [self.kv_cache_manager.block_table(c.state.request.request_idx) for c in chunks]
         start_positions = [c.start for c in chunks]
         prefill_out = self.runner.run_prefill_chunk_step(
-            [c.state.request.token_ids[c.start : c.end] for c in chunks], start_positions, block_tables, self.pool
+            [c.state.request.token_ids[c.start : c.end] for c in chunks],
+            start_positions,
+            block_tables,
+            self.paged_block_cache,
         )
         self.snapshot_tracker.record_stage("02_paged_prefill_forward_done")
         synchronize(self.device)
         cache_start = time.perf_counter()
         self.runner.store_prefill(
-            self.pool,
+            self.paged_block_cache,
             prefill_out.prefill_cache,
             block_tables,
             [c.num_tokens for c in chunks],
@@ -98,8 +101,8 @@ class PagedScheduleBackend(ScheduleBackend):
             model_ms=model_ms,
             cache_ms=cache_ms,
             physical_batch_size=len(chunks),
-            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.pool.bytes_per_block,
-            kv_cache_pool_bytes=self.pool.total_bytes,
+            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.paged_block_cache.bytes_per_block,
+            kv_cache_pool_bytes=self.paged_block_cache.total_bytes,
             cache_realign_moved_bytes=0,
             accessed_kv_cache_tokens=sum(c.start for c in chunks),
         )
@@ -116,15 +119,15 @@ class PagedScheduleBackend(ScheduleBackend):
         )
         synchronize(self.device)
         cache_ms = (time.perf_counter() - prepare_start) * 1000
-        decode_out = self.runner.run_decode_step(input_ids, position_ids, metadata, self.pool)
+        decode_out = self.runner.run_decode_step(input_ids, position_ids, metadata, self.paged_block_cache)
         self.snapshot_tracker.record_stage("05_paged_decode_step", dump=False)
         return ScheduleStepOutput(
             next_tokens=decode_out.next_tokens,
             model_ms=decode_out.model_ms,
             cache_ms=cache_ms,
             physical_batch_size=active_before,
-            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.pool.bytes_per_block,
-            kv_cache_pool_bytes=self.pool.total_bytes,
+            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.paged_block_cache.bytes_per_block,
+            kv_cache_pool_bytes=self.paged_block_cache.total_bytes,
             cache_realign_moved_bytes=0,
             accessed_kv_cache_tokens=sum(s.cache_length + 1 for s in scheduled_requests),
         )
@@ -133,8 +136,8 @@ class PagedScheduleBackend(ScheduleBackend):
         stats = self.kv_cache_manager.stats
         return PagedCacheProfile(
             block_size=self.block_size,
-            bytes_per_block=self.pool.bytes_per_block,
-            num_blocks=self.pool.num_blocks,
+            bytes_per_block=self.paged_block_cache.bytes_per_block,
+            num_blocks=self.paged_block_cache.num_blocks,
             peak_used_blocks=stats.peak_used_blocks,
             block_cold_allocation_count=stats.block_cold_allocation_count,
             block_reuse_count=stats.block_reuse_count,

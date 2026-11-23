@@ -7,7 +7,7 @@
 | 层 | 模块 | 职责 |
 |---|---|---|
 | ③ Core（CPU） | [`core/block_manager.py`](../../src/mini_infra/core/block_manager.py) | `FreeKVCacheBlockQueue`（free block queue，FIFO 空闲队列，block 0 为 null block）、`BlockPool`（引用计数与 cached block 索引）、`KVCacheManager`（请求级 block table、按需追加 physical block、整体释放引用、prefix caching）。纯 Python，无 `torch`。 |
-| ④ Worker（GPU） | [`worker/paged_kv_cache.py`](../../src/mini_infra/worker/paged_kv_cache.py) | `PagedKVCachePool`：逐层 physical block pool，只认 `physical_block_id` / physical slot（token 级物理位）。 |
+| ④ Worker（GPU） | [`worker/paged_block_cache.py`](../../src/mini_infra/worker/paged_block_cache.py) | `PagedBlockCache`：逐层 physical block pool，只认 `physical_block_id` / physical slot（token 级物理位）。 |
 | ④ Worker（GPU） | [`worker/paged_runner.py`](../../src/mini_infra/worker/paged_runner.py) | `PagedRunner`：Host 侧批量组装 `slot_mapping` / `block_tables` / `context_lens`，单次 H2D；Prefill 后散写 physical block pool。 |
 | ⑤ Model | [`model/qwen3.py`](../../src/mini_infra/model/qwen3.py) | `forward`（支持 `attn_metadata=PagedAttentionMetadata`）：只接收裸张量（physical block pool + `PagedAttentionMetadata`），就地写入新 K/V、按 block table 读取历史。 |
 | ② Engine | [`engine/paged_schedule_backend.py`](../../src/mini_infra/engine/paged_schedule_backend.py) | `PagedScheduleBackend`：与 Dense 路径共享统一调度主循环（三级队列 + FCFS/Prefill 优先规则），仅替换 KV 存储与读取方式。 |
@@ -123,7 +123,7 @@ mini-infra verify prefix-caching
 ## 六、验证
 
 ```bash
-pytest tests/unit/test_block_manager.py tests/unit/test_paged_kv_cache.py tests/unit/test_paged_scheduler.py tests/unit/test_prefix_caching.py
+pytest tests/unit/test_block_manager.py tests/unit/test_paged_block_cache.py tests/unit/test_paged_scheduler.py tests/unit/test_prefix_caching.py
 mini-infra verify batch-scheduler   # float32：serialized / fixed / continuous / paged 逐 Token 一致
 mini-infra verify prefix-caching    # float32：prefix caching 关闭 / 开启逐 Token 一致、首 Token Logits atol <= 1e-4
 ```

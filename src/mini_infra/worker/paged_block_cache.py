@@ -11,7 +11,7 @@ import torch
 from mini_infra.worker.kv_cache import KVCache
 
 
-class PagedKVCachePool:
+class PagedBlockCache:
     """逐层 physical block pool：每层 (key_pool, value_pool) 为 [num_blocks, block_size, num_kv_heads, head_dim]。
 
     - block 0 为 null block（永不分配），整池以 0 初始化：释放的块不清零（读取经 context_lens 屏蔽），
@@ -95,4 +95,4 @@ class PagedKVCachePool:
             )
 
 
-__all__ = ["PagedKVCachePool"]
+__all__ = ["PagedBlockCache"]

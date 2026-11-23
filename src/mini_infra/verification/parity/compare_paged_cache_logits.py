@@ -19,7 +19,7 @@ from mini_infra.verification.parity._common import (
     dump_json,
     prepare_cuda_model,
 )
-from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner
+from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner
 
 DEFAULT_PROMPTS = [
     "用一句话解释 Paged KV Cache。",
@@ -50,7 +50,7 @@ def compare_paged_prompt(
     blocks_needed = math.ceil(max_length / block_size)
     num_blocks = blocks_needed + 1  # 包含 null block 0
 
-    pool = PagedKVCachePool(
+    block_cache = PagedBlockCache(
         num_layers=model.config.num_hidden_layers,
         num_blocks=num_blocks,
         block_size=block_size,
@@ -66,7 +66,7 @@ def compare_paged_prompt(
     runner = PagedRunner(model)
     prefill_cache = KVCache([(k.clone(), v.clone()) for k, v in dense_cache])
     runner.store_prefill(
-        pool,
+        block_cache,
         prefill_cache=prefill_cache,
         block_tables=[manager.block_table(0)],
         chunk_lens=[len(token_ids)],
@@ -87,7 +87,7 @@ def compare_paged_prompt(
             positions=[position],
             block_size=block_size,
         )
-        attn_metadata = metadata._replace(kv_pools=tuple(pool.kv_pools))
+        attn_metadata = metadata._replace(kv_pools=tuple(block_cache.kv_pools))
         paged_logits, _ = model(inp, position_ids=pos, attn_metadata=attn_metadata)
 
         # Dense Decode

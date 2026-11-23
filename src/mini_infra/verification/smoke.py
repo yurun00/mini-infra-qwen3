@@ -26,7 +26,7 @@ from mini_infra.engine import (
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import DenseAttentionMetadata, Qwen3Config, Qwen3ForCausalLM
-from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner, cache_size_bytes
+from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner, cache_size_bytes
 from mini_infra.worker.base_runner import _left_pad_sequences
 
 
@@ -288,7 +288,7 @@ def check_paged_kv_cache(model):
     block_size = 4
     # num_blocks=4: 1 个 null block (0) + 3 个可分配 physical block (1, 2, 3)
     manager = KVCacheManager(block_size=block_size, num_blocks=4)
-    pool = PagedKVCachePool(
+    block_cache = PagedBlockCache(
         num_layers=config.num_hidden_layers,
         num_blocks=4,
         block_size=block_size,
@@ -313,10 +313,10 @@ def check_paged_kv_cache(model):
     old_block_ids = list(manager.block_table(0))
     assert len(old_block_ids) == 2
     assert manager.num_used_blocks * block_size == 8
-    runner.store_prefill(pool, KVCache(expected_layers), [old_block_ids], [6], [0])
+    runner.store_prefill(block_cache, KVCache(expected_layers), [old_block_ids], [6], [0])
 
     for layer_idx, (exp_key, exp_val) in enumerate(expected_layers):
-        key_pool, val_pool = pool.kv_pools[layer_idx]
+        key_pool, val_pool = block_cache.kv_pools[layer_idx]
         gathered_k = torch.cat([key_pool[b] for b in old_block_ids], dim=0)[:6].transpose(0, 1).unsqueeze(0)
         gathered_v = torch.cat([val_pool[b] for b in old_block_ids], dim=0)[:6].transpose(0, 1).unsqueeze(0)
         assert torch.equal(gathered_k, exp_key)
@@ -335,7 +335,7 @@ def check_paged_kv_cache(model):
     assert position_ids.tolist() == [[6]]
     assert metadata.slot_mapping.tolist() == [old_block_ids[1] * block_size + 2]
     assert metadata.context_lens.tolist() == [7]
-    runner.run_decode_step(input_ids, position_ids, metadata, pool)
+    runner.run_decode_step(input_ids, position_ids, metadata, block_cache)
 
     # 3. 释放请求 0 并验证 free block queue 的 FIFO 复用与脏尾部隔离
     manager.free(0)
@@ -350,9 +350,9 @@ def check_paged_kv_cache(model):
     assert manager.stats.block_reuse_count == 1
 
     short_layers = [(k[:, :, :2, :], v[:, :, :2, :]) for k, v in expected_layers]
-    runner.store_prefill(pool, KVCache(short_layers), [manager.block_table(1)], [2], [0])
+    runner.store_prefill(block_cache, KVCache(short_layers), [manager.block_table(1)], [2], [0])
     for layer_idx, (exp_key, exp_val) in enumerate(short_layers):
-        key_pool, val_pool = pool.kv_pools[layer_idx]
+        key_pool, val_pool = block_cache.kv_pools[layer_idx]
         b0 = manager.block_table(1)[0]
         assert torch.equal(key_pool[b0, :2].transpose(0, 1).unsqueeze(0), exp_key)
         assert torch.equal(val_pool[b0, :2].transpose(0, 1).unsqueeze(0), exp_val)

@@ -14,7 +14,7 @@
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
 - **Continuous Batching 调度与并发调度基准**：实现原生 `DenseSlotCache` batch slot 管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占 free batch slot，消除队头阻塞；内建 `mini-infra bench scheduler` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
-- **Paged KV Cache（PagedAttention 内存管理）**：基于 `PagedKVCachePool`（physical block pool）与 `KVCacheManager`（请求级 block table）的非连续显存分页分配，按需按块申请与即时归还，彻底消除最长序列预留造成的内部碎片与左侧扩容拷贝开销。
+- **Paged KV Cache（PagedAttention 内存管理）**：基于 `PagedBlockCache`（physical block pool）与 `KVCacheManager`（请求级 block table）的非连续显存分页分配，按需按块申请与即时归还，彻底消除最长序列预留造成的内部碎片与左侧扩容拷贝开销。
 - **Token-Budget 迭代级组批调度**：在 `IterationScheduler` 中支持 `token-budget` 单步组批策略（batching policy），按 padded prompt tokens 预算控制单次 Prefill 规模并启用 decode protection，抑制突发到达请求对在途 Decode 尾延迟（ITL）的阻塞。
 - **Chunked Prefill 迭代级组批调度**：`chunked-prefill` 组批策略把长 Prompt 按 token budget 硬预算切成 chunk 跨步推进（仅 `paged-kv-cache` + `continuous-batching`），历史 K/V 经 block table 从 physical block pool 读回，新增 `num_prefill_chunks` / `max_prefill_step_tokens` / `max_prefill_step_ms` 指标，消除 oversize prefill 对在途 Decode 的整段阻塞。
 - **Prefix Caching（自动前缀缓存）**：`--prefix-caching enabled`（仅 `paged-kv-cache`）把写满的 physical block 按链式 block hash 登记为 cached block，新请求复用最长公共前缀的 K/V 并跳过其 Prefill；引用计数共享、惰性 LRU 淘汰（不额外占用显存），Decode 写满的块同样可被多轮对话命中。
@@ -51,7 +51,7 @@ mini-infra-qwen3/
 │       │   ├── slot_runner.py         # SlotRunner 连续批处理 batch slot 专职执行器（Prefill / Decode）
 │       │   ├── dense_slot_cache.py    # DenseSlotCache 连续批处理 batch slot 显存池
 │       │   ├── paged_runner.py        # PagedRunner 分页 KV 专职执行器（Prefill 散写 block pool / Decode 按 block table 寻址）
-│       │   ├── paged_kv_cache.py      # PagedKVCachePool 逐层 physical block pool
+│       │   ├── paged_block_cache.py   # PagedBlockCache 逐层 physical block pool
 │       │   └── kv_cache.py            # KVCache 键值缓存容器与显存统计
 │       ├── inputs/                    # 输入协议共享层（PromptInput：纯 Python，无 torch，不含 tokenize）
 │       ├── core/                      # 调度与请求核心 control plane（纯 CPU 逻辑，无 GPU/模型依赖）

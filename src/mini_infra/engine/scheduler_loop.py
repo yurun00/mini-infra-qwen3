@@ -3,7 +3,7 @@
 作为底座引擎核心，串联三类组件驱动“调度 → 执行 → batch slot / block table 更新”的迭代循环：
 - 调度后端（入场、batch slot / block table 分配、退场与 EOS/预算判定）：engine/{dense,paged}_schedule_backend.py
 - 模型执行（单步 Prefill / Decode 前向与计时）：worker/slot_runner.py 与 worker/paged_runner.py
-- KV Cache 物理显存管理：worker/dense_slot_cache.py (DenseSlotCache) 与 worker/paged_kv_cache.py (PagedKVCachePool)
+- KV Cache 物理显存管理：worker/dense_slot_cache.py (DenseSlotCache) 与 worker/paged_block_cache.py (PagedBlockCache)
 
 后端接口与单步产出契约见 engine/schedule_backend.py（ScheduleBackend / ScheduleStepOutput）；
 Dense / Paged 两个具体实现分别位于 engine/dense_schedule_backend.py 与 engine/paged_schedule_backend.py。

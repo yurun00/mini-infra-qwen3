@@ -12,7 +12,7 @@ from mini_infra.device import StepTimer
 from mini_infra.model.qwen3 import DenseAttentionMetadata, PagedAttentionMetadata
 from mini_infra.worker.base_runner import BaseModelRunner, PrefillOutput
 from mini_infra.worker.kv_cache import KVCache
-from mini_infra.worker.paged_kv_cache import PagedKVCachePool
+from mini_infra.worker.paged_block_cache import PagedBlockCache
 from mini_infra.worker.sampler import greedy_sample
 
 # 与 control plane FreeKVCacheBlockQueue 的约定：block 0 为 null block（永不分配），用于 block table 右侧补齐。
@@ -27,21 +27,21 @@ class PagedDecodeOutput(NamedTuple):
 
 
 class PagedRunner(BaseModelRunner):
-    """Paged KV Cache 场景专职执行器：无状态，驱动 PagedKVCachePool 完成 Prefill 落盘与 Decode。"""
+    """Paged KV Cache 场景专职执行器：无状态，驱动 PagedBlockCache 完成 Prefill 落盘与 Decode。"""
 
     def run_prefill_chunk_step(
         self,
         chunk_token_ids: Sequence[Sequence[int]],
         start_positions: Sequence[int],
         block_tables: Sequence[Sequence[int]],
-        pool: PagedKVCachePool,
+        block_cache: PagedBlockCache,
     ) -> PrefillOutput:
         """对一批 Prompt 区间（整段 Prompt 或 chunk）做左 Padding Prefill，前序 chunk 的历史 K/V 经 block table 读回。
 
         chunk 行 i 为 Prompt 位置 [start_positions[i], start_positions[i] + len(chunk_token_ids[i]))：
         - input_ids / position_ids：chunk 部分左 Padding，真实 Token 的 position_ids 从 start_positions[i] 连续递增；
-        - 历史部分：block_tables[i] 前 ceil(start / block_size) 个 physical block 取自 pool，右侧以 null block 补齐，
-          attention_mask 只放行前 start 个位置，保证与整段 Prompt 一次性 Prefill 的因果可见范围严格等价；
+        - 历史部分：block_tables[i] 前 ceil(start / block_size) 个 physical block 取自 block_cache，
+          右侧以 null block 补齐，attention_mask 只放行前 start 个位置，保证与整段 Prompt 一次性 Prefill 严格等价；
         - 全部行 start 为 0 时无历史，与整段 Prompt 的 Prefill 走同一前向路径。
 
         Host 侧把 input_ids / position_ids / start / chunk 长度 / 历史 block table 打包为 long 张量单次上卡（不 sync）。
@@ -51,7 +51,7 @@ class PagedRunner(BaseModelRunner):
         prefill_cache:   逐层 (key, value) 均为 [B, H_kv, num_history_slots + padded_chunk_len, D]，
                          各行本 chunk 的有效 Token 位于末尾 len(chunk_token_ids[i]) 个位置
         """
-        block_size = pool.block_size
+        block_size = block_cache.block_size
         chunk_lens = [len(token_ids) for token_ids in chunk_token_ids]
         padded_chunk_len = max(chunk_lens)
         num_history_blocks = [(start + block_size - 1) // block_size for start in start_positions]
@@ -87,7 +87,7 @@ class PagedRunner(BaseModelRunner):
                 history_positions = torch.arange(max_history_blocks * block_size, device=self.device).unsqueeze(0)
                 # [B, max_history_blocks * block_size + padded_chunk_len]，bool, contiguous
                 attention_mask = torch.cat((history_positions < start_lens, attention_mask), dim=1)
-                attn_metadata = DenseAttentionMetadata(past_key_values=pool.gather_blocks(history_block_ids))
+                attn_metadata = DenseAttentionMetadata(past_key_values=block_cache.gather_blocks(history_block_ids))
             logits, present_key_values = self.model(
                 input_ids,
                 attention_mask=attention_mask,
@@ -103,7 +103,7 @@ class PagedRunner(BaseModelRunner):
 
     def store_prefill(
         self,
-        pool: PagedKVCachePool,
+        block_cache: PagedBlockCache,
         prefill_cache: KVCache,
         block_tables: Sequence[Sequence[int]],
         chunk_lens: Sequence[int],
@@ -116,7 +116,7 @@ class PagedRunner(BaseModelRunner):
         写入请求的逻辑位置 start_positions[i] .. start_positions[i] + chunk_lens[i] - 1。
         """
         padded_length = prefill_cache.length
-        block_size = pool.block_size
+        block_size = block_cache.block_size
         token_rows: list[int] = []
         token_positions: list[int] = []
         slots: list[int] = []
@@ -128,7 +128,7 @@ class PagedRunner(BaseModelRunner):
                 slots.append(block_table[position // block_size] * block_size + position % block_size)
         # 单次 H2D：[3, num_tokens]。
         index_tensor = torch.tensor([token_rows, token_positions, slots], dtype=torch.long, device=self.device)
-        pool.write_prefill(
+        block_cache.write_prefill(
             prefill_cache,
             token_rows=index_tensor[0],
             token_positions=index_tensor[1],
@@ -170,7 +170,7 @@ class PagedRunner(BaseModelRunner):
         input_ids: torch.Tensor,
         position_ids: torch.Tensor,
         metadata: PagedAttentionMetadata,
-        pool: PagedKVCachePool,
+        block_cache: PagedBlockCache,
     ) -> PagedDecodeOutput:
         """执行一步 Paged Decode 前向与采样（新 K/V 由模型就地写入 physical block pool，耗时由 StepTimer 当场结算）。
 
@@ -179,7 +179,7 @@ class PagedRunner(BaseModelRunner):
         metadata:     PagedAttentionMetadata（slot_mapping [B], block_tables [B, max_blocks], context_lens [B]）
         """
         with StepTimer(self.device) as timer:
-            attn_metadata = metadata._replace(kv_pools=tuple(pool.kv_pools))
+            attn_metadata = metadata._replace(kv_pools=tuple(block_cache.kv_pools))
             logits, _ = self.model(
                 input_ids,
                 position_ids=position_ids,

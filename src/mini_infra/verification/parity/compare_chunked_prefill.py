@@ -34,7 +34,7 @@ from mini_infra.verification.parity._common import (
     dump_json,
     prepare_cuda_model,
 )
-from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner
+from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner
 
 DEFAULT_PROMPTS = [
     "用一句话解释 Chunked Prefill。",
@@ -95,7 +95,7 @@ def _compare_first_token_logits(
 ) -> dict[str, float]:
     """逐请求对比整段 Prefill 与按 chunk_size 分块 Prefill 的首 Token Logits 最大绝对误差。
 
-    直接复用 PagedKVCachePool.gather_blocks 与 PagedRunner.store_prefill，不侵入 engine / worker 生产接口。
+    直接复用 PagedBlockCache.gather_blocks 与 PagedRunner.store_prefill，不侵入 engine / worker 生产接口。
     """
     param = next(model.parameters())
     device = param.device
@@ -111,7 +111,7 @@ def _compare_first_token_logits(
         ref_logits = full_logits[0, -1, :].float().cpu()
 
         num_blocks = num_blocks_for_tokens(prompt_len, block_size) + 1  # 含 null block 0
-        pool = PagedKVCachePool(
+        block_cache = PagedBlockCache(
             num_layers=config.num_hidden_layers,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -138,7 +138,7 @@ def _compare_first_token_logits(
                 history_mask = torch.arange(num_history_blocks * block_size, device=device).unsqueeze(0) < start
                 attention_mask = torch.cat((history_mask, chunk_mask), dim=1)
                 attn_metadata: DenseAttentionMetadata | None = DenseAttentionMetadata(
-                    past_key_values=pool.gather_blocks(history_block_ids)
+                    past_key_values=block_cache.gather_blocks(history_block_ids)
                 )
             else:
                 attention_mask = chunk_mask
@@ -149,7 +149,7 @@ def _compare_first_token_logits(
                 position_ids=position_ids,
                 attn_metadata=attn_metadata,
             )
-            runner.store_prefill(pool, KVCache(present), [block_table], [chunk_len], [start])
+            runner.store_prefill(block_cache, KVCache(present), [block_table], [chunk_len], [start])
             if end == prompt_len:
                 chunked_logits = logits[0, -1, :].float().cpu()
 

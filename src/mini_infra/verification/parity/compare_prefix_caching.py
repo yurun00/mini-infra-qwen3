@@ -36,7 +36,7 @@ from mini_infra.verification.parity._common import (
     dump_json,
     prepare_cuda_model,
 )
-from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner
+from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner
 
 _SHARED_CONTEXT = (
     "请先阅读以下共同背景：Prefix Cache 会复用多个请求相同前缀已经计算出的 KV Cache，从而减少后续请求的 Prefill 计算。"
@@ -76,17 +76,17 @@ def _summarize_run(run: ScheduleResult) -> dict[str, Any]:
 def _prefill_logits(
     model: torch.nn.Module,
     runner: PagedRunner,
-    pool: PagedKVCachePool,
+    block_cache: PagedBlockCache,
     token_ids: Sequence[int],
     start: int,
     block_table: Sequence[int],
 ) -> torch.Tensor:
-    """单请求 Prompt 区间 [start, len(token_ids)) 的 Prefill：历史 K/V 经 block table 取自 pool，本段 K/V 写回 pool。
+    """单请求 Prompt 区间 [start, len(token_ids)) 的 Prefill：历史 K/V 经 block table 读回，本段 K/V 写回。
 
     返回末位 logits（[vocab]，float32，CPU）。
     """
     device = next(model.parameters()).device
-    block_size = pool.block_size
+    block_size = block_cache.block_size
     chunk_len = len(token_ids) - start
     chunk_ids = torch.tensor([token_ids[start:]], dtype=torch.long, device=device)
     position_ids = torch.arange(start, len(token_ids), dtype=torch.long, device=device).unsqueeze(0)
@@ -97,11 +97,11 @@ def _prefill_logits(
         history_block_ids = torch.tensor([block_table[:num_history_blocks]], dtype=torch.long, device=device)
         history_mask = torch.arange(num_history_blocks * block_size, device=device).unsqueeze(0) < start
         attention_mask = torch.cat((history_mask, attention_mask), dim=1)
-        attn_metadata = DenseAttentionMetadata(past_key_values=pool.gather_blocks(history_block_ids))
+        attn_metadata = DenseAttentionMetadata(past_key_values=block_cache.gather_blocks(history_block_ids))
     logits, present = model(
         chunk_ids, attention_mask=attention_mask, position_ids=position_ids, attn_metadata=attn_metadata
     )
-    runner.store_prefill(pool, KVCache(present), [block_table], [chunk_len], [start])
+    runner.store_prefill(block_cache, KVCache(present), [block_table], [chunk_len], [start])
     return logits[0, -1, :].float().cpu()
 
 
@@ -112,13 +112,13 @@ def _compare_first_token_logits(
 ) -> tuple[dict[str, float], dict[str, int]]:
     """逐请求对比「命中前序请求 cached block 后只算剩余 Prompt」与「整段 Prompt 无缓存 Prefill」的首 Token Logits。
 
-    直接驱动 KVCacheManager（allocate_computed_blocks / cache_blocks）与 PagedKVCachePool，复用生产路径的
+    直接驱动 KVCacheManager（allocate_computed_blocks / cache_blocks）与 PagedBlockCache，复用生产路径的
     prefix cache 查找与 block table 寻址；返回 (逐请求最大绝对误差, 逐请求命中 Token 数)。
     """
     param = next(model.parameters())
     config = model.config  # type: ignore[attr-defined]
     num_blocks = 1 + sum(num_blocks_for_tokens(len(sequence), block_size) for sequence in sequences)
-    pool = PagedKVCachePool(
+    block_cache = PagedBlockCache(
         num_layers=config.num_hidden_layers,
         num_blocks=num_blocks,
         block_size=block_size,
@@ -138,7 +138,7 @@ def _compare_first_token_logits(
         start = manager.allocate_computed_blocks(request)
         if not manager.allocate_slots(request_idx, request.prompt_len - start):
             raise RuntimeError(f"请求 {request_idx} 分配物理块失败")
-        cached_logits = _prefill_logits(model, runner, pool, sequence, start, manager.block_table(request_idx))
+        cached_logits = _prefill_logits(model, runner, block_cache, sequence, start, manager.block_table(request_idx))
         manager.cache_blocks(RequestState(request, cache_length=request.prompt_len))
         errors[str(request_idx)] = float(
             torch.max(torch.abs(full_logits[0, -1, :].float().cpu() - cached_logits)).item()

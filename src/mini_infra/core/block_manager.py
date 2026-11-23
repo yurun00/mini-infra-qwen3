@@ -1,7 +1,7 @@
 """Paged KV Cache 的逻辑块管理（Logical Block Allocator）与 prefix caching。
 
 - control plane 只维护「请求 -> 物理 Block ID 列表（block table）」、physical block 引用计数与 free block queue；
-  物理显存（K/V 张量）由 worker/paged_kv_cache.py 持有，二者仅通过整数 physical_block_id 对接。
+  物理显存（K/V 张量）由 worker/paged_block_cache.py 持有，二者仅通过整数 physical_block_id 对接。
 - prefix caching：K/V 已写入 physical block pool 的满块以 block hash（父块哈希 + 本块 Token ID 的链式哈希）
   登记为 cached block；新请求入场时沿 block hash 链匹配最长前缀命中（computed blocks），引用计数 +1 共享物理块，
   跳过这段 Prompt 的 Prefill 计算。

@@ -294,7 +294,7 @@ pytest tests/unit/test_compare_chunked_prefill.py
 ### 8. Prefix Caching 对照（prefix caching 关闭 vs 开启）
 
 * **对应源码**：[`src/mini_infra/verification/parity/compare_prefix_caching.py`](../../src/mini_infra/verification/parity/compare_prefix_caching.py)
-* **核心目标**：对应参考实现 chapter_08 的 `run_inference.py` / `compare_prefix_cache.py`。在 3 条共享长背景、问题不同的请求上（`chunked-prefill`，`token_budget = 64`，`block_size = 16`，`max_running_requests = 1`），唯一变量为 `PagedCacheConfig.is_prefix_caching_enabled`，对照逐请求输出、命中 Token 数与实际 Prefill 计算的 Prompt Token 数；并直接驱动 `KVCacheManager` + `PagedKVCachePool` 逐请求验证「命中前序请求 cached block 后只算剩余 Prompt」与「整段 Prompt 无缓存 Prefill」的首 Token Logits 最大绝对误差。
+* **核心目标**：对应参考实现 chapter_08 的 `run_inference.py` / `compare_prefix_cache.py`。在 3 条共享长背景、问题不同的请求上（`chunked-prefill`，`token_budget = 64`，`block_size = 16`，`max_running_requests = 1`），唯一变量为 `PagedCacheConfig.is_prefix_caching_enabled`，对照逐请求输出、命中 Token 数与实际 Prefill 计算的 Prompt Token 数；并直接驱动 `KVCacheManager` + `PagedBlockCache` 逐请求验证「命中前序请求 cached block 后只算剩余 Prompt」与「整段 Prompt 无缓存 Prefill」的首 Token Logits 最大绝对误差。
 
 #### CLI 运行指令
 ```bash
