@@ -6,7 +6,11 @@ import pytest
 
 from mini_infra.bench.cases import DEFAULT_REPEATS, DEFAULT_WARMUP
 from mini_infra.bench.correctness import CorrectnessReport
-from mini_infra.bench.efficiency import EfficiencyMetrics, HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.efficiency import (
+    EfficiencyMetrics,
+    HardwarePeakSpecs,
+    ModelCostProfile,
+)
 from mini_infra.bench.format import format_lengths
 from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.utils import percentile
@@ -25,15 +29,26 @@ from mini_infra.utils import percentile
         ("NVIDIA GeForce RTX 4090", 1008.0, 165.0),
     ],
 )
-def test_lookup_gpu_peak_specs_matches_exact_model(gpu_name, expected_bandwidth, expected_tflops):
+def test_lookup_gpu_peak_specs_matches_exact_model(
+    gpu_name, expected_bandwidth, expected_tflops
+):
     peaks = HardwarePeakSpecs.lookup(gpu_name)
-    assert peaks == HardwarePeakSpecs(bandwidth_gbs=expected_bandwidth, tflops=expected_tflops)
-    assert peaks.to_dict() == {"bandwidth_gbs": expected_bandwidth, "tflops": expected_tflops}
+    assert peaks == HardwarePeakSpecs(
+        bandwidth_gbs=expected_bandwidth, tflops=expected_tflops
+    )
+    assert peaks.to_dict() == {
+        "bandwidth_gbs": expected_bandwidth,
+        "tflops": expected_tflops,
+    }
 
 
 def test_lookup_gpu_peak_specs_unknown_gpu_and_overrides():
-    assert HardwarePeakSpecs.lookup("Unknown GPU") == HardwarePeakSpecs(bandwidth_gbs=None, tflops=None)
-    assert HardwarePeakSpecs.lookup("Unknown GPU", bandwidth_gbs=100.0, tflops=10.0) == HardwarePeakSpecs(
+    assert HardwarePeakSpecs.lookup("Unknown GPU") == HardwarePeakSpecs(
+        bandwidth_gbs=None, tflops=None
+    )
+    assert HardwarePeakSpecs.lookup(
+        "Unknown GPU", bandwidth_gbs=100.0, tflops=10.0
+    ) == HardwarePeakSpecs(
         bandwidth_gbs=100.0,
         tflops=10.0,
     )
@@ -119,10 +134,17 @@ def test_dataclasses_attributes_and_to_dict():
         _ = eff["decode_mbu"]  # type: ignore[index]
 
     # 4. CorrectnessReport
-    rep = CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+    rep = CorrectnessReport(
+        checked=True, passed=True, match_ratio=1.0, updated_golden=False
+    )
     assert rep.checked is True
     assert rep.passed is True
-    assert rep.to_dict() == {"checked": True, "passed": True, "match_ratio": 1.0, "updated_golden": False}
+    assert rep.to_dict() == {
+        "checked": True,
+        "passed": True,
+        "match_ratio": 1.0,
+        "updated_golden": False,
+    }
     with pytest.raises(TypeError):
         _ = rep["passed"]  # type: ignore[index]
 
@@ -138,13 +160,23 @@ def test_shared_modules_strictly_decoupled_from_engines():
         LockstepCaseResult,
         format_table,
     )
-    from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
+    from mini_infra.bench.result import (
+        build_benchmark_record,
+        save_benchmark_record,
+    )
 
     # 0. 旧上帝模块 bench.common 已彻底删除
     assert "mini_infra.bench.common" not in sys.modules
 
     # 1. 各共享基础设施模块不直接反向引入引擎结果类或表格展示钩子
-    for mod in (bench_paths, bench_stats, bench_efficiency, bench_env, bench_correctness, bench_result_schema):
+    for mod in (
+        bench_paths,
+        bench_stats,
+        bench_efficiency,
+        bench_env,
+        bench_correctness,
+        bench_result_schema,
+    ):
         assert "LockstepCaseResult" not in mod.__dict__
         assert "SchedulerCaseResult" not in mod.__dict__
         assert not hasattr(mod, "format_table")

@@ -5,7 +5,12 @@ from typing import Any
 
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, make_requests
+from mini_infra.core import (
+    DenseCacheConfig,
+    PagedCacheConfig,
+    SchedulerConfig,
+    make_requests,
+)
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
@@ -50,7 +55,12 @@ def run_compare_paged_cache_scheduler(
 
     # 根据请求数量调整 budgets 和 arrivals
     if len(prompts_to_run) == len(DEFAULT_PROMPTS):
-        budgets = [DEFAULT_BUDGETS[0], max_new_tokens, DEFAULT_BUDGETS[2], max_new_tokens]
+        budgets = [
+            DEFAULT_BUDGETS[0],
+            max_new_tokens,
+            DEFAULT_BUDGETS[2],
+            max_new_tokens,
+        ]
         arrivals = list(DEFAULT_ARRIVALS)
     else:
         budgets = [max_new_tokens] * len(prompts_to_run)
@@ -79,7 +89,9 @@ def run_compare_paged_cache_scheduler(
             EngineConfig(
                 PagedCacheConfig(block_size=block_size),
                 batching_method=BatchingMethod.CONTINUOUS,
-                scheduler_config=SchedulerConfig(max_running_requests=max_running_requests),
+                scheduler_config=SchedulerConfig(
+                    max_running_requests=max_running_requests
+                ),
             ),
             model,
             requests,
@@ -88,9 +100,15 @@ def run_compare_paged_cache_scheduler(
         )
         paged_token_ids = [s.token_ids for s in paged_run.sequences]
         matches_dense = paged_token_ids == dense_token_ids
-        admission_trace = [list(event.admitted_request_ids) for event in paged_run.events if event.admitted_request_ids]
+        admission_trace = [
+            list(event.admitted_request_ids)
+            for event in paged_run.events
+            if event.admitted_request_ids
+        ]
         paged_profile = paged_run.memory.kv_cache.paged_cache
-        block_reuse_count = paged_profile.block_reuse_count if paged_profile is not None else 0
+        block_reuse_count = (
+            paged_profile.block_reuse_count if paged_profile is not None else 0
+        )
 
         paged_results[str(block_size)] = {
             "token_ids": paged_token_ids,

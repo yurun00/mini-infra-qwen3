@@ -111,7 +111,9 @@ def load_benchmark_suite(
     """从任意 YAML 路径加载 BenchmarkSuite。若提供 expected_engine 则校验引擎一致性。"""
     loaded = load_suite_spec(path, overrides)
     if expected_engine is not None and loaded.spec.engine != expected_engine:
-        raise ValueError(f"{path}: engine 必须是 {expected_engine}，实际为 {loaded.spec.engine}")
+        raise ValueError(
+            f"{path}: engine 必须是 {expected_engine}，实际为 {loaded.spec.engine}"
+        )
     return BenchmarkSuite.from_spec(loaded)
 
 
@@ -131,7 +133,9 @@ def get_benchmark_suite(
 
 def get_all_benchmark_suites(engine: SuiteEngine) -> Sequence[BenchmarkSuite]:
     """获取指定引擎内置的全部套件。专供测试使用（Test-only）。"""
-    return [get_benchmark_suite(engine, name) for name in list_benchmark_suite_names(engine)]
+    return [
+        get_benchmark_suite(engine, name) for name in list_benchmark_suite_names(engine)
+    ]
 
 
 __all__ = [

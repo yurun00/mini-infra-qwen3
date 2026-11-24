@@ -3,7 +3,7 @@
 作为底座引擎核心，串联三类组件驱动“调度 → 执行 → batch slot / block table 更新”的迭代循环：
 - 调度后端（入场、batch slot / block table 分配、退场与 EOS/预算判定）：engine/{dense,paged}_schedule_backend.py
 - 模型执行（单步 Prefill / Decode 前向与计时）：worker/slot_runner.py 与 worker/paged_runner.py
-- KV Cache 物理显存管理：worker/dense_slot_cache.py (DenseSlotCache) 与 worker/paged_kv_cache.py (PagedKVCachePool)
+- KV Cache 物理显存管理：worker/dense_slot_cache.py (DenseSlotCache) 与 worker/paged_block_cache.py (PagedBlockCache)
 
 后端接口与单步产出契约见 engine/schedule_backend.py（ScheduleBackend / ScheduleStepOutput）；
 Dense / Paged 两个具体实现分别位于 engine/dense_schedule_backend.py 与 engine/paged_schedule_backend.py。
@@ -82,7 +82,9 @@ def _run_schedule_loop(
         num_active_requests = len(scheduler.running_queue)
         if output.phase is SchedulePhase.PREFILL:
             step_output = backend.execute_prefill(output.prefill_chunks)
-            admitted_request_ids = tuple(c.state.request.request_idx for c in output.prefill_chunks if c.start == 0)
+            admitted_request_ids = tuple(
+                c.state.request.request_idx for c in output.prefill_chunks if c.is_first
+            )
         else:
             step_output = backend.execute_decode(output.scheduled_requests)
             admitted_request_ids = ()
@@ -91,8 +93,12 @@ def _run_schedule_loop(
         step_ms = step_output.model_ms + step_output.cache_ms
         clock_ms += step_ms
         update_start = time.perf_counter()
-        finished = scheduler.update_from_output(output, step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos)
-        scheduler_ms = pending_scheduler_ms + (time.perf_counter() - update_start) * 1000.0
+        finished = scheduler.update_from_output(
+            output, step_output.next_tokens, clock_ms, eos_token_id, stop_on_eos
+        )
+        scheduler_ms = (
+            pending_scheduler_ms + (time.perf_counter() - update_start) * 1000.0
+        )
         pending_scheduler_ms = 0.0
         backend.retire(finished, is_idle=not scheduler.running_queue)
 
@@ -165,13 +171,18 @@ def run_scheduler(
     batching_method = config.batching_method
     kv_cache_config = config.kv_cache_config
     if isinstance(kv_cache_config, NoCacheConfig):
-        raise ValueError("scheduler 不支持无 KV Cache，请改用 DenseCacheConfig 或 PagedCacheConfig")
+        raise ValueError(
+            "scheduler 不支持无 KV Cache，请改用 DenseCacheConfig 或 PagedCacheConfig"
+        )
     # 按实际生效的并发上限校验配置：max_running_requests=None 时已推导为请求总数
     validate_engine_config(config.with_max_running_requests(max_running_requests))
 
     backend: ScheduleBackend
     if isinstance(kv_cache_config, PagedCacheConfig):
-        if batching_method not in (BatchingMethod.CONTINUOUS, BatchingMethod.FIXED):
+        if batching_method not in (
+            BatchingMethod.CONTINUOUS,
+            BatchingMethod.FIXED,
+        ):
             raise ValueError(
                 f"Paged KV Cache 仅支持 {BatchingMethod.CONTINUOUS.value} 或 {BatchingMethod.FIXED.value}，"
                 f"实际为 {batching_method.value}"
@@ -187,7 +198,9 @@ def run_scheduler(
         effective_max_running_requests = max_running_requests
     else:
         effective_max_running_requests = (
-            1 if (batching_method is BatchingMethod.NONE and max_running_requests >= 1) else max_running_requests
+            1
+            if (batching_method is BatchingMethod.NONE and max_running_requests >= 1)
+            else max_running_requests
         )
         backend = DenseScheduleBackend(
             model=model,

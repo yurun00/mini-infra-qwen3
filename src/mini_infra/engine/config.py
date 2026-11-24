@@ -31,7 +31,9 @@ class FeatureFlag(str, Enum):
         try:
             return cls(value)
         except ValueError as err:
-            raise ValueError(f"未知特性标志: {value}，可选特性: {[m.value for m in cls]}") from err
+            raise ValueError(
+                f"未知特性标志: {value}，可选特性: {[m.value for m in cls]}"
+            ) from err
 
     def __str__(self) -> str:
         return self.value
@@ -70,13 +72,23 @@ class EngineConfig:
         """返回指定 scheduler_config 修改后的新 EngineConfig 实例。"""
         return replace(self, scheduler_config=scheduler_config)
 
-    def with_max_running_requests(self, max_running_requests: int | None) -> "EngineConfig":
+    def with_max_running_requests(
+        self, max_running_requests: int | None
+    ) -> "EngineConfig":
         """返回指定 max_running_requests 修改后的新 EngineConfig 实例。"""
-        return replace(self, scheduler_config=self.scheduler_config.with_max_running_requests(max_running_requests))
+        return replace(
+            self,
+            scheduler_config=self.scheduler_config.with_max_running_requests(
+                max_running_requests
+            ),
+        )
 
     def with_batching_policy(self, batching_policy: BatchingPolicy) -> "EngineConfig":
         """返回指定 batching_policy 修改后的新 EngineConfig 实例。"""
-        return replace(self, scheduler_config=self.scheduler_config.with_batching_policy(batching_policy))
+        return replace(
+            self,
+            scheduler_config=self.scheduler_config.with_batching_policy(batching_policy),
+        )
 
     @property
     def has_kv_cache(self) -> bool:
@@ -116,7 +128,9 @@ def _validate_scheduler_config(
     if not isinstance(policy, BudgetedBatchingPolicy):
         return
     if batching_method is not BatchingMethod.CONTINUOUS:
-        raise ValueError(f"{policy.kind} 组批策略仅支持 continuous-batching，实际为 {batching_method.value}")
+        raise ValueError(
+            f"{policy.kind} 组批策略仅支持 continuous-batching，实际为 {batching_method.value}"
+        )
     mrr = scheduler_config.max_running_requests
     if mrr is not None and policy.token_budget < mrr:
         raise ValueError(
@@ -129,16 +143,22 @@ def validate_engine_config(config: EngineConfig) -> None:
 
     只编码与具体驱动无关的硬约束；run_scheduler / run_lockstep 再各自校验自身边界。
     """
-    if isinstance(config.kv_cache_config, PagedCacheConfig) and config.batching_method in (BatchingMethod.NONE):
+    if isinstance(
+        config.kv_cache_config, PagedCacheConfig
+    ) and config.batching_method in (BatchingMethod.NONE):
         raise ValueError("paged-kv-cache 仅支持 continuous-batching 或 fixed-batching")
-    if config.batching_method is BatchingMethod.CONTINUOUS and isinstance(config.kv_cache_config, NoCacheConfig):
+    if config.batching_method is BatchingMethod.CONTINUOUS and isinstance(
+        config.kv_cache_config, NoCacheConfig
+    ):
         raise ValueError(
             "continuous-batching 依赖 KV Cache，请将 kv_cache_config 设为 DenseCacheConfig 或 PagedCacheConfig"
         )
-    if isinstance(config.scheduler_config.batching_policy, ChunkedPrefillConfig) and not isinstance(
-        config.kv_cache_config, PagedCacheConfig
-    ):
-        raise ValueError("chunked-prefill 组批策略仅支持 paged-kv-cache（chunk 的历史 K/V 取自 physical block pool）")
+    if isinstance(
+        config.scheduler_config.batching_policy, ChunkedPrefillConfig
+    ) and not isinstance(config.kv_cache_config, PagedCacheConfig):
+        raise ValueError(
+            "chunked-prefill 组批策略仅支持 paged-kv-cache（chunk 的历史 K/V 取自 physical block pool）"
+        )
     _validate_scheduler_config(config.scheduler_config, config.batching_method)
 
 

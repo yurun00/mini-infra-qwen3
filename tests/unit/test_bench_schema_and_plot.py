@@ -36,7 +36,11 @@ from mini_infra.bench.result import (
 
 
 def _make_single_case_scheduler_dict(
-    tag: str, engine_config: str, makespan: float, ttft_p50: float, workload_id: str = "custom"
+    tag: str,
+    engine_config: str,
+    makespan: float,
+    ttft_p50: float,
+    workload_id: str = "custom",
 ) -> dict:
     """构造单 Case 的 SchedulerBenchmarkRecord 字典供测试使用。"""
 
@@ -59,11 +63,21 @@ def _make_single_case_scheduler_dict(
         "release_feature": f"Scheduler {engine_config}",
         "engine_config": engine_config,
         "timestamp": "2099-12-31T23:59:59+0000",
-        "git": {"commit": f"commit_{tag}", "branch": "main", "dirty": False, "message": "test"},
+        "git": {
+            "commit": f"commit_{tag}",
+            "branch": "main",
+            "dirty": False,
+            "message": "test",
+        },
         "env": {"gpu": "NVIDIA L4", "torch": "2.14.1"},
         "peak_specs": {"bandwidth_gbs": 300.0, "tflops": 121.0},
         "model_cost": None,
-        "config": {"warmup": 1, "repeats": 3, "model": "Qwen/Qwen3-0.6B", "dtype": "torch.bfloat16"},
+        "config": {
+            "warmup": 1,
+            "repeats": 3,
+            "model": "Qwen/Qwen3-0.6B",
+            "dtype": "torch.bfloat16",
+        },
         "correctness": {"passed": True},
         "suite": None,
         "cases": [
@@ -96,7 +110,11 @@ def _make_single_case_scheduler_dict(
                     "slot_utilization": stat(0.85),
                     "running_capacity_utilization": stat(0.92),
                 },
-                "efficiency": {"prefill_mfu": 0.35, "decode_mfu": 0.05, "decode_mbu": 0.65},
+                "efficiency": {
+                    "prefill_mfu": 0.35,
+                    "decode_mfu": 0.05,
+                    "decode_mbu": 0.65,
+                },
                 "schedule": {
                     "request_count": 8,
                     "max_running_requests": 4,
@@ -137,17 +155,23 @@ def test_existing_benchmark_json_files_validate():
         assert isinstance(rec, SchedulerBenchmarkRecord)
         assert 1 <= len(rec.cases) <= 3
 
-    ref = load_benchmark_record(Path("benchmarks/golden/reference.json"), require_single_case=True)
+    ref = load_benchmark_record(
+        Path("benchmarks/golden/reference.json"), require_single_case=True
+    )
     assert isinstance(ref, LockstepBenchmarkRecord | SchedulerBenchmarkRecord)
 
     eval_rec = load_benchmark_record(
-        Path("benchmarks/results/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json")
+        Path(
+            "benchmarks/results/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json"
+        )
     )
     assert isinstance(eval_rec, LockstepBenchmarkRecord)
     assert len(eval_rec.cases) > 1
     with pytest.raises(ValueError, match="single-case"):
         load_benchmark_record(
-            Path("benchmarks/results/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json"),
+            Path(
+                "benchmarks/results/suites/lockstep/serial-vs-fixed-batch-throughput/eval.json"
+            ),
             require_single_case=True,
         )
 
@@ -155,15 +179,26 @@ def test_existing_benchmark_json_files_validate():
 def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     """验证 resolve_plot_specs 在纯 Lockstep、纯 Scheduler 与跨越边界时的动态图表规格解析与字段对齐。"""
     lockstep_rec = load_benchmark_record(
-        Path("benchmarks/results/history/lockstep/1c21386_v0.3.0.json"), require_single_case=True
+        Path("benchmarks/results/history/lockstep/1c21386_v0.3.0.json"),
+        require_single_case=True,
     )
     sched_rec_1 = validate_benchmark_record(
-        _make_single_case_scheduler_dict("v0.4.0", "kv-cache+fixed-batching", 2800.0, 46.0, workload_id="fixed"),
+        _make_single_case_scheduler_dict(
+            "v0.4.0",
+            "kv-cache+fixed-batching",
+            2800.0,
+            46.0,
+            workload_id="fixed",
+        ),
         require_single_case=True,
     )
     sched_rec_2 = validate_benchmark_record(
         _make_single_case_scheduler_dict(
-            "v0.5.0", "kv-cache+continuous-batching", 2100.0, 44.0, workload_id="continuous"
+            "v0.5.0",
+            "kv-cache+continuous-batching",
+            2100.0,
+            44.0,
+            workload_id="continuous",
         ),
         require_single_case=True,
     )
@@ -192,15 +227,21 @@ def test_resolve_plot_specs_and_tidy_df_boundary_awareness():
     assert len(wide_df) == len(lockstep_rec.cases) + len(sched_rec_2.cases)
     # 验证 Lockstep 的 ttft_ms 与 Scheduler 的 schedule.ttft_ms_p50 对齐在同一列 ttft_ms.median
     assert wide_df["ttft_ms.median"].notna().all()
-    assert wide_df.loc[wide_df["engine"] == "scheduler", "ttft_ms.median"].iloc[0] == pytest.approx(44.0)
+    assert wide_df.loc[wide_df["engine"] == "scheduler", "ttft_ms.median"].iloc[
+        0
+    ] == pytest.approx(44.0)
     # 验证 Lockstep 的 tpot_ms 与 Scheduler 的 schedule.itl_ms_p50 对齐在同一列 tpot_ms.median
     assert wide_df["tpot_ms.median"].notna().all()
-    assert wide_df.loc[wide_df["engine"] == "scheduler", "tpot_ms.median"].iloc[0] == pytest.approx(42.0)
+    assert wide_df.loc[wide_df["engine"] == "scheduler", "tpot_ms.median"].iloc[
+        0
+    ] == pytest.approx(42.0)
     # 验证 slot_utilization 对齐
     assert wide_df["slot_utilization.median"].notna().all()
 
     tidy_df = wide_to_tidy_df(wide_df, cross_specs)
-    assert set(tidy_df["metric_key"].unique()) == {s.metric_key for s in SHARED_PLOT_SPECS}
+    assert set(tidy_df["metric_key"].unique()) == {
+        s.metric_key for s in SHARED_PLOT_SPECS
+    }
 
 
 def test_plot_compare_and_history_end_to_end(tmp_path: Path):
@@ -210,7 +251,11 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     sched_fixed_path.write_text(
         json.dumps(
             _make_single_case_scheduler_dict(
-                "v0.4.0-fixed", "kv-cache+fixed-batching", 2800.0, 46.0, workload_id="fixed"
+                "v0.4.0-fixed",
+                "kv-cache+fixed-batching",
+                2800.0,
+                46.0,
+                workload_id="fixed",
             )
         ),
         encoding="utf-8",
@@ -218,7 +263,11 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     sched_cont_path.write_text(
         json.dumps(
             _make_single_case_scheduler_dict(
-                "v0.4.0-cont", "kv-cache+continuous-batching", 2100.0, 44.0, workload_id="continuous"
+                "v0.4.0-cont",
+                "kv-cache+continuous-batching",
+                2100.0,
+                44.0,
+                workload_id="continuous",
             )
         ),
         encoding="utf-8",
@@ -253,7 +302,9 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     hist_dir.mkdir()
     for p in sorted(Path("benchmarks/results/history/lockstep").glob("*.json")):
         (hist_dir / p.name).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
-    (hist_dir / "zzzz_v0.4.0-cont.json").write_text(sched_cont_path.read_text(encoding="utf-8"), encoding="utf-8")
+    (hist_dir / "zzzz_v0.4.0-cont.json").write_text(
+        sched_cont_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
     records = load_results(hist_dir)
     assert len(records) >= 5
@@ -277,7 +328,9 @@ def test_plot_compare_and_history_end_to_end(tmp_path: Path):
     assert sched_prof_png.exists()
 
 
-def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: Path):
+def test_scheduler_benchmark_record_with_comparisons_and_workload_id(
+    tmp_path: Path,
+):
     """验证含 comparisons 与 workload_id 的 Scheduler 记录在 Pydantic 与 Pandas 宽表中的往返完整性。"""
     data = _make_single_case_scheduler_dict(
         "v0.5.0-paged",
@@ -286,7 +339,9 @@ def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: P
         40.0,
         workload_id="length_ratio_2048",
     )
-    data["cases"][0]["repeat_samples"] = [{"makespan_ms": 1800.0, "peak_allocated_mb": 1234.5}]
+    data["cases"][0]["repeat_samples"] = [
+        {"makespan_ms": 1800.0, "peak_allocated_mb": 1234.5}
+    ]
     data["comparisons"] = [
         {
             "baseline_key": {
@@ -338,7 +393,9 @@ def test_scheduler_benchmark_record_with_comparisons_and_workload_id(tmp_path: P
     assert wide_df["workload_id"].iloc[0] == "length_ratio_2048"
 
 
-def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPatch):
+def test_gpu_info_includes_host_environment_fields(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """验证 gpu_info 返回宿主机 CPU、系统内存、OS 平台与 CUDA 分配器配置。"""
     from types import SimpleNamespace
 
@@ -362,10 +419,16 @@ def test_gpu_info_includes_host_environment_fields(monkeypatch: pytest.MonkeyPat
     assert info["cuda_alloc_conf"] == "expandable_segments:True"
 
 
-def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path: Path):
+def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(
+    tmp_path: Path,
+):
     """新旧 Scheduler 记录混合：旧记录缺失迭代调度步数类指标时，宽表 / Tidy / 对比 / 报告与绘图均不报错。"""
-    legacy = _make_single_case_scheduler_dict("v0.6.0", "paged-kv-cache+continuous-batching+mrr=4", 2100.0, 44.0)
-    budget_config = "paged-kv-cache+continuous-batching+mrr=4+token-budget(token_budget=256)"
+    legacy = _make_single_case_scheduler_dict(
+        "v0.6.0", "paged-kv-cache+continuous-batching+mrr=4", 2100.0, 44.0
+    )
+    budget_config = (
+        "paged-kv-cache+continuous-batching+mrr=4+token-budget(token_budget=256)"
+    )
     current = _make_single_case_scheduler_dict("dev", budget_config, 2200.0, 60.0)
     schedule = current["cases"][0]["schedule"]
     for key, value in (
@@ -394,13 +457,23 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(tmp_path
     assert wide_df["max_consecutive_prefill_steps.median"].isna().iloc[0]
     assert wide_df["max_consecutive_prefill_steps.median"].iloc[1] == pytest.approx(1.0)
     tidy = wide_to_tidy_df(wide_df, resolve_plot_specs([rec_legacy, rec_current]))
-    itl_max = tidy[tidy["metric_key"] == "itl_ms_max"].sort_values("order_idx")["median"].tolist()
+    itl_max = (
+        tidy[tidy["metric_key"] == "itl_ms_max"]
+        .sort_values("order_idx")["median"]
+        .tolist()
+    )
     assert itl_max == pytest.approx([50.0, 120.0])
 
     md = generate_comparison_table(rec_legacy, rec_current, "legacy", "token-budget")
     assert "ITL Max Latency (ms/token)" in md
     assert "**0.42x**" in md  # 耗时类指标按 base / target 计算：50 / 120
-    plot_mode_comparison(rec_legacy, rec_current, "legacy", "token-budget", tmp_path / "mixed.png")
+    plot_mode_comparison(
+        rec_legacy,
+        rec_current,
+        "legacy",
+        "token-budget",
+        tmp_path / "mixed.png",
+    )
     assert (tmp_path / "mixed.png").exists()
     assert "token-budget" in markdown_table([rec_legacy, rec_current], rec_legacy)
 

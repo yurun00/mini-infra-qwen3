@@ -2,12 +2,24 @@
 
 import argparse
 
-from mini_infra.cli.commands.bench import check_regression, lockstep, plot, release, scheduler, suites, sweep
+from mini_infra.cli.commands.bench import (
+    check_regression,
+    lockstep,
+    plot,
+    release,
+    scheduler,
+    suites,
+    sweep,
+)
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """在根命令下注册 bench 组。"""
-    bench_parser = subparsers.add_parser("bench", help="基准测试（Lockstep 齐步与 Scheduler 调度）及性能分析")
+    bench_parser = subparsers.add_parser(
+        "bench", help="基准测试（Lockstep 齐步与 Scheduler 调度）及性能分析"
+    )
     bench_subs = bench_parser.add_subparsers(dest="bench_command", required=True)
 
     lockstep.register_parser(bench_subs)

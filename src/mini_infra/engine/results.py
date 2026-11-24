@@ -64,10 +64,14 @@ def pad_output_tokens(
         return torch.empty((0, 0), dtype=torch.long)
 
     max_output_len = max((seq.output_len for seq in selected_seqs), default=0)
-    tensor = torch.full((len(selected_seqs), max_output_len), pad_token_id, dtype=torch.long)
+    tensor = torch.full(
+        (len(selected_seqs), max_output_len), pad_token_id, dtype=torch.long
+    )
     for row_idx, seq in enumerate(selected_seqs):
         if seq.token_ids:
-            tensor[row_idx, : seq.output_len] = torch.tensor(seq.token_ids, dtype=torch.long)
+            tensor[row_idx, : seq.output_len] = torch.tensor(
+                seq.token_ids, dtype=torch.long
+            )
     return tensor
 
 
@@ -89,7 +93,9 @@ class GenerationResult:
         pad_token_id: int = 0,
     ) -> torch.Tensor:
         """从 sequences 动态计算并返回对齐输出张量。"""
-        return pad_output_tokens(self.sequences, request_idx=request_idx, pad_token_id=pad_token_id)
+        return pad_output_tokens(
+            self.sequences, request_idx=request_idx, pad_token_id=pad_token_id
+        )
 
 
 @dataclass(frozen=True)
@@ -120,7 +126,9 @@ def _resolve_agg_fn(agg: AggFunc) -> Callable[[Sequence[float]], float]:
     elif agg_str == "min":
         return lambda vals: min(vals) if vals else 0.0
     else:
-        raise ValueError(f"Unsupported aggregate function: {agg!r}. Expected 'sum', 'mean', 'max', 'min', or callable.")
+        raise ValueError(
+            f"Unsupported aggregate function: {agg!r}. Expected 'sum', 'mean', 'max', 'min', or callable."
+        )
 
 
 @dataclass(frozen=True)
@@ -150,7 +158,9 @@ class AggregationOptions:
     peak_reserved_mb: AggFunc | None = None
     peak_live_kv_cache_mb: AggFunc | None = None
 
-    def _get_agg_fn(self, domain: str, field_name: str | None = None) -> Callable[[Sequence[float]], float]:
+    def _get_agg_fn(
+        self, domain: str, field_name: str | None = None
+    ) -> Callable[[Sequence[float]], float]:
         """按优先级解析聚合函数：特定字段覆盖 > 域级默认。"""
         if field_name and hasattr(self, field_name):
             override = getattr(self, field_name)
@@ -180,6 +190,7 @@ def aggregate_generation_results(
                     output_len=seq.output_len,
                     finish_reason=seq.finish_reason,
                     completion_step=seq.completion_step,
+                    prefix_cache_hit_tokens=seq.prefix_cache_hit_tokens,
                 )
             )
             request_counter += 1
@@ -188,23 +199,53 @@ def aggregate_generation_results(
     step_latencies = [x for run in runs for x in run.trace.step_latencies_ms]
     num_active_tokens = [x for run in runs for x in run.trace.num_active_tokens_per_step]
 
-    e2e_wall_ms = options._get_agg_fn("metrics", "e2e_wall_ms")([r.metrics.e2e_wall_ms for r in runs])
-    e2e_model_ms = options._get_agg_fn("metrics", "e2e_model_ms")([r.metrics.e2e_model_ms for r in runs])
+    e2e_wall_ms = options._get_agg_fn("metrics", "e2e_wall_ms")(
+        [r.metrics.e2e_wall_ms for r in runs]
+    )
+    e2e_model_ms = options._get_agg_fn("metrics", "e2e_model_ms")(
+        [r.metrics.e2e_model_ms for r in runs]
+    )
     ttft_vals = [r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]
-    mean_tpot_vals = [r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]
-    p50_tpot_vals = [r.metrics.p50_tpot_ms for r in runs if r.metrics.p50_tpot_ms is not None]
-    p95_tpot_vals = [r.metrics.p95_tpot_ms for r in runs if r.metrics.p95_tpot_ms is not None]
+    mean_tpot_vals = [
+        r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None
+    ]
+    p50_tpot_vals = [
+        r.metrics.p50_tpot_ms for r in runs if r.metrics.p50_tpot_ms is not None
+    ]
+    p95_tpot_vals = [
+        r.metrics.p95_tpot_ms for r in runs if r.metrics.p95_tpot_ms is not None
+    ]
     ttft_ms = options._get_agg_fn("metrics", "ttft_ms")(ttft_vals) if ttft_vals else None
-    mean_tpot_ms = options._get_agg_fn("metrics", "mean_tpot_ms")(mean_tpot_vals) if mean_tpot_vals else None
-    p50_tpot_ms = options._get_agg_fn("metrics", "p50_tpot_ms")(p50_tpot_vals) if p50_tpot_vals else None
-    p95_tpot_ms = options._get_agg_fn("metrics", "p95_tpot_ms")(p95_tpot_vals) if p95_tpot_vals else None
-    throughput_tok_s = options._get_agg_fn("metrics", "throughput_tok_s")([r.metrics.throughput_tok_s for r in runs])
-    throughput_req_s = options._get_agg_fn("metrics", "throughput_req_s")([r.metrics.throughput_req_s for r in runs])
+    mean_tpot_ms = (
+        options._get_agg_fn("metrics", "mean_tpot_ms")(mean_tpot_vals)
+        if mean_tpot_vals
+        else None
+    )
+    p50_tpot_ms = (
+        options._get_agg_fn("metrics", "p50_tpot_ms")(p50_tpot_vals)
+        if p50_tpot_vals
+        else None
+    )
+    p95_tpot_ms = (
+        options._get_agg_fn("metrics", "p95_tpot_ms")(p95_tpot_vals)
+        if p95_tpot_vals
+        else None
+    )
+    throughput_tok_s = options._get_agg_fn("metrics", "throughput_tok_s")(
+        [r.metrics.throughput_tok_s for r in runs]
+    )
+    throughput_req_s = options._get_agg_fn("metrics", "throughput_req_s")(
+        [r.metrics.throughput_req_s for r in runs]
+    )
 
     has_cuda = any(r.metrics.gpu_time_ratio is not None for r in runs)
     total_model_ms = sum(r.metrics.e2e_model_ms for r in runs)
     total_wall_ms = sum(r.metrics.e2e_wall_ms for r in runs)
-    gpu_time_ratio = min(1.0, total_model_ms / total_wall_ms) if (has_cuda and total_wall_ms > 0) else None
+    gpu_time_ratio = (
+        min(1.0, total_model_ms / total_wall_ms)
+        if (has_cuda and total_wall_ms > 0)
+        else None
+    )
 
     metrics = StepAggregatedMetrics(
         ttft_ms=ttft_ms,
@@ -228,15 +269,30 @@ def aggregate_generation_results(
     memory = MemoryProfile(
         baseline_mb=baseline_mb_fn([r.memory.baseline_mb for r in runs]),
         prefill_mb=prefill_mb_fn(prefill_vals) if prefill_vals else None,
-        peak_allocated_mb=peak_allocated_mb_fn([r.memory.peak_allocated_mb for r in runs]),
+        peak_allocated_mb=peak_allocated_mb_fn(
+            [r.memory.peak_allocated_mb for r in runs]
+        ),
         peak_reserved_mb=peak_reserved_mb_fn([r.memory.peak_reserved_mb for r in runs]),
         kv_cache=KVCacheProfile(
-            peak_live_kv_cache_mb=peak_live_kv_cache_mb_fn([r.memory.kv_cache.peak_live_kv_cache_mb for r in runs]),
-            peak_kv_cache_pool_mb=max((r.memory.kv_cache.peak_kv_cache_pool_mb for r in runs), default=0.0),
-            cache_realign_moved_bytes=sum(r.memory.kv_cache.cache_realign_moved_bytes for r in runs),
-            accessed_kv_cache_tokens=sum(r.memory.kv_cache.accessed_kv_cache_tokens for r in runs),
+            peak_live_kv_cache_mb=peak_live_kv_cache_mb_fn(
+                [r.memory.kv_cache.peak_live_kv_cache_mb for r in runs]
+            ),
+            peak_kv_cache_pool_mb=max(
+                (r.memory.kv_cache.peak_kv_cache_pool_mb for r in runs),
+                default=0.0,
+            ),
+            cache_realign_moved_bytes=sum(
+                r.memory.kv_cache.cache_realign_moved_bytes for r in runs
+            ),
+            accessed_kv_cache_tokens=sum(
+                r.memory.kv_cache.accessed_kv_cache_tokens for r in runs
+            ),
             paged_cache=summarize_repeated_paged_cache_profiles(
-                [r.memory.kv_cache.paged_cache for r in runs if r.memory.kv_cache.paged_cache is not None]
+                [
+                    r.memory.kv_cache.paged_cache
+                    for r in runs
+                    if r.memory.kv_cache.paged_cache is not None
+                ]
             ),
         ),
     )

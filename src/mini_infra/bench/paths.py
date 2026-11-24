@@ -8,7 +8,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # 评测产物与数据根目录（默认锚定至仓库根目录 benchmarks/，支持环境变量覆盖）
 _DEFAULT_BENCH_DIR = REPO_ROOT / "benchmarks"
-BENCH_ARTIFACTS_DIR = Path(os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_BENCH_DIR))).resolve()
+BENCH_ARTIFACTS_DIR = Path(
+    os.environ.get("MINI_INFRA_BENCH_DIR", str(_DEFAULT_BENCH_DIR))
+).resolve()
 RESULTS_DIR = BENCH_ARTIFACTS_DIR / "results"
 RESULT_HISTORY_DIR = RESULTS_DIR / "history"
 LOCKSTEP_RESULT_HISTORY_DIR = RESULT_HISTORY_DIR / "lockstep"

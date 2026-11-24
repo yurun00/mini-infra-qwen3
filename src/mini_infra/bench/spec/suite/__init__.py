@@ -1,6 +1,10 @@
 """Suite 领域规格声明、校验、展开与加载。"""
 
-from mini_infra.bench.spec.suite.expand import CaseSpec, expand_suite_spec, expand_workload
+from mini_infra.bench.spec.suite.expand import (
+    CaseSpec,
+    expand_suite_spec,
+    expand_workload,
+)
 from mini_infra.bench.spec.suite.loader import (
     LoadedSuiteSpec,
     discover_suite_specs,

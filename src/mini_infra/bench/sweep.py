@@ -58,10 +58,14 @@ def format_sweep_summary(summaries: Sequence[SuiteRunSummary]) -> str:
         return "sweep 未执行任何 suite。"
     name_width = max(len(s.name) for s in summaries)
     lines = [f"=== Sweep 汇总（共 {len(summaries)} 个 suite）===", ""]
-    lines.append(f"{'suite':<{name_width}} | {'engine':<9} | {'cases':>5} | {'wall_s':>8} | output")
+    lines.append(
+        f"{'suite':<{name_width}} | {'engine':<9} | {'cases':>5} | {'wall_s':>8} | output"
+    )
     for s in summaries:
         out = str(s.output) if s.output is not None else "-"
-        lines.append(f"{s.name:<{name_width}} | {s.engine:<9} | {s.num_cases:>5} | {s.wall_s:>8.1f} | {out}")
+        lines.append(
+            f"{s.name:<{name_width}} | {s.engine:<9} | {s.num_cases:>5} | {s.wall_s:>8.1f} | {out}"
+        )
     for s in summaries:
         if s.comparison_lines:
             lines.append("")

@@ -20,7 +20,11 @@ from mini_infra.bench.spec import (
     parse_set_args,
 )
 from mini_infra.bench.suite import get_benchmark_suite, load_benchmark_suite
-from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
+from mini_infra.bench.sweep import (
+    SuiteRunSummary,
+    format_sweep_summary,
+    run_sweep,
+)
 from mini_infra.cli import main
 from mini_infra.cli.commands.bench.suite_runner import (
     execute_lockstep_suite,
@@ -61,8 +65,20 @@ def _write(tmp_path: Path, name: str, template: str) -> Path:
 
 
 def test_parse_set_args_uses_yaml_values():
-    parsed = parse_set_args(["execution.repeats=5", "sweep.workload.n=[1, 2]", "workload.id=abc", "x.y=null"])
-    assert parsed == {"execution.repeats": 5, "sweep.workload.n": [1, 2], "workload.id": "abc", "x.y": None}
+    parsed = parse_set_args(
+        [
+            "execution.repeats=5",
+            "sweep.workload.n=[1, 2]",
+            "workload.id=abc",
+            "x.y=null",
+        ]
+    )
+    assert parsed == {
+        "execution.repeats": 5,
+        "sweep.workload.n": [1, 2],
+        "workload.id": "abc",
+        "x.y": None,
+    }
 
 
 @pytest.mark.parametrize("bad", ["novalue", "=1", "a..b=1", "a.=1", ".a=1"])
@@ -74,7 +90,11 @@ def test_parse_set_args_rejects_malformed(bad):
 def test_apply_overrides_creates_parents_replaces_leaf_and_does_not_mutate():
     raw = {"execution": {"warmup": 1, "repeats": 3}, "sweep": None}
     out = apply_overrides(raw, {"execution.repeats": 9, "system.paged.block_size": 32})
-    assert out == {"execution": {"warmup": 1, "repeats": 9}, "sweep": None, "system": {"paged": {"block_size": 32}}}
+    assert out == {
+        "execution": {"warmup": 1, "repeats": 9},
+        "sweep": None,
+        "system": {"paged": {"block_size": 32}},
+    }
     assert raw == {"execution": {"warmup": 1, "repeats": 3}, "sweep": None}
     with pytest.raises(ValueError, match="不是映射"):
         apply_overrides(raw, {"execution.repeats.deeper": 1})
@@ -100,9 +120,13 @@ def test_invalid_override_is_rejected_at_load(tmp_path):
 
 def test_override_sweep_on_builtin_suite():
     suite = get_benchmark_suite(
-        "scheduler", "dense-vs-paged-length-ratio", {"sweep.workload.long_prompt_len": [256, 512]}
+        "scheduler",
+        "dense-vs-paged-length-ratio",
+        {"sweep.workload.long_prompt_len": [256, 512]},
     )
-    assert [c.workload_id for c in suite.cases] == [f"length_ratio_{n}" for n in (256, 256, 512, 512)]
+    assert [c.workload_id for c in suite.cases] == [
+        f"length_ratio_{n}" for n in (256, 256, 512, 512)
+    ]
 
 
 # --------------------------------------------------------------------------- run_sweep / 汇总
@@ -111,7 +135,10 @@ def test_override_sweep_on_builtin_suite():
 def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
     order: list[str] = []
     targets = [
-        load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in ("aa", "bb")
+        load_benchmark_suite(
+            _write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler"
+        )
+        for n in ("aa", "bb")
     ]
 
     def execute(suite):
@@ -121,11 +148,15 @@ def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
             engine="scheduler",
             num_cases=2,
             output=tmp_path / f"{suite.name}.json",
-            comparison_lines=(f"[{suite.name}] speedup 1.50x",) if suite.name == "bb" else (),
+            comparison_lines=(f"[{suite.name}] speedup 1.50x",)
+            if suite.name == "bb"
+            else (),
         )
 
     started: list[tuple[int, int]] = []
-    summaries = run_sweep(targets, execute, on_start=lambda i, n, _: started.append((i, n)))
+    summaries = run_sweep(
+        targets, execute, on_start=lambda i, n, _: started.append((i, n))
+    )
     assert order == ["aa", "bb"] and started == [(1, 2), (2, 2)]
     assert all(s.wall_s >= 0 for s in summaries)
     text = format_sweep_summary(summaries)
@@ -136,7 +167,10 @@ def test_run_sweep_runs_in_order_and_formats_summary(tmp_path):
 
 def test_run_sweep_stops_on_first_error(tmp_path):
     targets = [
-        load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in ("aa", "bb")
+        load_benchmark_suite(
+            _write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler"
+        )
+        for n in ("aa", "bb")
     ]
     seen: list[str] = []
 
@@ -160,17 +194,49 @@ def test_sweep_cli_dry_run_multiple_suites_and_overrides(capsys):
     ]  # fmt: skip
     assert main(argv) == 0
     out = capsys.readouterr().out
-    assert "Suite: fixed-vs-continuous-uniform-output-length" in out and "Suite: dense-vs-paged-block-size" in out
+    assert (
+        "Suite: fixed-vs-continuous-uniform-output-length" in out
+        and "Suite: dense-vs-paged-block-size" in out
+    )
     assert "共 2 步" in out and "共 5 步" in out
 
 
 def test_sweep_cli_dry_run_all_and_spec(tmp_path, capsys):
-    assert main(["bench", "sweep", "--engine", "lockstep", "--tag", "t", "--dry-run", "--all"]) == 0
+    assert (
+        main(
+            [
+                "bench",
+                "sweep",
+                "--engine",
+                "lockstep",
+                "--tag",
+                "t",
+                "--dry-run",
+                "--all",
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert out.count("=== [Dry Run] Suite:") == 3
 
     path = _write(tmp_path, "demo-lock", _LOCKSTEP_YAML)
-    assert main(["bench", "sweep", "--engine", "lockstep", "--tag", "t", "--dry-run", "--spec", str(path)]) == 0
+    assert (
+        main(
+            [
+                "bench",
+                "sweep",
+                "--engine",
+                "lockstep",
+                "--tag",
+                "t",
+                "--dry-run",
+                "--spec",
+                str(path),
+            ]
+        )
+        == 0
+    )
     assert "Suite: demo-lock" in capsys.readouterr().out
 
 
@@ -181,13 +247,43 @@ def test_sweep_cli_dry_run_all_and_spec(tmp_path, capsys):
         (["--all", "--suite", "dense-vs-paged-block-size"], "只能指定"),
         (["--suite", "nope"], "未知 scheduler suite"),
         (["--all", "--output", "x.json"], "--output-dir"),
-        (["--suite", "dense-vs-paged-block-size", "dense-vs-paged-length-ratio", "--output", "x.json"], "--output-dir"),
-        (["--suite", "dense-vs-paged-block-size", "--output-dir", "d", "--output", "x.json"], "不能同时指定"),
+        (
+            [
+                "--suite",
+                "dense-vs-paged-block-size",
+                "dense-vs-paged-length-ratio",
+                "--output",
+                "x.json",
+            ],
+            "--output-dir",
+        ),
+        (
+            [
+                "--suite",
+                "dense-vs-paged-block-size",
+                "--output-dir",
+                "d",
+                "--output",
+                "x.json",
+            ],
+            "不能同时指定",
+        ),
     ],
 )
 def test_sweep_cli_rejects_bad_selection(extra, message):
     with pytest.raises(SystemExit, match=message):
-        main(["bench", "sweep", "--engine", "scheduler", "--tag", "t", "--dry-run", *extra])
+        main(
+            [
+                "bench",
+                "sweep",
+                "--engine",
+                "scheduler",
+                "--tag",
+                "t",
+                "--dry-run",
+                *extra,
+            ]
+        )
 
 
 def test_sweep_cli_single_suite_accepts_output_dry_run(capsys):
@@ -215,7 +311,20 @@ def test_sweep_cli_rejects_duplicate_suite_names(tmp_path):
     (tmp_path / "b").mkdir()
     b = _write(tmp_path / "b", "same", _SCHEDULER_YAML)
     with pytest.raises(SystemExit, match="必须唯一"):
-        main(["bench", "sweep", "--engine", "scheduler", "--tag", "t", "--dry-run", "--spec", str(a), str(b)])
+        main(
+            [
+                "bench",
+                "sweep",
+                "--engine",
+                "scheduler",
+                "--tag",
+                "t",
+                "--dry-run",
+                "--spec",
+                str(a),
+                str(b),
+            ]
+        )
 
 
 # --------------------------------------------------------------------------- CPU 上共享环境执行
@@ -248,7 +357,10 @@ def _context(model, configs):
         cost=None,
         git={"commit": "abc", "dirty": False},
         correctness_cache={
-            c: CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False) for c in configs
+            c: CorrectnessReport(
+                checked=True, passed=True, match_ratio=1.0, updated_golden=False
+            )
+            for c in configs
         },
     )
 
@@ -256,7 +368,12 @@ def _context(model, configs):
 def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
     model = build_tiny_model()
     targets = ("aa", "bb")
-    suites = [load_benchmark_suite(_write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler") for n in targets]
+    suites = [
+        load_benchmark_suite(
+            _write(tmp_path, n, _SCHEDULER_YAML), expected_engine="scheduler"
+        )
+        for n in targets
+    ]
     ctx = _context(model, suites[0].engine_configs())
 
     summaries = []
@@ -264,7 +381,9 @@ def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
         output = tmp_path / "out" / f"{suite.name}.json"
         summary = execute_scheduler_suite(ctx, _args(), suite, output)
         assert summary.output == output and summary.num_cases == 2
-        record = validate_benchmark_record(json.loads(output.read_text(encoding="utf-8")), source=output)
+        record = validate_benchmark_record(
+            json.loads(output.read_text(encoding="utf-8")), source=output
+        )
         assert record.suite is not None and record.suite["name"] == suite.name
         summaries.append(summary)
 
@@ -274,7 +393,9 @@ def test_execute_scheduler_suites_share_env_and_write_valid_records(tmp_path):
 
 def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
     model = build_tiny_model()
-    suite = load_benchmark_suite(_write(tmp_path, "aa", _SCHEDULER_YAML), expected_engine="scheduler")
+    suite = load_benchmark_suite(
+        _write(tmp_path, "aa", _SCHEDULER_YAML), expected_engine="scheduler"
+    )
     ctx = _context(model, suite.engine_configs())
     first_cfg = suite.engine_configs()[0]
     ctx.correctness_cache[first_cfg] = CorrectnessReport(
@@ -287,12 +408,21 @@ def test_execute_scheduler_suite_refuses_failed_correctness(tmp_path):
 
 def test_execute_lockstep_suite_writes_valid_record(tmp_path):
     model = build_tiny_model()
-    suite = load_benchmark_suite(_write(tmp_path, "demo-lock", _LOCKSTEP_YAML), expected_engine="lockstep")
+    suite = load_benchmark_suite(
+        _write(tmp_path, "demo-lock", _LOCKSTEP_YAML),
+        expected_engine="lockstep",
+    )
     ctx = _context(model, suite.engine_configs())
     output = tmp_path / "out" / "demo-lock.json"
     summary = execute_lockstep_suite(ctx, _args(), suite, output)
-    assert summary.engine == "lockstep" and summary.num_cases == 1 and summary.comparison_lines == ()
-    record = validate_benchmark_record(json.loads(output.read_text(encoding="utf-8")), source=output)
+    assert (
+        summary.engine == "lockstep"
+        and summary.num_cases == 1
+        and summary.comparison_lines == ()
+    )
+    record = validate_benchmark_record(
+        json.loads(output.read_text(encoding="utf-8")), source=output
+    )
     assert record.suite is not None and record.suite["engine"] == "lockstep"
 
 
@@ -303,7 +433,9 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
     spec = _write(tmp_path, "single-suite", _SCHEDULER_YAML)
     suite = load_benchmark_suite(spec, expected_engine="scheduler")
     ctx = _context(model, suite.engine_configs())
-    monkeypatch.setattr(sweep_cmd.BenchmarkExecutionContext, "from_args", lambda args: ctx)
+    monkeypatch.setattr(
+        sweep_cmd.BenchmarkExecutionContext, "from_args", lambda args: ctx
+    )
 
     target_output = tmp_path / "custom" / "my_result.json"
     argv = [
@@ -320,7 +452,10 @@ def test_sweep_cli_single_suite_with_output_writes_to_exact_file(tmp_path, monke
     ]
     assert main(argv) == 0
     assert target_output.exists()
-    record = validate_benchmark_record(json.loads(target_output.read_text(encoding="utf-8")), source=target_output)
+    record = validate_benchmark_record(
+        json.loads(target_output.read_text(encoding="utf-8")),
+        source=target_output,
+    )
     assert record.suite is not None and record.suite["name"] == "single-suite"
 
 
@@ -351,7 +486,9 @@ workload:
     (b,) = [cs.workload for cs in load_suite_spec(path, {}).cases[:1]]
     assert a == b
     assert len(a.prompt_lens) == 12 and all(8 <= x <= 64 for x in a.prompt_lens)
-    assert a.arrival_ms[:3] == (0.0, 0.0, 0.0) and list(a.arrival_ms) == sorted(a.arrival_ms)
+    assert a.arrival_ms[:3] == (0.0, 0.0, 0.0) and list(a.arrival_ms) == sorted(
+        a.arrival_ms
+    )
     other = load_suite_spec(path, {"workload.seed": 8}).cases[0].workload
     assert other.prompt_lens != a.prompt_lens
 
@@ -359,8 +496,14 @@ workload:
 @pytest.mark.parametrize(
     ("line", "message"),
     [
-        ("  prompt_len: {log_uniform: {min: 8, max: 64}}\n", "必须提供 workload.seed"),
-        ("  seed: 1\n  prompt_len: {log_uniform: {min: 64, max: 8}}\n", "min <= max"),
+        (
+            "  prompt_len: {log_uniform: {min: 8, max: 64}}\n",
+            "必须提供 workload.seed",
+        ),
+        (
+            "  seed: 1\n  prompt_len: {log_uniform: {min: 64, max: 8}}\n",
+            "min <= max",
+        ),
         (
             "  seed: 1\n  prompt_len: 8\n  arrival_ms: {poisson: {initial_burst: 0, mean_interval_ms: 5}}\n",
             "greater than 0",
@@ -391,7 +534,11 @@ def test_seeded_distribution_validation(tmp_path, line, message):
 def test_builtin_release_specs_are_valid():
     for engine in ("lockstep", "scheduler"):
         spec = get_release_spec(engine).spec
-        assert spec.engine == engine and set(spec.scales) == {"small", "medium", "large"}
+        assert spec.engine == engine and set(spec.scales) == {
+            "small",
+            "medium",
+            "large",
+        }
 
 
 def _release_raw(engine="scheduler", **override):
@@ -407,7 +554,11 @@ def _release_raw(engine="scheduler", **override):
             "scheduler_spec": {"max_running_requests": 4},
         }
         if engine == "scheduler"
-        else {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_spec": "dense-kv-cache"}
+        else {
+            "engine_mode": "lockstep",
+            "batching_method": "fixed-batching",
+            "caching_spec": "dense-kv-cache",
+        }
     )
     raw = {
         "default_seed": 42,
@@ -421,7 +572,9 @@ def _release_raw(engine="scheduler", **override):
 def test_release_spec_validation():
     ReleaseSpec.model_validate(_release_raw())
     with pytest.raises(ValueError, match="恰好包含"):
-        ReleaseSpec.model_validate(_release_raw(scales={"small": _release_raw()["scales"]["small"]}))
+        ReleaseSpec.model_validate(
+            _release_raw(scales={"small": _release_raw()["scales"]["small"]})
+        )
     system_without_mrr = {
         "engine_mode": "scheduler",
         "batching_method": "continuous-batching",
@@ -430,10 +583,15 @@ def test_release_spec_validation():
     with pytest.raises(ValueError, match="必须.*提供 max_running_requests"):
         ReleaseSpec.model_validate(_release_raw(system=system_without_mrr))
     with pytest.raises(ValueError, match="不支持"):
-        bad_lockstep_sys = {**_release_raw("lockstep")["system"], "scheduler_spec": {"max_running_requests": 4}}
+        bad_lockstep_sys = {
+            **_release_raw("lockstep")["system"],
+            "scheduler_spec": {"max_running_requests": 4},
+        }
         ReleaseSpec.model_validate(_release_raw(system=bad_lockstep_sys))
     with pytest.raises(ValueError, match="interleave"):
-        ReleaseSpec.model_validate(_release_raw(execution={"interleave": ["batching_method"]}))
+        ReleaseSpec.model_validate(
+            _release_raw(execution={"interleave": ["batching_method"]})
+        )
     cp_dense = {
         **_release_raw("scheduler")["system"],
         "scheduler_spec": {
@@ -503,7 +661,9 @@ def _write_release(
 ) -> Path:
     path = tmp_path / f"{name}.yaml"
     scale = f"{{seed_salt: 1, workload: {workload}}}"
-    mrr_part = ", scheduler_spec: {max_running_requests: 4}" if name == "scheduler" else ""
+    mrr_part = (
+        ", scheduler_spec: {max_running_requests: 4}" if name == "scheduler" else ""
+    )
     sys_str = f"{{engine_mode: {name}, batching_method: continuous-batching, caching_spec: dense-kv-cache{mrr_part}}}"
     path.write_text(
         f"default_seed: 42\n"
@@ -518,14 +678,19 @@ def _write_release(
 def test_load_release_spec_expands_eagerly_like_load_suite_spec(tmp_path):
     loaded = load_release_spec(_write_release(tmp_path, "scheduler"))
     assert set(loaded.scales) == {"small", "medium", "large"}
-    assert loaded.scales["small"].workload.num_total_requests == 4 and loaded.scales["small"].seed == 42
+    assert (
+        loaded.scales["small"].workload.num_total_requests == 4
+        and loaded.scales["small"].seed == 42
+    )
     assert loaded.resolve() is loaded.scales
     assert loaded.resolve(7)["small"].seed == 7
     assert len(loaded.sha256) == 64
 
     # 语义守卫生效：违反检查在加载期抛出异常
     (tmp_path / "check_failed").mkdir()
-    guard_bad = _write_release(tmp_path / "check_failed", "scheduler", checks="[{min_output_len: 10}]")
+    guard_bad = _write_release(
+        tmp_path / "check_failed", "scheduler", checks="[{min_output_len: 10}]"
+    )
     with pytest.raises(ValueError, match="要求每个请求的输出预算 >= 10"):
         load_release_spec(guard_bad)
 

@@ -67,8 +67,14 @@ def markdown_table(records: Sequence[RecordInput], base: RecordInput) -> str:
         b_ttft = float(b_row.get("ttft_ms.median", 0.0))
         b_thr = float(b_row.get("throughput_tok_s.median", 0.0))
         b_e2e = float(b_row.get("e2e_wall_ms.median", 0.0))
-        b_tpot = float(b_row.get("tpot_ms.median", 0.0)) if "tpot_ms.median" in b_row else 0.0
-        b_mksp = float(b_row.get("makespan_ms.median", 0.0)) if "makespan_ms.median" in b_row else 0.0
+        b_tpot = (
+            float(b_row.get("tpot_ms.median", 0.0)) if "tpot_ms.median" in b_row else 0.0
+        )
+        b_mksp = (
+            float(b_row.get("makespan_ms.median", 0.0))
+            if "makespan_ms.median" in b_row
+            else 0.0
+        )
 
         flag = {True: "✅", False: "❌", None: "—"}.get(row["correctness_passed"], "—")
         ttft = float(row.get("ttft_ms.median", 0.0))
@@ -140,7 +146,9 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
         itl_p50 = float((sched.get("itl_ms_p50") or {}).get("median", 0.0))
         itl_p95 = float((sched.get("itl_ms_p95") or {}).get("median", 0.0))
         itl_max = float((sched.get("itl_ms_max") or {}).get("median", 0.0))
-        cache_frac = float((sched.get("cache_management_fraction") or {}).get("median", 0.0))
+        cache_frac = float(
+            (sched.get("cache_management_fraction") or {}).get("median", 0.0)
+        )
         kv_mb = float((mem.get("kv_cache") or {}).get("peak_live_kv_cache_mb") or 0.0)
         dyn_mb = float(mem.get("dynamic_peak_mb") or 0.0)
         frag_mb = float(mem.get("fragmentation_mb") or 0.0)
@@ -176,7 +184,9 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
         if pf_streak is not None:
             num_prefill = float((sched.get("num_prefill_steps") or {}).get("median", 0.0))
             num_decode = float((sched.get("num_decode_steps") or {}).get("median", 0.0))
-            num_oversize = float((sched.get("num_oversize_prefill_steps") or {}).get("median", 0.0))
+            num_oversize = float(
+                (sched.get("num_oversize_prefill_steps") or {}).get("median", 0.0)
+            )
             lines.append(
                 f"- 🔹 **迭代调度步数**：Prefill `{num_prefill:.0f}` 步 / Decode `{num_decode:.0f}` 步，"
                 f"最长连续 Prefill `{float(pf_streak.get('median', 0.0)):.0f}` 步，"
@@ -269,14 +279,18 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
             "  - 👉 **优先优化行动**：引入 KV Cache / FlashAttention 算子融合。"
         )
     if norm_share > 0.08:
-        lines.append(f"- 🟡 **RMSNorm 调用开销显著（耗时占比 {norm_share * 100:.1f}%）**：建议实施 Fused RMSNorm。")
+        lines.append(
+            f"- 🟡 **RMSNorm 调用开销显著（耗时占比 {norm_share * 100:.1f}%）**：建议实施 Fused RMSNorm。"
+        )
     if mlp_share > 0.15:
         lines.append(
             f"- 🟡 **MLP Block 占比偏高（耗时占比 {mlp_share * 100:.1f}%）**：建议针对 Gate/Up 实施 SwiGLU 融合。"
         )
     if not (attn_share >= 0.25 or norm_share > 0.08 or mlp_share > 0.15):
         top_mod = max(by_mod.items(), key=lambda kv: kv[1])[0] if by_mod else "unknown"
-        lines.append(f"- 🔹 当前耗时最高的架构模块为 `{top_mod}`（占比 {by_mod.get(top_mod, 0) * 100:.1f}%）。")
+        lines.append(
+            f"- 🔹 当前耗时最高的架构模块为 `{top_mod}`（占比 {by_mod.get(top_mod, 0) * 100:.1f}%）。"
+        )
     lines.append("")
 
     gemm_share = by_cat.get("gemm", 0.0)
@@ -292,21 +306,29 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
     if mbu is not None:
         lines.append(f"- 🔹 **Decode MBU（显存带宽利用率）为 {mbu * 100:.1f}%**。")
     if busy < 0.90:
-        lines.append(f"- 🔹 **GPU 忙碌比例为 {busy * 100:.1f}%**：建议引入 CUDA Graph 消除 CPU 发射开销。")
+        lines.append(
+            f"- 🔹 **GPU 忙碌比例为 {busy * 100:.1f}%**：建议引入 CUDA Graph 消除 CPU 发射开销。"
+        )
     else:
-        lines.append(f"- 🔹 **GPU 忙碌比例达到 {busy * 100:.1f}%**：瓶颈主要在 GPU 端计算与访存。")
+        lines.append(
+            f"- 🔹 **GPU 忙碌比例达到 {busy * 100:.1f}%**：瓶颈主要在 GPU 端计算与访存。"
+        )
     lines.append("")
 
     frag = mem.get("fragmentation_mb", 0.0)
     dyn = mem.get("dynamic_peak_mb", 0.0)
     lines.append("### 4. 显存足迹与碎片诊断")
-    lines.append(f"- 🔹 纯动态增量为 **{dyn:.1f} MiB**，Allocator 碎片与预留为 **{frag:.1f} MiB**。")
+    lines.append(
+        f"- 🔹 纯动态增量为 **{dyn:.1f} MiB**，Allocator 碎片与预留为 **{frag:.1f} MiB**。"
+    )
     lines.append("")
 
     top_kernels = ob.get("top_kernels", [])
     if top_kernels:
         lines.append("### 5. 当前 Top 8 热点 Kernel 明细")
-        lines.append("| 序号 | Kernel 名称 | 类别 | CUDA 耗时 (ms) | 耗时占比 | 调用次数 |")
+        lines.append(
+            "| 序号 | Kernel 名称 | 类别 | CUDA 耗时 (ms) | 耗时占比 | 调用次数 |"
+        )
         lines.append("| :-: | :--- | :-: | :-: | :-: | :-: |")
         for rank, k in enumerate(top_kernels[:8], 1):
             k_name = k["name"][:40]

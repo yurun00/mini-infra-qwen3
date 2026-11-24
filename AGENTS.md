@@ -71,9 +71,9 @@
 |---|---|---|
 | batch slot | `RequestState.batch_slot_idx`、`RunningQueue.free_batch_slots`、`DenseSlotCache` 首维、`LockstepState` | Dense / Lockstep 路径的请求级常驻并发位：并发容量空间里的一个常驻 batch 行，一个活跃请求独占一个 |
 | slot（physical slot） | `PagedAttentionMetadata.slot_mapping`、`physical_block_id * block_size + offset` | Paged 路径的 token 级物理存储位：展平 physical block pool 的行号，本步新 token K/V 的写入地址 |
-| physical block pool | `PagedKVCachePool` | 逐层 `(key_pool, value_pool)` 物理块张量池，布局 `[num_blocks, block_size, H_kv, D]` |
+| physical block pool | `PagedBlockCache` | 逐层 `(key_pool, value_pool)` 物理块张量池，布局 `[num_blocks, block_size, H_kv, D]` |
 | free block queue | `FreeKVCacheBlockQueue` | 物理块 ID 的 FIFO 空闲队列；只存整数 ID，不持有显存张量 |
-| block table | `block_tables` 张量 / `KVCacheManager` | 请求级「logical block → physical block」映射，右侧以 null block（`0`）补齐 |
+| block table | `block_tables` 张量 / `BaseKVCacheManager` / `KVCacheManager` / `NullKVCacheManager` | 请求级「logical block → physical block」映射，右侧以 null block（`0`）补齐；Dense 路径注入空对象 `NULL_KV_CACHE_MANAGER` 以消除调度侧判空 |
 | physical block / logical block / null block | `physical_block_id` / 逻辑块号 / `NULL_BLOCK_ID = 0` | 物理块 = 池内实际显存块；逻辑块 = 某请求的第 k 个块；null block = 永不分配、仅用于补齐寻址 |
 | row | `row_idx`（如 `PagedRunner` Prefill 散写行） | 单步前向临时 batch 张量的行号；与 batch slot（常驻并发位）不可混用 |
 | attention metadata | `Qwen3Model.forward` 的 `attn_metadata` / `DenseAttentionMetadata` / `PagedAttentionMetadata` | 模型前向的注意力寻址与存储描述符，按类型分派：`DenseAttentionMetadata.past_key_values` 承载逐层 dense 历史键值；`PagedAttentionMetadata` 承载 paged 寻址（`slot_mapping` / `block_tables` / `context_lens`）与逐层 physical block pool（`kv_pools`） |
@@ -84,11 +84,15 @@
 | batching policy | `BatchingPolicy` / `BatchingPolicyKind`（`prefill-first` / `token-budget` / `chunked-prefill`） | `SchedulerConfig.batching_policy` 单步组批策略 |
 | token budget | `TokenBudgetConfig.token_budget` / `ChunkedPrefillConfig.token_budget` | 单次 Prefill 允许的 padded token 上限，须不小于 `max_running_requests`；token-budget 为软预算（oversize prefill），chunked-prefill 为硬预算 |
 | prefill chunk | `PrefillChunk(state, start, end)`、`RequestState.cache_length` | chunked-prefill 一次 Prefill 步为单个请求划定的 Prompt 区间 `[start, end)`；`cache_length < prompt_len` 的 RUNNING 请求处于 chunked prefill 中间态（不另设状态，对标 vLLM `num_computed_tokens`） |
+| prefix caching | `PagedCacheConfig.is_prefix_caching_enabled`、`KVCacheManager.num_computed_tokens` / `allocate_computed_blocks` / `cache_blocks` | Paged 路径复用多请求公共前缀 K/V 的特性；与 `batching_policy` 等调度维度正交 |
+| block hash | `BlockHash(hash_value, token_ids)`、`hash_block_tokens` | 满块的链式哈希（父块 `hash_value` + 本块 Token），覆盖从 Prompt 开头到本块的整段前缀 |
+| cached block | `KVCacheBlock.block_hash`、`BlockPool` | 已登记 block hash、可被多请求按 `ref_cnt` 共享的 physical block；`ref_cnt == 0` 时留在 free block queue 中（可命中、可惰性淘汰） |
+| computed blocks / prefix_cache_hit_tokens | `_get_computed_blocks` 返回值、`RequestState.prefix_cache_hit_tokens`、`SequenceOutput.prefix_cache_hit_tokens` | 新请求入场时命中的 cached block 前缀（至多 `(prompt_len - 1) // block_size` 块）及其 Token 数；Prefill 区间从 `prefix_cache_hit_tokens` 起算 |
 | control plane / data plane / compute plane | 分层图 ③④⑤ | 模块 `import torch` 且持有张量即 data plane；纯 CPU 决策即 control plane；纯张量算子计算即 compute plane |
 
 **命名与反混用红线**
 
-- **禁中文别名**：physical block pool 不写「物理块池 / 块池」，block table 不写「页表」，batch slot 不写「请求槽位 / 执行槽」；文档与注释用规范名，首次出现可附代码标识符。
+- **禁中文别名**：physical block pool 不写「物理块池 / 块池」，block table 不写「页表」，batch slot 不写「请求槽位 / 执行槽」，cached block 不写「缓存块」；文档与注释用规范名，首次出现可附代码标识符。
 - **三个「行/位」语义严禁互混**：`slot_mapping` 的 token 级 slot（写入地址）≠ dense 的 batch slot（请求并发位）≠ 单步前向的 row（临时 batch 行）。
 - **调度正交维度严禁互混**：`batching_method`（跨步机制：`none` / `fixed-batching` / `continuous-batching`）≠ `batching_policy`（单步组批：`prefill-first` / `token-budget`）≠ `queue_policy`（排队序：`fcfs` / `priority` / `srtf`）≠ `preemption_mode`（抢占：`recompute` / `swap`）。
 

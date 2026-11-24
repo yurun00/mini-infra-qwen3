@@ -37,7 +37,11 @@ _THROUGHPUT_KEYS = {
 }
 
 # 显存容量类指标（以 MiB 绝对增量展示变化）
-_MEMORY_MB_KEYS = {"peak_allocated_mb", "peak_live_kv_cache_mb", "peak_kv_cache_pool_mb"}
+_MEMORY_MB_KEYS = {
+    "peak_allocated_mb",
+    "peak_live_kv_cache_mb",
+    "peak_kv_cache_pool_mb",
+}
 # 占比类指标（tidy 阶段已 *100，以百分点绝对增量展示变化）
 _FRACTION_KEYS = {"cache_management_fraction"}
 
@@ -72,7 +76,11 @@ def generate_comparison_table(
 
     row_a = wide_df.iloc[0]
     row_b = wide_df.iloc[1]
-    gpu_info = row_a["gpu"] if row_a["gpu"] == row_b["gpu"] else f"{row_a['gpu']} vs {row_b['gpu']}"
+    gpu_info = (
+        row_a["gpu"]
+        if row_a["gpu"] == row_b["gpu"]
+        else f"{row_a['gpu']} vs {row_b['gpu']}"
+    )
     engines = {row_a["engine"], row_b["engine"]}
     boundary_note = (
         "跨边界对比 (`lockstep` vs `scheduler`，已仅保留跨边界共享指标)"
@@ -126,7 +134,9 @@ def plot_mode_comparison(
 
     ncols = 3
     nrows = math.ceil(len(specs) / ncols)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 4.2 * nrows), squeeze=False)
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(5.5 * ncols, 4.2 * nrows), squeeze=False
+    )
     flat_axes = axes.flatten()
     palette = ["#e74c3c", "#2ecc71"]
 

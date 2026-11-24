@@ -62,11 +62,11 @@ markers = [
 addopts = "-ra"
 
 [tool.ruff]
-line-length = 120
+line-length = 90
 target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-# 教学代码统一使用 % 格式化；zip 不需要 strict
-ignore = ["UP031", "B905"]
+# 教学代码统一使用 % 格式化；zip 不需要 strict；行宽由 ruff format 统一控制（注释、docstring 与长字符串不强拆）
+ignore = ["UP031", "B905", "E501"]

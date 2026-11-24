@@ -83,8 +83,14 @@ class ModelCostProfile:
         return cls(
             n_params=n_params,
             weight_bytes=n_params * elem,
-            kv_bytes_per_token=2 * cfg.num_hidden_layers * cfg.num_key_value_heads * cfg.head_dim * elem,
-            attn_flop_coeff=cfg.num_hidden_layers * cfg.num_attention_heads * cfg.head_dim,
+            kv_bytes_per_token=2
+            * cfg.num_hidden_layers
+            * cfg.num_key_value_heads
+            * cfg.head_dim
+            * elem,
+            attn_flop_coeff=cfg.num_hidden_layers
+            * cfg.num_attention_heads
+            * cfg.head_dim,
         )
 
 
@@ -117,7 +123,8 @@ class EfficiencyMetrics:
         """基于理想工作量与实测延迟，计算 prefill/decode 的 MFU 与 decode 的 MBU（带宽利用率）。"""
         avg_out_len = (
             sum(max_new_tokens) / len(max_new_tokens)
-            if isinstance(max_new_tokens, Sequence) and not isinstance(max_new_tokens, str)
+            if isinstance(max_new_tokens, Sequence)
+            and not isinstance(max_new_tokens, str)
             else max_new_tokens
         )
 
@@ -132,10 +139,14 @@ class EfficiencyMetrics:
         if isinstance(prompt_len, Sequence) and not isinstance(prompt_len, str):
             avg_prompt_len = sum(prompt_len) / len(prompt_len)
             ctx = avg_prompt_len + avg_out_len / 2
-            sum_prefill_flops = sum(2 * n_params * pl + 2 * attn_flop_coeff * pl**2 for pl in prompt_len)
+            sum_prefill_flops = sum(
+                2 * n_params * pl + 2 * attn_flop_coeff * pl**2 for pl in prompt_len
+            )
         else:
             ctx = prompt_len + avg_out_len / 2
-            sum_prefill_flops = batch * (2 * n_params * prompt_len + 2 * attn_flop_coeff * prompt_len**2)
+            sum_prefill_flops = batch * (
+                2 * n_params * prompt_len + 2 * attn_flop_coeff * prompt_len**2
+            )
 
         prefill_mfu = None
         decode_mfu = None
@@ -143,13 +154,19 @@ class EfficiencyMetrics:
 
         if tflops:
             peak_flops = tflops * 1e12
-            prefill_mfu = sum_prefill_flops / (ttft_ms / 1000) / peak_flops if ttft_ms else None
+            prefill_mfu = (
+                sum_prefill_flops / (ttft_ms / 1000) / peak_flops if ttft_ms else None
+            )
             dec = batch * (2 * n_params + 4 * attn_flop_coeff * ctx)
             decode_mfu = dec / (tpot_ms / 1000) / peak_flops if tpot_ms else None
         if bandwidth_gbs and tpot_ms:
             moved = weight_bytes + batch * ctx * kv_bytes_per_token
             decode_mbu = moved / (tpot_ms / 1000) / (bandwidth_gbs * 1e9)
-        return cls(prefill_mfu=prefill_mfu, decode_mfu=decode_mfu, decode_mbu=decode_mbu)
+        return cls(
+            prefill_mfu=prefill_mfu,
+            decode_mfu=decode_mfu,
+            decode_mbu=decode_mbu,
+        )
 
 
 __all__ = [

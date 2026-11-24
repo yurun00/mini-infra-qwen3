@@ -106,7 +106,10 @@ def test_continuous_batching_gpu_parity() -> None:
             eos_token_id=eos_token_id,
             stop_on_eos=False,
         )
-        for kv_cache_config in (DenseCacheConfig(), PagedCacheConfig(block_size=16))
+        for kv_cache_config in (
+            DenseCacheConfig(),
+            PagedCacheConfig(block_size=16),
+        )
         for token_budget in (2, 32)
     }
 
@@ -230,3 +233,90 @@ def test_compare_chunked_prefill_cli():
         )
         == 0
     )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
+def test_compare_prefix_caching_cli():
+    from mini_infra.cli import main
+
+    assert (
+        main(
+            [
+                "verify",
+                "prefix-caching",
+                "--max-new-tokens",
+                "4",
+                "--block-size",
+                "16",
+            ]
+        )
+        == 0
+    )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
+def test_prefix_caching_gpu_parity_across_policies() -> None:
+    """真实权重 float32：共享前缀负载在三种 batching policy、并发 1/2 下，prefix caching 与单请求串行逐 Token 一致。"""
+    model_dir = resolve_model_directory(DEFAULT_MODEL_ID, DEFAULT_MODEL_REVISION)
+    tokenizer = Qwen3Tokenizer(model_dir)
+    model = load_model(model_dir, device="cuda", dtype=torch.float32)
+    model.eval()
+
+    shared = (
+        "以下是共同的系统背景：你是一名推理引擎工程师，需要用简洁准确的语言回答关于 KV Cache 的问题。"
+        * 3
+    )
+    questions = [
+        "什么是 Prefill？",
+        "什么是 Decode？",
+        "Paged KV Cache 解决了什么问题？",
+        "前缀缓存何时失效？",
+    ]
+    prompt_tokens = [
+        tokenizer.encode_chat_prompt(shared + question) for question in questions
+    ]
+    budgets = [8, 6, 10, 4]
+    requests = make_requests(
+        prompt_tokens, budgets, arrival_times_ms=[0.0, 0.0, 2.0, 4.0]
+    )
+    eos_token_id = tokenizer.eos_token_id or -1
+
+    single_opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=False)
+    golden_tokens = [
+        generate(
+            EngineConfig(DenseCacheConfig()),
+            model,
+            [p_tokens],
+            budget,
+            options=single_opts,
+        )
+        .sequences[0]
+        .token_ids
+        for p_tokens, budget in zip(prompt_tokens, budgets)
+    ]
+
+    for policy in (None, TokenBudgetConfig(128), ChunkedPrefillConfig(32)):
+        for max_running_requests in (1, 2):
+            scheduler_config = SchedulerConfig(max_running_requests=max_running_requests)
+            if policy is not None:
+                scheduler_config = scheduler_config.with_batching_policy(policy)
+            result = run_scheduler(
+                EngineConfig(
+                    PagedCacheConfig(block_size=16, is_prefix_caching_enabled=True),
+                    batching_method=BatchingMethod.CONTINUOUS,
+                    scheduler_config=scheduler_config,
+                ),
+                model,
+                requests,
+                eos_token_id=eos_token_id,
+                stop_on_eos=False,
+            )
+            label = (
+                f"policy={scheduler_config.batching_policy}, mrr={max_running_requests}"
+            )
+            assert [s.token_ids for s in result.sequences] == golden_tokens, (
+                f"prefix caching divergence: {label}"
+            )
+            assert sum(s.prefix_cache_hit_tokens for s in result.sequences) > 0, (
+                f"no prefix cache hit: {label}"
+            )

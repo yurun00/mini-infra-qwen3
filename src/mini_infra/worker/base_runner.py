@@ -47,8 +47,15 @@ def _left_pad_sequences(
 
     padded_prompt_length = max(prompt_lengths)
     batch_size = len(normalized)
-    input_ids = torch.full((batch_size, padded_prompt_length), pad_token_id, dtype=torch.long, device=device)
-    attention_mask = torch.zeros((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
+    input_ids = torch.full(
+        (batch_size, padded_prompt_length),
+        pad_token_id,
+        dtype=torch.long,
+        device=device,
+    )
+    attention_mask = torch.zeros(
+        (batch_size, padded_prompt_length), dtype=torch.bool, device=device
+    )
     for row_idx, sequence in enumerate(normalized):
         prompt_length = sequence.numel()
         input_ids[row_idx, padded_prompt_length - prompt_length :] = sequence
@@ -57,7 +64,12 @@ def _left_pad_sequences(
     # 真实 Token 的逻辑位置从 0 开始；Padding 位置记为 0（会被 mask 掉）。
     position_ids = attention_mask.long().cumsum(dim=-1) - 1
     position_ids.clamp_(min=0)
-    return input_ids, attention_mask, position_ids, torch.tensor(prompt_lengths, dtype=torch.long, device=device)
+    return (
+        input_ids,
+        attention_mask,
+        position_ids,
+        torch.tensor(prompt_lengths, dtype=torch.long, device=device),
+    )
 
 
 class BaseModelRunner:
@@ -68,7 +80,9 @@ class BaseModelRunner:
         self.device = next(model.parameters()).device
         self.pad_token_id = pad_token_id
 
-    def run_prefill_step(self, prompt_sequences: Sequence[Sequence[int]]) -> PrefillOutput:
+    def run_prefill_step(
+        self, prompt_sequences: Sequence[Sequence[int]]
+    ) -> PrefillOutput:
         """对一批新入场请求做左 Padding Prefill，返回各请求首个 Token 列表、Prefill Cache 与模型耗时。
 
         prefill_cache: 逐层 (key, value) 均为 [B, H_kv, L, D], model_dtype, contiguous
@@ -77,7 +91,11 @@ class BaseModelRunner:
             prompt_sequences, self.pad_token_id, self.device
         )
         with StepTimer(self.device) as timer:
-            logits, present_key_values = self.model(input_ids, attention_mask=attention_mask, position_ids=position_ids)
+            logits, present_key_values = self.model(
+                input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+            )
             next_token, _ = greedy_sample(logits)
         return PrefillOutput(
             next_tokens=next_token.squeeze(-1).tolist(),

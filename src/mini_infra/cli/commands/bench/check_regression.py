@@ -16,15 +16,32 @@ from mini_infra.bench.check_regression import (
 
 
 def _add_regression_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    p.add_argument("--reference", type=Path, default=DEFAULT_REFERENCE, help="参考 baseline 结果 JSON 路径")
-    p.add_argument("--candidate", type=Path, help="已有候选结果；缺省则现场运行轻量 benchmark")
-    p.add_argument("--threshold", type=float, default=0.05, help="中位数劣化阈值，默认 5%%")
+    p.add_argument(
+        "--reference",
+        type=Path,
+        default=DEFAULT_REFERENCE,
+        help="参考 baseline 结果 JSON 路径",
+    )
+    p.add_argument(
+        "--candidate",
+        type=Path,
+        help="已有候选结果；缺省则现场运行轻量 benchmark",
+    )
+    p.add_argument(
+        "--threshold", type=float, default=0.05, help="中位数劣化阈值，默认 5%%"
+    )
     p.add_argument("--update-reference", action="store_true", help="运行并覆盖参考结果")
-    p.add_argument("--strict-hardware", action="store_true", help="GPU 型号不一致时失败而非跳过")
+    p.add_argument(
+        "--strict-hardware",
+        action="store_true",
+        help="GPU 型号不一致时失败而非跳过",
+    )
     return p
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """在 bench 下注册 check-regression。"""
     p = subparsers.add_parser(
         "check-regression",
@@ -66,7 +83,9 @@ def _handle_regression(args: argparse.Namespace) -> int:
         return 0
 
     regressed, lines = compare(candidate, reference, args.threshold)
-    print(f"\n参考版本 {reference['git']['commit']} → 当前 {candidate['git']['commit']}，阈值 {args.threshold:.0%}")
+    print(
+        f"\n参考版本 {reference['git']['commit']} → 当前 {candidate['git']['commit']}，阈值 {args.threshold:.0%}"
+    )
     print("\n".join(lines))
     if regressed:
         print(f"\n性能回归：存在中位数劣化超过 {args.threshold:.0%} 的指标")

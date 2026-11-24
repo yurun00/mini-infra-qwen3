@@ -48,7 +48,7 @@ sequenceDiagram
 - **`IterationScheduler(scheduler_config, batching_method, kv_cache_manager)`**（纯 CPU control plane）在 `schedule(clock_ms)` 内一次完成全部入场决策与逻辑资源分配，依次在 `waiting_queue` 的 FCFS 前缀上取交集：
   1. batching 约束：continuous-batching 有 free batch slot 即可入场；fixed-batching / none 须等 `running_queue` 排空（wave barrier）；
   2. batch slot 约束：至多 `running_queue.num_free_batch_slots` 个；
-  3. KV 显存约束（仅 Paged，`kv_cache_manager` 非 None）：`KVCacheManager.num_admissible` 在预留 chunked prefill 在途请求尚未写入的 Prompt 块之后可容纳的前缀；
+  3. KV 显存约束：`kv_cache_manager.num_admissible` 在预留 chunked prefill 在途请求尚未写入的 Prompt 块之后可容纳的前缀（Dense 路径注入 `NullKVCacheManager`，不施加块约束）；
   4. 策略约束：token budget 截断与 decode protection（见下文）。
 - 所有约束都是 **FCFS 前缀截断**，可交换、可组合；**不跳过队头**：队头放不下就停，不往后找更短的请求（与 vLLM V1 一致）。
 - **状态与逻辑块生命周期闭环**：`schedule(clock_ms)` 原子执行 `waiting_queue.pop_batch`、`running_queue.admit` 及 `kv_cache_manager.allocate_slots`；前向完成后，`update_from_output(...)` 统一推进 `cache_length`（PREFILL 按完成的 chunk 推进至 `chunk.end`，DECODE 递增 1）、为产出 Token 的请求追加 Token（chunked prefill 的中间 chunk 不产出 Token）、对完成请求执行 `kv_cache_manager.free` 与 `running_queue.retire`；`ScheduleBackend` 只消费 `PrefillChunk` / `Sequence[RequestState]` 执行算子与物理缓存读写，对 `RunningQueue` 完全无感知。
@@ -124,8 +124,8 @@ token-budget 的软预算无法切分长 Prompt：队头单独超预算时只能
 ### 4. Paged KV Cache：逐 chunk 分配与入场预留
 
 - **逐 chunk 分配**：`schedule()` 对每个 chunk 调用 `KVCacheManager.allocate_slots(request_idx, chunk.num_tokens)` 追加块（累计 Token 数判定是否跨块边界）。
-- **入场预留**：`num_admissible(prompt_lens, num_reserved_blocks)` 先扣除在途 chunked prefill 请求尚未写入的 Prompt 块，保证新请求不抢占其后续 chunk 的块，避免两个半截 Prefill 互相等块而卡死。Decode 增长吞掉预留块时 `allocate_slots` 失败，显式 `RuntimeError`（未实现抢占，见 `preemption_mode` TODO）。
-- **worker 路径**：`PagedRunner.run_prefill_chunk_step` 把各行 chunk 左 Padding，历史 K/V 经 block table 由 `PagedKVCachePool.gather_blocks` 读回并作为 `DenseAttentionMetadata.past_key_values` 喂模型（模型层无感知，仍是 Tensor-In / Tensor-Out）；`attention_mask` 的历史部分只放行前 `start` 个位置，真实 Token 的 `position_ids` 从 `start` 连续递增，与整段 Prompt 一次 Prefill 严格等价；全部行 `start == 0` 时无历史，与整段 Prompt 走同一前向路径。前向后 `PagedRunner.store_prefill` 按各行 `start_positions` 把 chunk 的 K/V 散写入 physical block pool。
+- **入场预留**：`num_admissible(requests, prefilling_states)` 先扣除在途 chunked prefill 请求尚未写入的 Prompt 块，保证新请求不抢占其后续 chunk 的块，避免两个半截 Prefill 互相等块而卡死。Decode 增长吞掉预留块时 `allocate_slots` 失败，显式 `RuntimeError`（未实现抢占，见 `preemption_mode` TODO）。
+- **worker 路径**：`PagedRunner.run_prefill_chunk_step` 把各行 chunk 左 Padding，历史 K/V 经 block table 由 `PagedBlockCache.gather_blocks` 读回并作为 `DenseAttentionMetadata.past_key_values` 喂模型（模型层无感知，仍是 Tensor-In / Tensor-Out）；`attention_mask` 的历史部分只放行前 `start` 个位置，真实 Token 的 `position_ids` 从 `start` 连续递增，与整段 Prompt 一次 Prefill 严格等价；全部行 `start == 0` 时无历史，与整段 Prompt 走同一前向路径。前向后 `PagedRunner.store_prefill` 按各行 `start_positions` 把 chunk 的 K/V 散写入 physical block pool。
 
 ### 5. 与参考实现 chapter_07 的功能对照
 
@@ -135,7 +135,7 @@ token-budget 的软预算无法切分长 Prompt：队头单独超预算时只能
 | `PrefillPlan(state, start, end)`、`SchedulerOutput.prefill_plans` | `PrefillChunk`、`SchedulerOutput.prefill_chunks` |
 | `RequestState.prefill_cursor` / `status = prefilling` | `RequestState.cache_length` / `is_prefilling`（对标 vLLM `num_computed_tokens`，不另设状态枚举） |
 | `waiting` / `prefilling` / `running` 三个列表 | `WaitingQueue`；`RunningQueue.prefilling_requests` / `decoding_requests` |
-| `PagedKVCache.append_prefill` + `dense_request_cache`（按 chunk 追加、重建单请求 dense 历史） | `store_prefill(start_positions=...)` + `PagedKVCachePool.gather_blocks`（按 block table 批量取历史） |
+| `PagedKVCache.append_prefill` + `dense_request_cache`（按 chunk 追加、重建单请求 dense 历史） | `store_prefill(start_positions=...)` + `PagedBlockCache.gather_blocks`（按 block table 批量取历史） |
 | 按 `start` 分组、每组一次前向 | 单次前向：历史按最长块数 null block 补齐，`attention_mask` 屏蔽 |
 | `prefill_chunk_count` / `max_prefill_tokens_per_iteration` / `max_prefill_iteration_ms` | `num_prefill_chunks` / `max_prefill_step_tokens` / `max_prefill_step_ms` |
 | `hard_budget_violations` / `oversize_prefill_iterations` | 硬预算由构造保证（单测与 smoke 断言 `num_scheduled_tokens ≤ token_budget`）/ `num_oversize_prefill_steps`（恒为 0） |
@@ -160,7 +160,7 @@ token-budget 的软预算无法切分长 Prompt：队头单独超预算时只能
 ## 六、不变量与验证
 
 - 各策略只决定「谁在哪一步入场、每步算 Prompt 的哪一段」，`position_ids`、block table 寻址与因果可见范围仍由 worker 保证，逐请求输出与串行 `generate` 逐 Token 一致。
-- CPU：`tests/unit/test_scheduler.py`（决策单测，含 chunk 区间、硬预算、decode protection、入场预留）、`test_paged_kv_cache.py`（分轮 chunk 与整段 Prefill 的 K/V 与首 Token 等价）、`test_continuous.py` / `test_paged_scheduler.py`（串行一致性与事件不变量）、`test_compare_schedulers.py`、`mini-infra verify smoke`（`check_token_budget_scheduling` / `check_chunked_prefill_scheduling`）。
+- CPU：`tests/unit/test_scheduler.py`（决策单测，含 chunk 区间、硬预算、decode protection、入场预留）、`test_paged_block_cache.py`（分轮 chunk 与整段 Prefill 的 K/V 与首 Token 等价）、`test_continuous.py` / `test_paged_scheduler.py`（串行一致性与事件不变量）、`test_compare_schedulers.py`、`mini-infra verify smoke`（`check_token_budget_scheduling` / `check_chunked_prefill_scheduling`）。
 - GPU：`mini-infra verify schedulers-token-budget`（`compare_schedulers_token_budget.py` 错峰 Burst 轨迹与指标对比）、`mini-infra verify chunked-prefill`（`compare_chunked_prefill.py` 超长 Prompt 下 `token-budget` vs `chunked-prefill` 逐 Token / 首 Token Logits 误差 / 轨迹对比）与 `tests/gpu/parity/test_scheduler_batch_parity.py` 在 `float32` 下覆盖 Dense / Paged × 预算（含 oversize prefill）及 Paged × chunked-prefill 预算（含每请求每步 1 个 Token 的极限切分）。
 
 ## 七、使用

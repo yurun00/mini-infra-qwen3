@@ -15,4 +15,16 @@ def test_parity_with_transformers():
     pytest.importorskip("transformers")
     from mini_infra.cli import main
 
-    assert main(["verify", "transformers", "--prompt", "请用一句话介绍 KV Cache。", "--max-new-tokens", "16"]) == 0
+    assert (
+        main(
+            [
+                "verify",
+                "transformers",
+                "--prompt",
+                "请用一句话介绍 KV Cache。",
+                "--max-new-tokens",
+                "16",
+            ]
+        )
+        == 0
+    )

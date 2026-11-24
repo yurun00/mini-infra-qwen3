@@ -92,7 +92,9 @@ class RotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (rope_theta ** (dimensions / head_dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def forward(self, position_ids: torch.Tensor, output_dtype: torch.dtype) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, position_ids: torch.Tensor, output_dtype: torch.dtype
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """计算指定位置索引的正弦与余弦编码（内部以 float32 计算角度后转回 output_dtype）。
 
         position_ids: [batch_size, query_len], long, contiguous / expand 视图
@@ -123,7 +125,10 @@ def _rotate_half(hidden_states: torch.Tensor) -> torch.Tensor:
 
 
 def _apply_rotary_embedding(
-    query: torch.Tensor, key: torch.Tensor, cosine: torch.Tensor, sine: torch.Tensor
+    query: torch.Tensor,
+    key: torch.Tensor,
+    cosine: torch.Tensor,
+    sine: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """把 RoPE 同时应用到 Query 和 Key。
 
@@ -165,7 +170,9 @@ class Qwen3Attention(nn.Module):
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = config.head_dim
         self.scaling = config.head_dim**-0.5
-        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
+        self.num_key_value_groups = (
+            config.num_attention_heads // config.num_key_value_heads
+        )
 
         query_size = config.num_attention_heads * config.head_dim
         key_value_size = config.num_key_value_heads * config.head_dim
@@ -180,7 +187,10 @@ class Qwen3Attention(nn.Module):
         self.k_norm = RMSNorm(config.head_dim, config.rms_norm_eps)
 
     def _project_qkv(
-        self, hidden_states: torch.Tensor, cosine: torch.Tensor, sine: torch.Tensor
+        self,
+        hidden_states: torch.Tensor,
+        cosine: torch.Tensor,
+        sine: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """投影并归一化 Q/K/V，且对 Q/K 施加 RoPE。
 
@@ -240,7 +250,9 @@ class Qwen3Attention(nn.Module):
 
         # transpose(2, 3): [batch_size, num_heads, head_dim, kv_len]（non-contiguous 视图，直接由 matmul 消费）
         # -> attention_scores: [batch_size, num_heads, query_len, kv_len], model_dtype, contiguous
-        attention_scores = torch.matmul(query, attention_key.transpose(2, 3)) * self.scaling
+        attention_scores = (
+            torch.matmul(query, attention_key.transpose(2, 3)) * self.scaling
+        )
         attention_scores = attention_scores + attn_bias
 
         # Softmax 显式升维 float32 归一化后再转回 model_dtype，防止低精度指数溢出。
@@ -280,15 +292,24 @@ class Qwen3Attention(nn.Module):
         # squeeze(2): [batch_size, num_kv_heads, 1, head_dim] -> [batch_size, num_kv_heads, head_dim], contiguous，
         # 按 slot 写入 physical block pool。
         key_pool.view(pool_shape).index_copy_(0, metadata.slot_mapping, key.squeeze(2))
-        value_pool.view(pool_shape).index_copy_(0, metadata.slot_mapping, value.squeeze(2))
+        value_pool.view(pool_shape).index_copy_(
+            0, metadata.slot_mapping, value.squeeze(2)
+        )
 
         # 按 block table 取块：[batch_size, max_blocks, block_size, num_kv_heads, head_dim]（gather 产出，contiguous）
         #   -> view 为 [batch_size, max_blocks * block_size, num_kv_heads, head_dim]（contiguous）
         #   -> transpose 为 [batch_size, num_kv_heads, max_history_len, head_dim]（非连续视图，直接喂 matmul）。
         max_history_len = metadata.block_tables.shape[1] * key_pool.shape[1]
-        history_shape = (batch_size, max_history_len, self.num_key_value_heads, self.head_dim)
+        history_shape = (
+            batch_size,
+            max_history_len,
+            self.num_key_value_heads,
+            self.head_dim,
+        )
         history_key = key_pool[metadata.block_tables].view(history_shape).transpose(1, 2)
-        history_value = value_pool[metadata.block_tables].view(history_shape).transpose(1, 2)
+        history_value = (
+            value_pool[metadata.block_tables].view(history_shape).transpose(1, 2)
+        )
         return history_key, history_value
 
     def forward(
@@ -340,9 +361,13 @@ class Qwen3MLP(nn.Module):
 
     def __init__(self, config: Qwen3Config):
         super().__init__()
-        self.gate_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
+        self.gate_proj = nn.Linear(
+            config.hidden_size, config.intermediate_size, bias=False
+        )
         self.up_proj = nn.Linear(config.hidden_size, config.intermediate_size, bias=False)
-        self.down_proj = nn.Linear(config.intermediate_size, config.hidden_size, bias=False)
+        self.down_proj = nn.Linear(
+            config.intermediate_size, config.hidden_size, bias=False
+        )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """执行 SwiGLU 前馈映射：down_proj(silu(gate_proj(x)) * up_proj(x))。
@@ -411,11 +436,15 @@ class Qwen3Model(nn.Module):
         super().__init__()
         self.config = config
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
-        self.layers = nn.ModuleList([Qwen3DecoderLayer(config) for _ in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [Qwen3DecoderLayer(config) for _ in range(config.num_hidden_layers)]
+        )
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(config.head_dim, config.rope_theta)
 
-    def _validate_past_key_values(self, past_key_values: Sequence[PastKeyValue] | None, batch_size: int) -> int:
+    def _validate_past_key_values(
+        self, past_key_values: Sequence[PastKeyValue] | None, batch_size: int
+    ) -> int:
         """校验历史键值的层数、Batch 维、KV 头数、head_dim 以及各层长度一致。返回历史长度 past_len。
 
         past_key_values: 逐层 (key, value) 元组序列（None 时 past_len = 0），
@@ -426,12 +455,22 @@ class Qwen3Model(nn.Module):
         if len(past_key_values) != len(self.layers):
             raise ValueError("past_key_values 层数与模型层数不一致")
         past_len = past_key_values[0][0].shape[2]
-        expected = (batch_size, self.config.num_key_value_heads, past_len, self.config.head_dim)
+        expected = (
+            batch_size,
+            self.config.num_key_value_heads,
+            past_len,
+            self.config.head_dim,
+        )
         for layer_idx, (key, value) in enumerate(past_key_values):
             if tuple(key.shape) != expected or tuple(value.shape) != expected:
                 raise ValueError(
                     "第 %d 层 KV Cache 形状错误: key=%s, value=%s, expected=%s"
-                    % (layer_idx, tuple(key.shape), tuple(value.shape), expected)
+                    % (
+                        layer_idx,
+                        tuple(key.shape),
+                        tuple(value.shape),
+                        expected,
+                    )
                 )
         return past_len
 
@@ -461,9 +500,14 @@ class Qwen3Model(nn.Module):
         kv_len = past_len + query_len
 
         if attention_mask is None:
-            attention_mask = torch.ones((batch_size, kv_len), dtype=torch.bool, device=device)
+            attention_mask = torch.ones(
+                (batch_size, kv_len), dtype=torch.bool, device=device
+            )
         if tuple(attention_mask.shape) != (batch_size, kv_len):
-            raise ValueError("attention_mask 应为 %s，实际为 %s" % ((batch_size, kv_len), tuple(attention_mask.shape)))
+            raise ValueError(
+                "attention_mask 应为 %s，实际为 %s"
+                % ((batch_size, kv_len), tuple(attention_mask.shape))
+            )
         attention_mask = attention_mask.to(device=device, dtype=torch.bool)
 
         if position_ids is None:
@@ -471,7 +515,10 @@ class Qwen3Model(nn.Module):
             # unsqueeze(0).expand: [1, query_len] -> [batch_size, query_len], long, non-contiguous 广播视图
             position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
         if tuple(position_ids.shape) != (batch_size, query_len):
-            raise ValueError("position_ids 应为 %s，实际为 %s" % ((batch_size, query_len), tuple(position_ids.shape)))
+            raise ValueError(
+                "position_ids 应为 %s，实际为 %s"
+                % ((batch_size, query_len), tuple(position_ids.shape))
+            )
         position_ids = position_ids.to(device=device, dtype=torch.long)
 
         # query_positions: [query_len], key_positions: [kv_len]
@@ -481,7 +528,9 @@ class Qwen3Model(nn.Module):
         causal_mask = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
         # causal_mask.view: [1, 1, query_len, kv_len] & attention_mask.view: [batch_size, 1, 1, kv_len]
         # -> allowed_mask: [batch_size, 1, query_len, kv_len], bool, contiguous（对齐 num_heads 广播维）
-        allowed_mask = causal_mask.view(1, 1, query_len, kv_len) & attention_mask.view(batch_size, 1, 1, kv_len)
+        allowed_mask = causal_mask.view(1, 1, query_len, kv_len) & attention_mask.view(
+            batch_size, 1, 1, kv_len
+        )
         return position_ids, allowed_mask
 
     def _build_paged_inputs(
@@ -503,9 +552,13 @@ class Qwen3Model(nn.Module):
             attn_bias:    [batch_size, 1, 1, max_history_len], dtype, contiguous
         """
         if input_ids.ndim != 2 or input_ids.shape[1] != 1:
-            raise ValueError("Paged Decode 的 input_ids 必须是形状为 [batch, 1] 的 Tensor")
+            raise ValueError(
+                "Paged Decode 的 input_ids 必须是形状为 [batch, 1] 的 Tensor"
+            )
         if position_ids.ndim != 2 or position_ids.shape[1] != 1:
-            raise ValueError("Paged Decode 的 position_ids 必须是形状为 [batch, 1] 的 Tensor")
+            raise ValueError(
+                "Paged Decode 的 position_ids 必须是形状为 [batch, 1] 的 Tensor"
+            )
         kv_pools = metadata.kv_pools
         if len(kv_pools) != len(self.layers):
             raise ValueError("kv_pools 层数与模型层数不一致")
@@ -553,11 +606,17 @@ class Qwen3Model(nn.Module):
                 input_ids, position_ids, attn_metadata, hidden_states.dtype
             )
         else:
-            past_key_values = None if attn_metadata is None else attn_metadata.past_key_values
+            past_key_values = (
+                None if attn_metadata is None else attn_metadata.past_key_values
+            )
             position_ids, allowed_mask = self._prepare_position_ids_and_allowed_mask(
                 input_ids, attention_mask, position_ids, past_key_values
             )
-            attn_bias = torch.zeros(allowed_mask.shape, dtype=hidden_states.dtype, device=hidden_states.device)
+            attn_bias = torch.zeros(
+                allowed_mask.shape,
+                dtype=hidden_states.dtype,
+                device=hidden_states.device,
+            )
             attn_bias.masked_fill_(~allowed_mask, torch.finfo(hidden_states.dtype).min)
 
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)

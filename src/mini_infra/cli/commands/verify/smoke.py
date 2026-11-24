@@ -8,7 +8,9 @@ import argparse
 from mini_infra.verification.smoke import run_smoke_test
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """注册 mini-infra verify smoke 子命令。"""
     parser = subparsers.add_parser("smoke", help="基于微型模型的 CPU 快速冒烟自检")
     parser.set_defaults(func=_handle_smoke)

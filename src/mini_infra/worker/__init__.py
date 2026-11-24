@@ -8,7 +8,7 @@ from mini_infra.worker.lockstep_runner import (
     LockstepOutput,
     LockstepRunner,
 )
-from mini_infra.worker.paged_kv_cache import PagedKVCachePool
+from mini_infra.worker.paged_block_cache import PagedBlockCache
 from mini_infra.worker.paged_runner import PagedDecodeOutput, PagedRunner
 from mini_infra.worker.sampler import greedy_sample
 from mini_infra.worker.slot_runner import (
@@ -23,8 +23,8 @@ __all__ = [
     "LockstepInputBatch",
     "LockstepOutput",
     "LockstepRunner",
+    "PagedBlockCache",
     "PagedDecodeOutput",
-    "PagedKVCachePool",
     "PagedRunner",
     "PrefillOutput",
     "SlotDecodeOutput",

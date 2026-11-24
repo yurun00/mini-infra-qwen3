@@ -128,14 +128,20 @@ class SuiteSpec(_Strict):
         """计算 sweep 展开实际生效的 CachingSpec 列表：同类变体未显式指定的字段从 system.caching_spec 继承。"""
         if self.sweep.system.caching_spec is None:
             return [self.system.caching_spec]
-        return [s.inherit_from(self.system.caching_spec) for s in self.sweep.system.caching_spec]
+        return [
+            s.inherit_from(self.system.caching_spec)
+            for s in self.sweep.system.caching_spec
+        ]
 
     @property
     def effective_sweep_scheduler_specs(self) -> list[SchedulerSpec]:
         """计算 sweep 展开实际生效的 SchedulerSpec 列表：sweep 项未显式指定的字段从 system.scheduler_spec 继承。"""
         if self.sweep.system.scheduler_spec is None:
             return [self.system.scheduler_spec]
-        return [s.inherit_from(self.system.scheduler_spec) for s in self.sweep.system.scheduler_spec]
+        return [
+            s.inherit_from(self.system.scheduler_spec)
+            for s in self.sweep.system.scheduler_spec
+        ]
 
     @field_validator("name")
     @classmethod
@@ -178,7 +184,9 @@ class SuiteSpec(_Strict):
         )
         unknown = swept_names - template_vars.keys()
         if unknown:
-            raise ValueError(f"sweep.workload 引用了未在 workload.vars 中声明的变量: {sorted(unknown)}")
+            raise ValueError(
+                f"sweep.workload 引用了未在 workload.vars 中声明的变量: {sorted(unknown)}"
+            )
 
         # 2. 计算实际生效的系统维度取值集合（sweep.system 显式覆盖基线 system，缺省字段从基线继承）
         effective_caching_specs = self.effective_sweep_caching_specs
@@ -193,7 +201,11 @@ class SuiteSpec(_Strict):
                 effective_scheduler_specs,
             )
         else:
-            self._check_lockstep(effective_caching_specs, effective_batching_methods, effective_scheduler_specs)
+            self._check_lockstep(
+                effective_caching_specs,
+                effective_batching_methods,
+                effective_scheduler_specs,
+            )
         return self
 
     def _check_scheduler(
@@ -209,17 +221,27 @@ class SuiteSpec(_Strict):
             )
 
         budgeted_specs = [
-            spec for spec in effective_scheduler_specs if isinstance(spec.batching_policy, BudgetedBatchingPolicySpec)
+            spec
+            for spec in effective_scheduler_specs
+            if isinstance(spec.batching_policy, BudgetedBatchingPolicySpec)
         ]
         if not budgeted_specs:
             return
-        if any(method is not BatchingMethod.CONTINUOUS for method in effective_batching_methods):
-            kinds = sorted({spec.batching_policy.kind for spec in budgeted_specs})
-            raise ValueError(f"{'/'.join(kinds)} 调度策略要求生效的 batching_method 全部为 continuous-batching")
-        if any(isinstance(spec.batching_policy, ChunkedPrefillSpec) for spec in budgeted_specs) and any(
-            not isinstance(c, PagedCacheSpec) for c in effective_caching_specs
+        if any(
+            method is not BatchingMethod.CONTINUOUS
+            for method in effective_batching_methods
         ):
-            raise ValueError("chunked-prefill 调度策略要求生效的 caching_spec 全部为 paged-kv-cache")
+            kinds = sorted({spec.batching_policy.kind for spec in budgeted_specs})
+            raise ValueError(
+                f"{'/'.join(kinds)} 调度策略要求生效的 batching_method 全部为 continuous-batching"
+            )
+        if any(
+            isinstance(spec.batching_policy, ChunkedPrefillSpec)
+            for spec in budgeted_specs
+        ) and any(not isinstance(c, PagedCacheSpec) for c in effective_caching_specs):
+            raise ValueError(
+                "chunked-prefill 调度策略要求生效的 caching_spec 全部为 paged-kv-cache"
+            )
         for spec in budgeted_specs:
             assert spec.max_running_requests is not None
             assert isinstance(spec.batching_policy, BudgetedBatchingPolicySpec)
@@ -239,7 +261,9 @@ class SuiteSpec(_Strict):
             raise ValueError("lockstep suite 不支持 max_running_requests")
         for s in effective_scheduler_specs:
             if isinstance(s.batching_policy, BudgetedBatchingPolicySpec):
-                raise ValueError(f"lockstep suite 不支持 {s.batching_policy.kind} 调度策略")
+                raise ValueError(
+                    f"lockstep suite 不支持 {s.batching_policy.kind} 调度策略"
+                )
         if any(isinstance(c, PagedCacheSpec) for c in effective_caching_specs):
             raise ValueError("lockstep suite 不支持 paged-kv-cache")
         if BatchingMethod.CONTINUOUS in effective_batching_methods:
@@ -249,7 +273,9 @@ class SuiteSpec(_Strict):
         if self.comparison is not None:
             raise ValueError("lockstep suite 不支持 comparison")
         for check in self.checks:
-            if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):
+            if check == "free_batch_slot_at_t0" or isinstance(
+                check, MinMaxRunningRequestsCheck
+            ):
                 raise ValueError(f"lockstep suite 不支持检查 {check!r}")
 
 
@@ -271,10 +297,16 @@ def suite_json_schema() -> dict[str, Any]:
         "required": ["id"],
         "properties": {
             "id": {"type": "string", "description": "workload_id，可含 ${var}"},
-            "vars": {"type": "object", "description": "可被 sweep.workload 覆盖的变量"},
+            "vars": {
+                "type": "object",
+                "description": "可被 sweep.workload 覆盖的变量",
+            },
             "groups": {
                 "type": "array",
-                "items": {"type": "object", "description": "字段含义见 $defs.GroupSpec（值可用 ${var} 占位）"},
+                "items": {
+                    "type": "object",
+                    "description": "字段含义见 $defs.GroupSpec（值可用 ${var} 占位）",
+                },
                 "description": "请求组，按顺序拼接",
             },
         },

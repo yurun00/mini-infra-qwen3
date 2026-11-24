@@ -43,7 +43,9 @@ def install_scope_hooks(model: torch.nn.Module) -> list[Any]:
             ctx.__exit__(None, None, None)
 
     for name, module in model.named_modules():
-        label = MODULE_SCOPES.get(type(module).__name__) or ("lm_head" if name == "lm_head" else None)
+        label = MODULE_SCOPES.get(type(module).__name__) or (
+            "lm_head" if name == "lm_head" else None
+        )
         if label:
             handles.append(module.register_forward_pre_hook(pre(label)))
             handles.append(module.register_forward_hook(post))
@@ -75,9 +77,15 @@ def profile_scope(
                              若指定则在 trace 就绪时自动保存为 TensorBoard 格式文件；
                              若为 None（默认）则不向磁盘写入任何 log 文件。
     """
-    from torch.profiler import ProfilerActivity, profile, tensorboard_trace_handler
+    from torch.profiler import (
+        ProfilerActivity,
+        profile,
+        tensorboard_trace_handler,
+    )
 
-    is_cuda = (device is not None and device.type == "cuda") or (device is None and torch.cuda.is_available())
+    is_cuda = (device is not None and device.type == "cuda") or (
+        device is None and torch.cuda.is_available()
+    )
     activities = [ProfilerActivity.CPU]
     if is_cuda:
         activities.append(ProfilerActivity.CUDA)
@@ -92,9 +100,15 @@ def profile_scope(
         with profile(
             activities=activities,
             on_trace_ready=on_trace_ready,
-            record_shapes=tensorboard_options.record_shapes if tensorboard_options is not None else False,
-            profile_memory=tensorboard_options.profile_memory if tensorboard_options is not None else False,
-            with_stack=tensorboard_options.with_stack if tensorboard_options is not None else False,
+            record_shapes=tensorboard_options.record_shapes
+            if tensorboard_options is not None
+            else False,
+            profile_memory=tensorboard_options.profile_memory
+            if tensorboard_options is not None
+            else False,
+            with_stack=tensorboard_options.with_stack
+            if tensorboard_options is not None
+            else False,
         ) as prof:
             yield ProfileCollector(prof)
     finally:

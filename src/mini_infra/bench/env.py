@@ -28,7 +28,11 @@ def git_info() -> dict[str, str | bool]:
     def run(*args: str) -> str:
         try:
             return subprocess.run(
-                ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10
+                ["git", *args],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                timeout=10,
             ).stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
             return ""

@@ -56,7 +56,9 @@ def broadcast_case_lengths(
     if batch_size is None:
         if len_p > 1 and len_o > 1:
             if len_p != len_o:
-                raise ValueError(f"prompt_lens 长度 ({len_p}) 与 max_new_tokens 长度 ({len_o}) 不匹配")
+                raise ValueError(
+                    f"prompt_lens 长度 ({len_p}) 与 max_new_tokens 长度 ({len_o}) 不匹配"
+                )
             target_bs = len_p
         elif len_p > 1:
             target_bs = len_p
@@ -68,13 +70,21 @@ def broadcast_case_lengths(
         if batch_size < 1:
             raise ValueError(f"batch_size 必须为正整数，得到 {batch_size}")
         if len_p != 1 and len_p != batch_size:
-            raise ValueError(f"prompt_lens 数量 ({len_p}) 既不为 1，也不等于指定的 batch_size ({batch_size})")
+            raise ValueError(
+                f"prompt_lens 数量 ({len_p}) 既不为 1，也不等于指定的 batch_size ({batch_size})"
+            )
         if len_o != 1 and len_o != batch_size:
-            raise ValueError(f"max_new_tokens 数量 ({len_o}) 既不为 1，也不等于指定的 batch_size ({batch_size})")
+            raise ValueError(
+                f"max_new_tokens 数量 ({len_o}) 既不为 1，也不等于指定的 batch_size ({batch_size})"
+            )
         target_bs = batch_size
 
-    resolved_prompt_len: int | tuple[int, ...] = prompt_lens[0] if len_p == 1 else tuple(prompt_lens)
-    resolved_max_new_tokens: int | tuple[int, ...] = max_new_tokens[0] if len_o == 1 else tuple(max_new_tokens)
+    resolved_prompt_len: int | tuple[int, ...] = (
+        prompt_lens[0] if len_p == 1 else tuple(prompt_lens)
+    )
+    resolved_max_new_tokens: int | tuple[int, ...] = (
+        max_new_tokens[0] if len_o == 1 else tuple(max_new_tokens)
+    )
     return target_bs, resolved_prompt_len, resolved_max_new_tokens
 
 
@@ -148,7 +158,10 @@ def run_case(
         profile=is_all_repeats_profile,
         tensorboard_options=tensorboard_options if is_all_repeats_profile else None,
     )
-    runs = [run_case_once(model, device, case, options=run_opts, prompts=prompts) for _ in range(repeats)]
+    runs = [
+        run_case_once(model, device, case, options=run_opts, prompts=prompts)
+        for _ in range(repeats)
+    ]
 
     op_breakdown = None
     if is_all_repeats_profile and runs:

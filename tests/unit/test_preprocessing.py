@@ -65,7 +65,9 @@ def test_normalize_token_sequences_text_with_tokenizer():
     assert is_uniform is True
 
     # 多条文本
-    seqs, is_uniform = normalize_token_sequences(["hi", "hello"], tokenizer=mock_tokenizer)
+    seqs, is_uniform = normalize_token_sequences(
+        ["hi", "hello"], tokenizer=mock_tokenizer
+    )
     assert seqs == [(100, 100), (100, 100, 100, 100, 100)]
     assert is_uniform is False
 

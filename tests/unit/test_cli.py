@@ -45,6 +45,7 @@ def test_cli_subcommand_helps():
         ["verify", "batch-scheduler", "--help"],
         ["verify", "schedulers-token-budget", "--help"],
         ["verify", "chunked-prefill", "--help"],
+        ["verify", "prefix-caching", "--help"],
         ["verify", "paged-cache-logits", "--help"],
         ["verify", "paged-cache-scheduler", "--help"],
         ["bench", "lockstep", "case", "--help"],
@@ -93,7 +94,9 @@ def test_cli_scheduler_suite_dry_run(capsys):
     )
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
+    assert (
+        "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
+    )
     assert "Scheduler 基准评测执行计划" in captured
 
 

@@ -18,10 +18,10 @@ PyTorch Memory Snapshot 是定位 GPU 显存物理分配与生命周期最精确
 ================================================================================
 在 PagedScheduleBackend 等调度后端中，内置了以下细粒度阶段快照：
 1. `00_paged_before_pool_init`：模型加载完毕，尚未分配 physical block pool（基准模型权重显存）；
-2. `01_paged_pool_allocated`：PagedKVCachePool physical block pool 分配完成（记录常驻显存定格点）；
+2. `01_paged_pool_allocated`：PagedBlockCache physical block pool 分配完成（记录常驻显存定格点）；
 3. `02_paged_prefill_forward_done`：Prefill 前向计算结束，prefill_cache（稠密 KV 张量）生成，
    单步前向激活值（Attention Logits、MLP 中间层）达到瞬时全局最高峰；
-4. `03_paged_prefill_stored_dual_kv`：按 block table 散写（store_prefill）完成。此时 self.pool 与
+4. `03_paged_prefill_stored_dual_kv`：按 block table 散写（store_prefill）完成。此时 self.paged_block_cache 与
    prefill_cache 均存活，处于双份 KV Cache 在显存中并存的关键时刻；
 5. `04_paged_prefill_cleaned`：显式执行 del prefill_out 后，临时稠密 KV 显存被回收，显存回落；
 6. `05_paged_decode_step`：单步增量 Decode（观察 Gather 拷贝与 block table 扩展）；
@@ -63,7 +63,7 @@ PyTorch Memory Snapshot 是定位 GPU 显存物理分配与生命周期最精确
 3. 关键排查技巧：
    - 查看时间线（Timeline）：横轴为时间，纵轴为物理显存占用（MiB）；
    - 点击最高柱子（Peak）：左侧将展开该瞬时所有存活的张量块；
-     * 查看是否存在 PagedKVCachePool 张量（如 1744.75 MiB）；
+     * 查看是否存在 PagedBlockCache 张量（如 1744.75 MiB）；
      * 查看是否存在未释放的 prefill_cache 稠密张量（如 1526.00 MiB）；
      * 查看是否存在高达数 GB 的 Attention 矩阵与 MLP 激活值；
    - 点击任意张量，右侧即可查看分配该张量的精确代码文件与行号调用栈。
@@ -133,7 +133,11 @@ class MemorySnapshotTracker:
         if sampling_rate is not None:
             if sampling_rate <= 0:
                 return 0.0, 0.0
-            interval = max(1, round(1.0 / sampling_rate)) if sampling_rate < 1.0 else max(1, int(sampling_rate))
+            interval = (
+                max(1, round(1.0 / sampling_rate))
+                if sampling_rate < 1.0
+                else max(1, int(sampling_rate))
+            )
             if stage_count % interval != 0:
                 return 0.0, 0.0
 
@@ -147,7 +151,9 @@ class MemorySnapshotTracker:
         print(msg)
 
         if dump and self.output_dir:
-            snapshot_path = self.output_dir / f"snapshot_{self._step_counter:03d}_{stage_name}.pickle"
+            snapshot_path = (
+                self.output_dir / f"snapshot_{self._step_counter:03d}_{stage_name}.pickle"
+            )
             torch.cuda.memory._dump_snapshot(str(snapshot_path))
         self._step_counter += 1
         return alloc_mb, peak_mb

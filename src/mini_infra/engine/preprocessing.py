@@ -19,7 +19,11 @@ def normalize_budgets(
     batch_size: int,
 ) -> list[int]:
     """把标量或逐请求的输出预算统一为长度为 batch_size 的整数列表，并校验每项大于 0。"""
-    budgets = [max_new_tokens] * batch_size if isinstance(max_new_tokens, int) else [int(v) for v in max_new_tokens]
+    budgets = (
+        [max_new_tokens] * batch_size
+        if isinstance(max_new_tokens, int)
+        else [int(v) for v in max_new_tokens]
+    )
     if len(budgets) != batch_size or any(value < 1 for value in budgets):
         raise ValueError("每个请求必须提供一个大于 0 的输出预算")
     return budgets

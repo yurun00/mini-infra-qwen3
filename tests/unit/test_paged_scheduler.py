@@ -14,8 +14,8 @@ from mini_infra.core import (
     SchedulePhase,
     SchedulerConfig,
     TokenBudgetConfig,
+    infer_num_blocks_in_pool,
     make_requests,
-    required_pool_blocks,
 )
 from mini_infra.engine import (
     BatchingMethod,
@@ -25,7 +25,9 @@ from mini_infra.engine import (
 from mini_infra.entrypoints import GenerationOptions, generate
 
 KV_CONFIG = EngineConfig(DenseCacheConfig())
-PAGED_CONFIG = EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.CONTINUOUS)
+PAGED_CONFIG = EngineConfig(
+    PagedCacheConfig(block_size=4), batching_method=BatchingMethod.CONTINUOUS
+)
 
 
 @pytest.fixture
@@ -34,10 +36,15 @@ def model(diverse_model):
 
 
 def make_prompts(lengths: list[int]) -> list[list[int]]:
-    return [[(i * 7 + j * 3) % 90 + 1 for j in range(length)] for i, length in enumerate(lengths)]
+    return [
+        [(i * 7 + j * 3) % 90 + 1 for j in range(length)]
+        for i, length in enumerate(lengths)
+    ]
 
 
-def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) -> list[list[int]]:
+def serial_outputs(
+    model, prompts, budgets, eos_token_id=-1, stop_on_eos=False
+) -> list[list[int]]:
     opts = GenerationOptions(eos_token_id=eos_token_id, stop_on_eos=stop_on_eos)
     return [
         generate(KV_CONFIG, model, [prompt], budget, options=opts).sequences[0].token_ids
@@ -45,16 +52,31 @@ def serial_outputs(model, prompts, budgets, eos_token_id=-1, stop_on_eos=False) 
     ]
 
 
-def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, token_budget=None, chunked=False, **config):
+def run_paged(
+    model,
+    requests,
+    capacity,
+    eos=-1,
+    stop_on_eos=False,
+    token_budget=None,
+    chunked=False,
+    **config,
+):
     if token_budget is None:
         policy = PrefillFirstConfig()
     else:
-        policy = ChunkedPrefillConfig(token_budget) if chunked else TokenBudgetConfig(token_budget)
+        policy = (
+            ChunkedPrefillConfig(token_budget)
+            if chunked
+            else TokenBudgetConfig(token_budget)
+        )
     return run_scheduler(
         EngineConfig(
             PagedCacheConfig(**config),
             batching_method=BatchingMethod.CONTINUOUS,
-            scheduler_config=SchedulerConfig(max_running_requests=capacity, batching_policy=policy),
+            scheduler_config=SchedulerConfig(
+                max_running_requests=capacity, batching_policy=policy
+            ),
         ),
         model,
         requests,
@@ -66,7 +88,12 @@ def run_paged(model, requests, capacity, eos=-1, stop_on_eos=False, token_budget
 CASES = {
     "mixed_budgets": ([4, 9, 6, 3, 7], [2, 6, 3, 5, 1], [0.0] * 5, 2),
     "staggered": ([5, 5, 5, 5], [4, 6, 4, 6], [0.0, 1.0, 2.0, 5000.0], 3),
-    "longer_prompt_joins_late": ([3, 12, 6], [8, 4, 3], [0.0, 0.0001, 0.0002], 2),
+    "longer_prompt_joins_late": (
+        [3, 12, 6],
+        [8, 4, 3],
+        [0.0, 0.0001, 0.0002],
+        2,
+    ),
     "budget_one": ([4, 6, 5], [1, 1, 3], [0.0, 0.0, 0.0], 3),
     "capacity_not_binding": ([4, 7], [5, 3], [0.0, 0.0], 8),
     "single_request": ([6], [5], [0.0], 1),
@@ -93,9 +120,15 @@ def test_outputs_match_serial_generate_and_dense(model, case, block_size):
         stop_on_eos=False,
     )
 
-    assert isinstance(paged.kv_cache_config, PagedCacheConfig) and isinstance(dense.kv_cache_config, DenseCacheConfig)
-    assert [s.token_ids for s in paged.sequences] == serial_outputs(model, prompts, budgets)
-    assert [s.token_ids for s in paged.sequences] == [s.token_ids for s in dense.sequences]
+    assert isinstance(paged.kv_cache_config, PagedCacheConfig) and isinstance(
+        dense.kv_cache_config, DenseCacheConfig
+    )
+    assert [s.token_ids for s in paged.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
+    assert [s.token_ids for s in paged.sequences] == [
+        s.token_ids for s in dense.sequences
+    ]
     assert [s.output_len for s in paged.sequences] == budgets
     assert all(s.finish_reason == "max_tokens" for s in paged.sequences)
 
@@ -108,7 +141,9 @@ def test_eos_stops_request_and_releases_its_blocks(model):
 
     result = run_paged(model, requests, 2, eos, stop_on_eos=True, block_size=4)
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets, eos, stop_on_eos=True)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets, eos, stop_on_eos=True
+    )
     assert result.sequences[0].finish_reason == "stop"
 
 
@@ -120,15 +155,26 @@ def test_timeline_and_event_invariants(model):
     decode_events = [e for e in result.events if e.phase is SchedulePhase.DECODE]
 
     for request, budget in zip(result.request_metrics, budgets):
-        assert request.arrival_ms <= request.admitted_ms <= request.first_token_ms <= request.completion_ms
+        assert (
+            request.arrival_ms
+            <= request.admitted_ms
+            <= request.first_token_ms
+            <= request.completion_ms
+        )
         assert request.num_output_tokens == budget == len(request.token_times_ms)
     assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
-    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(len(requests)))
-    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(len(requests)))
+    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(
+        range(len(requests))
+    )
+    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(
+        range(len(requests))
+    )
     # Paged Decode 只执行活跃请求：无 Padding 行，slot_utilization 恒为 1
     assert all(e.physical_batch_size == e.num_active_requests for e in decode_events)
     assert result.batch_info.slot_utilization == pytest.approx(1.0)
-    assert result.schedule_metrics.busy_ms == pytest.approx(sum(e.step_ms for e in result.events))
+    assert result.schedule_metrics.busy_ms == pytest.approx(
+        sum(e.step_ms for e in result.events)
+    )
     assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
 
 
@@ -136,13 +182,23 @@ def test_live_kv_bytes_track_used_blocks_and_stay_within_pool(model):
     block_size = 4
     requests = make_requests(make_prompts([5, 5]), [6, 6], [0.0, 0.0])
     config = model.config
-    block_bytes = 2 * config.num_hidden_layers * block_size * config.num_key_value_heads * config.head_dim * 4
+    block_bytes = (
+        2
+        * config.num_hidden_layers
+        * block_size
+        * config.num_key_value_heads
+        * config.head_dim
+        * 4
+    )
 
     result = run_paged(model, requests, 2, block_size=block_size)
 
     assert all(e.live_kv_cache_bytes % block_bytes == 0 for e in result.events)
-    pool_blocks = required_pool_blocks(requests, 2, block_size)
-    assert max(e.live_kv_cache_bytes for e in result.events) <= (pool_blocks - 1) * block_bytes
+    pool_blocks = infer_num_blocks_in_pool(requests, 2, block_size)
+    assert (
+        max(e.live_kv_cache_bytes for e in result.events)
+        <= (pool_blocks - 1) * block_bytes
+    )
     # 两个请求各 10 个 Token（5 + 6 - 1）-> 各 3 块；同时在池的峰值为 6 块
     assert max(e.live_kv_cache_bytes for e in result.events) == 6 * block_bytes
 
@@ -155,10 +211,14 @@ def test_small_pool_gates_admission_and_still_matches_serial(model):
     # 块大小 4：每个请求峰值 8 Token = 2 块；池 = 1 个 null block + 4 块，只够 2 个请求并发（并发上限 3）
     result = run_paged(model, requests, 3, block_size=4, num_blocks=5)
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
     assert [e.admitted_request_ids for e in prefill_events] == [(0, 1), (2,)]
-    assert result.request_metrics[2].admitted_ms >= result.request_metrics[0].completion_ms
+    assert (
+        result.request_metrics[2].admitted_ms >= result.request_metrics[0].completion_ms
+    )
 
 
 def test_paged_prefill_first_event_trajectories(model):
@@ -169,7 +229,12 @@ def test_paged_prefill_first_event_trajectories(model):
 
     # 1. 混合预算
     lengths, budgets, arrivals, capacity = CASES["mixed_budgets"]
-    res_mixed = run_paged(model, make_requests(make_prompts(lengths), budgets, arrivals), capacity, block_size=4)
+    res_mixed = run_paged(
+        model,
+        make_requests(make_prompts(lengths), budgets, arrivals),
+        capacity,
+        block_size=4,
+    )
     assert event_trace(res_mixed.events) == [
         (SchedulePhase.PREFILL, (0, 1), ()),
         (SchedulePhase.DECODE, (), (0,)),
@@ -185,7 +250,13 @@ def test_paged_prefill_first_event_trajectories(model):
     ]
 
     # 2. 小 physical block pool 显存准入限流（capacity=3 但块池仅够 2 个请求并发）
-    res_small = run_paged(model, make_requests(make_prompts([6, 6, 6]), [3, 3, 3]), 3, block_size=4, num_blocks=5)
+    res_small = run_paged(
+        model,
+        make_requests(make_prompts([6, 6, 6]), [3, 3, 3]),
+        3,
+        block_size=4,
+        num_blocks=5,
+    )
     assert event_trace(res_small.events) == [
         (SchedulePhase.PREFILL, (0, 1), ()),
         (SchedulePhase.DECODE, (), ()),
@@ -199,7 +270,14 @@ def test_paged_prefill_first_event_trajectories(model):
     prompts_eos = make_prompts([4, 6, 5])
     budgets_eos = [8, 8, 8]
     eos = serial_outputs(model, prompts_eos, budgets_eos)[0][2]
-    res_eos = run_paged(model, make_requests(prompts_eos, budgets_eos), 2, eos, stop_on_eos=True, block_size=4)
+    res_eos = run_paged(
+        model,
+        make_requests(prompts_eos, budgets_eos),
+        2,
+        eos,
+        stop_on_eos=True,
+        block_size=4,
+    )
     assert event_trace(res_eos.events) == [
         (SchedulePhase.PREFILL, (0, 1), ()),
         (SchedulePhase.DECODE, (), ()),
@@ -217,28 +295,56 @@ def test_paged_prefill_first_event_trajectories(model):
 
 @pytest.mark.parametrize("block_size", [1, 4, 16])
 @pytest.mark.parametrize("case", list(CASES))
-def test_token_budget_outputs_match_serial(model, case, block_size, assert_token_budget_invariants):
+def test_token_budget_outputs_match_serial(
+    model, case, block_size, assert_token_budget_invariants
+):
     lengths, budgets, arrivals, capacity = CASES[case]
     prompts = make_prompts(lengths)
-    token_budget = max(capacity, 8)  # 8 小于 CASES 中最长 Prompt（12），覆盖 oversize prefill
+    token_budget = max(
+        capacity, 8
+    )  # 8 小于 CASES 中最长 Prompt（12），覆盖 oversize prefill
     requests = make_requests(prompts, budgets, arrivals)
 
-    result = run_paged(model, requests, capacity, block_size=block_size, token_budget=token_budget)
+    result = run_paged(
+        model,
+        requests,
+        capacity,
+        block_size=block_size,
+        token_budget=token_budget,
+    )
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
     assert_token_budget_invariants(result, token_budget)
 
 
-def test_token_budget_with_small_pool_matches_serial_and_reuses_blocks(model, assert_token_budget_invariants):
+def test_token_budget_with_small_pool_matches_serial_and_reuses_blocks(
+    model, assert_token_budget_invariants
+):
     """token budget 与 physical block pool 准入叠加：两者都是 FCFS 前缀截断，取交集后输出仍与串行一致。"""
     prompts = make_prompts([6, 6, 6, 6])
     budgets = [3, 3, 3, 3]
     # 块大小 4：每个请求峰值 8 Token = 2 块；池 = 1 个 null block + 4 块，只够 2 个请求并发（并发上限 3）
-    result = run_paged(model, make_requests(prompts, budgets), 3, block_size=4, num_blocks=5, token_budget=6)
+    result = run_paged(
+        model,
+        make_requests(prompts, budgets),
+        3,
+        block_size=4,
+        num_blocks=5,
+        token_budget=6,
+    )
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
     prefill_events = [e for e in result.events if e.phase is SchedulePhase.PREFILL]
-    assert [e.admitted_request_ids for e in prefill_events] == [(0,), (1,), (2,), (3,)]
+    assert [e.admitted_request_ids for e in prefill_events] == [
+        (0,),
+        (1,),
+        (2,),
+        (3,),
+    ]
     assert result.memory.kv_cache.paged_cache is not None
     assert result.memory.kv_cache.paged_cache.block_reuse_count > 0
     assert_token_budget_invariants(result, 6)
@@ -252,7 +358,9 @@ def test_pool_that_cannot_hold_one_request_is_rejected(model):
 
 def test_concurrent_growth_exhaustion_fails_loudly(model):
     """Prompt 刚好能入场、但并发增长耗尽 physical block pool：显式报错（未实现抢占），而不是静默产出错误结果。"""
-    requests = make_requests(make_prompts([4, 4]), [6, 6])  # 块大小 4：Prompt 各 1 块，增长至 9 Token 需 3 块
+    requests = make_requests(
+        make_prompts([4, 4]), [6, 6]
+    )  # 块大小 4：Prompt 各 1 块，增长至 9 Token 需 3 块
     with pytest.raises(RuntimeError, match="物理块已耗尽"):
         run_paged(model, requests, 2, block_size=4, num_blocks=5)
 
@@ -303,11 +411,21 @@ def test_paged_fixed_batching_enforces_wave_barrier_and_matches_serial(model):
 
     assert isinstance(fixed_res.kv_cache_config, PagedCacheConfig)
     assert fixed_res.batching_method is BatchingMethod.FIXED
-    assert [s.token_ids for s in fixed_res.sequences] == serial_outputs(model, prompts, budgets)
-    assert [s.token_ids for s in fixed_res.sequences] == [s.token_ids for s in cont_res.sequences]
+    assert [s.token_ids for s in fixed_res.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
+    assert [s.token_ids for s in fixed_res.sequences] == [
+        s.token_ids for s in cont_res.sequences
+    ]
     # 请求 0 在第 2 步完成，但请求 1 要到第 5 步才完成；FIXED 波次屏障下，请求 2 必须等请求 1 完成后才准入。
-    assert fixed_res.request_metrics[2].admitted_ms >= fixed_res.request_metrics[1].completion_ms
-    assert cont_res.request_metrics[2].admitted_ms == cont_res.request_metrics[0].completion_ms
+    assert (
+        fixed_res.request_metrics[2].admitted_ms
+        >= fixed_res.request_metrics[1].completion_ms
+    )
+    assert (
+        cont_res.request_metrics[2].admitted_ms
+        == cont_res.request_metrics[0].completion_ms
+    )
 
 
 def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
@@ -315,7 +433,9 @@ def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
     opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
 
     result = generate(PAGED_CONFIG, model, prompts, [5, 3, 4], options=opts)
-    fixed_paged_config = EngineConfig(PagedCacheConfig(block_size=4), batching_method=BatchingMethod.FIXED)
+    fixed_paged_config = EngineConfig(
+        PagedCacheConfig(block_size=4), batching_method=BatchingMethod.FIXED
+    )
     fixed_result = generate(fixed_paged_config, model, prompts, [5, 3, 4], options=opts)
 
     assert result.kv_cache_config == PagedCacheConfig(block_size=4)
@@ -332,7 +452,13 @@ def test_generate_dispatches_paged_flag_and_result_mode_reports_it(model):
 def test_generate_validates_paged_batching_method(model):
     opts = GenerationOptions(eos_token_id=-1)
     with pytest.raises(ValueError, match="continuous-batching"):
-        generate(EngineConfig(PagedCacheConfig()), model, [[1, 2, 3]], 2, options=opts)
+        generate(
+            EngineConfig(PagedCacheConfig()),
+            model,
+            [[1, 2, 3]],
+            2,
+            options=opts,
+        )
 
 
 def _assert_chunked_prefill_invariants(result, token_budget: int) -> None:
@@ -348,19 +474,32 @@ def _assert_chunked_prefill_invariants(result, token_budget: int) -> None:
             assert prev.num_generated_tokens == len(prev.finished_request_ids)
     # ③ 每个请求恰入场一次、恰完成一次；产出 Token 数等于各请求预算之和
     num_requests = len(result.sequences)
-    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(range(num_requests))
-    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(range(num_requests))
-    assert sum(e.num_generated_tokens for e in result.events) == sum(s.output_len for s in result.sequences)
+    assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(
+        range(num_requests)
+    )
+    assert sorted(i for e in result.events for i in e.finished_request_ids) == list(
+        range(num_requests)
+    )
+    assert sum(e.num_generated_tokens for e in result.events) == sum(
+        s.output_len for s in result.sequences
+    )
     # ④ 指标与事件流一致
     sm = result.schedule_metrics
     assert sm.num_prefill_steps == len(prefill_events)
     assert sm.num_prefill_chunks == sum(e.physical_batch_size for e in prefill_events)
-    assert sm.max_prefill_step_tokens == max(e.num_scheduled_tokens for e in prefill_events)
+    assert sm.max_prefill_step_tokens == max(
+        e.num_scheduled_tokens for e in prefill_events
+    )
     assert sm.max_prefill_step_tokens <= token_budget
     assert sm.max_prefill_step_ms == max(e.step_ms for e in prefill_events)
     assert sm.num_oversize_prefill_steps == 0
     for request in result.request_metrics:
-        assert request.arrival_ms <= request.admitted_ms <= request.first_token_ms <= request.completion_ms
+        assert (
+            request.arrival_ms
+            <= request.admitted_ms
+            <= request.first_token_ms
+            <= request.completion_ms
+        )
 
 
 @pytest.mark.parametrize("block_size", [1, 4, 16])
@@ -368,12 +507,23 @@ def _assert_chunked_prefill_invariants(result, token_budget: int) -> None:
 def test_chunked_prefill_outputs_match_serial(model, case, block_size):
     lengths, budgets, arrivals, capacity = CASES[case]
     prompts = make_prompts(lengths)
-    token_budget = max(capacity, 8)  # 小于最长 Prompt（12）：长 Prompt 必然被切成多个 chunk
+    token_budget = max(
+        capacity, 8
+    )  # 小于最长 Prompt（12）：长 Prompt 必然被切成多个 chunk
     requests = make_requests(prompts, budgets, arrivals)
 
-    result = run_paged(model, requests, capacity, block_size=block_size, token_budget=token_budget, chunked=True)
+    result = run_paged(
+        model,
+        requests,
+        capacity,
+        block_size=block_size,
+        token_budget=token_budget,
+        chunked=True,
+    )
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
     _assert_chunked_prefill_invariants(result, token_budget)
 
 
@@ -384,20 +534,33 @@ def test_chunked_prefill_matches_serial_across_budgets(model, token_budget):
     budgets = [5, 7, 3, 6, 4]
     requests = make_requests(prompts, budgets, [0.0, 0.0, 0.0, 0.0001, 0.0002])
 
-    result = run_paged(model, requests, 2, block_size=4, token_budget=token_budget, chunked=True)
+    result = run_paged(
+        model,
+        requests,
+        2,
+        block_size=4,
+        token_budget=token_budget,
+        chunked=True,
+    )
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
     _assert_chunked_prefill_invariants(result, token_budget)
 
 
-def test_chunked_prefill_with_large_budget_degenerates_to_whole_prompt_prefill(model):
+def test_chunked_prefill_with_large_budget_degenerates_to_whole_prompt_prefill(
+    model,
+):
     prompts = make_prompts([6, 5, 7])
     requests = make_requests(prompts, [4, 4, 4])
 
     chunked = run_paged(model, requests, 3, block_size=4, token_budget=1000, chunked=True)
     baseline = run_paged(model, requests, 3, block_size=4)
 
-    assert [s.token_ids for s in chunked.sequences] == [s.token_ids for s in baseline.sequences]
+    assert [s.token_ids for s in chunked.sequences] == [
+        s.token_ids for s in baseline.sequences
+    ]
     assert [e.phase for e in chunked.events] == [e.phase for e in baseline.events]
     assert chunked.schedule_metrics.num_prefill_chunks == len(prompts)
 
@@ -408,12 +571,23 @@ def test_chunked_prefill_long_prompt_does_not_block_in_flight_decode(model):
     requests = make_requests(prompts, [20, 3], [0.0, 0.0001])
     token_budget = 8
 
-    chunked = run_paged(model, requests, 2, block_size=4, token_budget=token_budget, chunked=True)
+    chunked = run_paged(
+        model,
+        requests,
+        2,
+        block_size=4,
+        token_budget=token_budget,
+        chunked=True,
+    )
     unchunked = run_paged(model, requests, 2, block_size=4, token_budget=token_budget)
 
-    assert [s.token_ids for s in chunked.sequences] == [s.token_ids for s in unchunked.sequences]
+    assert [s.token_ids for s in chunked.sequences] == [
+        s.token_ids for s in unchunked.sequences
+    ]
     assert chunked.schedule_metrics.max_prefill_step_tokens <= token_budget
-    assert unchunked.schedule_metrics.max_prefill_step_tokens == 40  # 软预算下 oversize prefill 整段阻塞
+    assert (
+        unchunked.schedule_metrics.max_prefill_step_tokens == 40
+    )  # 软预算下 oversize prefill 整段阻塞
     assert unchunked.schedule_metrics.num_oversize_prefill_steps == 1
     assert chunked.schedule_metrics.num_oversize_prefill_steps == 0
     # 请求 0 的 1 个 chunk + 请求 1（40 Token）独占预算时每步 8 Token 的 40 / 8 = 5 个 chunk
@@ -423,15 +597,27 @@ def test_chunked_prefill_long_prompt_does_not_block_in_flight_decode(model):
     assert SchedulePhase.PREFILL in phases[phases.index(SchedulePhase.DECODE) :]
 
 
-def test_chunked_prefill_with_small_pool_reserves_blocks_and_matches_serial(model):
+def test_chunked_prefill_with_small_pool_reserves_blocks_and_matches_serial(
+    model,
+):
     """块池只够 2 个请求并发：半截 Prefill 的块先行预留，不会因新请求抢块而卡死；释放后复用块，输出与串行一致。"""
     prompts = make_prompts([10, 10, 10, 10])
     budgets = [3, 3, 3, 3]
     requests = make_requests(prompts, budgets)
     # 块大小 4：每个请求峰值 12 Token = 3 块；池 = 1 个 null block + 6 块，并发上限 4 但只够 2 个请求
-    result = run_paged(model, requests, 4, block_size=4, num_blocks=7, token_budget=4, chunked=True)
+    result = run_paged(
+        model,
+        requests,
+        4,
+        block_size=4,
+        num_blocks=7,
+        token_budget=4,
+        chunked=True,
+    )
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
     assert result.memory.kv_cache.paged_cache is not None
     assert result.memory.kv_cache.paged_cache.block_reuse_count > 0
     assert result.memory.kv_cache.paged_cache.peak_used_blocks <= 6
@@ -444,13 +630,26 @@ def test_chunked_prefill_eos_stops_request_and_releases_its_blocks(model):
     eos = serial_outputs(model, prompts, budgets)[0][2]
     requests = make_requests(prompts, budgets)
 
-    result = run_paged(model, requests, 2, eos, stop_on_eos=True, block_size=4, token_budget=4, chunked=True)
+    result = run_paged(
+        model,
+        requests,
+        2,
+        eos,
+        stop_on_eos=True,
+        block_size=4,
+        token_budget=4,
+        chunked=True,
+    )
 
-    assert [s.token_ids for s in result.sequences] == serial_outputs(model, prompts, budgets, eos, stop_on_eos=True)
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets, eos, stop_on_eos=True
+    )
     assert result.sequences[0].finish_reason == "stop"
 
 
-def test_chunked_prefill_requires_paged_continuous_and_budget_not_below_capacity(model):
+def test_chunked_prefill_requires_paged_continuous_and_budget_not_below_capacity(
+    model,
+):
     requests = make_requests(make_prompts([4]), [2])
     policy = ChunkedPrefillConfig(4)
     with pytest.raises(ValueError, match="仅支持 paged-kv-cache"):
@@ -458,7 +657,9 @@ def test_chunked_prefill_requires_paged_continuous_and_budget_not_below_capacity
             EngineConfig(
                 DenseCacheConfig(),
                 batching_method=BatchingMethod.CONTINUOUS,
-                scheduler_config=SchedulerConfig(max_running_requests=2, batching_policy=policy),
+                scheduler_config=SchedulerConfig(
+                    max_running_requests=2, batching_policy=policy
+                ),
             ),
             model,
             requests,
@@ -469,7 +670,9 @@ def test_chunked_prefill_requires_paged_continuous_and_budget_not_below_capacity
             EngineConfig(
                 PagedCacheConfig(block_size=4),
                 batching_method=BatchingMethod.FIXED,
-                scheduler_config=SchedulerConfig(max_running_requests=2, batching_policy=policy),
+                scheduler_config=SchedulerConfig(
+                    max_running_requests=2, batching_policy=policy
+                ),
             ),
             model,
             requests,

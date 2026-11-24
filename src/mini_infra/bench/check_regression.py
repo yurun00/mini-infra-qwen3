@@ -14,7 +14,17 @@ DEFAULT_REFERENCE = BENCH_ARTIFACTS_DIR / "golden" / "reference.json"
 DEFAULT_CANDIDATE = BENCH_ARTIFACTS_DIR / "candidate.local.json"
 
 # 轻量 case：一个短、一个中等长度，约半分钟内完成
-LIGHT_ARGS = ["--prompt-lens", "32", "512", "--max-new-tokens", "32", "--warmup", "2", "--repeats", "7"]
+LIGHT_ARGS = [
+    "--prompt-lens",
+    "32",
+    "512",
+    "--max-new-tokens",
+    "32",
+    "--warmup",
+    "2",
+    "--repeats",
+    "7",
+]
 METRICS = [("ttft_ms", "TTFT"), ("tpot_ms", "TPOT")]
 
 
@@ -42,14 +52,20 @@ def index(record: dict[str, Any]) -> dict[tuple[int, Any, Any], dict[str, Any]]:
     return {
         (
             w["num_total_requests"],
-            tuple(w["prompt_len"]) if isinstance(w["prompt_len"], list) else w["prompt_len"],
-            tuple(w["max_new_tokens"]) if isinstance(w["max_new_tokens"], list) else w["max_new_tokens"],
+            tuple(w["prompt_len"])
+            if isinstance(w["prompt_len"], list)
+            else w["prompt_len"],
+            tuple(w["max_new_tokens"])
+            if isinstance(w["max_new_tokens"], list)
+            else w["max_new_tokens"],
         ): w
         for w in record["cases"]
     }
 
 
-def compare(candidate: dict[str, Any], reference: dict[str, Any], threshold: float) -> tuple[bool | None, list[str]]:
+def compare(
+    candidate: dict[str, Any], reference: dict[str, Any], threshold: float
+) -> tuple[bool | None, list[str]]:
     """比对当前与参考结果，返回 (是否回归, 报告行)。延迟类指标：越大越差。"""
     cand, ref = index(candidate), index(reference)
     common = sorted(set(cand) & set(ref), key=lambda k: (k[0], str(k[1]), k[2]))
@@ -57,7 +73,9 @@ def compare(candidate: dict[str, Any], reference: dict[str, Any], threshold: flo
         return None, ["没有可比较的共同 case"]
 
     regressed, lines = False, []
-    lines.append(f"{'case (req/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果")
+    lines.append(
+        f"{'case (req/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果"
+    )
     for key in common:
         for metric, name in METRICS:
             r, c = ref[key][metric]["median"], cand[key][metric]["median"]
@@ -67,7 +85,9 @@ def compare(candidate: dict[str, Any], reference: dict[str, Any], threshold: flo
             bad = change > threshold and (c - r) > noise
             regressed |= bad
             status = "❌ 回归" if bad else ("✅ 提升" if change < -threshold else "ok")
-            lines.append(f"{'/'.join(map(str, key)):<26}{name:<6}{r:>10.2f}{c:>10.2f}{change:>+9.1%}  {status}")
+            lines.append(
+                f"{'/'.join(map(str, key)):<26}{name:<6}{r:>10.2f}{c:>10.2f}{change:>+9.1%}  {status}"
+            )
     return regressed, lines
 
 

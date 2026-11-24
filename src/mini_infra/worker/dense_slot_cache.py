@@ -70,16 +70,25 @@ class DenseSlotCache:
             moved_bytes = self._grow_left(target_length - self.length)
         assert self.kv_cache is not None and self.history_mask is not None
 
-        for row_idx, (batch_slot_idx, cache_length) in enumerate(zip(batch_slot_indices, cache_lengths)):
+        for row_idx, (batch_slot_idx, cache_length) in enumerate(
+            zip(batch_slot_indices, cache_lengths)
+        ):
             start_pos = target_length - cache_length
             self.history_mask[batch_slot_idx].zero_()
             self.history_mask[batch_slot_idx, start_pos:] = True
             for layer_idx, (prefill_key, prefill_value) in enumerate(prefill_cache):
-                key, value = self.kv_cache.key_cache[layer_idx], self.kv_cache.value_cache[layer_idx]
+                key, value = (
+                    self.kv_cache.key_cache[layer_idx],
+                    self.kv_cache.value_cache[layer_idx],
+                )
                 key[batch_slot_idx].zero_()
                 value[batch_slot_idx].zero_()
-                key[batch_slot_idx, :, start_pos:, :] = prefill_key[row_idx, :, -cache_length:, :]
-                value[batch_slot_idx, :, start_pos:, :] = prefill_value[row_idx, :, -cache_length:, :]
+                key[batch_slot_idx, :, start_pos:, :] = prefill_key[
+                    row_idx, :, -cache_length:, :
+                ]
+                value[batch_slot_idx, :, start_pos:, :] = prefill_value[
+                    row_idx, :, -cache_length:, :
+                ]
         return moved_bytes
 
     def adopt_prefill(
@@ -96,12 +105,16 @@ class DenseSlotCache:
         self.capacity = len(batch_slot_indices)
         self.kv_cache = prefill_cache
         target_length = prefill_cache.length
-        self.history_mask = torch.zeros((self.capacity, target_length), dtype=torch.bool, device=self.device)
+        self.history_mask = torch.zeros(
+            (self.capacity, target_length), dtype=torch.bool, device=self.device
+        )
         for batch_slot_idx, cache_length in zip(batch_slot_indices, cache_lengths):
             self.history_mask[batch_slot_idx, target_length - cache_length :] = True
 
     def commit_decode_step(
-        self, attention_mask: torch.Tensor, present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]]
+        self,
+        attention_mask: torch.Tensor,
+        present_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]],
     ) -> None:
         """Decode 单步后，把模型返回的 present_key_values 写回批量 Cache，并将本步 Mask 记为新的 history mask。
 
@@ -126,21 +139,31 @@ class DenseSlotCache:
         new_cache = KVCache()
         for key, _ in prefill_cache:
             shape = (self.capacity, key.shape[1], length, key.shape[3])
-            new_cache.key_cache.append(torch.zeros(shape, dtype=key.dtype, device=self.device))
-            new_cache.value_cache.append(torch.zeros(shape, dtype=key.dtype, device=self.device))
+            new_cache.key_cache.append(
+                torch.zeros(shape, dtype=key.dtype, device=self.device)
+            )
+            new_cache.value_cache.append(
+                torch.zeros(shape, dtype=key.dtype, device=self.device)
+            )
         self.kv_cache = new_cache
-        self.history_mask = torch.zeros((self.capacity, length), dtype=torch.bool, device=self.device)
+        self.history_mask = torch.zeros(
+            (self.capacity, length), dtype=torch.bool, device=self.device
+        )
 
     def _grow_left(self, padding_len: int) -> int:
         assert self.kv_cache is not None and self.history_mask is not None
         moved_bytes = cache_size_bytes(self.kv_cache)
         for layer_idx, (key, value) in enumerate(self.kv_cache):
             kv_zeros = torch.zeros(
-                (self.capacity, key.shape[1], padding_len, key.shape[3]), dtype=key.dtype, device=self.device
+                (self.capacity, key.shape[1], padding_len, key.shape[3]),
+                dtype=key.dtype,
+                device=self.device,
             )
             self.kv_cache.key_cache[layer_idx] = torch.cat((kv_zeros, key), dim=2)
             self.kv_cache.value_cache[layer_idx] = torch.cat((kv_zeros, value), dim=2)
-        mask_zeros = torch.zeros((self.capacity, padding_len), dtype=torch.bool, device=self.device)
+        mask_zeros = torch.zeros(
+            (self.capacity, padding_len), dtype=torch.bool, device=self.device
+        )
         self.history_mask = torch.cat((mask_zeros, self.history_mask), dim=1)
         return moved_bytes
 

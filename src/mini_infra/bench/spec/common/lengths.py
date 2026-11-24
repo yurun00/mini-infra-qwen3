@@ -18,7 +18,9 @@ from mini_infra.bench.spec.common.schema import (
 )
 
 
-def sample_log_uniform_lengths(rng: random.Random, count: int, min_len: int, max_len: int) -> tuple[int, ...]:
+def sample_log_uniform_lengths(
+    rng: random.Random, count: int, min_len: int, max_len: int
+) -> tuple[int, ...]:
     """采用分层对数均匀分布（Stratified Log-Uniform）+ 随机打乱采样请求长度序列。
 
     模拟真实线上流量中“短/中请求居多、长尾请求并存”的偏态分布特征，
@@ -55,7 +57,9 @@ def sample_poisson_arrivals(
     return tuple(arrivals)
 
 
-def expand_length(spec: LengthSpec, count: int, rng: random.Random | None = None) -> tuple[int, ...]:
+def expand_length(
+    spec: LengthSpec, count: int, rng: random.Random | None = None
+) -> tuple[int, ...]:
     """把长度分布展开为 count 个请求的逐请求长度；随机分布需要传入 rng（由 workload.seed 派生）。"""
     if isinstance(spec, ConstantLength):
         return (spec.value,) * count
@@ -86,7 +90,9 @@ def make_arrival_times(count: int, interval_ms: float) -> list[float]:
     return [i * float(interval_ms) for i in range(count)]
 
 
-def expand_arrival(spec: ArrivalSpec, count: int, rng: random.Random | None = None) -> tuple[float, ...]:
+def expand_arrival(
+    spec: ArrivalSpec, count: int, rng: random.Random | None = None
+) -> tuple[float, ...]:
     """把到达过程展开为 count 个请求的逐请求到达时间（ms）；poisson 需要传入 rng。"""
     if isinstance(spec, ConstantArrival):
         return (float(spec.value),) * count
@@ -96,7 +102,9 @@ def expand_arrival(spec: ArrivalSpec, count: int, rng: random.Random | None = No
         return tuple(make_arrival_times(count, spec.interval_ms))
     if isinstance(spec, PoissonArrival):
         assert rng is not None
-        return sample_poisson_arrivals(rng, count, spec.initial_burst, spec.mean_interval_ms)
+        return sample_poisson_arrivals(
+            rng, count, spec.initial_burst, spec.mean_interval_ms
+        )
     raise TypeError(f"未知到达规格: {spec!r}")
 
 

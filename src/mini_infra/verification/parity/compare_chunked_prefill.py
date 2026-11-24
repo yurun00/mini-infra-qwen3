@@ -34,7 +34,7 @@ from mini_infra.verification.parity._common import (
     dump_json,
     prepare_cuda_model,
 )
-from mini_infra.worker import KVCache, PagedKVCachePool, PagedRunner
+from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner
 
 DEFAULT_PROMPTS = [
     "用一句话解释 Chunked Prefill。",
@@ -95,7 +95,7 @@ def _compare_first_token_logits(
 ) -> dict[str, float]:
     """逐请求对比整段 Prefill 与按 chunk_size 分块 Prefill 的首 Token Logits 最大绝对误差。
 
-    直接复用 PagedKVCachePool.gather_blocks 与 PagedRunner.store_prefill，不侵入 engine / worker 生产接口。
+    直接复用 PagedBlockCache.gather_blocks 与 PagedRunner.store_prefill，不侵入 engine / worker 生产接口。
     """
     param = next(model.parameters())
     device = param.device
@@ -111,7 +111,7 @@ def _compare_first_token_logits(
         ref_logits = full_logits[0, -1, :].float().cpu()
 
         num_blocks = num_blocks_for_tokens(prompt_len, block_size) + 1  # 含 null block 0
-        pool = PagedKVCachePool(
+        block_cache = PagedBlockCache(
             num_layers=config.num_hidden_layers,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -127,18 +127,33 @@ def _compare_first_token_logits(
             end = min(start + chunk_size, prompt_len)
             chunk_len = end - start
             if not manager.allocate_slots(0, chunk_len):
-                raise RuntimeError(f"请求 {request_idx} chunk [{start}, {end}) 分配物理块失败")
+                raise RuntimeError(
+                    f"请求 {request_idx} chunk [{start}, {end}) 分配物理块失败"
+                )
             block_table = manager.block_table(0)
-            chunk_ids = torch.tensor([sequence[start:end]], dtype=torch.long, device=device)
-            position_ids = torch.arange(start, end, dtype=torch.long, device=device).unsqueeze(0)
+            chunk_ids = torch.tensor(
+                [sequence[start:end]], dtype=torch.long, device=device
+            )
+            position_ids = torch.arange(
+                start, end, dtype=torch.long, device=device
+            ).unsqueeze(0)
             chunk_mask = torch.ones((1, chunk_len), dtype=torch.bool, device=device)
             if start > 0:
                 num_history_blocks = num_blocks_for_tokens(start, block_size)
-                history_block_ids = torch.tensor([block_table[:num_history_blocks]], dtype=torch.long, device=device)
-                history_mask = torch.arange(num_history_blocks * block_size, device=device).unsqueeze(0) < start
+                history_block_ids = torch.tensor(
+                    [block_table[:num_history_blocks]],
+                    dtype=torch.long,
+                    device=device,
+                )
+                history_mask = (
+                    torch.arange(
+                        num_history_blocks * block_size, device=device
+                    ).unsqueeze(0)
+                    < start
+                )
                 attention_mask = torch.cat((history_mask, chunk_mask), dim=1)
                 attn_metadata: DenseAttentionMetadata | None = DenseAttentionMetadata(
-                    past_key_values=pool.gather_blocks(history_block_ids)
+                    past_key_values=block_cache.gather_blocks(history_block_ids)
                 )
             else:
                 attention_mask = chunk_mask
@@ -149,12 +164,20 @@ def _compare_first_token_logits(
                 position_ids=position_ids,
                 attn_metadata=attn_metadata,
             )
-            runner.store_prefill(pool, KVCache(present), [block_table], [chunk_len], [start])
+            runner.store_prefill(
+                block_cache,
+                KVCache(present),
+                [block_table],
+                [chunk_len],
+                [start],
+            )
             if end == prompt_len:
                 chunked_logits = logits[0, -1, :].float().cpu()
 
         assert chunked_logits is not None
-        errors[str(request_idx)] = float(torch.max(torch.abs(ref_logits - chunked_logits)).item())
+        errors[str(request_idx)] = float(
+            torch.max(torch.abs(ref_logits - chunked_logits)).item()
+        )
 
     return errors
 
@@ -176,7 +199,9 @@ def run_compare_chunked_prefill(
     requests = make_requests(
         sequences,
         budgets,
-        arrival_times_ms=arrivals if arrivals is not None else [0.0 if i == 0 else 1.0 for i in range(len(sequences))],
+        arrival_times_ms=arrivals
+        if arrivals is not None
+        else [0.0 if i == 0 else 1.0 for i in range(len(sequences))],
     )
     base_config = EngineConfig(
         PagedCacheConfig(block_size=block_size),
@@ -207,7 +232,9 @@ def run_compare_chunked_prefill(
     is_match = full_token_ids == chunked_token_ids
     # 用并发满载时的单请求 chunk 上限做首 Token Logits 对照，确保短 Prompt 也会跨越多个 chunk
     chunk_size = max(1, token_budget // max_running_requests)
-    logit_errors = _compare_first_token_logits(model, sequences, chunk_size=chunk_size, block_size=block_size)
+    logit_errors = _compare_first_token_logits(
+        model, sequences, chunk_size=chunk_size, block_size=block_size
+    )
     max_logit_error = max(logit_errors.values())
     full_metrics = _summarize_policy_metrics(full)
     chunked_metrics = _summarize_policy_metrics(chunked)
@@ -245,7 +272,10 @@ def run_compare_chunked_prefill(
     )
 
     if output:
-        dump_json(output, {"environment": environment_metadata or {}, "result": result})
+        dump_json(
+            output,
+            {"environment": environment_metadata or {}, "result": result},
+        )
 
     return result
 
@@ -286,7 +316,10 @@ def execute_compare_chunked_prefill(
         ]
         arrivals = list(DEFAULT_ARRIVALS)
     else:
-        budgets = [2 if i == len(prompts_to_use) - 1 else max_new_tokens for i in range(len(prompts_to_use))]
+        budgets = [
+            2 if i == len(prompts_to_use) - 1 else max_new_tokens
+            for i in range(len(prompts_to_use))
+        ]
         arrivals = [0.0 if i == 0 else 1.0 for i in range(len(prompts_to_use))]
 
     environment = build_environment(
@@ -316,7 +349,9 @@ def execute_compare_chunked_prefill(
         environment_metadata=environment,
     )
 
-    if dtype == "float32" and (not result["tokens_match"] or result["max_first_token_logit_error"] > logits_atol):
+    if dtype == "float32" and (
+        not result["tokens_match"] or result["max_first_token_logit_error"] > logits_atol
+    ):
         print("float32 Chunked Prefill 正确性检查失败")
         return 1
     return 0

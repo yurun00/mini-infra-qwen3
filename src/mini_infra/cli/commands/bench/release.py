@@ -72,7 +72,11 @@ from mini_infra.core import (
     kv_cache_config_from_str,
     scheduler_config_from_str,
 )
-from mini_infra.engine import BatchingMethod, EngineConfig, validate_engine_config
+from mini_infra.engine import (
+    BatchingMethod,
+    EngineConfig,
+    validate_engine_config,
+)
 
 
 @dataclass(frozen=True)
@@ -176,7 +180,14 @@ def _build_scheduler_case_cmd(
         cmd.extend(["--block-size", str(block_size)])
     policy = config.scheduler_config.batching_policy
     if isinstance(policy, BudgetedBatchingPolicy):
-        cmd.extend(["--batching-policy", policy.kind, "--token-budget", str(policy.token_budget)])
+        cmd.extend(
+            [
+                "--batching-policy",
+                policy.kind,
+                "--token-budget",
+                str(policy.token_budget),
+            ]
+        )
     if scale is not None:
         cmd.extend(["--scale", str(scale)])
     if seed is not None:
@@ -230,7 +241,9 @@ def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         required=True,
         help="所属基准引擎分支：lockstep（齐步推理）或 scheduler（服务化队列调度）",
     )
-    p.add_argument("--tag", required=True, help="发布版本标签，如 baseline、v0.3.0、v0.4.0")
+    p.add_argument(
+        "--tag", required=True, help="发布版本标签，如 baseline、v0.3.0、v0.4.0"
+    )
     p.add_argument(
         "--release-feature",
         required=True,
@@ -304,7 +317,9 @@ def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return p
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """在 bench 下注册 release 子命令。"""
     p = subparsers.add_parser(
         "release",
@@ -321,7 +336,9 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
     if getattr(args, "caching_method", None):
         kv_cache_config = kv_cache_config_from_str(args.caching_method)
     else:
-        kv_cache_config = kv_cache_config_from_str("dense-kv-cache" if args.kv_cache else "none")
+        kv_cache_config = kv_cache_config_from_str(
+            "dense-kv-cache" if args.kv_cache else "none"
+        )
     scales: list[ReleaseScale] = list(getattr(args, "scales", None) or RELEASE_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
 
@@ -330,7 +347,9 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
         default_bm = loaded.default_engine_config.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
         config = EngineConfig(kv_cache_config, batching_method=bm)
-        prof = args.profiling_mode if args.profiling_mode is not None else "dedicated-pass"
+        prof = (
+            args.profiling_mode if args.profiling_mode is not None else "dedicated-pass"
+        )
 
         scales_spec = loaded.resolve(custom_seed)
         for sc in scales:
@@ -350,7 +369,9 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
                         seed=res_scale.seed,
                         profiling_mode=scale_prof,
                     ),
-                    artifacts=(LOCKSTEP_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
+                    artifacts=(
+                        LOCKSTEP_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",
+                    ),
                 )
             )
 
@@ -369,8 +390,12 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
         loaded = get_release_spec("scheduler")
         default_bm = loaded.default_engine_config.batching_method
         bm = BatchingMethod(args.batching_method) if args.batching_method else default_bm
-        max_running = loaded.default_engine_config.scheduler_config.max_running_requests or 16
-        default_policy = loaded.default_engine_config.scheduler_config.batching_policy.kind
+        max_running = (
+            loaded.default_engine_config.scheduler_config.max_running_requests or 16
+        )
+        default_policy = (
+            loaded.default_engine_config.scheduler_config.batching_policy.kind
+        )
         policy_kind = getattr(args, "batching_policy", None) or default_policy
         scheduler_config = scheduler_config_from_str(
             policy_kind,
@@ -406,7 +431,9 @@ def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
                         block_size=block_size,
                         output=hist_file,
                     ),
-                    artifacts=(SCHEDULER_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",),
+                    artifacts=(
+                        SCHEDULER_RESULT_HISTORY_DIR / f"<commit>_{args.tag}.json",
+                    ),
                 )
             )
 
@@ -449,7 +476,10 @@ def _handle_release(args: argparse.Namespace) -> int:
     child_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
 
     for step_number, step in enumerate(steps, 1):
-        print(f"\n[{step_number}/{total}] 开始执行: {step.description}", flush=True)
+        print(
+            f"\n[{step_number}/{total}] 开始执行: {step.description}",
+            flush=True,
+        )
         print("  $", " ".join(step.cmd), flush=True)
         for p in step.artifacts:
             rel = p.relative_to(REPO_ROOT) if p.is_relative_to(REPO_ROOT) else p
@@ -466,5 +496,8 @@ def _handle_release(args: argparse.Namespace) -> int:
                 return rc
             print(f"[{step_number}/{total}] 完成: {step.description}", flush=True)
 
-    print(f"\n=== Release Benchmark Pipeline 全部完成 (共 {total} 步) ===", flush=True)
+    print(
+        f"\n=== Release Benchmark Pipeline 全部完成 (共 {total} 步) ===",
+        flush=True,
+    )
     return 0

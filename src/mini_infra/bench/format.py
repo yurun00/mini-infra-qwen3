@@ -12,7 +12,9 @@ def format_lengths(value: int | Sequence[int]) -> str:
             for period in range(1, n // 2 + 1):
                 if n % period == 0 and items == items[:period] * (n // period):
                     pattern = "/".join(map(str, items[:period]))
-                    return f"({pattern})x{n // period}" if period > 1 else f"{pattern}x{n}"
+                    return (
+                        f"({pattern})x{n // period}" if period > 1 else f"{pattern}x{n}"
+                    )
             return f"{min(items)}..{max(items)}(μ={round(sum(items) / n)})"
         return "/".join(map(str, items))
     return str(value)

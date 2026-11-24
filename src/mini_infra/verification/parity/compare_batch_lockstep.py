@@ -60,7 +60,9 @@ def _compare_trace(
 
         largest_error = max(largest_error, comparison.max_abs_error)
         if first_mismatch_step is None:
-            largest_error_before_divergence = max(largest_error_before_divergence, comparison.max_abs_error)
+            largest_error_before_divergence = max(
+                largest_error_before_divergence, comparison.max_abs_error
+            )
         mean_error_sum += comparison.mean_abs_error
 
         if not comparison.matches and first_mismatch_step is None:
@@ -77,7 +79,9 @@ def _compare_trace(
         "first_mismatch_margin": mismatch_margin,
         "largest_logits_abs_error": largest_error,
         "largest_logits_abs_error_before_divergence": largest_error_before_divergence,
-        "average_mean_logits_abs_error": (mean_error_sum / step_count if step_count else 0.0),
+        "average_mean_logits_abs_error": (
+            mean_error_sum / step_count if step_count else 0.0
+        ),
         "per_step": per_step,
     }
 
@@ -112,7 +116,9 @@ def _run_compare_lockstep_batch(
         ("pair_long_second", [target, long], 0),
     ]
 
-    fixed_batch_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
+    fixed_batch_config = EngineConfig(
+        DenseCacheConfig(), batching_method=BatchingMethod.FIXED
+    )
     gen_opts = GenerationOptions(
         eos_token_id=eos_token_id,
         stop_on_eos=False,
@@ -203,7 +209,11 @@ def _run_compare_lockstep_batch(
     if output:
         dump_json(output, {"environment": environment_metadata or {}, "results": rows})
 
-    failures = [row for row in rows if not row["sequence_matches"] or row["largest_logits_abs_error"] > logits_atol]
+    failures = [
+        row
+        for row in rows
+        if not row["sequence_matches"] or row["largest_logits_abs_error"] > logits_atol
+    ]
     return rows, failures
 
 

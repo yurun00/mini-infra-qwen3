@@ -14,15 +14,17 @@
 - **严格精度对照**：内建与 Hugging Face 参考实现的逐 Token 对齐程序，以及手写模型开启/关闭 KV Cache 的逐步 Logits 对齐工具。
 - **轻量 CPU 快速自检**：使用随机生成的小尺寸配置模型，无需下载真实模型权重即可在数秒内验证因果掩码与网络计算。
 - **Continuous Batching 调度与并发调度基准**：实现原生 `DenseSlotCache` batch slot 管理与迭代级动态组批调度，短请求即时退出、新到达请求即时抢占 free batch slot，消除队头阻塞；内建 `mini-infra bench scheduler` 受控评测套件，覆盖混合预算加速、到达抖动、首字延迟与 Prefill 打断分析。
-- **Paged KV Cache（PagedAttention 内存管理）**：基于 `PagedKVCachePool`（physical block pool）与 `KVCacheManager`（请求级 block table）的非连续显存分页分配，按需按块申请与即时归还，彻底消除最长序列预留造成的内部碎片与左侧扩容拷贝开销。
+- **Paged KV Cache（PagedAttention 内存管理）**：基于 `PagedBlockCache`（physical block pool）与 `KVCacheManager`（请求级 block table）的非连续显存分页分配，按需按块申请与即时归还，彻底消除最长序列预留造成的内部碎片与左侧扩容拷贝开销。
 - **Token-Budget 迭代级组批调度**：在 `IterationScheduler` 中支持 `token-budget` 单步组批策略（batching policy），按 padded prompt tokens 预算控制单次 Prefill 规模并启用 decode protection，抑制突发到达请求对在途 Decode 尾延迟（ITL）的阻塞。
 - **Chunked Prefill 迭代级组批调度**：`chunked-prefill` 组批策略把长 Prompt 按 token budget 硬预算切成 chunk 跨步推进（仅 `paged-kv-cache` + `continuous-batching`），历史 K/V 经 block table 从 physical block pool 读回，新增 `num_prefill_chunks` / `max_prefill_step_tokens` / `max_prefill_step_ms` 指标，消除 oversize prefill 对在途 Decode 的整段阻塞。
+- **Prefix Caching（自动前缀缓存）**：`--prefix-caching enabled`（仅 `paged-kv-cache`）把写满的 physical block 按链式 block hash 登记为 cached block，新请求复用最长公共前缀的 K/V 并跳过其 Prefill；引用计数共享、惰性 LRU 淘汰（不额外占用显存），Decode 写满的块同样可被多轮对话命中。
 
 ### 规划中特性 (Roadmap)
 - [x] **Continuous Batching 调度**：支持多请求动态并发与动态组批（DenseSlotCache + `mini-infra bench scheduler`）
 - [x] **Paged KV Cache（PagedAttention 内存管理）**：physical block pool + block table 的非连续显存分页分配与碎片消除
 - [x] **Token-Budget 迭代级组批调度**：按 token budget 限制单次 Prefill 规模并启用 decode protection，平抑 Decode 尾延迟
 - [x] **Chunked Prefill 迭代级组批调度**：按 token budget 硬预算将长 Prompt 切块跨步推进，消除 oversize prefill 对在途 Decode 的整段阻塞
+- [x] **Prefix Caching**：block hash 链匹配公共前缀，cached block 引用计数共享与惰性 LRU 淘汰
 - [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
 - [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
 - [ ] **Tensor Parallelism (TP)**：张量并行分布式推理
@@ -49,7 +51,7 @@ mini-infra-qwen3/
 │       │   ├── slot_runner.py         # SlotRunner 连续批处理 batch slot 专职执行器（Prefill / Decode）
 │       │   ├── dense_slot_cache.py    # DenseSlotCache 连续批处理 batch slot 显存池
 │       │   ├── paged_runner.py        # PagedRunner 分页 KV 专职执行器（Prefill 散写 block pool / Decode 按 block table 寻址）
-│       │   ├── paged_kv_cache.py      # PagedKVCachePool 逐层 physical block pool
+│       │   ├── paged_block_cache.py   # PagedBlockCache 逐层 physical block pool
 │       │   └── kv_cache.py            # KVCache 键值缓存容器与显存统计
 │       ├── inputs/                    # 输入协议共享层（PromptInput：纯 Python，无 torch，不含 tokenize）
 │       ├── core/                      # 调度与请求核心 control plane（纯 CPU 逻辑，无 GPU/模型依赖）
@@ -267,6 +269,17 @@ mini-infra run \
   --prompts "用一句话解释 Prefill。" "用一句话解释 Decode。" "用一句话解释 KV Cache。" "用一句话解释固定批处理。" \
   --max-new-tokens 8 24 8 24 \
   --max-running-requests 2
+
+# 7. 在 Paged KV Cache 下对比 prefix caching 关闭 / 开启（共享前缀的请求复用 cached block）
+mini-infra run \
+  --caching-method paged-kv-cache \
+  --batching-method continuous-batching \
+  --batching-policy chunked-prefill --token-budget 64 \
+  --compare-feature prefix-caching disabled enabled \
+  --prompts "共同背景：KV Cache 缓存历史 Token 的 K/V，Decode 时无需重算。请用一句话解释 Prefill。" \
+            "共同背景：KV Cache 缓存历史 Token 的 K/V，Decode 时无需重算。请用一句话解释 Decode。" \
+  --max-new-tokens 16 \
+  --max-running-requests 1
 ```
 
 `--compare-feature ARG VALUE1 VALUE2` 中 ARG 为任一 EngineConfig 参数名（去掉 `--`），两个取值分别与其余参数合成两个 EngineConfig 后对照；若两个取值在当前参数下合成相同配置（如 dense-kv-cache 下对比 `kv-block-size`）会直接报错。`--max-new-tokens` 可传 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算。只要 `--batching-method` 或 `--compare-feature` 中出现 continuous-batching，所有 fixed/continuous 结果统一由 `run_scheduler` 产出（受 `--max-running-requests` 约束），并额外输出 Makespan、排队/TTFT/ITL 分位数与 Cache 管理耗时占比；该路径暂不支持 `--profile`。`--batching-policy token-budget --token-budget N` 以 padded prompt token 数限制单次 Prefill 规模并启用 decode protection（仅支持 continuous-batching，且 `N` 不小于并发上限），`--batching-policy chunked-prefill --token-budget N` 在此基础上把长 Prompt 切成 chunk（硬预算、无 oversize prefill，另需 paged-kv-cache），详见 [迭代级组批与调度策略](docs/architecture/iteration-scheduling.md)。

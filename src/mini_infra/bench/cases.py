@@ -72,7 +72,9 @@ class CaseDimension(str, Enum):
         try:
             return cls(cleaned)
         except ValueError as err:
-            raise ValueError(f"未知的 interleave 特征维度: {name}，可选: {[d.value for d in cls]}") from err
+            raise ValueError(
+                f"未知的 interleave 特征维度: {name}，可选: {[d.value for d in cls]}"
+            ) from err
 
     @classmethod
     def from_interleave_args(
@@ -139,7 +141,9 @@ class CaseKey:
         d = dim if isinstance(dim, CaseDimension) else CaseDimension(dim)
         return getattr(self, d.value)
 
-    def project(self, dims: Iterable[CaseDimension | str]) -> tuple[CaseDimensionValue, ...]:
+    def project(
+        self, dims: Iterable[CaseDimension | str]
+    ) -> tuple[CaseDimensionValue, ...]:
         return tuple(self.value(d) for d in dims)
 
     def as_dimension_map(self) -> dict[CaseDimension, CaseDimensionValue]:
@@ -191,7 +195,10 @@ class CaseKey:
             parts.append(self.batching_method.value)
         if not self._is_default_batching_policy:
             parts.append(self.batching_policy)
-        return "+".join("".join(w[0] for w in part.replace("_", "-").split("-") if w) for part in parts)
+        return "+".join(
+            "".join(w[0] for w in part.replace("_", "-").split("-") if w)
+            for part in parts
+        )
 
     @property
     def abbreviated_display_name(self) -> str:
@@ -245,13 +252,23 @@ class CaseKey:
             caching_method=cast(KVCacheKind, str(data["caching_method"])),
             batching_method=BatchingMethod.from_str(str(data["batching_method"])),
             max_running_requests=(
-                int(data["max_running_requests"]) if data.get("max_running_requests") is not None else None
+                int(data["max_running_requests"])
+                if data.get("max_running_requests") is not None
+                else None
             ),
-            flags=frozenset(FeatureFlag(f) for f in raw_flags) if raw_flags else frozenset(),
-            block_size=int(data["block_size"]) if data.get("block_size") is not None else None,
-            num_blocks=int(data["num_blocks"]) if data.get("num_blocks") is not None else None,
+            flags=frozenset(FeatureFlag(f) for f in raw_flags)
+            if raw_flags
+            else frozenset(),
+            block_size=int(data["block_size"])
+            if data.get("block_size") is not None
+            else None,
+            num_blocks=int(data["num_blocks"])
+            if data.get("num_blocks") is not None
+            else None,
             batching_policy=parse_batching_policy_kind(data.get("batching_policy")),
-            token_budget=int(data["token_budget"]) if data.get("token_budget") is not None else None,
+            token_budget=int(data["token_budget"])
+            if data.get("token_budget") is not None
+            else None,
         )
 
 
@@ -272,7 +289,9 @@ class WorkloadProfile:
         if not self.workload_id:
             raise ValueError("workload_id 不能为空")
         if self.num_total_requests <= 0:
-            raise ValueError(f"num_total_requests 必须大于 0，实际为 {self.num_total_requests}")
+            raise ValueError(
+                f"num_total_requests 必须大于 0，实际为 {self.num_total_requests}"
+            )
         if len(self.prompt_lens) != self.num_total_requests:
             raise ValueError(
                 f"prompt_lens 长度 ({len(self.prompt_lens)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
@@ -300,7 +319,9 @@ class WorkloadProfile:
         )
 
     @classmethod
-    def from_requests(cls, workload_id: str, requests: Sequence[Request]) -> WorkloadProfile:
+    def from_requests(
+        cls, workload_id: str, requests: Sequence[Request]
+    ) -> WorkloadProfile:
         """从已有的 Request 序列反向提取 WorkloadProfile 数值画像。专供测试使用（Test-only）。"""
         return cls(
             workload_id=workload_id,
@@ -324,11 +345,16 @@ class BenchmarkCase:
     engine: Literal["scheduler", "lockstep"] = "scheduler"
 
     def __post_init__(self) -> None:
-        if self.scheduler_config.max_running_requests is None and self.engine == "scheduler":
+        if (
+            self.scheduler_config.max_running_requests is None
+            and self.engine == "scheduler"
+        ):
             object.__setattr__(
                 self,
                 "scheduler_config",
-                self.scheduler_config.with_max_running_requests(self.profile.num_total_requests),
+                self.scheduler_config.with_max_running_requests(
+                    self.profile.num_total_requests
+                ),
             )
 
     @property
@@ -346,7 +372,11 @@ class BenchmarkCase:
 
     @property
     def key(self) -> CaseKey:
-        paged = self.kv_cache_config if isinstance(self.kv_cache_config, PagedCacheConfig) else None
+        paged = (
+            self.kv_cache_config
+            if isinstance(self.kv_cache_config, PagedCacheConfig)
+            else None
+        )
         policy = self.scheduler_config.batching_policy
         budget = policy if isinstance(policy, BudgetedBatchingPolicy) else None
         return CaseKey(

@@ -12,7 +12,11 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from mini_infra.bench.cases import CaseKey, WorkloadProfile
-from mini_infra.bench.efficiency import EfficiencyMetrics, HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.efficiency import (
+    EfficiencyMetrics,
+    HardwarePeakSpecs,
+    ModelCostProfile,
+)
 from mini_infra.bench.stats import DistributionStats
 from mini_infra.core.types import collapse_uniform
 from mini_infra.engine.metrics import (
@@ -56,14 +60,20 @@ class LockstepCaseResult:
             "num_total_requests": self.workload.num_total_requests,
             "repeats": self.repeats,
             "warmup": self.warmup,
-            "ttft_ms": self.metrics.ttft_ms.to_dict() if self.metrics.ttft_ms is not None else None,
-            "tpot_ms": self.metrics.mean_tpot_ms.to_dict() if self.metrics.mean_tpot_ms is not None else None,
+            "ttft_ms": self.metrics.ttft_ms.to_dict()
+            if self.metrics.ttft_ms is not None
+            else None,
+            "tpot_ms": self.metrics.mean_tpot_ms.to_dict()
+            if self.metrics.mean_tpot_ms is not None
+            else None,
             "e2e_wall_ms": self.metrics.e2e_wall_ms.to_dict(),
             "e2e_model_ms": self.metrics.e2e_model_ms.to_dict(),
             "throughput_tok_s": self.metrics.throughput_tok_s.to_dict(),
             "throughput_req_s": self.metrics.throughput_req_s.to_dict(),
             "gpu_time_ratio": (
-                self.metrics.gpu_time_ratio.to_dict() if self.metrics.gpu_time_ratio is not None else None
+                self.metrics.gpu_time_ratio.to_dict()
+                if self.metrics.gpu_time_ratio is not None
+                else None
             ),
             "effective_prompt_tok_s": (
                 self.metrics.effective_prompt_tok_s.to_dict()
@@ -71,7 +81,9 @@ class LockstepCaseResult:
                 else None
             ),
             "padded_prompt_tok_s": (
-                self.metrics.padded_prompt_tok_s.to_dict() if self.metrics.padded_prompt_tok_s is not None else None
+                self.metrics.padded_prompt_tok_s.to_dict()
+                if self.metrics.padded_prompt_tok_s is not None
+                else None
             ),
             "memory": self.memory.to_dict(),
         }
@@ -138,9 +150,15 @@ class LockstepCaseResult:
             raise ValueError("runs 不能为空")
 
         eff_prompt_vals = [
-            r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None
+            r.metrics.effective_prompt_tok_s
+            for r in runs
+            if r.metrics.effective_prompt_tok_s is not None
         ]
-        pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
+        pad_prompt_vals = [
+            r.metrics.padded_prompt_tok_s
+            for r in runs
+            if r.metrics.padded_prompt_tok_s is not None
+        ]
         gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
         gpu_ratio_stat = (
             DistributionStats.from_samples([v for v in gpu_ratios if v is not None])
@@ -149,17 +167,35 @@ class LockstepCaseResult:
         )
 
         metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-            ttft_ms=DistributionStats.from_samples([r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]),
-            mean_tpot_ms=DistributionStats.from_samples(
-                [r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None]
+            ttft_ms=DistributionStats.from_samples(
+                [r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]
             ),
-            e2e_wall_ms=DistributionStats.from_samples([r.metrics.e2e_wall_ms for r in runs]),
-            e2e_model_ms=DistributionStats.from_samples([r.metrics.e2e_model_ms for r in runs]),
-            throughput_tok_s=DistributionStats.from_samples([r.metrics.throughput_tok_s for r in runs]),
-            throughput_req_s=DistributionStats.from_samples([r.metrics.throughput_req_s for r in runs]),
+            mean_tpot_ms=DistributionStats.from_samples(
+                [
+                    r.metrics.mean_tpot_ms
+                    for r in runs
+                    if r.metrics.mean_tpot_ms is not None
+                ]
+            ),
+            e2e_wall_ms=DistributionStats.from_samples(
+                [r.metrics.e2e_wall_ms for r in runs]
+            ),
+            e2e_model_ms=DistributionStats.from_samples(
+                [r.metrics.e2e_model_ms for r in runs]
+            ),
+            throughput_tok_s=DistributionStats.from_samples(
+                [r.metrics.throughput_tok_s for r in runs]
+            ),
+            throughput_req_s=DistributionStats.from_samples(
+                [r.metrics.throughput_req_s for r in runs]
+            ),
             gpu_time_ratio=gpu_ratio_stat,
-            effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals) if eff_prompt_vals else None,
-            padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals) if pad_prompt_vals else None,
+            effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals)
+            if eff_prompt_vals
+            else None,
+            padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals)
+            if pad_prompt_vals
+            else None,
         )
 
         mib = 1024**2
@@ -168,17 +204,25 @@ class LockstepCaseResult:
             weights_mb=weights_mb,
             baseline_mb=max((r.memory.baseline_mb for r in runs), default=0.0),
             prefill_mb=max((r.memory.prefill_mb or 0.0 for r in runs), default=0.0),
-            peak_allocated_mb=max((r.memory.peak_allocated_mb for r in runs), default=0.0),
+            peak_allocated_mb=max(
+                (r.memory.peak_allocated_mb for r in runs), default=0.0
+            ),
             peak_reserved_mb=max((r.memory.peak_reserved_mb for r in runs), default=0.0),
-            kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
+            kv_cache=summarize_repeated_kv_cache_profiles(
+                [r.memory.kv_cache for r in runs]
+            ),
         )
 
         batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
         packing: BatchScheduleInfo[DistributionStats] | None = None
         if batch_infos:
             packing = BatchScheduleInfo(
-                padding_efficiency=DistributionStats.from_samples([b.padding_efficiency for b in batch_infos]),
-                slot_utilization=DistributionStats.from_samples([b.slot_utilization for b in batch_infos]),
+                padding_efficiency=DistributionStats.from_samples(
+                    [b.padding_efficiency for b in batch_infos]
+                ),
+                slot_utilization=DistributionStats.from_samples(
+                    [b.slot_utilization for b in batch_infos]
+                ),
             )
 
         eff = (

@@ -128,4 +128,6 @@ def peak_memory_mb(device: torch.device) -> tuple[float, float]:
     if device.type != "cuda":
         return 0.0, 0.0
     mib = 1024**2
-    return torch.cuda.max_memory_allocated(device) / mib, torch.cuda.max_memory_reserved(device) / mib
+    return torch.cuda.max_memory_allocated(device) / mib, torch.cuda.max_memory_reserved(
+        device
+    ) / mib

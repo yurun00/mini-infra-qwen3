@@ -79,20 +79,31 @@ def test_serial_vs_fixed_batch_throughput_cases_nest_batch_size_outside_mode():
     assert (suite.warmup, suite.repeats) == (1, 3)
     cases = suite.cases
     assert len(cases) == 5 * 2
-    assert [(c.profile.num_total_requests, c.engine_config.batching_method) for c in cases[:4]] == [
+    assert [
+        (c.profile.num_total_requests, c.engine_config.batching_method) for c in cases[:4]
+    ] == [
         (1, BatchingMethod.NONE),
         (1, BatchingMethod.FIXED),
         (2, BatchingMethod.NONE),
         (2, BatchingMethod.FIXED),
     ]
-    assert [c.profile.num_total_requests for c in cases[::2]] == [1, 2, 4, 8, 16]
+    assert [c.profile.num_total_requests for c in cases[::2]] == [
+        1,
+        2,
+        4,
+        8,
+        16,
+    ]
     assert all(
         c.profile.prompt_lens == (128,) * c.profile.num_total_requests
         and c.profile.output_budgets == (32,) * c.profile.num_total_requests
         and c.engine_config.has_kv_cache
         for c in cases
     )
-    assert [m.batching_method for m in suite.engine_configs()] == [BatchingMethod.NONE, BatchingMethod.FIXED]
+    assert [m.batching_method for m in suite.engine_configs()] == [
+        BatchingMethod.NONE,
+        BatchingMethod.FIXED,
+    ]
 
 
 def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
@@ -105,20 +116,42 @@ def test_serial_vs_fixed_batch_throughput_info_is_json_serializable():
 
 def test_uniform_vs_variable_prompt_padding_cases():
     cases = get_benchmark_suite("lockstep", "uniform-vs-variable-prompt-padding").cases
-    assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
+    assert [
+        (
+            c.profile.num_total_requests,
+            c.profile.prompt_lens,
+            c.profile.output_budgets,
+        )
+        for c in cases
+    ] == [
         (4, (128, 128, 128, 128), (32, 32, 32, 32)),
         (4, (16, 32, 64, 128), (32, 32, 32, 32)),
     ]
-    assert all(c.engine_config == EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED) for c in cases)
+    assert all(
+        c.engine_config
+        == EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
+        for c in cases
+    )
 
 
 def test_uniform_vs_variable_budget_slots_cases():
     cases = get_benchmark_suite("lockstep", "uniform-vs-variable-budget-slots").cases
-    assert [(c.profile.num_total_requests, c.profile.prompt_lens, c.profile.output_budgets) for c in cases] == [
+    assert [
+        (
+            c.profile.num_total_requests,
+            c.profile.prompt_lens,
+            c.profile.output_budgets,
+        )
+        for c in cases
+    ] == [
         (4, (128, 128, 128, 128), (64, 64, 64, 64)),
         (4, (128, 128, 128, 128), (8, 16, 32, 64)),
     ]
-    assert all(c.engine_config == EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED) for c in cases)
+    assert all(
+        c.engine_config
+        == EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
+        for c in cases
+    )
 
 
 @pytest.mark.parametrize(
@@ -129,7 +162,11 @@ def test_uniform_vs_variable_budget_slots_cases():
         ("num_requests: [1, 2]", "num_requests: [0]", "greater than 0"),
         ("repeats: 1", "repeats: 0", "greater than 0"),
         ("warmup: 0", "warmup: -1", "greater than or equal to 0"),
-        ("batching_method: [none, fixed-batching]", "batching_method: []", "at least 1"),
+        (
+            "batching_method: [none, fixed-batching]",
+            "batching_method: []",
+            "at least 1",
+        ),
     ],
 )
 def test_lockstep_suite_rejects_invalid_config(tmp_path, old, new, message):
@@ -161,13 +198,26 @@ def test_parse_args_sweep_lockstep():
 
     parser = build_parser()
     args = parser.parse_args(
-        ["bench", "sweep", "--engine", "lockstep", "--tag", "t", "--suite", "serial-vs-fixed-batch-throughput"]
+        [
+            "bench",
+            "sweep",
+            "--engine",
+            "lockstep",
+            "--tag",
+            "t",
+            "--suite",
+            "serial-vs-fixed-batch-throughput",
+        ]
     )
     assert args.suite == ["serial-vs-fixed-batch-throughput"]
     assert args.engine == "lockstep"
 
     # 无法识别的参数直接报错
-    for invalid in (["--prompt-lens", "32"], ["--batch-size", "2"], ["--no-kv-cache"]):
+    for invalid in (
+        ["--prompt-lens", "32"],
+        ["--batch-size", "2"],
+        ["--no-kv-cache"],
+    ):
         with pytest.raises(SystemExit):
             parser.parse_args(
                 [
@@ -220,13 +270,24 @@ sweep:
 
     assert [(r.key.engine_config, r.workload.num_total_requests) for r in results] == [
         (EngineConfig(DenseCacheConfig()), 1),
-        (EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED), 1),
+        (
+            EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED),
+            1,
+        ),
         (EngineConfig(DenseCacheConfig()), 2),
-        (EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED), 2),
+        (
+            EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED),
+            2,
+        ),
     ]
     for r in results:
-        assert set(r.workload.prompt_lens) == {4} and set(r.workload.output_budgets) == {2}
-        assert r.to_record_dict()["prompt_len"] == 4 and r.to_record_dict()["max_new_tokens"] == 2
+        assert set(r.workload.prompt_lens) == {4} and set(r.workload.output_budgets) == {
+            2
+        }
+        assert (
+            r.to_record_dict()["prompt_len"] == 4
+            and r.to_record_dict()["max_new_tokens"] == 2
+        )
         assert r.metrics.throughput_req_s.median > 0
         assert r.metrics.throughput_tok_s.median > 0
 
@@ -255,11 +316,16 @@ sweep:
     # uniform: [4, 4, 4, 4]，padding efficiency 应该为 100%
     assert res_homo.workload.num_total_requests == 4
     assert res_homo.workload.prompt_lens == (4, 4, 4, 4)
-    assert res_homo.packing is not None and res_homo.packing.padding_efficiency.mean == 1.0
+    assert (
+        res_homo.packing is not None and res_homo.packing.padding_efficiency.mean == 1.0
+    )
 
     # variable: [max(1, 4//8), max(1, 4//4), max(1, 4//2), 4] = [1, 1, 2, 4]
     assert res_mixed.workload.prompt_lens == (1, 1, 2, 4)
-    assert res_mixed.packing is not None and res_mixed.packing.padding_efficiency.mean == (1 + 1 + 2 + 4) / 16
+    assert (
+        res_mixed.packing is not None
+        and res_mixed.packing.padding_efficiency.mean == (1 + 1 + 2 + 4) / 16
+    )
     assert res_mixed.packing.padding_efficiency.mean < 1.0
 
 
@@ -286,12 +352,18 @@ sweep:
 
     # uniform: [4, 4, 4, 4]，slot utilization 应该为 100%
     assert res_uniform.workload.output_budgets == (4, 4, 4, 4)
-    assert res_uniform.packing is not None and res_uniform.packing.slot_utilization.mean == 1.0
+    assert (
+        res_uniform.packing is not None
+        and res_uniform.packing.slot_utilization.mean == 1.0
+    )
 
     # variable: [max(2, 4//8), max(2, 4//4), max(2, 4//2), 4] = [2, 2, 2, 4]，slot utilization = 10 / 16
     assert res_variable.workload.prompt_lens == (4, 4, 4, 4)
     assert res_variable.workload.output_budgets == (2, 2, 2, 4)
-    assert res_variable.packing is not None and res_variable.packing.slot_utilization.mean == (2 + 2 + 2 + 4) / 16
+    assert (
+        res_variable.packing is not None
+        and res_variable.packing.slot_utilization.mean == (2 + 2 + 2 + 4) / 16
+    )
     assert res_variable.packing.slot_utilization.mean < 1.0
 
 
@@ -341,7 +413,9 @@ def test_benchmark_case_and_suite_unification(tmp_path):
     )
 
     # 1. lockstep 缺省 max_running_requests 保持 None，scheduler 自动推导为 num_total_requests
-    case = BenchmarkCase(profile=profile, batching_method=BatchingMethod.FIXED, engine="lockstep")
+    case = BenchmarkCase(
+        profile=profile, batching_method=BatchingMethod.FIXED, engine="lockstep"
+    )
     assert case.engine_config == EngineConfig(
         kv_cache_config=DenseCacheConfig(),
         batching_method=BatchingMethod.FIXED,
@@ -351,7 +425,11 @@ def test_benchmark_case_and_suite_unification(tmp_path):
     assert case.workload_id == "test_profile"
     assert case.engine == "lockstep"
 
-    default_sched_case = BenchmarkCase(profile=profile, batching_method=BatchingMethod.FIXED, engine="scheduler")
+    default_sched_case = BenchmarkCase(
+        profile=profile,
+        batching_method=BatchingMethod.FIXED,
+        engine="scheduler",
+    )
     assert default_sched_case.engine_config == config
     assert default_sched_case.scheduler_config.max_running_requests == 3
     assert default_sched_case.key.max_running_requests == 3

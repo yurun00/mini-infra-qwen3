@@ -37,15 +37,23 @@ def _prepare_prefill_inputs(
         prompt_lengths: [B],    long, contiguous
     """
     if has_uniform_prompt_len:
-        input_ids_tensor = torch.as_tensor(token_sequences, dtype=torch.long, device=device)
+        input_ids_tensor = torch.as_tensor(
+            token_sequences, dtype=torch.long, device=device
+        )
         if input_ids_tensor.ndim == 1:
             input_ids_tensor = input_ids_tensor.unsqueeze(0)
         batch_size, padded_prompt_length = input_ids_tensor.shape
-        attention_mask = torch.ones((batch_size, padded_prompt_length), dtype=torch.bool, device=device)
-        position_ids = (
-            torch.arange(padded_prompt_length, device=device, dtype=torch.long).unsqueeze(0).expand(batch_size, -1)
+        attention_mask = torch.ones(
+            (batch_size, padded_prompt_length), dtype=torch.bool, device=device
         )
-        prompt_lengths = torch.full((batch_size,), padded_prompt_length, dtype=torch.long, device=device)
+        position_ids = (
+            torch.arange(padded_prompt_length, device=device, dtype=torch.long)
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
+        prompt_lengths = torch.full(
+            (batch_size,), padded_prompt_length, dtype=torch.long, device=device
+        )
         return input_ids_tensor, attention_mask, position_ids, prompt_lengths
 
     return _left_pad_sequences(token_sequences, pad_token_id, device)
@@ -68,7 +76,12 @@ class LockstepInputBatch:
 
     def get_model_inputs(
         self, use_cache: bool
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, Sequence[tuple[torch.Tensor, torch.Tensor]] | None]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        Sequence[tuple[torch.Tensor, torch.Tensor]] | None,
+    ]:
         """获取当前前向所需的 (input_ids, attention_mask, position_ids, past_key_values)。
 
         Returns:
@@ -79,11 +92,17 @@ class LockstepInputBatch:
         """
         model_input = self.curr_input_ids if use_cache else self.full_input_ids
         position_ids = self.curr_position_ids if use_cache else self.full_position_ids
-        past_kvs = self.kv_cache.past_key_values if (use_cache and self.kv_cache is not None) else None
+        past_kvs = (
+            self.kv_cache.past_key_values
+            if (use_cache and self.kv_cache is not None)
+            else None
+        )
         assert model_input is not None and position_ids is not None
         return model_input, self.attention_mask, position_ids, past_kvs
 
-    def update_kv_cache(self, present_key_values: list[tuple[torch.Tensor, torch.Tensor]]) -> None:
+    def update_kv_cache(
+        self, present_key_values: list[tuple[torch.Tensor, torch.Tensor]]
+    ) -> None:
         """更新当前物理 KV Cache 显存池。"""
         self.kv_cache = KVCache(present_key_values)
 
@@ -102,8 +121,13 @@ class LockstepRunner(BaseModelRunner):
         use_cache: bool,
     ) -> LockstepInputBatch:
         """构建并初始化一个齐步批次的 GPU 输入张量容器与 Cache 状态。"""
-        input_ids_tensor, attention_mask, position_ids, prompt_lengths = _prepare_prefill_inputs(
-            token_sequences, has_uniform_prompt_len, self.pad_token_id, self.device
+        input_ids_tensor, attention_mask, position_ids, prompt_lengths = (
+            _prepare_prefill_inputs(
+                token_sequences,
+                has_uniform_prompt_len,
+                self.pad_token_id,
+                self.device,
+            )
         )
         return LockstepInputBatch(
             device=self.device,
@@ -125,8 +149,12 @@ class LockstepRunner(BaseModelRunner):
         use_cache: bool = True,
     ) -> LockstepOutput:
         """执行单步齐步前向推理：读取 batch 张量、执行前向、就地更新 batch.kv_cache 并返回采样 Token。"""
-        model_input, attention_mask, position_ids, past_kvs = batch.get_model_inputs(use_cache)
-        attn_metadata = None if past_kvs is None else DenseAttentionMetadata(tuple(past_kvs))
+        model_input, attention_mask, position_ids, past_kvs = batch.get_model_inputs(
+            use_cache
+        )
+        attn_metadata = (
+            None if past_kvs is None else DenseAttentionMetadata(tuple(past_kvs))
+        )
         logits, present_key_values = self.model(
             model_input,
             attention_mask=attention_mask,
@@ -154,9 +182,15 @@ class LockstepRunner(BaseModelRunner):
         use_cache=True 时 curr_input_ids / curr_position_ids 为 [B, 1]（long, contiguous），
         use_cache=False 时 full_input_ids / full_position_ids 为 [B, S_prev + 1]（long, contiguous）。
         """
-        active_mask = torch.tensor(is_active, dtype=torch.bool, device=self.device).unsqueeze(1)
-        step_tokens = torch.tensor(next_tokens, dtype=torch.long, device=self.device).unsqueeze(1)
-        pos_tensor = torch.tensor(next_positions, dtype=torch.long, device=self.device).unsqueeze(1)
+        active_mask = torch.tensor(
+            is_active, dtype=torch.bool, device=self.device
+        ).unsqueeze(1)
+        step_tokens = torch.tensor(
+            next_tokens, dtype=torch.long, device=self.device
+        ).unsqueeze(1)
+        pos_tensor = torch.tensor(
+            next_positions, dtype=torch.long, device=self.device
+        ).unsqueeze(1)
         pad_tensor = torch.full_like(step_tokens, self.pad_token_id)
         zero_pos = torch.zeros_like(pos_tensor)
 
@@ -168,9 +202,13 @@ class LockstepRunner(BaseModelRunner):
             batch.curr_input_ids = masked_tokens
             batch.curr_position_ids = masked_pos
         else:
-            assert batch.full_input_ids is not None and batch.full_position_ids is not None
+            assert (
+                batch.full_input_ids is not None and batch.full_position_ids is not None
+            )
             batch.full_input_ids = torch.cat((batch.full_input_ids, masked_tokens), dim=1)
-            batch.full_position_ids = torch.cat((batch.full_position_ids, masked_pos), dim=1)
+            batch.full_position_ids = torch.cat(
+                (batch.full_position_ids, masked_pos), dim=1
+            )
 
 
 __all__ = [

@@ -115,7 +115,8 @@ $$\text{KV Cache Bytes} = 2 \times L \times B \times H_{\text{kv}} \times D \tim
 @property
 def total_bytes(self) -> int:
     return sum(
-        k.numel() * k.element_size() + v.numel() * v.element_size() for k, v in zip(self.key_cache, self.value_cache)
+        k.numel() * k.element_size() + v.numel() * v.element_size()
+        for k, v in zip(self.key_cache, self.value_cache)
     )
 ```
 

@@ -60,7 +60,9 @@ def execute_compare_transformers(
     if max_new_tokens < 1:
         raise ValueError("--max-new-tokens 必须大于 0")
 
-    device, model_directory, handwritten_tokenizer, handwritten_model = prepare_cuda_model(model, revision)
+    device, model_directory, handwritten_tokenizer, handwritten_model = (
+        prepare_cuda_model(model, revision)
+    )
     reference_tokenizer = AutoTokenizer.from_pretrained(model_directory)
 
     # 模型对照开始前，先证明手写 Tokenizer 构造了完全相同的输入。
@@ -117,9 +119,15 @@ def execute_compare_transformers(
         handwritten_tokenizer.eos_token_id,
     )
 
-    generated_text = handwritten_tokenizer.decode(result["token_ids"], skip_special_tokens=True)
+    generated_text = handwritten_tokenizer.decode(
+        result["token_ids"], skip_special_tokens=True
+    )
     return finalize_stepwise_compare(
-        result, generated_text, logits_atol=logits_atol, output=output, environment=environment
+        result,
+        generated_text,
+        logits_atol=logits_atol,
+        output=output,
+        environment=environment,
     )
 
 

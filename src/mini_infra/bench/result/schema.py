@@ -79,6 +79,9 @@ class PagedCacheProfileRecord(_RecordModel):
     block_cold_allocation_count: int = 0
     block_reuse_count: int = 0
     block_release_count: int = 0
+    prefix_cache_block_eviction_count: int = 0
+    prefix_cache_prompt_tokens: int = 0
+    prefix_cache_hit_tokens: int = 0
 
 
 class KVCacheProfileRecord(_RecordModel):

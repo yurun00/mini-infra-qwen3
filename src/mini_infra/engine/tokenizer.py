@@ -60,7 +60,10 @@ class Qwen3Tokenizer:
         self.id_to_token = {token_id: token for token, token_id in self.vocab.items()}
 
         # 数字越小的 merge 优先级越高。
-        self.merge_ranks = {tuple(token_pair): rank for rank, token_pair in enumerate(model_data["merges"])}
+        self.merge_ranks = {
+            tuple(token_pair): rank
+            for rank, token_pair in enumerate(model_data["merges"])
+        }
         self.bpe_cache = {}
 
         self.added_token_to_id = {}
@@ -80,7 +83,10 @@ class Qwen3Tokenizer:
         self.added_token_pattern = regex.compile("(" + "|".join(escaped_tokens) + ")")
 
         self.byte_to_unicode = _build_byte_to_unicode()
-        self.unicode_to_byte = {character: byte_value for byte_value, character in self.byte_to_unicode.items()}
+        self.unicode_to_byte = {
+            character: byte_value
+            for byte_value, character in self.byte_to_unicode.items()
+        }
         self.eos_token_id = self.added_token_to_id["<|im_end|>"]
 
     def _bpe(self, byte_text: str) -> list[str]:
@@ -108,7 +114,11 @@ class Qwen3Tokenizer:
             merged_pieces = []
             index = 0
             while index < len(pieces):
-                if index + 1 < len(pieces) and pieces[index] == first and pieces[index + 1] == second:
+                if (
+                    index + 1 < len(pieces)
+                    and pieces[index] == first
+                    and pieces[index + 1] == second
+                ):
                     merged_pieces.append(first + second)
                     index += 2
                 else:
@@ -161,7 +171,9 @@ class Qwen3Tokenizer:
                 return
 
             byte_text = "".join(ordinary_tokens)
-            byte_values = bytes(self.unicode_to_byte[character] for character in byte_text)
+            byte_values = bytes(
+                self.unicode_to_byte[character] for character in byte_text
+            )
             output_parts.append(byte_values.decode("utf-8", errors="replace"))
             ordinary_tokens.clear()
 
@@ -180,7 +192,9 @@ class Qwen3Tokenizer:
         flush_ordinary_tokens()
         return "".join(output_parts)
 
-    def apply_chat_template(self, messages: list[dict[str, str]], add_generation_prompt: bool = True) -> str:
+    def apply_chat_template(
+        self, messages: list[dict[str, str]], add_generation_prompt: bool = True
+    ) -> str:
         """构造本期使用的 Qwen3 non-thinking 文本模板。"""
         prompt_parts = []
         for message in messages:

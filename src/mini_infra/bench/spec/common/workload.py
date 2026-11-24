@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from mini_infra.bench.spec.common.lengths import expand_arrival, expand_length
-from mini_infra.bench.spec.common.schema import WorkloadSpec, normalize_workload_body
+from mini_infra.bench.spec.common.schema import (
+    WorkloadSpec,
+    normalize_workload_body,
+)
 
 if TYPE_CHECKING:
     from mini_infra.bench.cases import WorkloadProfile
@@ -32,7 +35,9 @@ class ResolvedWorkloadSpec:
 
     def __post_init__(self) -> None:
         if self.num_total_requests <= 0:
-            raise ValueError(f"num_total_requests 必须大于 0，实际为 {self.num_total_requests}")
+            raise ValueError(
+                f"num_total_requests 必须大于 0，实际为 {self.num_total_requests}"
+            )
         if len(self.prompt_lens) != self.num_total_requests:
             raise ValueError(
                 f"prompt_lens 长度 ({len(self.prompt_lens)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
@@ -81,7 +86,10 @@ def interpolate(node: Any, variables: dict[str, Any]) -> Any:
 
 
 def resolve_workload_body(
-    workload_id: str, body: dict[str, Any], variables: dict[str, Any], context: str
+    workload_id: str,
+    body: dict[str, Any],
+    variables: dict[str, Any],
+    context: str,
 ) -> ResolvedWorkloadSpec:
     """插值、校验并展开一份 workload（id 与 body 均可含 ${var}），返回逐请求数值。
 
@@ -90,12 +98,20 @@ def resolve_workload_body(
     try:
         resolved_id = interpolate(workload_id, variables)
         if not isinstance(resolved_id, str) or not resolved_id:
-            raise ValueError(f"workload.id 插值后必须是非空字符串，实际为 {resolved_id!r}")
-        parsed = WorkloadSpec.model_validate(normalize_workload_body(interpolate(body, variables)))
+            raise ValueError(
+                f"workload.id 插值后必须是非空字符串，实际为 {resolved_id!r}"
+            )
+        parsed = WorkloadSpec.model_validate(
+            normalize_workload_body(interpolate(body, variables))
+        )
     except ValueError as err:
         raise ValueError(f"{context}: workload 非法: {err}") from err
 
-    rng = random.Random(parsed.seed * 1000 + parsed.seed_salt) if parsed.seed is not None else None
+    rng = (
+        random.Random(parsed.seed * 1000 + parsed.seed_salt)
+        if parsed.seed is not None
+        else None
+    )
     prompt_lens: list[int] = []
     budgets: list[int] = []
     arrivals: list[float] = []

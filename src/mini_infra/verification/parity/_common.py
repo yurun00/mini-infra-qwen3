@@ -166,12 +166,27 @@ def compare_logits(
         detail = " | %s" % extra if extra else ""
         print(
             "步骤 %02d | %s=%d | %s=%d | 最大误差=%.6f | 平均误差=%.6f%s"
-            % (step, reference_name, reference_token, candidate_name, candidate_token, max_error, mean_error, detail)
+            % (
+                step,
+                reference_name,
+                reference_token,
+                candidate_name,
+                candidate_token,
+                max_error,
+                mean_error,
+                detail,
+            )
         )
         if not matches:
             print(
                 "\n[Token 不一致] 步骤 %02d: %s=%d, %s=%d"
-                % (step, reference_name, reference_token, candidate_name, candidate_token)
+                % (
+                    step,
+                    reference_name,
+                    reference_token,
+                    candidate_name,
+                    candidate_token,
+                )
             )
             _report_top_logits(reference_name, reference_logits)
             _report_top_logits(candidate_name, candidate_logits)

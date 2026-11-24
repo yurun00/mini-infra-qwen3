@@ -8,7 +8,12 @@ from typing import Any
 
 import torch
 
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, make_requests
+from mini_infra.core import (
+    DenseCacheConfig,
+    PagedCacheConfig,
+    SchedulerConfig,
+    make_requests,
+)
 from mini_infra.engine import BatchingMethod, EngineConfig, run_scheduler
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
@@ -98,7 +103,11 @@ def run_compare_scheduler_batch(
     fixed_token_ids = [s.token_ids for s in fixed.sequences]
     continuous_token_ids = [s.token_ids for s in continuous.sequences]
     paged_token_ids = [s.token_ids for s in paged.sequences]
-    admission_trace = [list(event.admitted_request_ids) for event in continuous.events if event.admitted_request_ids]
+    admission_trace = [
+        list(event.admitted_request_ids)
+        for event in continuous.events
+        if event.admitted_request_ids
+    ]
 
     result: dict[str, Any] = {
         "serialized_token_ids": serialized_token_ids,
@@ -121,7 +130,10 @@ def run_compare_scheduler_batch(
     print("Continuous admission trace:", result["continuous_admission_trace"])
 
     if output:
-        dump_json(output, {"environment": environment_metadata or {}, "result": result})
+        dump_json(
+            output,
+            {"environment": environment_metadata or {}, "result": result},
+        )
 
     return result
 
@@ -147,7 +159,9 @@ def execute_compare_scheduler_batch(
     if len(prompts_to_use) == 4:
         budgets = [2, max_new_tokens, 3, max_new_tokens]
     else:
-        budgets = [2 if i % 2 == 0 else max_new_tokens for i in range(len(prompts_to_use))]
+        budgets = [
+            2 if i % 2 == 0 else max_new_tokens for i in range(len(prompts_to_use))
+        ]
 
     environment = build_environment(
         device,
@@ -171,7 +185,9 @@ def execute_compare_scheduler_batch(
         environment_metadata=environment,
     )
 
-    if dtype == "float32" and not (result["continuous_matches_serialized"] and result["paged_matches_serialized"]):
+    if dtype == "float32" and not (
+        result["continuous_matches_serialized"] and result["paged_matches_serialized"]
+    ):
         print("float32 动态请求归属或输出一致性检查失败")
         return 1
     return 0

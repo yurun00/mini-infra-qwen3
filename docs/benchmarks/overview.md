@@ -159,7 +159,7 @@ mini-infra bench sweep --engine lockstep \
 
 ## 四、scheduler 调度器基准测试 (`bench scheduler`)
 
-面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出、`DenseSlotCache`（batch slot 管理）与 `PagedKVCachePool`（physical block pool 管理）。
+面向**服务化与队列调度**架构（基于 `run_scheduler`），具备三级队列、动态准入、EOS 退出、`DenseSlotCache`（batch slot 管理）与 `PagedBlockCache`（physical block pool 管理）。
 
 ### 1. 单用例服务化测试 (`scheduler case`)
 模拟带有并发上限（Concurrency Limit）、请求到达时序与不同 KV Cache 存储方案的服务端负载。

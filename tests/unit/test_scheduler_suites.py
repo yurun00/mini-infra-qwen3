@@ -25,7 +25,13 @@ from mini_infra.bench.suite import (
     list_benchmark_suite_names,
     load_benchmark_suite,
 )
-from mini_infra.core import DenseCacheConfig, KVCacheConfig, NoCacheConfig, PagedCacheConfig, SchedulerConfig
+from mini_infra.core import (
+    DenseCacheConfig,
+    KVCacheConfig,
+    NoCacheConfig,
+    PagedCacheConfig,
+    SchedulerConfig,
+)
 from mini_infra.engine import BatchingMethod, EngineConfig
 
 FIXED_VS_CONTINUOUS = [
@@ -82,7 +88,10 @@ def test_fixed_vs_continuous_suites_expand_to_two_cases(name):
     assert suite.interleave == (CaseDimension.BATCHING_METHOD,)
     assert suite.comparison is not None
     configs = suite.engine_configs()
-    assert [m.batching_method for m in configs] == [BatchingMethod.FIXED, BatchingMethod.CONTINUOUS]
+    assert [m.batching_method for m in configs] == [
+        BatchingMethod.FIXED,
+        BatchingMethod.CONTINUOUS,
+    ]
     assert all(m.has_kv_cache for m in configs)
 
     cases = suite.cases
@@ -138,10 +147,16 @@ def test_prefill_interference_suite_specs_and_min_running_check(tmp_path):
 
 def test_dense_vs_paged_long_short_stress_suite():
     suite = get_benchmark_suite("scheduler", "dense-vs-paged-long-short-stress")
-    assert suite.interleave == (CaseDimension.CACHING_METHOD, CaseDimension.BLOCK_SIZE)
+    assert suite.interleave == (
+        CaseDimension.CACHING_METHOD,
+        CaseDimension.BLOCK_SIZE,
+    )
     assert suite.comparison is not None
     configs = suite.engine_configs()
-    assert [m.kv_cache_config.kind for m in configs] == ["dense-kv-cache", "paged-kv-cache"]
+    assert [m.kv_cache_config.kind for m in configs] == [
+        "dense-kv-cache",
+        "paged-kv-cache",
+    ]
     assert all(m.batching_method == BatchingMethod.CONTINUOUS for m in configs)
 
     cases = suite.cases
@@ -159,27 +174,44 @@ def test_dense_vs_paged_long_short_stress_suite():
         plen == 128 and budget == 96 and arr == 0.0
         for plen, budget, arr in zip(short_lens, short_budgets, short_arrivals)
     )
-    assert (p.prompt_lens[7], p.output_budgets[7], p.arrival_ms[7]) == (2048, 8, 200.0)
+    assert (p.prompt_lens[7], p.output_budgets[7], p.arrival_ms[7]) == (
+        2048,
+        8,
+        200.0,
+    )
     followups = list(zip(p.prompt_lens[8:], p.output_budgets[8:], p.arrival_ms[8:]))
-    assert all(plen == 128 and budget == 64 and arr == 201.0 for plen, budget, arr in followups)
+    assert all(
+        plen == 128 and budget == 64 and arr == 201.0 for plen, budget, arr in followups
+    )
 
     data = suite.to_dict()
     json.dumps(data)
     assert data["name"] == "dense-vs-paged-long-short-stress"
     assert data["engine"] == "scheduler"
-    assert data["spec"]["execution"]["interleave"] == ["caching_method", "block_size"]
+    assert data["spec"]["execution"]["interleave"] == [
+        "caching_method",
+        "block_size",
+    ]
 
 
 def test_dense_vs_paged_length_ratio_suite():
     suite = get_benchmark_suite("scheduler", "dense-vs-paged-length-ratio")
     cases = suite.cases
-    assert [c.workload_id for c in cases] == [f"length_ratio_{n}" for n in (128, 512, 2048, 3072) for _ in range(2)]
-    assert [c.kv_cache_config.kind for c in cases] == ["dense-kv-cache", "paged-kv-cache"] * 4
+    assert [c.workload_id for c in cases] == [
+        f"length_ratio_{n}" for n in (128, 512, 2048, 3072) for _ in range(2)
+    ]
+    assert [c.kv_cache_config.kind for c in cases] == [
+        "dense-kv-cache",
+        "paged-kv-cache",
+    ] * 4
     for i, long_len in enumerate([128, 512, 2048, 3072]):
         dense_case, paged_case = cases[2 * i], cases[2 * i + 1]
         assert dense_case.profile.prompt_lens[7] == long_len
         assert paged_case.profile.prompt_lens[7] == long_len
-        assert isinstance(paged_case.kv_cache_config, PagedCacheConfig) and paged_case.kv_cache_config.block_size == 16
+        assert (
+            isinstance(paged_case.kv_cache_config, PagedCacheConfig)
+            and paged_case.kv_cache_config.block_size == 16
+        )
 
 
 def test_dense_vs_paged_block_size_suite():
@@ -192,7 +224,10 @@ def test_dense_vs_paged_block_size_suite():
     assert isinstance(cases[0].kv_cache_config, DenseCacheConfig)
     for case, bs in zip(cases[1:], [8, 16, 32, 64]):
         assert case.kv_cache_config.kind == "paged-kv-cache"
-        assert isinstance(case.kv_cache_config, PagedCacheConfig) and case.kv_cache_config.block_size == bs
+        assert (
+            isinstance(case.kv_cache_config, PagedCacheConfig)
+            and case.kv_cache_config.block_size == bs
+        )
 
 
 def test_comparison_spec_from_yaml_is_typed():
@@ -200,8 +235,16 @@ def test_comparison_spec_from_yaml_is_typed():
     assert isinstance(comparison, Comparison)
     assert comparison.group_by == (CaseDimension.WORKLOAD_ID,)
     assert comparison.baseline == {CaseDimension.CACHING_METHOD: "dense-kv-cache"}
-    assert [m._display_name for m in comparison.metrics] == ["makespan", "throughput", "KV-read", "pool"]
-    assert all(isinstance(m, ComparisonMetric) and isinstance(m.kind, MetricKind) for m in comparison.metrics)
+    assert [m._display_name for m in comparison.metrics] == [
+        "makespan",
+        "throughput",
+        "KV-read",
+        "pool",
+    ]
+    assert all(
+        isinstance(m, ComparisonMetric) and isinstance(m.kind, MetricKind)
+        for m in comparison.metrics
+    )
 
 
 def test_scheduler_suite_case_paged_validation():
@@ -259,7 +302,16 @@ def test_compute_comparisons():
     )
 
     def dist(val: float) -> DistributionStats:
-        return DistributionStats(median=val, mean=val, std=0.0, min=val, max=val, p90=val, p95=val, p99=val)
+        return DistributionStats(
+            median=val,
+            mean=val,
+            std=0.0,
+            min=val,
+            max=val,
+            p90=val,
+            p95=val,
+            p99=val,
+        )
 
     def make_case(
         kv_cfg: KVCacheConfig,
@@ -334,8 +386,12 @@ def test_compute_comparisons():
             caching_method=kv_cfg.kind,
             batching_method=BatchingMethod.CONTINUOUS,
             max_running_requests=mrr,
-            block_size=kv_cfg.block_size if isinstance(kv_cfg, PagedCacheConfig) else None,
-            num_blocks=kv_cfg.num_blocks if isinstance(kv_cfg, PagedCacheConfig) else None,
+            block_size=kv_cfg.block_size
+            if isinstance(kv_cfg, PagedCacheConfig)
+            else None,
+            num_blocks=kv_cfg.num_blocks
+            if isinstance(kv_cfg, PagedCacheConfig)
+            else None,
         )
         return SchedulerCaseResult(
             key=key,
@@ -374,10 +430,20 @@ def test_compute_comparisons():
         group_by=(CaseDimension.WORKLOAD_ID,),
         baseline={CaseDimension.CACHING_METHOD: "dense-kv-cache"},
         metrics=(
-            ComparisonMetric("schedule_metrics.makespan_ms", MetricKind.SPEEDUP, "makespan"),
+            ComparisonMetric(
+                "schedule_metrics.makespan_ms", MetricKind.SPEEDUP, "makespan"
+            ),
             ComparisonMetric("metrics.throughput_tok_s", MetricKind.GAIN, "throughput"),
-            ComparisonMetric("memory.kv_cache.accessed_kv_cache_tokens", MetricKind.REDUCTION, "KV-read"),
-            ComparisonMetric("memory.kv_cache.peak_kv_cache_pool_mb", MetricKind.REDUCTION, "pool"),
+            ComparisonMetric(
+                "memory.kv_cache.accessed_kv_cache_tokens",
+                MetricKind.REDUCTION,
+                "KV-read",
+            ),
+            ComparisonMetric(
+                "memory.kv_cache.peak_kv_cache_pool_mb",
+                MetricKind.REDUCTION,
+                "pool",
+            ),
         ),
     )
 
@@ -494,15 +560,31 @@ def test_format_table_abbreviations():
     assert wid_abbr("workload_A") == "wor_A"
     assert wid_abbr("") == ""
 
-    assert _abbreviate_suite_name("dense-vs-paged-long-short-stress") == "den-vs-pag-lon-sho-str"
+    assert (
+        _abbreviate_suite_name("dense-vs-paged-long-short-stress")
+        == "den-vs-pag-lon-sho-str"
+    )
     assert _abbreviate_suite_name("dense-vs-paged-throughput") == "den-vs-pag-thr"
     assert _abbreviate_suite_name("test-suite") == "tes-sui"
     assert _abbreviate_suite_name("custom") == "cus"
     assert _abbreviate_suite_name("") == ""
 
-    assert cfg_abbr(EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)) == "dkc+cb"
-    assert cfg_abbr(EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)) == "dkc+fb"
-    assert cfg_abbr(EngineConfig(PagedCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)) == "pkc+cb"
+    assert (
+        cfg_abbr(
+            EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
+        )
+        == "dkc+cb"
+    )
+    assert (
+        cfg_abbr(EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED))
+        == "dkc+fb"
+    )
+    assert (
+        cfg_abbr(
+            EngineConfig(PagedCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
+        )
+        == "pkc+cb"
+    )
     assert cfg_abbr(EngineConfig(NoCacheConfig())) == "nc"
 
     dense_key = CaseKey(
@@ -521,12 +603,17 @@ def test_format_table_abbreviations():
         block_size=16,
         num_blocks=64,
     )
-    assert paged_key.abbreviated_display_name == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
+    assert (
+        paged_key.abbreviated_display_name
+        == "[lon_sho_str] | pkc+cb | mrr=16 | blk-sz=16"
+    )
 
 
 def test_chunked_prefill_builtin_suites_and_negative_controls():
     """验证 token-budget vs chunked-prefill 主实验与双负对照套件的展开与对比配对。"""
-    main_suite = get_benchmark_suite("scheduler", "token-budget-vs-chunked-prefill-long-prompt")
+    main_suite = get_benchmark_suite(
+        "scheduler", "token-budget-vs-chunked-prefill-long-prompt"
+    )
     assert len(main_suite.cases) == 6
     assert main_suite.interleave == (CaseDimension.BATCHING_POLICY,)
     assert [(c.key.batching_policy, c.key.token_budget) for c in main_suite.cases] == [
@@ -542,10 +629,17 @@ def test_chunked_prefill_builtin_suites_and_negative_controls():
     assert prof.output_budgets == (48, 48, 8)
     assert prof.arrival_ms == (0.0, 0.0, 200.0)
     assert main_suite.comparison is not None
-    assert main_suite.comparison.group_by == (CaseDimension.WORKLOAD_ID, CaseDimension.TOKEN_BUDGET)
-    assert main_suite.comparison.baseline == {CaseDimension.BATCHING_POLICY: "token-budget"}
+    assert main_suite.comparison.group_by == (
+        CaseDimension.WORKLOAD_ID,
+        CaseDimension.TOKEN_BUDGET,
+    )
+    assert main_suite.comparison.baseline == {
+        CaseDimension.BATCHING_POLICY: "token-budget"
+    }
 
-    short_ctrl = get_benchmark_suite("scheduler", "token-budget-vs-chunked-prefill-short-control")
+    short_ctrl = get_benchmark_suite(
+        "scheduler", "token-budget-vs-chunked-prefill-short-control"
+    )
     assert len(short_ctrl.cases) == 2
     assert [(c.key.batching_policy, c.key.token_budget) for c in short_ctrl.cases] == [
         ("token-budget", 256),
@@ -553,7 +647,9 @@ def test_chunked_prefill_builtin_suites_and_negative_controls():
     ]
     assert short_ctrl.cases[0].profile.prompt_lens == (128, 128, 128)
 
-    no_dec_ctrl = get_benchmark_suite("scheduler", "token-budget-vs-chunked-prefill-no-decode-control")
+    no_dec_ctrl = get_benchmark_suite(
+        "scheduler", "token-budget-vs-chunked-prefill-no-decode-control"
+    )
     assert len(no_dec_ctrl.cases) == 6
     assert no_dec_ctrl.cases[0].profile.prompt_lens == (2048,)
     assert no_dec_ctrl.cases[0].profile.arrival_ms == (0.0,)
@@ -566,7 +662,10 @@ def test_chunked_prefill_suite_end_to_end_cpu(tmp_path, diverse_model):
     import torch
 
     from mini_infra.bench.efficiency import HardwarePeakSpecs
-    from mini_infra.bench.result import build_benchmark_record, validate_benchmark_record
+    from mini_infra.bench.result import (
+        build_benchmark_record,
+        validate_benchmark_record,
+    )
     from mini_infra.bench.scheduler.run_suite import run_suite
     from mini_infra.bench.spec import load_suite_spec
     from mini_infra.bench.suite import BenchmarkSuite
@@ -601,7 +700,12 @@ comparison:
         encoding="utf-8",
     )
     suite = BenchmarkSuite.from_spec(load_suite_spec(spec_path))
-    results = run_suite(diverse_model, torch.device("cpu"), suite, vocab_size=diverse_model.config.vocab_size)
+    results = run_suite(
+        diverse_model,
+        torch.device("cpu"),
+        suite,
+        vocab_size=diverse_model.config.vocab_size,
+    )
     assert len(results) == 2
     tb_res, cp_res = results
     assert tb_res.schedule_metrics.num_oversize_prefill_steps.median == 1.0
@@ -610,7 +714,11 @@ comparison:
 
     assert suite.comparison is not None
     comps = compute_comparisons(results, suite.comparison)
-    assert [c.metric_name for c in comps] == ["ITL-max", "TTFT-p95", "max-prefill-ms"]
+    assert [c.metric_name for c in comps] == [
+        "ITL-max",
+        "TTFT-p95",
+        "max-prefill-ms",
+    ]
 
     record = build_benchmark_record(
         SimpleNamespace(tag="dev"),

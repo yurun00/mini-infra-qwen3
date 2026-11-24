@@ -13,9 +13,17 @@ from pathlib import Path
 
 from mini_infra.bench.context import BenchmarkExecutionContext
 from mini_infra.bench.paths import REPO_ROOT, SUITES_DIR
-from mini_infra.bench.spec import SuiteEngine, discover_suite_specs, parse_set_args
+from mini_infra.bench.spec import (
+    SuiteEngine,
+    discover_suite_specs,
+    parse_set_args,
+)
 from mini_infra.bench.suite import BenchmarkSuite, load_benchmark_suite
-from mini_infra.bench.sweep import SuiteRunSummary, format_sweep_summary, run_sweep
+from mini_infra.bench.sweep import (
+    SuiteRunSummary,
+    format_sweep_summary,
+    run_sweep,
+)
 from mini_infra.cli.commands.bench.args import add_common_args
 from mini_infra.cli.commands.bench.suite_runner import (
     execute_lockstep_suite,
@@ -40,7 +48,12 @@ def _use_suite_execution_defaults(parser: argparse.ArgumentParser) -> None:
 
 
 def suite_output_path(
-    args: argparse.Namespace, engine: SuiteEngine, suite_name: str, commit: str, *, experimental: bool
+    args: argparse.Namespace,
+    engine: SuiteEngine,
+    suite_name: str,
+    commit: str,
+    *,
+    experimental: bool,
 ) -> Path:
     """`--output` 优先；内置套件写入 benchmarks/results/suites/<engine>/<name>/；
 
@@ -56,9 +69,28 @@ def suite_output_path(
 def _add_sweep_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     add_common_args(parser)
     _use_suite_execution_defaults(parser)
-    parser.add_argument("-e", "--engine", choices=["lockstep", "scheduler"], required=True, help="suite 所属引擎")
-    parser.add_argument("--suite", nargs="+", metavar="NAME", default=[], help="要运行的内置 suite 名称（可多个）")
-    parser.add_argument("--spec", nargs="+", metavar="PATH", type=Path, default=[], help="要运行的 suite YAML 路径")
+    parser.add_argument(
+        "-e",
+        "--engine",
+        choices=["lockstep", "scheduler"],
+        required=True,
+        help="suite 所属引擎",
+    )
+    parser.add_argument(
+        "--suite",
+        nargs="+",
+        metavar="NAME",
+        default=[],
+        help="要运行的内置 suite 名称（可多个）",
+    )
+    parser.add_argument(
+        "--spec",
+        nargs="+",
+        metavar="PATH",
+        type=Path,
+        default=[],
+        help="要运行的 suite YAML 路径",
+    )
     parser.add_argument("--all", action="store_true", help="运行该引擎的全部内置 suite")
     parser.add_argument(
         "--set",
@@ -84,12 +116,21 @@ def _add_sweep_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default=None,
         help="覆盖 scheduler suite 的交替维度（none 关闭；默认使用各 suite 的配置）；lockstep 忽略",
     )
-    parser.add_argument("--dry-run", action="store_true", help="仅展开并打印各 suite 的计划，不加载模型也不要求 CUDA")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="仅展开并打印各 suite 的计划，不加载模型也不要求 CUDA",
+    )
     return parser
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = subparsers.add_parser("sweep", help="一次调用顺序运行多个 suite 并汇总（共享模型加载与正确性检查）")
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
+    p = subparsers.add_parser(
+        "sweep",
+        help="一次调用顺序运行多个 suite 并汇总（共享模型加载与正确性检查）",
+    )
     _add_sweep_args(p)
     p.set_defaults(func=_handle_sweep)
     return p
@@ -111,9 +152,16 @@ def _resolve_targets(args: argparse.Namespace) -> list[_Target]:
     return [_Target(path, False) for path in args.spec]
 
 
-def _load_suites(engine: SuiteEngine, targets: Sequence[_Target], overrides: dict[str, object]) -> list[BenchmarkSuite]:
+def _load_suites(
+    engine: SuiteEngine,
+    targets: Sequence[_Target],
+    overrides: dict[str, object],
+) -> list[BenchmarkSuite]:
     """加载全部目标（任何一个非法都在运行前暴露）；suite 名称必须唯一，否则结果文件会互相覆盖。"""
-    suites = [load_benchmark_suite(target.path, overrides, expected_engine=engine) for target in targets]
+    suites = [
+        load_benchmark_suite(target.path, overrides, expected_engine=engine)
+        for target in targets
+    ]
     names = [suite.name for suite in suites]
     duplicated = sorted({n for n in names if names.count(n) > 1})
     if duplicated:
@@ -138,7 +186,9 @@ def _handle_sweep(args: argparse.Namespace) -> int:
                 print_lockstep_dry_run(args, suite)
         return 0
 
-    experimental_by_suite = {id(s): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)}
+    experimental_by_suite = {
+        id(s): (not t.builtin or bool(overrides)) for s, t in zip(suites, targets)
+    }
 
     ctx = BenchmarkExecutionContext.from_args(args)
     commit = ctx.commit
@@ -154,10 +204,16 @@ def _handle_sweep(args: argparse.Namespace) -> int:
         if args.output is not None:
             output = args.output
         elif args.output_dir is not None:
-            output = args.output_dir / args.engine / suite.name / f"{commit}_{args.tag}.json"
+            output = (
+                args.output_dir / args.engine / suite.name / f"{commit}_{args.tag}.json"
+            )
         else:
             output = suite_output_path(
-                args, args.engine, suite.name, commit, experimental=experimental_by_suite[id(suite)]
+                args,
+                args.engine,
+                suite.name,
+                commit,
+                experimental=experimental_by_suite[id(suite)],
             )
         return run_one(suite, output)
 

@@ -34,7 +34,9 @@ from mini_infra.bench.result import (
 )
 
 
-def load_results(history_dir: Path | None = None) -> list[LockstepBenchmarkRecord | SchedulerBenchmarkRecord]:
+def load_results(
+    history_dir: Path | None = None,
+) -> list[LockstepBenchmarkRecord | SchedulerBenchmarkRecord]:
     """加载指定历史目录中的 *.json 并强制校验每个文件只包含 1 个 Case (require_single_case=True)。"""
     target_dir = history_dir or LOCKSTEP_RESULT_HISTORY_DIR
     json_files = list(target_dir.glob("*.json")) if target_dir.exists() else []
@@ -64,7 +66,9 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     tidy_df = wide_to_tidy_df(wide_df, specs)
 
     release_labels = list(dict.fromkeys(wide_df.sort_values("release_idx")["label"]))
-    present_scales = [s for s in ("small", "medium", "large") if s in set(wide_df["scale"].unique())]
+    present_scales = [
+        s for s in ("small", "medium", "large") if s in set(wide_df["scale"].unique())
+    ]
     if not present_scales:
         present_scales = list(dict.fromkeys(wide_df["scale"]))
     has_multi_scale = len(present_scales) > 1
@@ -72,7 +76,9 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     total_panels = len(specs) + 2  # +2: Throughput Speedup vs Baseline & Correctness Gate
     ncols = 3
     nrows = math.ceil(total_panels / ncols)
-    fig, axes = plt.subplots(nrows, ncols, figsize=(6.2 * ncols, 4.4 * nrows), squeeze=False)
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(6.2 * ncols, 4.4 * nrows), squeeze=False
+    )
     flat_axes = axes.flatten()
 
     for spec_idx, spec in enumerate(specs):
@@ -91,7 +97,9 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                 order=release_labels,
                 hue_order=present_scales if has_multi_scale else None,
                 palette=_SCALE_PALETTE if has_multi_scale else None,
-                color=None if has_multi_scale else ("#8e44ad" if spec.metric_key == "peak_allocated_mb" else "#16a085"),
+                color=None
+                if has_multi_scale
+                else ("#8e44ad" if spec.metric_key == "peak_allocated_mb" else "#16a085"),
                 ax=ax,
                 alpha=0.85,
             )
@@ -115,7 +123,9 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                 xs = [release_labels.index(lbl) for lbl in sub_sc["label"]]
                 ys = sub_sc["median"].tolist()
                 stds = sub_sc["std"].tolist()
-                color = _SCALE_PALETTE.get(sc, "#2980b9") if has_multi_scale else "#2980b9"
+                color = (
+                    _SCALE_PALETTE.get(sc, "#2980b9") if has_multi_scale else "#2980b9"
+                )
                 marker = _SCALE_MARKERS.get(sc, "o")
                 ax.plot(
                     xs,
@@ -163,9 +173,13 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     # 附加面板 A：相对同 Scale Baseline 吞吐加速比
     ax_spd = flat_axes[len(specs)]
     default_b_thr = float(base_df.iloc[0]["throughput_tok_s.median"])
-    base_thr_by_scale = {str(r["scale"]): float(r["throughput_tok_s.median"]) for _, r in base_df.iterrows()}
+    base_thr_by_scale = {
+        str(r["scale"]): float(r["throughput_tok_s.median"])
+        for _, r in base_df.iterrows()
+    }
     wide_df["speedup_vs_base"] = [
-        float(r["throughput_tok_s.median"]) / base_thr_by_scale.get(str(r["scale"]), default_b_thr)
+        float(r["throughput_tok_s.median"])
+        / base_thr_by_scale.get(str(r["scale"]), default_b_thr)
         if base_thr_by_scale.get(str(r["scale"]), default_b_thr) > 0
         else 1.0
         for _, r in wide_df.iterrows()
@@ -195,7 +209,9 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
                 va="bottom",
                 fontsize=7.5,
             )
-    ax_spd.set_title(f"{len(specs) + 1}. Throughput Speedup vs Baseline (x)", fontsize=10.5)
+    ax_spd.set_title(
+        f"{len(specs) + 1}. Throughput Speedup vs Baseline (x)", fontsize=10.5
+    )
     ax_spd.set_xlabel("")
     ax_spd.set_ylabel("Speedup Ratio (x)")
     ax_spd.margins(y=0.14)
@@ -211,7 +227,10 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
         0.0 if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
         for v in rel_df["correctness_match_ratio"]
     ]
-    colors = ["gray" if p is None else ("#2ecc71" if p else "#e74c3c") for p in rel_df["correctness_passed"]]
+    colors = [
+        "gray" if p is None else ("#2ecc71" if p else "#e74c3c")
+        for p in rel_df["correctness_passed"]
+    ]
     bars = ax_corr.bar(range(len(rel_df)), ratios, color=colors, alpha=0.85, width=0.55)
     for i, (bar, p) in enumerate(zip(bars, rel_df["correctness_passed"])):
         text = "n/a" if p is None else f"{ratios[i]:.2f}"
@@ -246,7 +265,9 @@ def plot_evolution_and_scaling(records: list[Any], base: Any, out_path: Path) ->
     print(f"第一类图表（版本演进与多规模趋势）已保存：{out_path}")
 
 
-def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_path: Path) -> None:
+def plot_profiling_and_optimization(
+    records: list[Any], target_rec: Any, out_path: Path
+) -> None:
     """绘制第二大类图表：当前模型深度剖析与优化指引（2行2列面板，支持 Lockstep 与 Scheduler 双域）。"""
     import matplotlib
 
@@ -267,12 +288,18 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
         slot_u = (pack.get("slot_utilization") or {}).get("median", 0.0)
         cap_u = (pack.get("running_capacity_utilization") or {}).get("median", 0.0)
         pad_e = (pack.get("padding_efficiency") or {}).get("median", 0.0)
-        cache_frac = ((w.get("schedule") or {}).get("cache_management_fraction") or {}).get("median", 0.0)
+        cache_frac = (
+            (w.get("schedule") or {}).get("cache_management_fraction") or {}
+        ).get("median", 0.0)
         ceil_items = [
             ("Slot Util", 100.0 * float(slot_u), "#2980b9"),
             ("Capacity Util", 100.0 * float(cap_u), "#8e44ad"),
             ("Padding Eff", 100.0 * float(pad_e), "#e67e22"),
-            ("GPU Busy", 100.0 * float(gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
+            (
+                "GPU Busy",
+                100.0 * float(gpu_busy if gpu_busy is not None else 0.0),
+                "#27ae60",
+            ),
             ("Cache Mgmt", 100.0 * float(cache_frac), "#e74c3c"),
         ]
         title_21 = "2.1 Scheduler & GPU Utilization (Slot / Capacity / Padding / Busy / Cache Mgmt)"
@@ -282,7 +309,11 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
             ("Prefill MFU", 100.0 * (eff.get("prefill_mfu") or 0.0), "#e67e22"),
             ("Decode MFU", 100.0 * (eff.get("decode_mfu") or 0.0), "#e74c3c"),
             ("Decode MBU", 100.0 * (eff.get("decode_mbu") or 0.0), "#2980b9"),
-            ("GPU Busy", 100.0 * (gpu_busy if gpu_busy is not None else 0.0), "#27ae60"),
+            (
+                "GPU Busy",
+                100.0 * (gpu_busy if gpu_busy is not None else 0.0),
+                "#27ae60",
+            ),
         ]
         title_21 = "2.1 Hardware Ceiling Utilization (MFU / MBU / Busy)"
 
@@ -307,7 +338,9 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
     ax_ceil.grid(True, linestyle="--", alpha=0.45)
 
     # 2.2 显存足迹剖析（跨版本或当前版本堆叠图：同 tag/feature 不同 scale 紧靠成组，不同 tag/feature 分开）
-    wide_df = records_to_wide_df(records) if records else records_to_wide_df([validated_target])
+    wide_df = (
+        records_to_wide_df(records) if records else records_to_wide_df([validated_target])
+    )
     has_multi_mem_scale = len(set(wide_df["scale"].unique())) > 1
     scale_short = {"small": "S", "medium": "M", "large": "L"}
 
@@ -330,7 +363,9 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
 
     bottom = [0.0] * len(wide_df)
     if "memory.weights_mb" in wide_df.columns:
-        wide_df["memory.weights_mb"] = wide_df["memory.weights_mb"].fillna(wide_df["memory.baseline_allocated_mb"])
+        wide_df["memory.weights_mb"] = wide_df["memory.weights_mb"].fillna(
+            wide_df["memory.baseline_allocated_mb"]
+        )
     else:
         wide_df["memory.weights_mb"] = wide_df["memory.baseline_allocated_mb"]
     components = [
@@ -339,8 +374,20 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
         ("memory.fragmentation_mb", "Allocator Fragmentation", "tab:orange"),
     ]
     for col, name, color in components:
-        vals = wide_df[col].fillna(0.0).tolist() if col in wide_df.columns else [0.0] * len(wide_df)
-        ax_mem.bar(xs, vals, bottom=bottom, label=name, color=color, alpha=0.85, width=bar_width)
+        vals = (
+            wide_df[col].fillna(0.0).tolist()
+            if col in wide_df.columns
+            else [0.0] * len(wide_df)
+        )
+        ax_mem.bar(
+            xs,
+            vals,
+            bottom=bottom,
+            label=name,
+            color=color,
+            alpha=0.85,
+            width=bar_width,
+        )
         bottom = [b + v for b, v in zip(bottom, vals)]
     if has_multi_mem_scale:
         for x_pos, top_y, s_tag in zip(xs, bottom, bar_scale_tags):
@@ -374,20 +421,48 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
             step_ids = list(range(1, len(events) + 1))
             step_ms = [float(e.get("step_ms", 0.0)) for e in events]
             active_reqs = [int(e.get("num_active_requests", 0)) for e in events]
-            step_colors = ["#e67e22" if e.get("phase") == "prefill" else "#2980b9" for e in events]
-            ax_mod.bar(step_ids, step_ms, color=step_colors, alpha=0.8, width=0.8, label="Step Latency (ms)")
+            step_colors = [
+                "#e67e22" if e.get("phase") == "prefill" else "#2980b9" for e in events
+            ]
+            ax_mod.bar(
+                step_ids,
+                step_ms,
+                color=step_colors,
+                alpha=0.8,
+                width=0.8,
+                label="Step Latency (ms)",
+            )
             ax_mod.set_xlabel("Scheduler Iteration Step (Orange=Prefill, Blue=Decode)")
             ax_mod.set_ylabel("Step Latency (ms)", color="#2980b9")
-            ax_mod.set_title(f"2.3 Iteration Step Latency & Active Slots ({len(events)} steps)")
+            ax_mod.set_title(
+                f"2.3 Iteration Step Latency & Active Slots ({len(events)} steps)"
+            )
             ax_mod.grid(True, linestyle="--", alpha=0.35)
 
             ax_mod_r = ax_mod.twinx()
-            ax_mod_r.plot(step_ids, active_reqs, color="#27ae60", linewidth=1.8, label="Active Slots")
+            ax_mod_r.plot(
+                step_ids,
+                active_reqs,
+                color="#27ae60",
+                linewidth=1.8,
+                label="Active Slots",
+            )
             ax_mod_r.set_ylabel("Active Running Requests", color="#27ae60")
-            max_cap = int((w.get("schedule") or {}).get("max_running_requests", max(active_reqs, default=4)))
+            max_cap = int(
+                (w.get("schedule") or {}).get(
+                    "max_running_requests", max(active_reqs, default=4)
+                )
+            )
             ax_mod_r.set_ylim(0, max(max_cap + 1, 5))
         else:
-            ax_mod.text(0.5, 0.5, "No sample event trace", ha="center", va="center", transform=ax_mod.transAxes)
+            ax_mod.text(
+                0.5,
+                0.5,
+                "No sample event trace",
+                ha="center",
+                va="center",
+                transform=ax_mod.transAxes,
+            )
             ax_mod.set_axis_off()
 
         sched = w.get("schedule") or {}
@@ -406,8 +481,20 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
         ]
         x_ticks = list(range(len(lat_categories)))
         bar_w = 0.36
-        bars_50 = ax_cat.bar([x - bar_w / 2 for x in x_ticks], p50_vals, width=bar_w, label="P50", color="#3498db")
-        bars_95 = ax_cat.bar([x + bar_w / 2 for x in x_ticks], p95_vals, width=bar_w, label="P95", color="#e74c3c")
+        bars_50 = ax_cat.bar(
+            [x - bar_w / 2 for x in x_ticks],
+            p50_vals,
+            width=bar_w,
+            label="P50",
+            color="#3498db",
+        )
+        bars_95 = ax_cat.bar(
+            [x + bar_w / 2 for x in x_ticks],
+            p95_vals,
+            width=bar_w,
+            label="P95",
+            color="#e74c3c",
+        )
         for bar in (*bars_50, *bars_95):
             h = bar.get_height()
             ax_cat.annotate(
@@ -430,7 +517,10 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
         if isinstance(ob, dict) and ob.get("time_share_by_module"):
             mod_items = list(ob.get("time_share_by_module", {}).items())[::-1]
             bars_m = ax_mod.barh(
-                [k for k, _ in mod_items], [100 * v for _, v in mod_items], color="tab:cyan", alpha=0.85
+                [k for k, _ in mod_items],
+                [100 * v for _, v in mod_items],
+                color="tab:cyan",
+                alpha=0.85,
             )
             for bar in bars_m:
                 w_val = bar.get_width()
@@ -448,7 +538,10 @@ def plot_profiling_and_optimization(records: list[Any], target_rec: Any, out_pat
 
             cat_items = list(ob.get("time_share_by_kernel_category", {}).items())[::-1]
             bars_c = ax_cat.barh(
-                [k for k, _ in cat_items], [100 * v for _, v in cat_items], color="tab:olive", alpha=0.85
+                [k for k, _ in cat_items],
+                [100 * v for _, v in cat_items],
+                color="tab:olive",
+                alpha=0.85,
             )
             for bar in bars_c:
                 w_val = bar.get_width()
