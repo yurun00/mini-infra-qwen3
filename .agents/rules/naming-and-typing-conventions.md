@@ -22,7 +22,7 @@ description: "标识符命名与类型标注纪律：概念唯一名、索引/�
 - **严禁**裸 `idx`、裸 `index` 及空间不明的缩写（`req_idx` 必须写全为 `request_idx`）；`i`、`j` 仅限 5 行以内的局部循环。
 - **两个防反转判据**：
   - **1-based 进度序号用 `_number`**：`enumerate(..., 1)` 产出、从不用于寻址（全仓无 `x[它]`）、只进进度展示字符串的序号用 `_number` 且与总量成对（`case_number` / `total_cases`、`step_number` / `total_steps`），改 `_idx` 会引入 off-by-one。
-  - **`_idx` 不得改回 `_index`**：`idx` 是行业标准缩写，展开只增行宽（本仓 `line-length = 120`）不增信息量；纪律在**前缀写清空间**。
+  - **`_idx` 不得改回 `_index`**：`idx` 是行业标准缩写，展开只增行宽（本仓 `line-length = 90`）不增信息量；纪律在**前缀写清空间**。
 
 ## 三、时间量统一 `_ms` 后缀
 

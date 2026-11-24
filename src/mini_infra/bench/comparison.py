@@ -55,7 +55,10 @@ class Comparison:
         return {
             "metrics": [m.to_dict() for m in self.metrics],
             "group_by": [d.value for d in self.group_by],
-            "baseline": {d.value: v.value if hasattr(v, "value") else str(v) for d, v in self.baseline.items()},
+            "baseline": {
+                d.value: v.value if hasattr(v, "value") else str(v)
+                for d, v in self.baseline.items()
+            },
         }
 
     @classmethod
@@ -113,17 +116,29 @@ class ComparisonResult:
     @property
     def _speedup(self) -> float:
         """baseline / candidate（针对越小越好的指标计算加速比，如 makespan）。"""
-        return self.baseline_value / self.candidate_value if self.candidate_value > 0 else 1.0
+        return (
+            self.baseline_value / self.candidate_value
+            if self.candidate_value > 0
+            else 1.0
+        )
 
     @property
     def _gain(self) -> float:
         """(candidate - baseline) / baseline（针对越大越好的指标计算相对增益，如吞吐量）。"""
-        return (self.candidate_value - self.baseline_value) / self.baseline_value if self.baseline_value > 0 else 0.0
+        return (
+            (self.candidate_value - self.baseline_value) / self.baseline_value
+            if self.baseline_value > 0
+            else 0.0
+        )
 
     @property
     def _reduction(self) -> float:
         """(baseline - candidate) / baseline（针对越小越好的指标计算相对削减比，如显存/Token）。"""
-        return (self.baseline_value - self.candidate_value) / self.baseline_value if self.baseline_value > 0 else 0.0
+        return (
+            (self.baseline_value - self.candidate_value) / self.baseline_value
+            if self.baseline_value > 0
+            else 0.0
+        )
 
     def _formatted_value(self) -> str:
         if self.kind == MetricKind.SPEEDUP:
@@ -169,14 +184,18 @@ def _extract_metric_by_path(obj: Any, path: str) -> float:
     curr = obj
     for segment in path.split("."):
         if not hasattr(curr, segment):
-            raise AttributeError(f"{type(curr).__name__} 不包含属性 '{segment}'（完整路径: '{path}'）")
+            raise AttributeError(
+                f"{type(curr).__name__} 不包含属性 '{segment}'（完整路径: '{path}'）"
+            )
         curr = getattr(curr, segment)
     if hasattr(curr, "mean"):
         val = curr.mean
     elif isinstance(curr, (int, float)):
         val = curr
     else:
-        raise TypeError(f"指标 '{path}' 提取得到不可转换为数值的对象: {curr!r} ({type(curr)})")
+        raise TypeError(
+            f"指标 '{path}' 提取得到不可转换为数值的对象: {curr!r} ({type(curr)})"
+        )
     return float(val)
 
 
@@ -193,7 +212,12 @@ def compute_comparisons(
     comparisons: list[ComparisonResult] = []
     for g_key, group in groups.items():
         matching_baselines = [
-            r for r in group if all(r.key.value(dim) == expected for dim, expected in comparison.baseline.items())
+            r
+            for r in group
+            if all(
+                r.key.value(dim) == expected
+                for dim, expected in comparison.baseline.items()
+            )
         ]
         if len(matching_baselines) == 0:
             raise ValueError(

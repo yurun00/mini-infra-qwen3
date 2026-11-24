@@ -11,11 +11,18 @@ from dataclasses import dataclass
 
 import torch
 
-from mini_infra.core.block_manager import NULL_KV_CACHE_MANAGER, BaseKVCacheManager
+from mini_infra.core.block_manager import (
+    NULL_KV_CACHE_MANAGER,
+    BaseKVCacheManager,
+)
 from mini_infra.core.request import RequestState
 from mini_infra.core.scheduler import PrefillChunk
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
-from mini_infra.device import allocated_memory_mb, reset_peak_memory, synchronize
+from mini_infra.device import (
+    allocated_memory_mb,
+    reset_peak_memory,
+    synchronize,
+)
 from mini_infra.engine.metrics import PagedCacheProfile
 from mini_infra.profiling import MemorySnapshotTracker
 
@@ -72,7 +79,9 @@ class ScheduleBackend(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def execute_decode(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
+    def execute_decode(
+        self, scheduled_requests: Sequence[RequestState]
+    ) -> ScheduleStepOutput:
         """为当前运行中请求组装输入，执行一步增量 Decode 并写回缓存。"""
         ...
 

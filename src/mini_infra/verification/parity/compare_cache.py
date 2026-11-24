@@ -26,7 +26,11 @@ def _compare_cache_step_by_step(model, input_ids, max_new_tokens, eos_token_id):
         # baseline 路径：全量历史重新计算，attn_metadata=None 即不使用 Cache
         baseline_logits, _ = model(generated_ids)
         # cached 路径：首步 attn_metadata=None 即 Prefill，其后用上一步返回的历史增量追加
-        attn_metadata = None if past_key_values is None else DenseAttentionMetadata(tuple(past_key_values))
+        attn_metadata = (
+            None
+            if past_key_values is None
+            else DenseAttentionMetadata(tuple(past_key_values))
+        )
         cached_logits, past_key_values = model(cached_input, attn_metadata=attn_metadata)
 
         baseline_last = baseline_logits[:, -1, :]
@@ -76,7 +80,11 @@ def execute_compare_cache(
     )
     generated_text = tokenizer.decode(result["token_ids"], skip_special_tokens=True)
     return finalize_stepwise_compare(
-        result, generated_text, logits_atol=logits_atol, output=output, environment=environment
+        result,
+        generated_text,
+        logits_atol=logits_atol,
+        output=output,
+        environment=environment,
     )
 
 

@@ -14,7 +14,10 @@ class KVCache:
     - 前向后用模型返回的 present_key_values 重建容器（Prefill 首次建立，Decode 逐层变长）。
     """
 
-    def __init__(self, past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]] | None = None):
+    def __init__(
+        self,
+        past_key_values: Sequence[tuple[torch.Tensor, torch.Tensor]] | None = None,
+    ):
         layers = () if past_key_values is None else past_key_values
         self.key_cache: list[torch.Tensor] = [key for key, _ in layers]
         self.value_cache: list[torch.Tensor] = [value for _, value in layers]
@@ -52,10 +55,15 @@ class KVCache:
         return self.key_cache[layer_idx], self.value_cache[layer_idx]
 
 
-def cache_size_bytes(kv_cache: KVCache | Sequence[tuple[torch.Tensor, torch.Tensor]] | None) -> int:
+def cache_size_bytes(
+    kv_cache: KVCache | Sequence[tuple[torch.Tensor, torch.Tensor]] | None,
+) -> int:
     """返回 KV Cache 容器实际承载的数据字节数。"""
     if kv_cache is None:
         return 0
     if isinstance(kv_cache, KVCache):
         return kv_cache.total_bytes
-    return sum(key.numel() * key.element_size() + value.numel() * value.element_size() for key, value in kv_cache)
+    return sum(
+        key.numel() * key.element_size() + value.numel() * value.element_size()
+        for key, value in kv_cache
+    )

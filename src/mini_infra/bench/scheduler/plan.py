@@ -60,7 +60,9 @@ def build_scheduler_run_plan(
 
     for feat in interleave:
         if not isinstance(feat, CaseDimension):
-            raise TypeError(f"未知的 interleave 特征维度: {feat!r}，必须为 CaseDimension 类型")
+            raise TypeError(
+                f"未知的 interleave 特征维度: {feat!r}，必须为 CaseDimension 类型"
+            )
     interleaved_dims = list(interleave)
 
     # 1. 守门检查：确保不存在重复的用例全局唯一身份键（CaseKey）
@@ -75,7 +77,9 @@ def build_scheduler_run_plan(
     for case in cases:
         if case.workload_id in profiles_by_workload:
             if case.profile != profiles_by_workload[case.workload_id]:
-                raise ValueError(f"同一 workload_id '{case.workload_id}' 下的用例请求规格（profile）不一致")
+                raise ValueError(
+                    f"同一 workload_id '{case.workload_id}' 下的用例请求规格（profile）不一致"
+                )
         else:
             profiles_by_workload[case.workload_id] = case.profile
 
@@ -111,7 +115,9 @@ def build_scheduler_run_plan(
             if n_cases <= 1:
                 ordered_cases = list(group_cases)
             elif n_cases == 2:
-                ordered_cases = list(group_cases) if r % 2 == 0 else list(reversed(group_cases))
+                ordered_cases = (
+                    list(group_cases) if r % 2 == 0 else list(reversed(group_cases))
+                )
             else:
                 shift = r % n_cases
                 ordered_cases = list(group_cases[shift:]) + list(group_cases[:shift])
@@ -135,10 +141,16 @@ def format_scheduler_run_plan(plan: Sequence[PlannedRun]) -> str:
         return "执行计划为空。"
     lines = [f"Scheduler 基准评测执行计划（共 {len(plan)} 步）："]
     for i, planned_run in enumerate(plan, 1):
-        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
+        rep = (
+            f"repeat {planned_run.repeat_idx + 1}"
+            if planned_run.repeat_idx is not None
+            else "warmup"
+        )
         case = planned_run.case
         details = f"suite={case.suite_name} key={case.key}"
-        lines.append(f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | {details}")
+        lines.append(
+            f"  [{i:02d}] 组 {planned_run.group_id} | {planned_run.phase.value:<7} | {rep:<10} | {details}"
+        )
     return "\n".join(lines)
 
 

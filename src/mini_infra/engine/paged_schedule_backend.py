@@ -16,7 +16,10 @@ from mini_infra.core.scheduler import PrefillChunk
 from mini_infra.core.types import BatchingMethod, KVCacheConfig
 from mini_infra.device import synchronize
 from mini_infra.engine.metrics import PagedCacheProfile
-from mini_infra.engine.schedule_backend import ScheduleBackend, ScheduleStepOutput
+from mini_infra.engine.schedule_backend import (
+    ScheduleBackend,
+    ScheduleStepOutput,
+)
 from mini_infra.worker import PagedBlockCache, PagedRunner
 
 __all__ = ["PagedScheduleBackend"]
@@ -40,7 +43,10 @@ class PagedScheduleBackend(ScheduleBackend):
             requests, max_running_requests, self.block_size
         )
         largest_request_blocks = max(
-            num_blocks_for_tokens(req.prompt_len + req.max_new_tokens - 1, self.block_size) for req in requests
+            num_blocks_for_tokens(
+                req.prompt_len + req.max_new_tokens - 1, self.block_size
+            )
+            for req in requests
         )
         if largest_request_blocks > num_blocks - 1:
             raise ValueError(
@@ -62,7 +68,9 @@ class PagedScheduleBackend(ScheduleBackend):
         )
         self.snapshot_tracker.record_stage("01_paged_pool_allocated")
         self.kv_cache_manager = KVCacheManager(
-            self.block_size, num_blocks, is_prefix_caching_enabled=paged_cache_config.is_prefix_caching_enabled
+            self.block_size,
+            num_blocks,
+            is_prefix_caching_enabled=paged_cache_config.is_prefix_caching_enabled,
         )
 
     @property
@@ -70,7 +78,9 @@ class PagedScheduleBackend(ScheduleBackend):
         return self.paged_cache_config
 
     def execute_prefill(self, chunks: Sequence[PrefillChunk]) -> ScheduleStepOutput:
-        block_tables = [self.kv_cache_manager.block_table(c.state.request.request_idx) for c in chunks]
+        block_tables = [
+            self.kv_cache_manager.block_table(c.state.request.request_idx) for c in chunks
+        ]
         start_positions = [c.start for c in chunks]
         prefill_out = self.runner.run_prefill_chunk_step(
             [c.state.request.token_ids[c.start : c.end] for c in chunks],
@@ -92,7 +102,9 @@ class PagedScheduleBackend(ScheduleBackend):
         cache_ms = (time.perf_counter() - cache_start) * 1000
         self.snapshot_tracker.record_stage("03_paged_prefill_stored_dual_kv")
         # 仅 Prompt 写满的 chunk 产出首个 Token；中间 chunk 的末位 logits 无意义
-        next_tokens = [token for token, c in zip(prefill_out.next_tokens, chunks) if c.is_last]
+        next_tokens = [
+            token for token, c in zip(prefill_out.next_tokens, chunks) if c.is_last
+        ]
         model_ms = prefill_out.model_ms
         del prefill_out
         self.snapshot_tracker.record_stage("04_paged_prefill_cleaned")
@@ -101,32 +113,41 @@ class PagedScheduleBackend(ScheduleBackend):
             model_ms=model_ms,
             cache_ms=cache_ms,
             physical_batch_size=len(chunks),
-            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.paged_block_cache.bytes_per_block,
+            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks
+            * self.paged_block_cache.bytes_per_block,
             kv_cache_pool_bytes=self.paged_block_cache.total_bytes,
             cache_realign_moved_bytes=0,
             accessed_kv_cache_tokens=sum(c.start for c in chunks),
         )
 
-    def execute_decode(self, scheduled_requests: Sequence[RequestState]) -> ScheduleStepOutput:
+    def execute_decode(
+        self, scheduled_requests: Sequence[RequestState]
+    ) -> ScheduleStepOutput:
         active_before = len(scheduled_requests)
         synchronize(self.device)
         prepare_start = time.perf_counter()
         input_ids, position_ids, metadata = self.runner.prepare_decode_inputs(
-            [self.kv_cache_manager.block_table(s.request.request_idx) for s in scheduled_requests],
+            [
+                self.kv_cache_manager.block_table(s.request.request_idx)
+                for s in scheduled_requests
+            ],
             last_tokens=[s.generated[-1] for s in scheduled_requests],
             positions=[s.cache_length for s in scheduled_requests],
             block_size=self.block_size,
         )
         synchronize(self.device)
         cache_ms = (time.perf_counter() - prepare_start) * 1000
-        decode_out = self.runner.run_decode_step(input_ids, position_ids, metadata, self.paged_block_cache)
+        decode_out = self.runner.run_decode_step(
+            input_ids, position_ids, metadata, self.paged_block_cache
+        )
         self.snapshot_tracker.record_stage("05_paged_decode_step", dump=False)
         return ScheduleStepOutput(
             next_tokens=decode_out.next_tokens,
             model_ms=decode_out.model_ms,
             cache_ms=cache_ms,
             physical_batch_size=active_before,
-            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks * self.paged_block_cache.bytes_per_block,
+            live_kv_cache_bytes=self.kv_cache_manager.num_used_blocks
+            * self.paged_block_cache.bytes_per_block,
             kv_cache_pool_bytes=self.paged_block_cache.total_bytes,
             cache_realign_moved_bytes=0,
             accessed_kv_cache_tokens=sum(s.cache_length + 1 for s in scheduled_requests),

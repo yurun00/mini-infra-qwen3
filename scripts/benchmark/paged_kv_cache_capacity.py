@@ -46,22 +46,65 @@ def parse_args() -> argparse.Namespace:
         default=[4, 8, 12, 16],
         help="并发档位列表（默认: [4, 8, 12, 16]）",
     )
-    parser.add_argument("--total-requests", type=int, default=24, help="总请求数（默认: 24）")
-    parser.add_argument("--short-prompt-length", type=int, default=128, help="短 Prompt 长度（默认: 128）")
-    parser.add_argument("--long-prompt-length", type=int, default=4096, help="长 Prompt 长度（默认: 4096）")
-    parser.add_argument("--short-output", type=int, default=32, help="初始短请求输出 Token 预算（默认: 32）")
-    parser.add_argument("--followup-output", type=int, default=32, help="后续短请求输出 Token 预算（默认: 32）")
-    parser.add_argument("--long-output", type=int, default=8, help="长请求输出 Token 预算（默认: 8）")
-    parser.add_argument("--long-arrival-ms", type=float, default=200.0, help="长请求逻辑到达时间 ms（默认: 200.0）")
+    parser.add_argument(
+        "--total-requests", type=int, default=24, help="总请求数（默认: 24）"
+    )
+    parser.add_argument(
+        "--short-prompt-length",
+        type=int,
+        default=128,
+        help="短 Prompt 长度（默认: 128）",
+    )
+    parser.add_argument(
+        "--long-prompt-length",
+        type=int,
+        default=4096,
+        help="长 Prompt 长度（默认: 4096）",
+    )
+    parser.add_argument(
+        "--short-output",
+        type=int,
+        default=32,
+        help="初始短请求输出 Token 预算（默认: 32）",
+    )
+    parser.add_argument(
+        "--followup-output",
+        type=int,
+        default=32,
+        help="后续短请求输出 Token 预算（默认: 32）",
+    )
+    parser.add_argument(
+        "--long-output",
+        type=int,
+        default=8,
+        help="长请求输出 Token 预算（默认: 8）",
+    )
+    parser.add_argument(
+        "--long-arrival-ms",
+        type=float,
+        default=200.0,
+        help="长请求逻辑到达时间 ms（默认: 200.0）",
+    )
     parser.add_argument(
         "--followup-arrival-ms",
         type=float,
         default=201.0,
         help="后续短请求逻辑到达时间 ms（默认: 201.0）",
     )
-    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
-    parser.add_argument("--repeats", type=int, default=3, help="成功配置重复测量次数（默认: 3）")
-    parser.add_argument("--model", default="Qwen/Qwen3-0.6B", help="模型 ID 或路径（默认: Qwen/Qwen3-0.6B）")
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=16,
+        help="Paged KV Cache 物理块大小（默认: 16）",
+    )
+    parser.add_argument(
+        "--repeats", type=int, default=3, help="成功配置重复测量次数（默认: 3）"
+    )
+    parser.add_argument(
+        "--model",
+        default="Qwen/Qwen3-0.6B",
+        help="模型 ID 或路径（默认: Qwen/Qwen3-0.6B）",
+    )
     parser.add_argument("--revision", default=None, help="模型 Revision")
     parser.add_argument(
         "--output",
@@ -69,7 +112,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("/tmp/benchmark-capacity-results.local.json"),
         help="结果 JSON 落盘路径（默认: /tmp/benchmark-capacity-results.local.json）",
     )
-    parser.add_argument("--tag", default="capacity-scan", help="用例记录 Tag（默认: capacity-scan）")
+    parser.add_argument(
+        "--tag",
+        default="capacity-scan",
+        help="用例记录 Tag（默认: capacity-scan）",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -151,9 +198,15 @@ def main() -> int:
                 + [args.short_prompt_length] * followup_shorts
             )
             output_budgets = (
-                [args.short_output] * initial_shorts + [args.long_output] + [args.followup_output] * followup_shorts
+                [args.short_output] * initial_shorts
+                + [args.long_output]
+                + [args.followup_output] * followup_shorts
             )
-            arrivals = [0.0] * initial_shorts + [args.long_arrival_ms] + [args.followup_arrival_ms] * followup_shorts
+            arrivals = (
+                [0.0] * initial_shorts
+                + [args.long_arrival_ms]
+                + [args.followup_arrival_ms] * followup_shorts
+            )
 
             print(
                 f"\n--- [Concurrency = {concurrency:2d}] "
@@ -163,7 +216,9 @@ def main() -> int:
 
             for mode_name in ("dense", "paged"):
                 path_label = "Dense" if mode_name == "dense" else "Paged"
-                caching_method = "dense-kv-cache" if mode_name == "dense" else "paged-kv-cache"
+                caching_method = (
+                    "dense-kv-cache" if mode_name == "dense" else "paged-kv-cache"
+                )
 
                 tmp_case_output = tmp_dir_path / f"case_{mode_name}_{concurrency}.json"
 
@@ -219,7 +274,10 @@ def main() -> int:
                     )
                     continue
 
-                print(f"[{path_label:5s}] 运行中 (并发={concurrency:2d}) ...", flush=True)
+                print(
+                    f"[{path_label:5s}] 运行中 (并发={concurrency:2d}) ...",
+                    flush=True,
+                )
 
                 env = os.environ.copy()
                 env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -233,11 +291,17 @@ def main() -> int:
 
                 is_oom = proc.returncode != 0 and any(
                     err_kw in (proc.stderr + proc.stdout)
-                    for err_kw in ("CUDA out of memory", "OutOfMemoryError", "CUDA OOM")
+                    for err_kw in (
+                        "CUDA out of memory",
+                        "OutOfMemoryError",
+                        "CUDA OOM",
+                    )
                 )
 
                 if is_oom:
-                    print(f"[{path_label:5s}] concurrency={concurrency:2d} -> 触发 OOM（已熔断跳过后续重复）")
+                    print(
+                        f"[{path_label:5s}] concurrency={concurrency:2d} -> 触发 OOM（已熔断跳过后续重复）"
+                    )
                     rows.append(
                         {
                             "path": path_label,
@@ -297,8 +361,14 @@ def main() -> int:
                             }
                         )
                 else:
-                    err_msg = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else "未知错误"
-                    print(f"[{path_label:5s}] 异常退出 (code={proc.returncode}): {err_msg}")
+                    err_msg = (
+                        proc.stderr.strip().splitlines()[-1]
+                        if proc.stderr.strip()
+                        else "未知错误"
+                    )
+                    print(
+                        f"[{path_label:5s}] 异常退出 (code={proc.returncode}): {err_msg}"
+                    )
                     rows.append(
                         {
                             "path": path_label,

@@ -47,7 +47,10 @@ def make_sequences(
     Returns:
         包含各序列 Python int 列表的列表。
     """
-    return [make_sequence(length, vocab_size, salt=23 * (index + 1)) for index, length in enumerate(lengths)]
+    return [
+        make_sequence(length, vocab_size, salt=23 * (index + 1))
+        for index, length in enumerate(lengths)
+    ]
 
 
 __all__ = [

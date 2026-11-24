@@ -47,7 +47,9 @@ class SchedulerCaseResult:
         """格式化单用例的延迟/吞吐/slot_utilization 摘要行（与 lockstep 对齐）。"""
         cache_frac = self.schedule_metrics.cache_management_fraction.mean
         cache_info = f" | cache {cache_frac * 100:.1f}%" if cache_frac > 0 else ""
-        slot_util = self.packing.slot_utilization.mean if self.packing is not None else 0.0
+        slot_util = (
+            self.packing.slot_utilization.mean if self.packing is not None else 0.0
+        )
         pool_info = (
             f" | pool {self.memory.kv_cache.peak_kv_cache_pool_mb:.1f} MB"
             if self.memory.kv_cache.peak_kv_cache_pool_mb > 0
@@ -95,7 +97,9 @@ class SchedulerCaseResult:
             "throughput_tok_s": self.metrics.throughput_tok_s.to_dict(),
             "throughput_req_s": self.metrics.throughput_req_s.to_dict(),
             "gpu_time_ratio": (
-                self.metrics.gpu_time_ratio.to_dict() if self.metrics.gpu_time_ratio is not None else None
+                self.metrics.gpu_time_ratio.to_dict()
+                if self.metrics.gpu_time_ratio is not None
+                else None
             ),
             "effective_prompt_tok_s": (
                 self.metrics.effective_prompt_tok_s.to_dict()
@@ -103,7 +107,9 @@ class SchedulerCaseResult:
                 else None
             ),
             "padded_prompt_tok_s": (
-                self.metrics.padded_prompt_tok_s.to_dict() if self.metrics.padded_prompt_tok_s is not None else None
+                self.metrics.padded_prompt_tok_s.to_dict()
+                if self.metrics.padded_prompt_tok_s is not None
+                else None
             ),
             "memory": self.memory.to_dict(),
             "schedule": {
@@ -132,7 +138,9 @@ class SchedulerCaseResult:
                 "max_prefill_step_ms": sm.max_prefill_step_ms.to_dict(),
             },
             "repeat_samples": self.repeat_samples,
-            "sample_event_trace": [{**asdict(e), "phase": str(e.phase)} for e in self.sample_events],
+            "sample_event_trace": [
+                {**asdict(e), "phase": str(e.phase)} for e in self.sample_events
+            ],
         }
         if self.key.block_size is not None:
             rec["paged_cache_config"] = {
@@ -164,9 +172,17 @@ class SchedulerCaseResult:
             raise ValueError("runs 不能为空")
 
         first_run = runs[0]
-        first_workload = extract_workload_profile(first_run, workload_id=case_key.workload_id)
-        if any(extract_workload_profile(r, workload_id=case_key.workload_id) != first_workload for r in runs):
-            raise ValueError("SchedulerCaseResult.from_runs 中的所有 run 必须具有相同的负载规格")
+        first_workload = extract_workload_profile(
+            first_run, workload_id=case_key.workload_id
+        )
+        if any(
+            extract_workload_profile(r, workload_id=case_key.workload_id)
+            != first_workload
+            for r in runs
+        ):
+            raise ValueError(
+                "SchedulerCaseResult.from_runs 中的所有 run 必须具有相同的负载规格"
+            )
         workload = first_workload
 
         repeat_samples = [
@@ -174,7 +190,9 @@ class SchedulerCaseResult:
                 "makespan_ms": r.schedule_metrics.makespan_ms,
                 "throughput_req_s": r.metrics.throughput_req_s,
                 "throughput_tok_s": r.metrics.throughput_tok_s,
-                "slot_utilization": (r.batch_info.slot_utilization if r.batch_info is not None else 0.0),
+                "slot_utilization": (
+                    r.batch_info.slot_utilization if r.batch_info is not None else 0.0
+                ),
                 "ttft_ms_p95": r.schedule_metrics.ttft_ms_p95,
                 "itl_ms_p95": r.schedule_metrics.itl_ms_p95,
                 "cache_management_fraction": r.schedule_metrics.cache_management_fraction,
@@ -188,7 +206,9 @@ class SchedulerCaseResult:
             worst_mem,
             peak_allocated_mb=max(r.memory.peak_allocated_mb for r in runs),
             peak_reserved_mb=max(r.memory.peak_reserved_mb for r in runs),
-            kv_cache=summarize_repeated_kv_cache_profiles([r.memory.kv_cache for r in runs]),
+            kv_cache=summarize_repeated_kv_cache_profiles(
+                [r.memory.kv_cache for r in runs]
+            ),
         )
 
         gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
@@ -198,18 +218,36 @@ class SchedulerCaseResult:
             else None
         )
         eff_prompt_vals = [
-            r.metrics.effective_prompt_tok_s for r in runs if r.metrics.effective_prompt_tok_s is not None
+            r.metrics.effective_prompt_tok_s
+            for r in runs
+            if r.metrics.effective_prompt_tok_s is not None
         ]
-        pad_prompt_vals = [r.metrics.padded_prompt_tok_s for r in runs if r.metrics.padded_prompt_tok_s is not None]
+        pad_prompt_vals = [
+            r.metrics.padded_prompt_tok_s
+            for r in runs
+            if r.metrics.padded_prompt_tok_s is not None
+        ]
 
         step_agg_dist: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-            e2e_wall_ms=DistributionStats.from_samples([r.metrics.e2e_wall_ms for r in runs]),
-            e2e_model_ms=DistributionStats.from_samples([r.metrics.e2e_model_ms for r in runs]),
-            throughput_tok_s=DistributionStats.from_samples([r.metrics.throughput_tok_s for r in runs]),
-            throughput_req_s=DistributionStats.from_samples([r.metrics.throughput_req_s for r in runs]),
+            e2e_wall_ms=DistributionStats.from_samples(
+                [r.metrics.e2e_wall_ms for r in runs]
+            ),
+            e2e_model_ms=DistributionStats.from_samples(
+                [r.metrics.e2e_model_ms for r in runs]
+            ),
+            throughput_tok_s=DistributionStats.from_samples(
+                [r.metrics.throughput_tok_s for r in runs]
+            ),
+            throughput_req_s=DistributionStats.from_samples(
+                [r.metrics.throughput_req_s for r in runs]
+            ),
             gpu_time_ratio=gpu_ratio_stat,
-            effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals) if eff_prompt_vals else None,
-            padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals) if pad_prompt_vals else None,
+            effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals)
+            if eff_prompt_vals
+            else None,
+            padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals)
+            if pad_prompt_vals
+            else None,
             ttft_ms=None,
             mean_tpot_ms=None,
             p50_tpot_ms=None,
@@ -219,47 +257,89 @@ class SchedulerCaseResult:
         sched_dist: ScheduleMetrics[DistributionStats] = ScheduleMetrics(
             request_count=first_run.schedule_metrics.request_count,
             max_running_requests=first_run.schedule_metrics.max_running_requests,
-            makespan_ms=DistributionStats.from_samples([r.schedule_metrics.makespan_ms for r in runs]),
-            busy_ms=DistributionStats.from_samples([r.schedule_metrics.busy_ms for r in runs]),
-            cache_management_ms=DistributionStats.from_samples([r.schedule_metrics.cache_management_ms for r in runs]),
+            makespan_ms=DistributionStats.from_samples(
+                [r.schedule_metrics.makespan_ms for r in runs]
+            ),
+            busy_ms=DistributionStats.from_samples(
+                [r.schedule_metrics.busy_ms for r in runs]
+            ),
+            cache_management_ms=DistributionStats.from_samples(
+                [r.schedule_metrics.cache_management_ms for r in runs]
+            ),
             cache_management_fraction=DistributionStats.from_samples(
                 [r.schedule_metrics.cache_management_fraction for r in runs]
             ),
-            scheduler_ms=DistributionStats.from_samples([r.schedule_metrics.scheduler_ms for r in runs]),
-            queue_ms_p50=DistributionStats.from_samples([r.schedule_metrics.queue_ms_p50 for r in runs]),
-            queue_ms_p95=DistributionStats.from_samples([r.schedule_metrics.queue_ms_p95 for r in runs]),
-            ttft_ms_p50=DistributionStats.from_samples([r.schedule_metrics.ttft_ms_p50 for r in runs]),
-            ttft_ms_p95=DistributionStats.from_samples([r.schedule_metrics.ttft_ms_p95 for r in runs]),
-            end_to_end_ms_p50=DistributionStats.from_samples([r.schedule_metrics.end_to_end_ms_p50 for r in runs]),
-            end_to_end_ms_p95=DistributionStats.from_samples([r.schedule_metrics.end_to_end_ms_p95 for r in runs]),
-            itl_ms_p50=DistributionStats.from_samples([r.schedule_metrics.itl_ms_p50 for r in runs]),
-            itl_ms_p95=DistributionStats.from_samples([r.schedule_metrics.itl_ms_p95 for r in runs]),
-            itl_ms_max=DistributionStats.from_samples([r.schedule_metrics.itl_ms_max for r in runs]),
-            num_prefill_steps=DistributionStats.from_samples([r.schedule_metrics.num_prefill_steps for r in runs]),
-            num_decode_steps=DistributionStats.from_samples([r.schedule_metrics.num_decode_steps for r in runs]),
+            scheduler_ms=DistributionStats.from_samples(
+                [r.schedule_metrics.scheduler_ms for r in runs]
+            ),
+            queue_ms_p50=DistributionStats.from_samples(
+                [r.schedule_metrics.queue_ms_p50 for r in runs]
+            ),
+            queue_ms_p95=DistributionStats.from_samples(
+                [r.schedule_metrics.queue_ms_p95 for r in runs]
+            ),
+            ttft_ms_p50=DistributionStats.from_samples(
+                [r.schedule_metrics.ttft_ms_p50 for r in runs]
+            ),
+            ttft_ms_p95=DistributionStats.from_samples(
+                [r.schedule_metrics.ttft_ms_p95 for r in runs]
+            ),
+            end_to_end_ms_p50=DistributionStats.from_samples(
+                [r.schedule_metrics.end_to_end_ms_p50 for r in runs]
+            ),
+            end_to_end_ms_p95=DistributionStats.from_samples(
+                [r.schedule_metrics.end_to_end_ms_p95 for r in runs]
+            ),
+            itl_ms_p50=DistributionStats.from_samples(
+                [r.schedule_metrics.itl_ms_p50 for r in runs]
+            ),
+            itl_ms_p95=DistributionStats.from_samples(
+                [r.schedule_metrics.itl_ms_p95 for r in runs]
+            ),
+            itl_ms_max=DistributionStats.from_samples(
+                [r.schedule_metrics.itl_ms_max for r in runs]
+            ),
+            num_prefill_steps=DistributionStats.from_samples(
+                [r.schedule_metrics.num_prefill_steps for r in runs]
+            ),
+            num_decode_steps=DistributionStats.from_samples(
+                [r.schedule_metrics.num_decode_steps for r in runs]
+            ),
             max_consecutive_prefill_steps=DistributionStats.from_samples(
                 [r.schedule_metrics.max_consecutive_prefill_steps for r in runs]
             ),
             num_oversize_prefill_steps=DistributionStats.from_samples(
                 [r.schedule_metrics.num_oversize_prefill_steps for r in runs]
             ),
-            num_prefill_chunks=DistributionStats.from_samples([r.schedule_metrics.num_prefill_chunks for r in runs]),
+            num_prefill_chunks=DistributionStats.from_samples(
+                [r.schedule_metrics.num_prefill_chunks for r in runs]
+            ),
             max_prefill_step_tokens=DistributionStats.from_samples(
                 [r.schedule_metrics.max_prefill_step_tokens for r in runs]
             ),
-            max_prefill_step_ms=DistributionStats.from_samples([r.schedule_metrics.max_prefill_step_ms for r in runs]),
+            max_prefill_step_ms=DistributionStats.from_samples(
+                [r.schedule_metrics.max_prefill_step_ms for r in runs]
+            ),
         )
 
         batch_infos = [r.batch_info for r in runs if r.batch_info is not None]
         packing: BatchScheduleInfo[DistributionStats] | None = None
         if batch_infos:
             cap_vals = [
-                b.running_capacity_utilization for b in batch_infos if b.running_capacity_utilization is not None
+                b.running_capacity_utilization
+                for b in batch_infos
+                if b.running_capacity_utilization is not None
             ]
             packing = BatchScheduleInfo(
-                padding_efficiency=DistributionStats.from_samples([b.padding_efficiency for b in batch_infos]),
-                slot_utilization=DistributionStats.from_samples([b.slot_utilization for b in batch_infos]),
-                running_capacity_utilization=DistributionStats.from_samples(cap_vals) if cap_vals else None,
+                padding_efficiency=DistributionStats.from_samples(
+                    [b.padding_efficiency for b in batch_infos]
+                ),
+                slot_utilization=DistributionStats.from_samples(
+                    [b.slot_utilization for b in batch_infos]
+                ),
+                running_capacity_utilization=DistributionStats.from_samples(cap_vals)
+                if cap_vals
+                else None,
             )
 
         return cls(
@@ -278,7 +358,9 @@ class SchedulerCaseResult:
         )
 
 
-def extract_workload_profile(res: ScheduleResult, workload_id: str | None = None) -> WorkloadProfile:
+def extract_workload_profile(
+    res: ScheduleResult, workload_id: str | None = None
+) -> WorkloadProfile:
     """从单次调度结果提取纯请求负载画像 WorkloadProfile（纯 CPU）。"""
     prompt_lengths = tuple(s.prompt_len for s in res.sequences)
     output_budgets = tuple(r.num_output_tokens for r in res.request_metrics)

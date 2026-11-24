@@ -30,7 +30,9 @@ class GenerationTrace:
         if self.logits_trace is not None:
             for idx, t in enumerate(self.logits_trace):
                 if not isinstance(t, torch.Tensor):
-                    raise TypeError(f"logits_trace 元素必须为 torch.Tensor，但在索引 {idx} 处检测到 {type(t).__name__}")
+                    raise TypeError(
+                        f"logits_trace 元素必须为 torch.Tensor，但在索引 {idx} 处检测到 {type(t).__name__}"
+                    )
                 if t.device.type != "cpu":
                     raise ValueError(
                         f"logits_trace 元素必须驻留在 CPU 设备上，但在索引 {idx} 处检测到 device='{t.device}'"
@@ -61,7 +63,9 @@ class PagedCacheProfile:
     def prefix_cache_hit_rate(self) -> float:
         """prefix cache Token 命中率（命中 Token 数 / 查询 Prompt Token 数）。"""
         return (
-            self.prefix_cache_hit_tokens / self.prefix_cache_prompt_tokens if self.prefix_cache_prompt_tokens else 0.0
+            self.prefix_cache_hit_tokens / self.prefix_cache_prompt_tokens
+            if self.prefix_cache_prompt_tokens
+            else 0.0
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -154,13 +158,16 @@ def build_memory_profile(
     )
 
 
-def summarize_repeated_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) -> PagedCacheProfile | None:
+def summarize_repeated_paged_cache_profiles(
+    paged: Sequence[PagedCacheProfile],
+) -> PagedCacheProfile | None:
     """汇总同一 Case 多轮重复运行的 Paged physical block pool 画像：固定配置保持一致，峰值取 max，计数取 sum。"""
     if not paged:
         return None
     first = paged[0]
     assert all(
-        (p.block_size, p.bytes_per_block, p.num_blocks) == (first.block_size, first.bytes_per_block, first.num_blocks)
+        (p.block_size, p.bytes_per_block, p.num_blocks)
+        == (first.block_size, first.bytes_per_block, first.num_blocks)
         for p in paged
     ), (
         "All paged cache profiles must share identical physical pool configuration "
@@ -174,19 +181,27 @@ def summarize_repeated_paged_cache_profiles(paged: Sequence[PagedCacheProfile]) 
         block_cold_allocation_count=sum(p.block_cold_allocation_count for p in paged),
         block_reuse_count=sum(p.block_reuse_count for p in paged),
         block_release_count=sum(p.block_release_count for p in paged),
-        prefix_cache_block_eviction_count=sum(p.prefix_cache_block_eviction_count for p in paged),
+        prefix_cache_block_eviction_count=sum(
+            p.prefix_cache_block_eviction_count for p in paged
+        ),
         prefix_cache_prompt_tokens=sum(p.prefix_cache_prompt_tokens for p in paged),
         prefix_cache_hit_tokens=sum(p.prefix_cache_hit_tokens for p in paged),
     )
 
 
-def summarize_repeated_kv_cache_profiles(profiles: Sequence[KVCacheProfile]) -> KVCacheProfile:
+def summarize_repeated_kv_cache_profiles(
+    profiles: Sequence[KVCacheProfile],
+) -> KVCacheProfile:
     """汇总同一 Case 多轮重复运行的 KV Cache 画像：容量峰值取 max，累计搬移/访问取 sum，
     Paged 明细用 summarize_repeated_paged_cache_profiles。
     """
     return KVCacheProfile(
-        peak_live_kv_cache_mb=max((p.peak_live_kv_cache_mb for p in profiles), default=0.0),
-        peak_kv_cache_pool_mb=max((p.peak_kv_cache_pool_mb for p in profiles), default=0.0),
+        peak_live_kv_cache_mb=max(
+            (p.peak_live_kv_cache_mb for p in profiles), default=0.0
+        ),
+        peak_kv_cache_pool_mb=max(
+            (p.peak_kv_cache_pool_mb for p in profiles), default=0.0
+        ),
         cache_realign_moved_bytes=sum(p.cache_realign_moved_bytes for p in profiles),
         accessed_kv_cache_tokens=sum(p.accessed_kv_cache_tokens for p in profiles),
         paged_cache=summarize_repeated_paged_cache_profiles(
@@ -212,7 +227,9 @@ class BatchScheduleInfo(Generic[_MetricT]):
                 else self.padding_efficiency
             ),
             "slot_utilization": (
-                self.slot_utilization.to_dict() if hasattr(self.slot_utilization, "to_dict") else self.slot_utilization
+                self.slot_utilization.to_dict()
+                if hasattr(self.slot_utilization, "to_dict")
+                else self.slot_utilization
             ),
         }
         if self.running_capacity_utilization is not None:
@@ -255,16 +272,24 @@ def compute_step_aggregated_metrics(
     """计算时延分位数、吞吐率与 GPU 利用率纯标量指标（由各 step 统计聚合而成）。"""
     decode_latencies = step_latencies_ms[1:] if len(step_latencies_ms) > 1 else []
     ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
-    mean_tpot_ms = (sum(decode_latencies) / len(decode_latencies)) if decode_latencies else 0.0
+    mean_tpot_ms = (
+        (sum(decode_latencies) / len(decode_latencies)) if decode_latencies else 0.0
+    )
     p50_tpot_ms = percentile(decode_latencies, 50)
     p95_tpot_ms = percentile(decode_latencies, 95)
     if e2e_model_ms is None:
         e2e_model_ms = sum(step_latencies_ms)
     throughput_tok_s = total_tokens / (e2e_model_ms / 1000) if e2e_model_ms > 0 else 0.0
     throughput_req_s = batch_size * 1000 / e2e_model_ms if e2e_model_ms > 0 else 0.0
-    gpu_time_ratio = (min(1.0, e2e_model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0) if is_cuda else None
+    gpu_time_ratio = (
+        (min(1.0, e2e_model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0)
+        if is_cuda
+        else None
+    )
     effective_prompt_tok_s = (
-        (num_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0) if num_prompt_tokens is not None else None
+        (num_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0)
+        if num_prompt_tokens is not None
+        else None
     )
     padded_prompt_tok_s = (
         (num_padded_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0)
@@ -294,7 +319,9 @@ class ScheduleEvent:
     phase: SchedulePhase
     admitted_request_ids: tuple[int, ...]  # 本事件入场的 request_idx
     finished_request_ids: tuple[int, ...]  # 本事件结束的 request_idx
-    physical_batch_size: int  # 模型实际执行的行数（含空闲/已结束 batch slot；PREFILL 为本步 chunk 数）
+    physical_batch_size: (
+        int  # 模型实际执行的行数（含空闲/已结束 batch slot；PREFILL 为本步 chunk 数）
+    )
     num_active_requests: int  # 事件期间仍在占用 batch slot 的请求数
     num_generated_tokens: int  # 本事件产出的有效 Token 数
     num_scheduled_tokens: int  # 本事件计费 Token 数（透传 SchedulerOutput：PREFILL 为 padded prompt token 数）
@@ -306,7 +333,9 @@ class ScheduleEvent:
     kv_cache_pool_bytes: int = 0
     cache_realign_moved_bytes: int = 0
     accessed_kv_cache_tokens: int = 0
-    is_oversize_prefill: bool = False  # 透传 SchedulerOutput：token-budget 下队头单独超预算放行的 PREFILL
+    is_oversize_prefill: bool = (
+        False  # 透传 SchedulerOutput：token-budget 下队头单独超预算放行的 PREFILL
+    )
 
 
 @dataclass(frozen=True)
@@ -331,12 +360,12 @@ class ScheduleMetrics(Generic[_MetricT]):
     itl_ms_max: _MetricT
     num_prefill_steps: _MetricT
     num_decode_steps: _MetricT
-    max_consecutive_prefill_steps: _MetricT  # 最长连续 PREFILL 事件数：衡量 Prefill burst 对在途 Decode 的阻塞
+    max_consecutive_prefill_steps: (
+        _MetricT  # 最长连续 PREFILL 事件数：衡量 Prefill burst 对在途 Decode 的阻塞
+    )
     num_oversize_prefill_steps: _MetricT
     num_prefill_chunks: _MetricT  # PREFILL 步内各请求的 Prompt 区间总数；非 chunked-prefill 策略下等于请求数
-    max_prefill_step_tokens: (
-        _MetricT  # 单个 PREFILL 步的最大 padded chunk token 数（chunked-prefill 下 <= token_budget）
-    )
+    max_prefill_step_tokens: _MetricT  # 单个 PREFILL 步的最大 padded chunk token 数（chunked-prefill 下 <= token_budget）
     max_prefill_step_ms: _MetricT  # 单个 PREFILL 步的最长耗时：在途 Decode 被 Prefill 阻塞的上界，直接决定 itl_ms_max
 
 
@@ -364,20 +393,28 @@ def summarize_schedule(
     """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
     from mini_infra.engine.results import ScheduleResult
 
-    resolved_kv_config = kv_cache_config if kv_cache_config is not None else DenseCacheConfig()
+    resolved_kv_config = (
+        kv_cache_config if kv_cache_config is not None else DenseCacheConfig()
+    )
 
     requests = [state.to_request_metrics() for state in states]
     completion_step_by_request_idx = {
-        request_idx: step_idx + 1 for step_idx, e in enumerate(events) for request_idx in e.finished_request_ids
+        request_idx: step_idx + 1
+        for step_idx, e in enumerate(events)
+        for request_idx in e.finished_request_ids
     }
     sequences = [
         state.to_sequence_output(
-            completion_step=completion_step_by_request_idx.get(state.request.request_idx, len(events))
+            completion_step=completion_step_by_request_idx.get(
+                state.request.request_idx, len(events)
+            )
         )
         for state in states
     ]
 
-    makespan_ms = max(r.completion_ms for r in requests) - min(r.arrival_ms for r in requests)
+    makespan_ms = max(r.completion_ms for r in requests) - min(
+        r.arrival_ms for r in requests
+    )
     busy_ms = sum(e.step_ms for e in events)
     model_ms = sum(e.model_ms for e in events)
     cache_ms = sum(e.cache_management_ms for e in events)
@@ -392,7 +429,9 @@ def summarize_schedule(
     mib = 1024**2
 
     slot_util = num_output_tokens / total_executed_slots if total_executed_slots else 0.0
-    running_capacity_util = capacity_area / (max_running_requests * busy_ms) if busy_ms else 0.0
+    running_capacity_util = (
+        capacity_area / (max_running_requests * busy_ms) if busy_ms else 0.0
+    )
     peak_live_kv_cache_mb = max((e.live_kv_cache_bytes for e in events), default=0) / mib
     peak_kv_cache_pool_mb = max((e.kv_cache_pool_bytes for e in events), default=0) / mib
     cache_realign_moved_bytes = sum(e.cache_realign_moved_bytes for e in events)
@@ -400,21 +439,35 @@ def summarize_schedule(
 
     num_prompt_tokens = sum(state.request.prompt_len for state in states)
     # 实际送入前向的有效 Prompt Token 数：prefix cache 命中部分不参与 Prefill 计算（未启用时等于 num_prompt_tokens）
-    num_computed_prompt_tokens = num_prompt_tokens - sum(state.prefix_cache_hit_tokens for state in states)
+    num_computed_prompt_tokens = num_prompt_tokens - sum(
+        state.prefix_cache_hit_tokens for state in states
+    )
     num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in prefill_events)
     if num_padded_prompt_tokens == 0:
         num_padded_prompt_tokens = num_computed_prompt_tokens
-    padding_efficiency = num_computed_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0
+    padding_efficiency = (
+        num_computed_prompt_tokens / num_padded_prompt_tokens
+        if num_padded_prompt_tokens
+        else 0.0
+    )
 
-    gpu_time_ratio = (min(1.0, model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0) if is_cuda else None
+    gpu_time_ratio = (
+        (min(1.0, model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0)
+        if is_cuda
+        else None
+    )
     step_agg_metrics: StepAggregatedMetrics[float] = StepAggregatedMetrics(
         e2e_wall_ms=e2e_wall_ms,
         e2e_model_ms=model_ms,
         throughput_tok_s=num_output_tokens * 1000 / busy_ms if busy_ms else 0.0,
         throughput_req_s=len(requests) * 1000 / busy_ms if busy_ms else 0.0,
         gpu_time_ratio=gpu_time_ratio,
-        effective_prompt_tok_s=num_prompt_tokens * 1000 / prefill_ms if prefill_ms else 0.0,
-        padded_prompt_tok_s=num_padded_prompt_tokens * 1000 / prefill_ms if prefill_ms else 0.0,
+        effective_prompt_tok_s=num_prompt_tokens * 1000 / prefill_ms
+        if prefill_ms
+        else 0.0,
+        padded_prompt_tok_s=num_padded_prompt_tokens * 1000 / prefill_ms
+        if prefill_ms
+        else 0.0,
         ttft_ms=None,
         mean_tpot_ms=None,
         p50_tpot_ms=None,
@@ -460,7 +513,9 @@ def summarize_schedule(
         max_consecutive_prefill_steps=_max_consecutive_prefill_steps(events),
         num_oversize_prefill_steps=sum(1 for e in events if e.is_oversize_prefill),
         num_prefill_chunks=sum(e.physical_batch_size for e in prefill_events),
-        max_prefill_step_tokens=max((e.num_scheduled_tokens for e in prefill_events), default=0),
+        max_prefill_step_tokens=max(
+            (e.num_scheduled_tokens for e in prefill_events), default=0
+        ),
         max_prefill_step_ms=max((e.step_ms for e in prefill_events), default=0.0),
     )
     trace = GenerationTrace(

@@ -5,7 +5,13 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 from mini_infra.bench.cases import CaseDimension
 from mini_infra.core import (
@@ -90,7 +96,9 @@ class LogUniformLength(_Strict):
     @model_validator(mode="after")
     def _check_range(self) -> "LogUniformLength":
         if self.min > self.max:
-            raise ValueError(f"log_uniform 要求 min <= max，实际为 {self.min} > {self.max}")
+            raise ValueError(
+                f"log_uniform 要求 min <= max，实际为 {self.min} > {self.max}"
+            )
         return self
 
 
@@ -160,11 +168,18 @@ def _normalize_arrival(raw: Any) -> Any:
         return {"kind": "constant", "value": raw}
     if isinstance(raw, list):
         return {"kind": "explicit", "values": raw}
-    if isinstance(raw, dict) and len(raw) == 1 and "kind" not in raw and "interval" in raw:
+    if (
+        isinstance(raw, dict)
+        and len(raw) == 1
+        and "kind" not in raw
+        and "interval" in raw
+    ):
         return {"kind": "interval", "interval_ms": raw["interval"]}
     if isinstance(raw, dict) and len(raw) == 1 and "kind" not in raw and "poisson" in raw:
         if not isinstance(raw["poisson"], dict):
-            raise ValueError("poisson 需要 {initial_burst: <int>, mean_interval_ms: <float>} 形式的映射")
+            raise ValueError(
+                "poisson 需要 {initial_burst: <int>, mean_interval_ms: <float>} 形式的映射"
+            )
         return {"kind": "poisson", **raw["poisson"]}
     return raw
 
@@ -192,11 +207,20 @@ class GroupSpec(_Strict):
         for field_name in ("prompt_len", "output_len"):
             length = getattr(self, field_name)
             if isinstance(length, ExplicitLength) and len(length.values) != self.count:
-                raise ValueError(f"{field_name} 显式列表长度 {len(length.values)} 必须等于 count={self.count}")
+                raise ValueError(
+                    f"{field_name} 显式列表长度 {len(length.values)} 必须等于 count={self.count}"
+                )
             if isinstance(length, LadderLength) and self.count != _LADDER_REQUESTS:
-                raise ValueError(f"{field_name} 的 ladder 要求 count == {_LADDER_REQUESTS}")
-        if isinstance(self.arrival_ms, ExplicitArrival) and len(self.arrival_ms.values) != self.count:
-            raise ValueError(f"arrival_ms 显式列表长度 {len(self.arrival_ms.values)} 必须等于 count={self.count}")
+                raise ValueError(
+                    f"{field_name} 的 ladder 要求 count == {_LADDER_REQUESTS}"
+                )
+        if (
+            isinstance(self.arrival_ms, ExplicitArrival)
+            and len(self.arrival_ms.values) != self.count
+        ):
+            raise ValueError(
+                f"arrival_ms 显式列表长度 {len(self.arrival_ms.values)} 必须等于 count={self.count}"
+            )
         return self
 
 
@@ -236,7 +260,9 @@ def normalize_workload_body(body: dict[str, Any]) -> dict[str, Any]:
     rest = {key: value for key, value in body.items() if key not in meta}
     if "groups" in rest:
         if _GROUP_FIELDS & rest.keys():
-            raise ValueError("groups 与单组简写字段（count / prompt_len / output_len / arrival_ms）不能同时出现")
+            raise ValueError(
+                "groups 与单组简写字段（count / prompt_len / output_len / arrival_ms）不能同时出现"
+            )
         return {**rest, **meta}
     return {"groups": [rest], **meta}
 
@@ -412,7 +438,9 @@ class MinOutputLenCheck(_Strict):
     min_output_len: PositiveInt
 
 
-CheckSpec = Literal["free_batch_slot_at_t0"] | MinMaxRunningRequestsCheck | MinOutputLenCheck
+CheckSpec = (
+    Literal["free_batch_slot_at_t0"] | MinMaxRunningRequestsCheck | MinOutputLenCheck
+)
 
 
 __all__ = [

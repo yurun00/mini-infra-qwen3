@@ -17,7 +17,9 @@ def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     """渲染单个 Scheduler 用例的一行表格字段。"""
     slot_util = res.packing.slot_utilization.mean if res.packing is not None else 0.0
     block_size_str = str(res.key.block_size) if res.key.block_size is not None else ""
-    token_budget_str = str(res.key.token_budget) if res.key.token_budget is not None else ""
+    token_budget_str = (
+        str(res.key.token_budget) if res.key.token_budget is not None else ""
+    )
     return [
         _abbreviate_suite_name(suite_name),
         res.key.abbreviated_workload_id,
@@ -39,7 +41,9 @@ def _format_case_row(res: SchedulerCaseResult, suite_name: str) -> list[str]:
     ]
 
 
-def format_table(case_results: Sequence[SchedulerCaseResult], suite_name: str = "custom") -> str:
+def format_table(
+    case_results: Sequence[SchedulerCaseResult], suite_name: str = "custom"
+) -> str:
     """将 Scheduler 用例结果列表格式化为列对齐的终端展示表格。"""
     header = [
         "suite",

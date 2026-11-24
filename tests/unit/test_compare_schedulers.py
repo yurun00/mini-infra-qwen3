@@ -19,7 +19,15 @@ def test_run_compare_schedulers_on_cpu(diverse_model, tmp_path):
     sequences = [
         [1, 2, 3],
         [4, 5, 6, 7],
-        [8, 9, 10, 11, 12, 13, 14],  # 长度 7 > token_budget=6，触发 oversize prefill
+        [
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+        ],  # 长度 7 > token_budget=6，触发 oversize prefill
         [15, 16],
         [17, 18, 19],
         [20, 21, 22],
@@ -49,7 +57,9 @@ def test_run_compare_schedulers_on_cpu(diverse_model, tmp_path):
     assert result["token_budget_metrics"]["max_consecutive_prefill_steps"] == 1
 
     # 请求 2 的 Prompt 长度为 7 > token_budget=6，应在 token_budget_trace 中标记为 is_oversize_prefill
-    oversize_steps = [step for step in result["token_budget_trace"] if step["is_oversize_prefill"]]
+    oversize_steps = [
+        step for step in result["token_budget_trace"] if step["is_oversize_prefill"]
+    ]
     assert len(oversize_steps) == 1
     assert oversize_steps[0]["admitted_request_ids"] == [2]
     assert oversize_steps[0]["num_scheduled_tokens"] == 7

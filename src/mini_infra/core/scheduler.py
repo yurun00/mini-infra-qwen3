@@ -25,7 +25,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from mini_infra.core.block_manager import NULL_KV_CACHE_MANAGER, BaseKVCacheManager
+from mini_infra.core.block_manager import (
+    NULL_KV_CACHE_MANAGER,
+    BaseKVCacheManager,
+)
 from mini_infra.core.request import (
     Request,
     RequestState,
@@ -48,7 +51,9 @@ class ArrivalQueue:
     """
 
     def __init__(self, states: Iterable[RequestState]):
-        self._requests: deque[RequestState] = deque(sorted(states, key=lambda state: state.request.arrival_ms))
+        self._requests: deque[RequestState] = deque(
+            sorted(states, key=lambda state: state.request.arrival_ms)
+        )
 
     def __len__(self) -> int:
         return len(self._requests)
@@ -165,13 +170,17 @@ class RunningQueue:
     def can_admit(self) -> bool:
         return bool(self._free_batch_slots)
 
-    def admit(self, states: Sequence[RequestState], clock_ms: float) -> list[RequestState]:
+    def admit(
+        self, states: Sequence[RequestState], clock_ms: float
+    ) -> list[RequestState]:
         """将就绪请求分配最小空闲 batch slot 并标记 RUNNING 状态，加入运行中队列。
 
         cache_length 不在此设置：由调度步按 PrefillChunk 推进。
         """
         if len(states) > len(self._free_batch_slots):
-            raise ValueError(f"可用 batch slot 不足：需要 {len(states)}，剩余 {len(self._free_batch_slots)}")
+            raise ValueError(
+                f"可用 batch slot 不足：需要 {len(states)}，剩余 {len(self._free_batch_slots)}"
+            )
         for state in states:
             state.status = RequestStatus.RUNNING
             state.admitted_ms = clock_ms
@@ -215,7 +224,11 @@ def prepare_schedule(
         raise ValueError("max_running_requests 必须大于 0")
     validate_requests(requests)
     states = [RequestState(req) for req in requests]
-    return states, ArrivalQueue(states), min(state.request.arrival_ms for state in states)
+    return (
+        states,
+        ArrivalQueue(states),
+        min(state.request.arrival_ms for state in states),
+    )
 
 
 class SchedulePhase(str, Enum):
@@ -273,7 +286,9 @@ class SchedulerOutput:
     prefill_chunks: tuple[PrefillChunk, ...] = ()
 
 
-def _select_within_budget(chunks: tuple[PrefillChunk, ...], token_budget: int) -> tuple[tuple[PrefillChunk, ...], bool]:
+def _select_within_budget(
+    chunks: tuple[PrefillChunk, ...], token_budget: int
+) -> tuple[tuple[PrefillChunk, ...], bool]:
     """按 FCFS 取 padded chunk token 数不超过 token_budget 的最长前缀；队头放不下即停，不向后跳选。
 
     无 Chunked Prefill 时长 Prompt 无法拆分：若队头请求单独已超预算，则让它独自执行（oversize prefill），
@@ -350,20 +365,32 @@ class IterationScheduler:
         if output is None:
             return None
         if output.phase is SchedulePhase.PREFILL:
-            num_new = sum(1 for chunk in output.prefill_chunks if chunk.state.status is RequestStatus.WAITING)
-            admitted = self.running_queue.admit(self.waiting_queue.pop_batch(num_new), clock_ms)
+            num_new = sum(
+                1
+                for chunk in output.prefill_chunks
+                if chunk.state.status is RequestStatus.WAITING
+            )
+            admitted = self.running_queue.admit(
+                self.waiting_queue.pop_batch(num_new), clock_ms
+            )
             # 先为全部新入场请求引用 prefix cache 命中块，再统一追加新块：
             # 新块分配可能从 free block queue 队首淘汰空闲 cached block，先引用可保证已规划的命中不被淘汰
             for state in admitted:
                 hit_tokens = self.kv_cache_manager.allocate_computed_blocks(state.request)
                 state.prefix_cache_hit_tokens = hit_tokens
                 state.cache_length = hit_tokens
-            allocations = [(chunk.state, chunk.num_tokens) for chunk in output.prefill_chunks]
+            allocations = [
+                (chunk.state, chunk.num_tokens) for chunk in output.prefill_chunks
+            ]
         else:
             allocations = [(state, 1) for state in output.scheduled_requests]
         for state, num_new_tokens in allocations:
-            if not self.kv_cache_manager.allocate_slots(state.request.request_idx, num_new_tokens):
-                raise RuntimeError("Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks")
+            if not self.kv_cache_manager.allocate_slots(
+                state.request.request_idx, num_new_tokens
+            ):
+                raise RuntimeError(
+                    "Paged KV Cache 物理块已耗尽（当前未实现抢占），请增大 num_blocks"
+                )
         self._last_phase = output.phase
         return output
 
@@ -389,7 +416,9 @@ class IterationScheduler:
             for chunk in scheduler_output.prefill_chunks:
                 chunk.state.cache_length = chunk.end
                 self.kv_cache_manager.cache_blocks(chunk.state)
-            producers = tuple(chunk.state for chunk in scheduler_output.prefill_chunks if chunk.is_last)
+            producers = tuple(
+                chunk.state for chunk in scheduler_output.prefill_chunks if chunk.is_last
+            )
         finished = self.running_queue.process_step_output(
             token_ids,
             clock_ms,
@@ -412,22 +441,38 @@ class IterationScheduler:
     def _admission_candidates(self) -> tuple[RequestState, ...]:
         """batching、batch slot 与 KV 显存约束下可入场的 WaitingQueue FCFS 前缀。"""
         is_continuous = self.batching_method is BatchingMethod.CONTINUOUS
-        can_admit = self.running_queue.can_admit() if is_continuous else not self.running_queue
+        can_admit = (
+            self.running_queue.can_admit() if is_continuous else not self.running_queue
+        )
         if not can_admit:
             return ()
-        candidates = self.waiting_queue.requests[: self.running_queue.num_free_batch_slots]
+        candidates = self.waiting_queue.requests[
+            : self.running_queue.num_free_batch_slots
+        ]
         num_admissible = self.kv_cache_manager.num_admissible(
-            [s.request for s in candidates], self.running_queue.prefilling_requests
+            [s.request for s in candidates],
+            self.running_queue.prefilling_requests,
         )
         return candidates[:num_admissible]
 
-    def _remaining_prompt_chunks(self, states: Sequence[RequestState]) -> tuple[PrefillChunk, ...]:
+    def _remaining_prompt_chunks(
+        self, states: Sequence[RequestState]
+    ) -> tuple[PrefillChunk, ...]:
         """每个请求一个 chunk 覆盖 Prompt 剩余部分（prefill-first / token-budget 不切分 Prompt，跳过前缀命中）。"""
         return tuple(
-            PrefillChunk(state, self._num_computed_tokens(state), state.request.prompt_len) for state in states
+            PrefillChunk(
+                state,
+                self._num_computed_tokens(state),
+                state.request.prompt_len,
+            )
+            for state in states
         )
 
-    def _prefill_output(self, chunks: tuple[PrefillChunk, ...], is_oversize_prefill: bool = False) -> SchedulerOutput:
+    def _prefill_output(
+        self,
+        chunks: tuple[PrefillChunk, ...],
+        is_oversize_prefill: bool = False,
+    ) -> SchedulerOutput:
         return SchedulerOutput(
             phase=SchedulePhase.PREFILL,
             scheduled_requests=tuple(chunk.state for chunk in chunks),
@@ -451,20 +496,32 @@ class IterationScheduler:
         n × max(chunk) ≤ token_budget 恒成立；token_budget ≥ max_running_requests 保证上限至少为 1。
         新请求的区间从 prefix cache 命中长度起算（命中长度 ≤ prompt_len - 1，至少推进 1 个 Token）。
         """
-        candidates = (*self.running_queue.prefilling_requests, *self._admission_candidates())
+        candidates = (
+            *self.running_queue.prefilling_requests,
+            *self._admission_candidates(),
+        )
         if not candidates:
             return ()
         chunk_cap = token_budget // len(candidates)
         chunks = []
         for state in candidates:
             start = self._num_computed_tokens(state)
-            chunks.append(PrefillChunk(state, start, start + min(state.request.prompt_len - start, chunk_cap)))
+            chunks.append(
+                PrefillChunk(
+                    state,
+                    start,
+                    start + min(state.request.prompt_len - start, chunk_cap),
+                )
+            )
         return tuple(chunks)
 
     def _decide(self) -> SchedulerOutput | None:
         policy = self.scheduler_config.batching_policy
         if isinstance(policy, ChunkedPrefillConfig):
-            if self.running_queue.decoding_requests and self._last_phase is SchedulePhase.PREFILL:
+            if (
+                self.running_queue.decoding_requests
+                and self._last_phase is SchedulePhase.PREFILL
+            ):
                 return self._decode_output()
             chunks = self._plan_chunks(policy.token_budget)
             if chunks:
@@ -476,7 +533,9 @@ class IterationScheduler:
         admission_candidates = self._admission_candidates()
         if isinstance(policy, PrefillFirstConfig):
             if admission_candidates:
-                return self._prefill_output(self._remaining_prompt_chunks(admission_candidates))
+                return self._prefill_output(
+                    self._remaining_prompt_chunks(admission_candidates)
+                )
             if self.running_queue:
                 return self._decode_output()
             return None
@@ -485,7 +544,8 @@ class IterationScheduler:
             return self._decode_output()
         if admission_candidates:
             selected, is_oversize_prefill = _select_within_budget(
-                self._remaining_prompt_chunks(admission_candidates), policy.token_budget
+                self._remaining_prompt_chunks(admission_candidates),
+                policy.token_budget,
             )
             return self._prefill_output(selected, is_oversize_prefill)
         if self.running_queue:

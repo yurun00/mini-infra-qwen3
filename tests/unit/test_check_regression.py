@@ -38,7 +38,9 @@ def test_improvement_not_flagged():
 
 def test_change_within_noise_not_flagged():
     # 劣化 8% 超过阈值，但 std 很大，变化量小于 3 倍 std，视为噪声
-    regressed, _ = compare(make_record(40, 37 * 1.08, std=2.0), make_record(40, 37, std=2.0), 0.05)
+    regressed, _ = compare(
+        make_record(40, 37 * 1.08, std=2.0), make_record(40, 37, std=2.0), 0.05
+    )
     assert regressed is False
 
 

@@ -8,8 +8,15 @@ from mini_infra.bench.spec.common.lengths import (
     sample_log_uniform_lengths,
     sample_poisson_arrivals,
 )
-from mini_infra.bench.spec.common.overrides import apply_overrides, parse_set_args
-from mini_infra.bench.spec.common.raw import deep_merge, load_raw_spec, spec_sha256
+from mini_infra.bench.spec.common.overrides import (
+    apply_overrides,
+    parse_set_args,
+)
+from mini_infra.bench.spec.common.raw import (
+    deep_merge,
+    load_raw_spec,
+    spec_sha256,
+)
 from mini_infra.bench.spec.common.schema import (
     AlternatingLength,
     ArrivalSpec,
@@ -47,7 +54,11 @@ from mini_infra.bench.spec.common.schema import (
     WorkloadSpec,
     normalize_workload_body,
 )
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, interpolate, resolve_workload_body
+from mini_infra.bench.spec.common.workload import (
+    ResolvedWorkloadSpec,
+    interpolate,
+    resolve_workload_body,
+)
 
 __all__ = [
     "AlternatingLength",

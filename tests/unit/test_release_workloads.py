@@ -7,14 +7,27 @@ from typing import Any
 
 import pytest
 
-from mini_infra.bench.spec import RELEASE_SCALES, ResolvedWorkloadSpec, get_release_spec
-from mini_infra.bench.spec.common import sample_log_uniform_lengths, sample_poisson_arrivals
+from mini_infra.bench.spec import (
+    RELEASE_SCALES,
+    ResolvedWorkloadSpec,
+    get_release_spec,
+)
+from mini_infra.bench.spec.common import (
+    sample_log_uniform_lengths,
+    sample_poisson_arrivals,
+)
 from mini_infra.bench.spec.release import release_workloads
 
-GOLDEN = json.loads((Path(__file__).parent / "data" / "release_workloads_golden.json").read_text(encoding="utf-8"))
+GOLDEN = json.loads(
+    (Path(__file__).parent / "data" / "release_workloads_golden.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
-def _encode(w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int) -> dict[str, Any]:
+def _encode(
+    w: ResolvedWorkloadSpec, *, engine: str, scale: str, seed: int
+) -> dict[str, Any]:
     def as_list(x: Any) -> Any:
         return list(x) if isinstance(x, tuple) else x
 
@@ -46,14 +59,23 @@ def test_release_yaml_matches_legacy_golden(engine, seed):
 @pytest.mark.parametrize("engine", ["lockstep", "scheduler"])
 def test_default_seed_is_the_standard_seed(engine):
     assert get_release_spec(engine).spec.default_seed == GOLDEN["default_seed"] == 42
-    default = {s: _encode(w, engine=engine, scale=s, seed=42) for s, w in release_workloads(engine).items()}
+    default = {
+        s: _encode(w, engine=engine, scale=s, seed=42)
+        for s, w in release_workloads(engine).items()
+    }
     assert default == GOLDEN[engine]["42"]
     assert set(default) == set(RELEASE_SCALES)
 
 
 def test_release_default_modes():
-    assert str(get_release_spec("lockstep").default_engine_config) == "dense-kv-cache+fixed-batching"
-    assert str(get_release_spec("scheduler").default_engine_config) == "dense-kv-cache+continuous-batching+mrr=16"
+    assert (
+        str(get_release_spec("lockstep").default_engine_config)
+        == "dense-kv-cache+fixed-batching"
+    )
+    assert (
+        str(get_release_spec("scheduler").default_engine_config)
+        == "dense-kv-cache+continuous-batching+mrr=16"
+    )
 
 
 def test_release_seed_changes_workload():
@@ -84,4 +106,8 @@ def test_samplers_are_deterministic_and_within_bounds():
     gaps = [b - a for a, b in zip(arrivals[3:], arrivals[4:])]
     assert all(g >= 0 for g in gaps)
     # 突发数超过请求数时全部同时到达
-    assert sample_poisson_arrivals(random.Random(1), 3, 10, 50.0) == (0.0, 0.0, 0.0)
+    assert sample_poisson_arrivals(random.Random(1), 3, 10, 50.0) == (
+        0.0,
+        0.0,
+        0.0,
+    )

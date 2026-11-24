@@ -154,7 +154,9 @@ def add_run_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return parser
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """在根/上级 subparsers 中注册 run 子命令。"""
     parser = subparsers.add_parser("run", help="运行手写模型单请求/批处理推理与特性对照")
     add_run_args(parser)
@@ -189,7 +191,9 @@ def _parse_engine_arg_value(flag: str, raw: str) -> Any:
     value = kwargs.get("type", str)(raw)
     choices = kwargs.get("choices")
     if choices is not None and value not in choices:
-        raise ValueError(f"--compare-feature {flag.removeprefix('--')} 的取值 '{raw}' 非法，可选: {choices}")
+        raise ValueError(
+            f"--compare-feature {flag.removeprefix('--')} 的取值 '{raw}' 非法，可选: {choices}"
+        )
     return value
 
 
@@ -205,10 +209,14 @@ def resolve_compare_feature(
     flag = f"--{arg_name}"
     if flag not in _ENGINE_CONFIG_ARGS:
         valid = [f.removeprefix("--") for f in _ENGINE_CONFIG_ARGS]
-        raise ValueError(f"--compare-feature 参数 '{arg_name}' 不是 EngineConfig 参数，可选: {valid}")
+        raise ValueError(
+            f"--compare-feature 参数 '{arg_name}' 不是 EngineConfig 参数，可选: {valid}"
+        )
     dest = arg_name.replace("-", "_")
     config1, config2 = (
-        build_engine_config(argparse.Namespace(**{**vars(args), dest: _parse_engine_arg_value(flag, raw)}))
+        build_engine_config(
+            argparse.Namespace(**{**vars(args), dest: _parse_engine_arg_value(flag, raw)})
+        )
         for raw in (raw1, raw2)
     )
     if config1 == config2:
@@ -243,7 +251,8 @@ def shrink_budgets(budgets: int | list[int], limit: int) -> int | list[int]:
 def uses_scheduler(configs: Sequence[EngineConfig]) -> bool:
     """只要任一配置使用 continuous batching 或 paged-kv-cache，所有结果都统一由 run_scheduler 产出（指标可比）。"""
     return any(
-        c.batching_method is BatchingMethod.CONTINUOUS or isinstance(c.kv_cache_config, PagedCacheConfig)
+        c.batching_method is BatchingMethod.CONTINUOUS
+        or isinstance(c.kv_cache_config, PagedCacheConfig)
         for c in configs
     )
 
@@ -260,9 +269,13 @@ def run_config(
     """执行单个 EngineConfig：via_scheduler 为 True 时统一由 run_scheduler 产出；否则沿用 generate。"""
     if via_scheduler:
         if isinstance(config.kv_cache_config, NoCacheConfig):
-            raise ValueError("调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache")
+            raise ValueError(
+                "调度路径依赖 KV Cache，请将 --caching-method 设为 dense-kv-cache 或 paged-kv-cache"
+            )
         if options.capture_logits or options.profile:
-            raise ValueError("调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比")
+            raise ValueError(
+                "调度路径暂不支持 capture_logits/profile，请去掉 --profile 或 continuous 对比"
+            )
         requests = make_requests(sequences, budgets)
         return run_scheduler(
             config,
@@ -280,14 +293,26 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
     print("Makespan: %.2f ms" % sm.makespan_ms)
     print("排队延迟 p50/p95: %.2f / %.2f ms" % (sm.queue_ms_p50, sm.queue_ms_p95))
     print("TTFT p50/p95: %.2f / %.2f ms" % (sm.ttft_ms_p50, sm.ttft_ms_p95))
-    print("ITL p50/p95/max: %.2f / %.2f / %.2f ms" % (sm.itl_ms_p50, sm.itl_ms_p95, sm.itl_ms_max))
+    print(
+        "ITL p50/p95/max: %.2f / %.2f / %.2f ms"
+        % (sm.itl_ms_p50, sm.itl_ms_p95, sm.itl_ms_max)
+    )
     print(
         "调度步数 Prefill/Decode: %d / %d，最长连续 Prefill: %d 步，oversize prefill: %d 次"
-        % (sm.num_prefill_steps, sm.num_decode_steps, sm.max_consecutive_prefill_steps, sm.num_oversize_prefill_steps)
+        % (
+            sm.num_prefill_steps,
+            sm.num_decode_steps,
+            sm.max_consecutive_prefill_steps,
+            sm.num_oversize_prefill_steps,
+        )
     )
     print(
         "Prefill chunk 数: %d，单步最大 padded token: %d，最长 Prefill 步: %.2f ms"
-        % (sm.num_prefill_chunks, sm.max_prefill_step_tokens, sm.max_prefill_step_ms)
+        % (
+            sm.num_prefill_chunks,
+            sm.max_prefill_step_tokens,
+            sm.max_prefill_step_ms,
+        )
     )
     print("Cache 管理耗时占比: %.2f%%" % (sm.cache_management_fraction * 100))
     info = result.batch_info
@@ -295,12 +320,23 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
         print("并发容量利用率: %.2f%%" % (info.running_capacity_utilization * 100))
 
 
-def print_result(config: EngineConfig, result, tokenizer: Qwen3Tokenizer, tensorboard_dir: Path | None = None) -> None:
+def print_result(
+    config: EngineConfig,
+    result,
+    tokenizer: Qwen3Tokenizer,
+    tensorboard_dir: Path | None = None,
+) -> None:
     print("\n[%s]" % config)
     is_prefix_caching_enabled = config.kv_cache_config.is_prefix_caching_enabled
     for seq in result.sequences:
         print("请求 %d Token IDs: %s" % (seq.request_idx, seq.token_ids))
-        print("请求 %d 输出: %s" % (seq.request_idx, tokenizer.decode(seq.token_ids, skip_special_tokens=True)))
+        print(
+            "请求 %d 输出: %s"
+            % (
+                seq.request_idx,
+                tokenizer.decode(seq.token_ids, skip_special_tokens=True),
+            )
+        )
         if is_prefix_caching_enabled:
             print(
                 "请求 %d prefix cache 命中 Token 数: %d / %d"
@@ -308,8 +344,13 @@ def print_result(config: EngineConfig, result, tokenizer: Qwen3Tokenizer, tensor
             )
     if isinstance(result, ScheduleResult):
         num_prompt_tokens = sum(seq.prompt_len for seq in result.sequences)
-        num_computed_prompt_tokens = num_prompt_tokens - sum(seq.prefix_cache_hit_tokens for seq in result.sequences)
-        print("实际 Prefill 计算的 Prompt Token 数: %d / %d" % (num_computed_prompt_tokens, num_prompt_tokens))
+        num_computed_prompt_tokens = num_prompt_tokens - sum(
+            seq.prefix_cache_hit_tokens for seq in result.sequences
+        )
+        print(
+            "实际 Prefill 计算的 Prompt Token 数: %d / %d"
+            % (num_computed_prompt_tokens, num_prompt_tokens)
+        )
 
     print("端到端 Wall-clock 延迟: %.2f ms" % result.metrics.e2e_wall_ms)
     print("端到端模型计算延迟: %.2f ms" % result.metrics.e2e_model_ms)
@@ -409,14 +450,24 @@ def _handle_run(args: argparse.Namespace) -> int:
 
     via_scheduler = uses_scheduler(configs)
     if args.max_running_requests is not None and not via_scheduler:
-        print("[warn] --max-running-requests 仅对调度路径（含 continuous-batching）生效，当前对比未启用，将被忽略。")
+        print(
+            "[warn] --max-running-requests 仅对调度路径（含 continuous-batching）生效，当前对比未启用，将被忽略。"
+        )
 
     for cfg in configs:
         warmup_opts = GenerationOptions(
             eos_token_id=tokenizer.eos_token_id,
         )
         for _ in range(args.warmup):
-            run_config(cfg, model, input_ids, sequences, shrink_budgets(budgets, 2), warmup_opts, via_scheduler)
+            run_config(
+                cfg,
+                model,
+                input_ids,
+                sequences,
+                shrink_budgets(budgets, 2),
+                warmup_opts,
+                via_scheduler,
+            )
         synchronize(device)
 
     if isinstance(input_ids, torch.Tensor):
@@ -426,13 +477,19 @@ def _handle_run(args: argparse.Namespace) -> int:
         print(f"Prompt 数量: {len(sequences)}，各请求 Token 数: {prompt_lens}")
 
     if args.tensorboard_dir is not None and not args.profile:
-        print("[warn] 指定了 --tensorboard-dir 但未开启 --profile，将不会采集并导出 TensorBoard 日志。")
+        print(
+            "[warn] 指定了 --tensorboard-dir 但未开启 --profile，将不会采集并导出 TensorBoard 日志。"
+        )
 
     do_profile = args.profile
     results = {}
     for cfg in configs:
         if do_profile and args.tensorboard_dir is not None:
-            tb_dir = args.tensorboard_dir / str(cfg) if args.compare_feature else args.tensorboard_dir
+            tb_dir = (
+                args.tensorboard_dir / str(cfg)
+                if args.compare_feature
+                else args.tensorboard_dir
+            )
             tb_options = TensorBoardOptions(log_dir=tb_dir)
         else:
             tb_dir = None
@@ -444,18 +501,26 @@ def _handle_run(args: argparse.Namespace) -> int:
             top_kernels=args.top_kernels,
             tensorboard_options=tb_options,
         )
-        results[cfg] = run_config(cfg, model, input_ids, sequences, budgets, run_opts, via_scheduler)
+        results[cfg] = run_config(
+            cfg, model, input_ids, sequences, budgets, run_opts, via_scheduler
+        )
         print_result(cfg, results[cfg], tokenizer, tensorboard_dir=tb_dir)
 
     if len(configs) == 2:
         baseline = results[configs[0]]
         optimized = results[configs[1]]
         print(f"\n[特性 '{compare_feature_name}' 对照结论]")
-        same_tokens = [s.token_ids for s in baseline.sequences] == [s.token_ids for s in optimized.sequences]
+        same_tokens = [s.token_ids for s in baseline.sequences] == [
+            s.token_ids for s in optimized.sequences
+        ]
         print("逐请求 Token 一致:", same_tokens)
         baseline_decode = baseline.metrics.mean_tpot_ms
         optimized_decode = optimized.metrics.mean_tpot_ms
-        if baseline_decode is not None and optimized_decode is not None and optimized_decode > 0:
+        if (
+            baseline_decode is not None
+            and optimized_decode is not None
+            and optimized_decode > 0
+        ):
             print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
         if baseline.metrics.e2e_wall_ms > 0 and optimized.metrics.e2e_wall_ms > 0:
             print(

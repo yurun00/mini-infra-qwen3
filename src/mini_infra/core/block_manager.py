@@ -31,15 +31,23 @@ def num_blocks_for_tokens(num_tokens: int, block_size: int) -> int:
     return (num_tokens + block_size - 1) // block_size
 
 
-def infer_num_blocks_in_pool(requests: Sequence[Request], max_running_requests: int, block_size: int) -> int:
+def infer_num_blocks_in_pool(
+    requests: Sequence[Request], max_running_requests: int, block_size: int
+) -> int:
     """保证任意 max_running_requests 个请求并发都不会耗尽的 physical block pool 大小（含 null block）。
 
     请求生命周期内 KV Cache 最多持有 prompt_len + max_new_tokens - 1 个 Token：
     最后一个生成的 Token 不会再被前向消费，其 K/V 永远不会写入。取最长的 max_running_requests 个请求求和即为上界。
     prefix caching 下共享块只会降低实际占用，cached block 又可随时淘汰，该上界依然成立。
     """
-    peak_tokens = sorted((req.prompt_len + req.max_new_tokens - 1 for req in requests), reverse=True)
-    return 1 + sum(num_blocks_for_tokens(tokens, block_size) for tokens in peak_tokens[:max_running_requests])
+    peak_tokens = sorted(
+        (req.prompt_len + req.max_new_tokens - 1 for req in requests),
+        reverse=True,
+    )
+    return 1 + sum(
+        num_blocks_for_tokens(tokens, block_size)
+        for tokens in peak_tokens[:max_running_requests]
+    )
 
 
 class BlockHash(NamedTuple):
@@ -53,10 +61,16 @@ class BlockHash(NamedTuple):
     token_ids: tuple[int, ...]
 
 
-def hash_block_tokens(parent_block_hash: BlockHash | None, token_ids: Sequence[int]) -> BlockHash:
+def hash_block_tokens(
+    parent_block_hash: BlockHash | None, token_ids: Sequence[int]
+) -> BlockHash:
     """计算一个满块的 block hash；parent_block_hash 为 None 表示首个逻辑块。"""
     block_token_ids = tuple(token_ids)
-    parent_hash_value = _ROOT_PARENT_HASH_VALUE if parent_block_hash is None else parent_block_hash.hash_value
+    parent_hash_value = (
+        _ROOT_PARENT_HASH_VALUE
+        if parent_block_hash is None
+        else parent_block_hash.hash_value
+    )
     return BlockHash(hash((parent_hash_value, block_token_ids)), block_token_ids)
 
 
@@ -83,7 +97,9 @@ class KVCacheStats:
     prefix_cache_block_eviction_count: int = 0
     prefix_cache_prompt_tokens: int = 0
     prefix_cache_hit_tokens: int = 0
-    _ever_allocated_block_ids: set[int] = field(default_factory=set, repr=False, compare=False)
+    _ever_allocated_block_ids: set[int] = field(
+        default_factory=set, repr=False, compare=False
+    )
 
 
 class FreeKVCacheBlockQueue:
@@ -94,9 +110,13 @@ class FreeKVCacheBlockQueue:
 
     def __init__(self, num_blocks: int, stats: KVCacheStats):
         if num_blocks < 2:
-            raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
+            raise ValueError(
+                "num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）"
+            )
         self.num_blocks = num_blocks
-        self._free_block_ids: OrderedDict[int, None] = OrderedDict.fromkeys(range(NULL_BLOCK_ID + 1, num_blocks))
+        self._free_block_ids: OrderedDict[int, None] = OrderedDict.fromkeys(
+            range(NULL_BLOCK_ID + 1, num_blocks)
+        )
         self.stats = stats
 
     @property
@@ -111,7 +131,9 @@ class FreeKVCacheBlockQueue:
     def allocate(self, num_blocks: int) -> list[int]:
         """从队首取出 num_blocks 个空闲块；调用方须先确认容量充足。"""
         if num_blocks > len(self._free_block_ids):
-            raise RuntimeError(f"空闲块不足：需要 {num_blocks}，剩余 {len(self._free_block_ids)}")
+            raise RuntimeError(
+                f"空闲块不足：需要 {num_blocks}，剩余 {len(self._free_block_ids)}"
+            )
         allocated = []
         for _ in range(num_blocks):
             block_id, _ = self._free_block_ids.popitem(last=False)
@@ -121,7 +143,9 @@ class FreeKVCacheBlockQueue:
                 self.stats._ever_allocated_block_ids.add(block_id)
                 self.stats.block_cold_allocation_count += 1
             allocated.append(block_id)
-        self.stats.peak_used_blocks = max(self.stats.peak_used_blocks, self.num_used_blocks)
+        self.stats.peak_used_blocks = max(
+            self.stats.peak_used_blocks, self.num_used_blocks
+        )
         return allocated
 
     def free(self, block_ids: Sequence[int]) -> None:
@@ -132,7 +156,9 @@ class FreeKVCacheBlockQueue:
     def remove(self, block_id: int) -> None:
         """从队列中途摘除一个空闲块（空闲 cached block 被 prefix cache 命中而重新引用）。"""
         del self._free_block_ids[block_id]
-        self.stats.peak_used_blocks = max(self.stats.peak_used_blocks, self.num_used_blocks)
+        self.stats.peak_used_blocks = max(
+            self.stats.peak_used_blocks, self.num_used_blocks
+        )
 
 
 class BlockPool:
@@ -220,7 +246,11 @@ class BaseKVCacheManager(abc.ABC):
     __slots__ = ()
 
     @abc.abstractmethod
-    def num_admissible(self, requests: Sequence[Request], prefilling_states: Sequence[RequestState]) -> int:
+    def num_admissible(
+        self,
+        requests: Sequence[Request],
+        prefilling_states: Sequence[RequestState],
+    ) -> int:
         """按 FCFS 次序返回 requests 中逻辑块容量可接纳的最长前缀长度（prefilling_states 为需预留后续块的在途请求）。"""
         ...
 
@@ -255,7 +285,11 @@ class NullKVCacheManager(BaseKVCacheManager):
 
     __slots__ = ()
 
-    def num_admissible(self, requests: Sequence[Request], prefilling_states: Sequence[RequestState]) -> int:
+    def num_admissible(
+        self,
+        requests: Sequence[Request],
+        prefilling_states: Sequence[RequestState],
+    ) -> int:
         return len(requests)
 
     def num_computed_tokens(self, request: Request) -> int:
@@ -284,7 +318,12 @@ class KVCacheManager(BaseKVCacheManager):
     与 K/V 落盘后的满块登记（cache_blocks）。
     """
 
-    def __init__(self, block_size: int, num_blocks: int, is_prefix_caching_enabled: bool = False):
+    def __init__(
+        self,
+        block_size: int,
+        num_blocks: int,
+        is_prefix_caching_enabled: bool = False,
+    ):
         if block_size < 1:
             raise ValueError("block_size 必须大于 0")
         # 每个物理块容纳的 Token 数（如 16），决定逻辑块划分粒度与 slot 偏移计算
@@ -327,7 +366,9 @@ class KVCacheManager(BaseKVCacheManager):
             return []
         max_num_blocks = (request.prompt_len - 1) // self.block_size
         computed_block_ids: list[int] = []
-        for block_hash in self._block_hashes(request.request_idx, request.token_ids, max_num_blocks):
+        for block_hash in self._block_hashes(
+            request.request_idx, request.token_ids, max_num_blocks
+        ):
             block_id = self.block_pool.get_cached_block(block_hash)
             if block_id is None:
                 break
@@ -338,7 +379,11 @@ class KVCacheManager(BaseKVCacheManager):
         """请求入场时 prefix cache 可命中的 Token 数（恒为 block_size 的整数倍）。"""
         return len(self._get_computed_blocks(request)) * self.block_size
 
-    def num_admissible(self, requests: Sequence[Request], prefilling_states: Sequence[RequestState]) -> int:
+    def num_admissible(
+        self,
+        requests: Sequence[Request],
+        prefilling_states: Sequence[RequestState],
+    ) -> int:
         """按 FCFS 次序，扣除在途 chunked prefill 预留块后的空闲块最多能为前多少个请求容纳 Prompt。
 
         prefilling_states：已入场但 Prompt 尚未写满的 chunked prefill 请求，先行预留其尚需追加的 Prompt 块数，
@@ -359,7 +404,8 @@ class KVCacheManager(BaseKVCacheManager):
             num_evictable_computed_blocks = sum(
                 1
                 for block_id in computed_block_ids
-                if self.block_pool.blocks[block_id].ref_cnt == 0 and block_id not in touched_block_ids
+                if self.block_pool.blocks[block_id].ref_cnt == 0
+                and block_id not in touched_block_ids
             )
             need = (
                 num_blocks_for_tokens(request.prompt_len, self.block_size)
@@ -394,8 +440,12 @@ class KVCacheManager(BaseKVCacheManager):
     def allocate_slots(self, request_idx: int, num_new_tokens: int) -> bool:
         """为请求新增 num_new_tokens 个 Token 的缓存位，必要时追加物理块；块不足时不做任何分配并返回 False。"""
         block_table = self._block_tables.get(request_idx, [])
-        total_tokens = self._num_tokens_by_request_idx.get(request_idx, 0) + num_new_tokens
-        extra_blocks = num_blocks_for_tokens(total_tokens, self.block_size) - len(block_table)
+        total_tokens = (
+            self._num_tokens_by_request_idx.get(request_idx, 0) + num_new_tokens
+        )
+        extra_blocks = num_blocks_for_tokens(total_tokens, self.block_size) - len(
+            block_table
+        )
         if extra_blocks > self.num_free_blocks:
             return False
         block_table.extend(self.block_pool.allocate(extra_blocks))
@@ -441,13 +491,20 @@ class KVCacheManager(BaseKVCacheManager):
         self._block_hashes_by_request_idx.pop(request_idx, None)
         self.block_pool.free(reversed(block_table))
 
-    def _block_hashes(self, request_idx: int, token_ids: Sequence[int], num_full_blocks: int) -> list[BlockHash]:
+    def _block_hashes(
+        self, request_idx: int, token_ids: Sequence[int], num_full_blocks: int
+    ) -> list[BlockHash]:
         """请求前 num_full_blocks 个满块的 block hash（增量计算并缓存，已算部分不重复哈希）。"""
         block_hashes = self._block_hashes_by_request_idx.setdefault(request_idx, [])
         for block_idx in range(len(block_hashes), num_full_blocks):
             start = block_idx * self.block_size
             parent_block_hash = block_hashes[-1] if block_hashes else None
-            block_hashes.append(hash_block_tokens(parent_block_hash, token_ids[start : start + self.block_size]))
+            block_hashes.append(
+                hash_block_tokens(
+                    parent_block_hash,
+                    token_ids[start : start + self.block_size],
+                )
+            )
         return block_hashes[:num_full_blocks]
 
 

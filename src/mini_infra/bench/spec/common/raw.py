@@ -13,17 +13,23 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     """SafeLoader 的变体：同一映射内出现重复 key 时报错（PyYAML 默认静默取最后一个）。"""
 
 
-def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+def _construct_unique_mapping(
+    loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[Any, Any]:
     seen: set[Any] = set()
     for key_node, _ in node.value:
         key = loader.construct_object(key_node, deep=deep)
         if key in seen:
-            raise yaml.constructor.ConstructorError(None, None, f"映射中出现重复 key: {key!r}", key_node.start_mark)
+            raise yaml.constructor.ConstructorError(
+                None, None, f"映射中出现重复 key: {key!r}", key_node.start_mark
+            )
         seen.add(key)
     return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
 
 
-_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
+)
 
 
 def _read_yaml_mapping(path: Path) -> dict[str, Any]:

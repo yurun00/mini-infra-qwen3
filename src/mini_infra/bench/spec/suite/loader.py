@@ -36,7 +36,9 @@ class LoadedSuiteSpec:
         return info
 
 
-def load_suite_spec(path: Path, overrides: Mapping[str, Any] | None = None) -> LoadedSuiteSpec:
+def load_suite_spec(
+    path: Path, overrides: Mapping[str, Any] | None = None
+) -> LoadedSuiteSpec:
     """加载、校验并展开一份 suite YAML；非法负载在加载期暴露。
 
     overrides（点分路径 → 值）作用于 extends 合并后的原始声明，`spec_sha256` 基于覆盖后的声明计算。
@@ -57,7 +59,9 @@ def load_suite_spec(path: Path, overrides: Mapping[str, Any] | None = None) -> L
     )
 
 
-def discover_suite_specs(engine: SuiteEngine, specs_dir: Path | None = None) -> dict[str, Path]:
+def discover_suite_specs(
+    engine: SuiteEngine, specs_dir: Path | None = None
+) -> dict[str, Path]:
     """发现 `<specs_dir>/<engine>/*.yaml`（不递归，因此 `_bases/` 中的继承基底不会被当作可运行 suite）。"""
     root = (specs_dir if specs_dir is not None else SPECS_DIR) / engine
     return {path.stem: path for path in sorted(root.glob("*.yaml"))}
@@ -75,7 +79,9 @@ def get_suite_spec(
         raise ValueError(f"未知 {engine} suite: {name}，可选: {sorted(available)}")
     loaded = load_suite_spec(available[name], overrides)
     if loaded.spec.engine != engine:
-        raise ValueError(f"{loaded.path}: engine 为 {loaded.spec.engine}，与所在目录 {engine} 不一致")
+        raise ValueError(
+            f"{loaded.path}: engine 为 {loaded.spec.engine}，与所在目录 {engine} 不一致"
+        )
     return loaded
 
 

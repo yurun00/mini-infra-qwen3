@@ -98,7 +98,9 @@ def run_compare_schedulers(
     requests = make_requests(
         sequences,
         budgets,
-        arrival_times_ms=arrivals if arrivals is not None else [0.0 if i < 2 else 1.0 for i in range(len(sequences))],
+        arrival_times_ms=arrivals
+        if arrivals is not None
+        else [0.0 if i < 2 else 1.0 for i in range(len(sequences))],
     )
     base_config = EngineConfig(
         PagedCacheConfig(block_size=block_size),
@@ -150,7 +152,10 @@ def run_compare_schedulers(
     )
 
     if output:
-        dump_json(output, {"environment": environment_metadata or {}, "result": result})
+        dump_json(
+            output,
+            {"environment": environment_metadata or {}, "result": result},
+        )
 
     return result
 
@@ -190,7 +195,9 @@ def execute_compare_schedulers(
         ]
         arrivals = list(DEFAULT_ARRIVALS)
     else:
-        budgets = [2 if i % 2 == 0 else max_new_tokens for i in range(len(prompts_to_use))]
+        budgets = [
+            2 if i % 2 == 0 else max_new_tokens for i in range(len(prompts_to_use))
+        ]
         arrivals = [0.0 if i < 2 else 1.0 for i in range(len(prompts_to_use))]
 
     environment = build_environment(

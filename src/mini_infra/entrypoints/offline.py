@@ -11,7 +11,11 @@ from collections.abc import Sequence
 import torch
 
 from mini_infra.core import PagedCacheConfig, make_requests
-from mini_infra.engine.config import BatchingMethod, EngineConfig, validate_engine_config
+from mini_infra.engine.config import (
+    BatchingMethod,
+    EngineConfig,
+    validate_engine_config,
+)
 from mini_infra.engine.lockstep_loop import run_lockstep
 from mini_infra.engine.preprocessing import (
     normalize_budgets,
@@ -43,11 +47,15 @@ def generate(
     validate_engine_config(config)
 
     # 1. 规约输入 Prompt 与输出预算
-    token_sequences, has_uniform_prompt_len = normalize_token_sequences(prompts, tokenizer=opts.tokenizer)
+    token_sequences, has_uniform_prompt_len = normalize_token_sequences(
+        prompts, tokenizer=opts.tokenizer
+    )
     budgets = normalize_budgets(max_new_tokens, len(token_sequences))
 
     # 2. 调度路径分发（Continuous Batching 或启用了 Paged KV Cache 的 Fixed Batching）
-    if config.batching_method == BatchingMethod.CONTINUOUS or isinstance(config.kv_cache_config, PagedCacheConfig):
+    if config.batching_method == BatchingMethod.CONTINUOUS or isinstance(
+        config.kv_cache_config, PagedCacheConfig
+    ):
         return _dispatch_continuous(
             config,
             model,

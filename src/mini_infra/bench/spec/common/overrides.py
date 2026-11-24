@@ -22,7 +22,9 @@ def parse_set_args(raw: Iterable[str]) -> dict[str, Any]:
     return overrides
 
 
-def apply_overrides(raw: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
+def apply_overrides(
+    raw: Mapping[str, Any], overrides: Mapping[str, Any]
+) -> dict[str, Any]:
     """返回应用覆盖后的深拷贝：沿点分路径逐层下钻（缺失的中间层自动创建），末端整体替换。"""
     result = copy.deepcopy(dict(raw))
     for path, value in overrides.items():
@@ -32,7 +34,9 @@ def apply_overrides(raw: Mapping[str, Any], overrides: Mapping[str, Any]) -> dic
             child = node.setdefault(key, {})
             if not isinstance(child, dict):
                 where = ".".join(parents[: depth + 1])
-                raise ValueError(f"--set {path}: {where} 不是映射（实际为 {type(child).__name__}），无法继续下钻")
+                raise ValueError(
+                    f"--set {path}: {where} 不是映射（实际为 {type(child).__name__}），无法继续下钻"
+                )
             node = child
         node[leaf] = copy.deepcopy(value)
     return result

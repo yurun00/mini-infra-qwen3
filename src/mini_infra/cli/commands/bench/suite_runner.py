@@ -17,10 +17,21 @@ from mini_infra.bench.lockstep.format import (
     format_table as format_lockstep_table,
 )
 from mini_infra.bench.lockstep.run_suite import run_suite as run_lockstep_suite
-from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
-from mini_infra.bench.scheduler.format import format_table as format_scheduler_table
-from mini_infra.bench.scheduler.plan import PlannedRun, build_scheduler_run_plan, format_scheduler_run_plan
-from mini_infra.bench.scheduler.run_suite import run_suite as run_scheduler_suite
+from mini_infra.bench.result import (
+    build_benchmark_record,
+    save_benchmark_record,
+)
+from mini_infra.bench.scheduler.format import (
+    format_table as format_scheduler_table,
+)
+from mini_infra.bench.scheduler.plan import (
+    PlannedRun,
+    build_scheduler_run_plan,
+    format_scheduler_run_plan,
+)
+from mini_infra.bench.scheduler.run_suite import (
+    run_suite as run_scheduler_suite,
+)
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.bench.sweep import SuiteRunSummary
 from mini_infra.engine import EngineConfig
@@ -41,12 +52,17 @@ def _ensure_suite_correctness(
             )
     correctness = {str(cfg): ctx.correctness_cache[cfg] for cfg in configs}
     if any(c.passed is False for c in correctness.values()) and not allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
+        sys.exit(
+            "正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）"
+        )
     return correctness
 
 
 def execute_lockstep_suite(
-    ctx: BenchmarkExecutionContext, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
+    ctx: BenchmarkExecutionContext,
+    args: argparse.Namespace,
+    suite: BenchmarkSuite,
+    output_path: Path,
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 lockstep suite：正确性检查 → 执行 → 落盘 → 打印表格。"""
     configs = suite.engine_configs()
@@ -54,9 +70,15 @@ def execute_lockstep_suite(
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
     engine_config_label = ",".join(str(c) for c in configs)
-    correctness = _ensure_suite_correctness(ctx, configs, allow_mismatch=args.allow_mismatch)
+    correctness = _ensure_suite_correctness(
+        ctx, configs, allow_mismatch=args.allow_mismatch
+    )
 
-    tb_options = TensorBoardOptions(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None
+    tb_options = (
+        TensorBoardOptions(log_dir=args.tensorboard_dir)
+        if args.tensorboard_dir is not None
+        else None
+    )
 
     print(
         f"[bench-suite] suite={suite.name} modes={engine_config_label} "
@@ -103,7 +125,12 @@ def execute_lockstep_suite(
     save_benchmark_record(output_path, record, is_dirty=ctx.dirty)
     print()
     print(format_lockstep_table(results))
-    return SuiteRunSummary(name=suite.name, engine="lockstep", num_cases=len(results), output=output_path)
+    return SuiteRunSummary(
+        name=suite.name,
+        engine="lockstep",
+        num_cases=len(results),
+        output=output_path,
+    )
 
 
 def print_lockstep_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> None:
@@ -115,24 +142,37 @@ def print_lockstep_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> N
 
 
 def execute_scheduler_suite(
-    ctx: BenchmarkExecutionContext, args: argparse.Namespace, suite: BenchmarkSuite, output_path: Path
+    ctx: BenchmarkExecutionContext,
+    args: argparse.Namespace,
+    suite: BenchmarkSuite,
+    output_path: Path,
 ) -> SuiteRunSummary:
     """在已准备好的环境中运行一个 scheduler suite：正确性检查 → 执行 → 对比 → 落盘 → 打印表格。"""
     configs = suite.engine_configs()
     engine_config_label = ",".join(str(c) for c in configs)
-    correctness = _ensure_suite_correctness(ctx, configs, allow_mismatch=args.allow_mismatch)
+    correctness = _ensure_suite_correctness(
+        ctx, configs, allow_mismatch=args.allow_mismatch
+    )
 
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_dims = CaseDimension.from_interleave_args(getattr(args, "interleave", None), suite.interleave)
+    interleave_dims = CaseDimension.from_interleave_args(
+        getattr(args, "interleave", None), suite.interleave
+    )
 
     print(
         f"[bench-scheduler-suite] suite={suite.name} cases={len(suite.cases)} warmup={warmup} repeats={repeats} ...",
         flush=True,
     )
 
-    def on_suite_step(step_number: int, total_steps: int, planned_run: PlannedRun) -> None:
-        rep = f"repeat {planned_run.repeat_idx + 1}" if planned_run.repeat_idx is not None else "warmup"
+    def on_suite_step(
+        step_number: int, total_steps: int, planned_run: PlannedRun
+    ) -> None:
+        rep = (
+            f"repeat {planned_run.repeat_idx + 1}"
+            if planned_run.repeat_idx is not None
+            else "warmup"
+        )
         case = planned_run.case
         print(
             f"  [{step_number:02d}/{total_steps:02d}] {planned_run.phase.value:<7} | {rep:<10} | {case.key} ...",
@@ -194,9 +234,13 @@ def print_scheduler_dry_run(args: argparse.Namespace, suite: BenchmarkSuite) -> 
     """生成并打印执行计划（不加载模型、不要求 CUDA）。"""
     warmup = args.warmup if args.warmup is not None else suite.warmup
     repeats = args.repeats if args.repeats is not None else suite.repeats
-    interleave_dims = CaseDimension.from_interleave_args(getattr(args, "interleave", None), suite.interleave)
+    interleave_dims = CaseDimension.from_interleave_args(
+        getattr(args, "interleave", None), suite.interleave
+    )
     cases = suite.cases
-    plan = build_scheduler_run_plan(cases, warmup=warmup, repeats=repeats, interleave=interleave_dims)
+    plan = build_scheduler_run_plan(
+        cases, warmup=warmup, repeats=repeats, interleave=interleave_dims
+    )
     print(f"=== [Dry Run] Suite: {suite.name} ===")
     print(format_scheduler_run_plan(plan))
 

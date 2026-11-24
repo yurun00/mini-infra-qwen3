@@ -44,15 +44,38 @@ def _add_history_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     )
     p.add_argument("--baseline", help="作为基准的 tag，默认最早的结果")
     p.add_argument("--target", help="作为当前深度剖析对象的 tag，默认最新的结果")
-    p.add_argument("--evolution-figure", type=Path, default=None, help="自定义演进趋势图输出路径")
-    p.add_argument("--profiling-figure", type=Path, default=None, help="自定义剖析与优化图输出路径")
-    p.add_argument("--summary-path", type=Path, default=None, help="自定义汇总报告 SUMMARY.md 输出路径")
+    p.add_argument(
+        "--evolution-figure",
+        type=Path,
+        default=None,
+        help="自定义演进趋势图输出路径",
+    )
+    p.add_argument(
+        "--profiling-figure",
+        type=Path,
+        default=None,
+        help="自定义剖析与优化图输出路径",
+    )
+    p.add_argument(
+        "--summary-path",
+        type=Path,
+        default=None,
+        help="自定义汇总报告 SUMMARY.md 输出路径",
+    )
     return p
 
 
 def _add_compare_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    p.add_argument("file_a", type=Path, help="待比较的第一个 benchmark JSON 文件路径 (通常为 baseline)")
-    p.add_argument("file_b", type=Path, help="待比较的第二个 benchmark JSON 文件路径 (通常为实验组/优化版)")
+    p.add_argument(
+        "file_a",
+        type=Path,
+        help="待比较的第一个 benchmark JSON 文件路径 (通常为 baseline)",
+    )
+    p.add_argument(
+        "file_b",
+        type=Path,
+        help="待比较的第二个 benchmark JSON 文件路径 (通常为实验组/优化版)",
+    )
     p.add_argument(
         "-o",
         "--output-figure",
@@ -87,16 +110,22 @@ def _add_compare_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return p
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """在 bench 下注册 plot 组及 history/compare 子命令。"""
     plot_parser = subparsers.add_parser("plot", help="性能图表绘制与对比分析")
     plot_subs = plot_parser.add_subparsers(dest="plot_subcommand", required=True)
 
-    history_parser = plot_subs.add_parser("history", help="读取 results/history/ 生成跨版本演化与深度剖析图表")
+    history_parser = plot_subs.add_parser(
+        "history", help="读取 results/history/ 生成跨版本演化与深度剖析图表"
+    )
     _add_history_args(history_parser)
     history_parser.set_defaults(func=_handle_history)
 
-    compare_parser = plot_subs.add_parser("compare", help="对比两个独立 benchmark JSON 结果并绘制多维对比图")
+    compare_parser = plot_subs.add_parser(
+        "compare", help="对比两个独立 benchmark JSON 结果并绘制多维对比图"
+    )
     _add_compare_args(compare_parser)
     compare_parser.set_defaults(func=_handle_compare)
     return plot_parser
@@ -111,8 +140,16 @@ def _render_single_history_report(
     baseline_tag: str | None = None,
     target_tag: str | None = None,
 ) -> None:
-    base = next((r for r in records if r.tag == baseline_tag), records[0]) if baseline_tag else records[0]
-    target = next((r for r in records if r.tag == target_tag), records[-1]) if target_tag else records[-1]
+    base = (
+        next((r for r in records if r.tag == baseline_tag), records[0])
+        if baseline_tag
+        else records[0]
+    )
+    target = (
+        next((r for r in records if r.tag == target_tag), records[-1])
+        if target_tag
+        else records[-1]
+    )
 
     table = markdown_table(records, base)
     guidance = generate_optimization_guidance(target)
@@ -169,14 +206,20 @@ def _handle_history(args: argparse.Namespace) -> int:
         records = load_results(hist_dir)
         if not records:
             if engine != "all":
-                print(f"{hist_dir} 中没有结果，请先运行 mini-infra bench {domain_key} case")
+                print(
+                    f"{hist_dir} 中没有结果，请先运行 mini-infra bench {domain_key} case"
+                )
                 return 1
             continue
 
         rendered_any = True
         summary_path = args.summary_path or (rep_dir / "SUMMARY.md")
-        evolution_figure = args.evolution_figure or (rep_dir / "evolution_and_scaling.png")
-        profiling_figure = args.profiling_figure or (rep_dir / "profiling_and_optimization.png")
+        evolution_figure = args.evolution_figure or (
+            rep_dir / "evolution_and_scaling.png"
+        )
+        profiling_figure = args.profiling_figure or (
+            rep_dir / "profiling_and_optimization.png"
+        )
         _render_single_history_report(
             records=records,
             domain_title=domain_title,
@@ -188,7 +231,9 @@ def _handle_history(args: argparse.Namespace) -> int:
         )
 
     if not rendered_any:
-        print(f"{RESULT_HISTORY_DIR} 中没有结果，请先运行 mini-infra bench lockstep case 或 scheduler case")
+        print(
+            f"{RESULT_HISTORY_DIR} 中没有结果，请先运行 mini-infra bench lockstep case 或 scheduler case"
+        )
         return 1
 
     return 0

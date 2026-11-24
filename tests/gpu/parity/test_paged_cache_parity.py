@@ -21,7 +21,9 @@ from mini_infra.model import (
     load_model,
     resolve_model_directory,
 )
-from mini_infra.verification.parity.compare_paged_cache_logits import compare_paged_prompt
+from mini_infra.verification.parity.compare_paged_cache_logits import (
+    compare_paged_prompt,
+)
 from mini_infra.verification.parity.compare_paged_cache_scheduler import (
     DEFAULT_PROMPTS,
     run_compare_paged_cache_scheduler,

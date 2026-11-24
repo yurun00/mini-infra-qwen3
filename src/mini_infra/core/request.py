@@ -58,7 +58,9 @@ class RequestState:
     generated: list[int] = field(default_factory=list)
     batch_slot_idx: int | None = None
     cache_length: int = 0  # 已调度写入 KV Cache 的 Token 数：Prefill 按 chunk 推进（至 prompt_len），Decode 逐步 +1
-    prefix_cache_hit_tokens: int = 0  # 入场时 prefix cache 命中、跳过 Prefill 计算的 Prompt Token 数
+    prefix_cache_hit_tokens: int = (
+        0  # 入场时 prefix cache 命中、跳过 Prefill 计算的 Prompt Token 数
+    )
     admitted_ms: float | None = None
     first_token_ms: float | None = None
     completion_ms: float | None = None
@@ -68,7 +70,10 @@ class RequestState:
     @property
     def is_prefilling(self) -> bool:
         """已入场（占用 batch slot）但 Prompt 尚未全部写入 KV Cache：处于 chunked prefill 中间态。"""
-        return self.status is RequestStatus.RUNNING and self.cache_length < self.request.prompt_len
+        return (
+            self.status is RequestStatus.RUNNING
+            and self.cache_length < self.request.prompt_len
+        )
 
     def append_token(
         self,
@@ -83,7 +88,9 @@ class RequestState:
         if self.first_token_ms is None:
             self.first_token_ms = timestamp_ms
 
-        reached_eos = stop_on_eos and eos_token_id is not None and token_id == eos_token_id
+        reached_eos = (
+            stop_on_eos and eos_token_id is not None and token_id == eos_token_id
+        )
         if reached_eos or len(self.generated) >= self.request.max_new_tokens:
             self.completion_ms = timestamp_ms
             self.finish_reason = "stop" if reached_eos else "max_tokens"
@@ -123,13 +130,21 @@ def make_requests(
 ) -> list[Request]:
     """把 Prompt 序列、输出预算与到达时间组装成 Request 列表（request_idx 按提交顺序编号）。"""
     sequences = [tuple(int(t) for t in seq) for seq in token_sequences]
-    budgets = [max_new_tokens] * len(sequences) if isinstance(max_new_tokens, int) else list(max_new_tokens)
-    arrivals = [0.0] * len(sequences) if arrival_times_ms is None else list(arrival_times_ms)
+    budgets = (
+        [max_new_tokens] * len(sequences)
+        if isinstance(max_new_tokens, int)
+        else list(max_new_tokens)
+    )
+    arrivals = (
+        [0.0] * len(sequences) if arrival_times_ms is None else list(arrival_times_ms)
+    )
     if len(budgets) != len(sequences) or len(arrivals) != len(sequences):
         raise ValueError("Prompt、输出预算和到达时间的数量必须一致")
     return [
         Request(index, sequence, int(budget), float(arrival))
-        for index, (sequence, budget, arrival) in enumerate(zip(sequences, budgets, arrivals))
+        for index, (sequence, budget, arrival) in enumerate(
+            zip(sequences, budgets, arrivals)
+        )
     ]
 
 

@@ -18,7 +18,22 @@ def test_run_compare_chunked_prefill_on_cpu(diverse_model, tmp_path):
     """在 CPU 上用 diverse_model 验证 token-budget 与 chunked-prefill 输出、首 Token Logits 误差与硬预算轨迹。"""
     sequences = [
         [1, 2, 3, 4],
-        [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],  # 长度 14 > token_budget=8，触发 oversize / 分块
+        [
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+        ],  # 长度 14 > token_budget=8，触发 oversize / 分块
         [19, 20, 21, 22, 23],
         [24, 25, 26],
     ]
@@ -44,7 +59,12 @@ def test_run_compare_chunked_prefill_on_cpu(diverse_model, tmp_path):
     assert result["prompt_token_lengths"] == [len(seq) for seq in sequences]
 
     # float32 下首 Token Logits 最大绝对误差在 1e-4 内，且覆盖所有请求
-    assert set(result["per_request_first_token_logit_error"]) == {"0", "1", "2", "3"}
+    assert set(result["per_request_first_token_logit_error"]) == {
+        "0",
+        "1",
+        "2",
+        "3",
+    }
     assert result["max_first_token_logit_error"] <= 1e-4
 
     # token-budget（软预算）触发 oversize prefill；chunked-prefill（硬预算）无 oversize 且单步不超预算
@@ -52,12 +72,19 @@ def test_run_compare_chunked_prefill_on_cpu(diverse_model, tmp_path):
     assert result["chunked_metrics"]["num_oversize_prefill_steps"] == 0
     assert result["full_metrics"]["max_prefill_step_tokens"] == 14
     assert result["chunked_metrics"]["max_prefill_step_tokens"] <= 8
-    assert result["chunked_metrics"]["num_prefill_chunks"] > result["full_metrics"]["num_prefill_chunks"]
+    assert (
+        result["chunked_metrics"]["num_prefill_chunks"]
+        > result["full_metrics"]["num_prefill_chunks"]
+    )
 
     # 校验紧凑轨迹字段
     assert any(step["is_oversize_prefill"] for step in result["full_trace"])
     assert not any(step["is_oversize_prefill"] for step in result["chunked_trace"])
-    assert all(step["num_scheduled_tokens"] <= 8 for step in result["chunked_trace"] if step["phase"] == "prefill")
+    assert all(
+        step["num_scheduled_tokens"] <= 8
+        for step in result["chunked_trace"]
+        if step["phase"] == "prefill"
+    )
 
     # 验证 JSON 导出文件结构
     assert out_file.exists()

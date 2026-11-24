@@ -55,8 +55,11 @@ def _summarize_run(run: ScheduleResult) -> dict[str, Any]:
     assert profile is not None
     num_prompt_tokens = sum(s.prompt_len for s in run.sequences)
     return {
-        "per_request_prefix_cache_hit_tokens": [s.prefix_cache_hit_tokens for s in run.sequences],
-        "num_computed_prompt_tokens": num_prompt_tokens - sum(s.prefix_cache_hit_tokens for s in run.sequences),
+        "per_request_prefix_cache_hit_tokens": [
+            s.prefix_cache_hit_tokens for s in run.sequences
+        ],
+        "num_computed_prompt_tokens": num_prompt_tokens
+        - sum(s.prefix_cache_hit_tokens for s in run.sequences),
         "num_prompt_tokens": num_prompt_tokens,
         "prefix_cache_hit_tokens": profile.prefix_cache_hit_tokens,
         "prefix_cache_prompt_tokens": profile.prefix_cache_prompt_tokens,
@@ -89,19 +92,33 @@ def _prefill_logits(
     block_size = block_cache.block_size
     chunk_len = len(token_ids) - start
     chunk_ids = torch.tensor([token_ids[start:]], dtype=torch.long, device=device)
-    position_ids = torch.arange(start, len(token_ids), dtype=torch.long, device=device).unsqueeze(0)
+    position_ids = torch.arange(
+        start, len(token_ids), dtype=torch.long, device=device
+    ).unsqueeze(0)
     attention_mask = torch.ones((1, chunk_len), dtype=torch.bool, device=device)
     attn_metadata = None
     if start > 0:
         num_history_blocks = num_blocks_for_tokens(start, block_size)
-        history_block_ids = torch.tensor([block_table[:num_history_blocks]], dtype=torch.long, device=device)
-        history_mask = torch.arange(num_history_blocks * block_size, device=device).unsqueeze(0) < start
+        history_block_ids = torch.tensor(
+            [block_table[:num_history_blocks]], dtype=torch.long, device=device
+        )
+        history_mask = (
+            torch.arange(num_history_blocks * block_size, device=device).unsqueeze(0)
+            < start
+        )
         attention_mask = torch.cat((history_mask, attention_mask), dim=1)
-        attn_metadata = DenseAttentionMetadata(past_key_values=block_cache.gather_blocks(history_block_ids))
+        attn_metadata = DenseAttentionMetadata(
+            past_key_values=block_cache.gather_blocks(history_block_ids)
+        )
     logits, present = model(
-        chunk_ids, attention_mask=attention_mask, position_ids=position_ids, attn_metadata=attn_metadata
+        chunk_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        attn_metadata=attn_metadata,
     )
-    runner.store_prefill(block_cache, KVCache(present), [block_table], [chunk_len], [start])
+    runner.store_prefill(
+        block_cache, KVCache(present), [block_table], [chunk_len], [start]
+    )
     return logits[0, -1, :].float().cpu()
 
 
@@ -117,7 +134,9 @@ def _compare_first_token_logits(
     """
     param = next(model.parameters())
     config = model.config  # type: ignore[attr-defined]
-    num_blocks = 1 + sum(num_blocks_for_tokens(len(sequence), block_size) for sequence in sequences)
+    num_blocks = 1 + sum(
+        num_blocks_for_tokens(len(sequence), block_size) for sequence in sequences
+    )
     block_cache = PagedBlockCache(
         num_layers=config.num_hidden_layers,
         num_blocks=num_blocks,
@@ -134,14 +153,25 @@ def _compare_first_token_logits(
 
     for request_idx, sequence in enumerate(sequences):
         request = Request(request_idx, tuple(sequence), 1)
-        full_logits, _ = model(torch.tensor([sequence], dtype=torch.long, device=param.device))
+        full_logits, _ = model(
+            torch.tensor([sequence], dtype=torch.long, device=param.device)
+        )
         start = manager.allocate_computed_blocks(request)
         if not manager.allocate_slots(request_idx, request.prompt_len - start):
             raise RuntimeError(f"请求 {request_idx} 分配物理块失败")
-        cached_logits = _prefill_logits(model, runner, block_cache, sequence, start, manager.block_table(request_idx))
+        cached_logits = _prefill_logits(
+            model,
+            runner,
+            block_cache,
+            sequence,
+            start,
+            manager.block_table(request_idx),
+        )
         manager.cache_blocks(RequestState(request, cache_length=request.prompt_len))
         errors[str(request_idx)] = float(
-            torch.max(torch.abs(full_logits[0, -1, :].float().cpu() - cached_logits)).item()
+            torch.max(
+                torch.abs(full_logits[0, -1, :].float().cpu() - cached_logits)
+            ).item()
         )
         prefix_cache_hit_tokens[str(request_idx)] = start
 
@@ -174,13 +204,27 @@ def run_compare_prefix_caching(
     enabled_config = disabled_config.with_kv_cache_config(
         PagedCacheConfig(block_size=block_size, is_prefix_caching_enabled=True)
     )
-    disabled = run_scheduler(disabled_config, model, requests, eos_token_id=eos_token_id, stop_on_eos=False)
-    enabled = run_scheduler(enabled_config, model, requests, eos_token_id=eos_token_id, stop_on_eos=False)
+    disabled = run_scheduler(
+        disabled_config,
+        model,
+        requests,
+        eos_token_id=eos_token_id,
+        stop_on_eos=False,
+    )
+    enabled = run_scheduler(
+        enabled_config,
+        model,
+        requests,
+        eos_token_id=eos_token_id,
+        stop_on_eos=False,
+    )
 
     disabled_token_ids = [s.token_ids for s in disabled.sequences]
     enabled_token_ids = [s.token_ids for s in enabled.sequences]
     is_match = disabled_token_ids == enabled_token_ids
-    logit_errors, logit_prefix_cache_hit_tokens = _compare_first_token_logits(model, sequences, block_size)
+    logit_errors, logit_prefix_cache_hit_tokens = _compare_first_token_logits(
+        model, sequences, block_size
+    )
     disabled_metrics = _summarize_run(disabled)
     enabled_metrics = _summarize_run(enabled)
 
@@ -198,7 +242,10 @@ def run_compare_prefix_caching(
 
     print("prefix caching 关闭 / 开启逐请求 Token 一致:", is_match)
     print("首 Token Logits 最大误差: %.8f" % result["max_first_token_logit_error"])
-    print("逐请求 prefix cache 命中 Token 数:", enabled_metrics["per_request_prefix_cache_hit_tokens"])
+    print(
+        "逐请求 prefix cache 命中 Token 数:",
+        enabled_metrics["per_request_prefix_cache_hit_tokens"],
+    )
     print(
         "实际 Prefill 计算的 Prompt Token 数: %d -> %d（共 %d）"
         % (
@@ -207,10 +254,16 @@ def run_compare_prefix_caching(
             enabled_metrics["num_prompt_tokens"],
         )
     )
-    print("TTFT p50: %.2f ms -> %.2f ms" % (disabled_metrics["ttft_ms_p50"], enabled_metrics["ttft_ms_p50"]))
+    print(
+        "TTFT p50: %.2f ms -> %.2f ms"
+        % (disabled_metrics["ttft_ms_p50"], enabled_metrics["ttft_ms_p50"])
+    )
 
     if output:
-        dump_json(output, {"environment": environment_metadata or {}, "result": result})
+        dump_json(
+            output,
+            {"environment": environment_metadata or {}, "result": result},
+        )
 
     return result
 
@@ -272,9 +325,13 @@ def execute_compare_prefix_caching(
 
     has_hits = sum(result["enabled_metrics"]["per_request_prefix_cache_hit_tokens"]) > 0
     if not has_hits:
-        print("prefix caching 未产生任何命中：请确认各 prompt 共享不少于 block_size 个 Token 的前缀")
+        print(
+            "prefix caching 未产生任何命中：请确认各 prompt 共享不少于 block_size 个 Token 的前缀"
+        )
         return 1
-    if dtype == "float32" and (not result["tokens_match"] or result["max_first_token_logit_error"] > logits_atol):
+    if dtype == "float32" and (
+        not result["tokens_match"] or result["max_first_token_logit_error"] > logits_atol
+    ):
         print("float32 Prefix Caching 正确性检查失败")
         return 1
     return 0

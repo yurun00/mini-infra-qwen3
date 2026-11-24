@@ -21,7 +21,9 @@ def diverse_model():
     """
     model = build_tiny_model()
     generator = torch.Generator().manual_seed(1234)
-    model.lm_head.weight = torch.nn.Parameter(torch.randn(model.lm_head.weight.shape, generator=generator))
+    model.lm_head.weight = torch.nn.Parameter(
+        torch.randn(model.lm_head.weight.shape, generator=generator)
+    )
     return model
 
 
@@ -29,10 +31,14 @@ def _assert_token_budget_invariants(result: ScheduleResult, token_budget: int) -
     prompt_len_by_request_idx = {s.request_idx: s.prompt_len for s in result.sequences}
     for event in result.events:
         if event.phase is SchedulePhase.PREFILL:
-            prompt_lens = [prompt_len_by_request_idx[i] for i in event.admitted_request_ids]
+            prompt_lens = [
+                prompt_len_by_request_idx[i] for i in event.admitted_request_ids
+            ]
             assert event.num_scheduled_tokens == len(prompt_lens) * max(prompt_lens)
             # ① 非 oversize prefill 不超预算；② oversize prefill 只含 1 个请求
-            assert event.is_oversize_prefill is (event.num_scheduled_tokens > token_budget)
+            assert event.is_oversize_prefill is (
+                event.num_scheduled_tokens > token_budget
+            )
             assert not event.is_oversize_prefill or len(prompt_lens) == 1
         else:
             assert event.num_scheduled_tokens == event.num_active_requests
@@ -46,9 +52,13 @@ def _assert_token_budget_invariants(result: ScheduleResult, token_budget: int) -
     phases = [event.phase for event in result.events]
     assert sm.num_prefill_steps == phases.count(SchedulePhase.PREFILL)
     assert sm.num_decode_steps == phases.count(SchedulePhase.DECODE)
-    assert sm.num_oversize_prefill_steps == sum(event.is_oversize_prefill for event in result.events)
+    assert sm.num_oversize_prefill_steps == sum(
+        event.is_oversize_prefill for event in result.events
+    )
     assert all(event.scheduler_ms >= 0.0 for event in result.events)
-    assert sm.scheduler_ms == pytest.approx(sum(event.scheduler_ms for event in result.events))
+    assert sm.scheduler_ms == pytest.approx(
+        sum(event.scheduler_ms for event in result.events)
+    )
 
 
 @pytest.fixture

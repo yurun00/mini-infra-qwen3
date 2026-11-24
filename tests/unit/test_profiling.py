@@ -61,7 +61,13 @@ def test_generate_without_profile():
     config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(config, model, ids, max_new_tokens=2, options=GenerationOptions(profile=False))
+    res = generate(
+        config,
+        model,
+        ids,
+        max_new_tokens=2,
+        options=GenerationOptions(profile=False),
+    )
     assert res.op_breakdown is None
     assert res.padded_output_tokens().shape == (1, 2)
 
@@ -71,11 +77,25 @@ def test_generate_with_profile():
     config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
-    res_no_prof = generate(config, model, ids, max_new_tokens=3, options=GenerationOptions(profile=False))
-    res_prof = generate(config, model, ids, max_new_tokens=3, options=GenerationOptions(profile=True, top_kernels=5))
+    res_no_prof = generate(
+        config,
+        model,
+        ids,
+        max_new_tokens=3,
+        options=GenerationOptions(profile=False),
+    )
+    res_prof = generate(
+        config,
+        model,
+        ids,
+        max_new_tokens=3,
+        options=GenerationOptions(profile=True, top_kernels=5),
+    )
 
     # 1. 验证生成 Token 结果一致
-    assert torch.equal(res_no_prof.padded_output_tokens(), res_prof.padded_output_tokens())
+    assert torch.equal(
+        res_no_prof.padded_output_tokens(), res_prof.padded_output_tokens()
+    )
 
     # 2. 验证 profiling 结构
     assert res_prof.op_breakdown is not None
@@ -105,7 +125,13 @@ def test_generate_profile_breakdown():
     config = EngineConfig()
     ids = torch.tensor([[1, 2, 3]])
 
-    res = generate(config, model, ids, max_new_tokens=2, options=GenerationOptions(profile=True, top_kernels=3))
+    res = generate(
+        config,
+        model,
+        ids,
+        max_new_tokens=2,
+        options=GenerationOptions(profile=True, top_kernels=3),
+    )
     breakdown = res.op_breakdown
     assert breakdown is not None
     assert is_dataclass(breakdown)
@@ -121,7 +147,13 @@ def test_generate_with_batching_and_profile():
     config = EngineConfig(batching_method=BatchingMethod.FIXED)
     prompts = torch.tensor([[1, 2, 3], [4, 5, 0]])
 
-    res = generate(config, model, prompts, max_new_tokens=2, options=GenerationOptions(profile=True))
+    res = generate(
+        config,
+        model,
+        prompts,
+        max_new_tokens=2,
+        options=GenerationOptions(profile=True),
+    )
     assert res.op_breakdown is not None
     assert res.batch_size == 2
     assert res.padded_output_tokens().shape == (2, 2)
@@ -134,7 +166,9 @@ def test_tensorboard_options_structure():
     assert opt.profile_memory is True
     assert opt.with_stack is True
 
-    custom_opt = TensorBoardOptions(log_dir="/tmp/test_tb", record_shapes=False, profile_memory=False)
+    custom_opt = TensorBoardOptions(
+        log_dir="/tmp/test_tb", record_shapes=False, profile_memory=False
+    )
     assert str(custom_opt.log_dir) == "/tmp/test_tb"
     assert custom_opt.record_shapes is False
     assert custom_opt.profile_memory is False
@@ -191,10 +225,30 @@ def test_bench_run_profiling_modes():
     from mini_infra.cli import build_parser
 
     parser = build_parser()
-    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profiling-mode", "dedicated-pass"])
+    args = parser.parse_args(
+        [
+            "bench",
+            "lockstep",
+            "case",
+            "--tag",
+            "test",
+            "--profiling-mode",
+            "dedicated-pass",
+        ]
+    )
     assert args.profiling_mode == ProfilingMode.DEDICATED_PASS
 
-    args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--profiling-mode", "all-repeats"])
+    args = parser.parse_args(
+        [
+            "bench",
+            "lockstep",
+            "case",
+            "--tag",
+            "test",
+            "--profiling-mode",
+            "all-repeats",
+        ]
+    )
     assert args.profiling_mode == ProfilingMode.ALL_REPEATS
 
     args = parser.parse_args(["bench", "lockstep", "case", "--tag", "test"])
@@ -202,7 +256,16 @@ def test_bench_run_profiling_modes():
 
     # 验证历史参数不被支持（报错退出）
     with pytest.raises(SystemExit):
-        parser.parse_args(["bench", "lockstep", "case", "--tag", "test", "--extra-profile-run"])
+        parser.parse_args(
+            [
+                "bench",
+                "lockstep",
+                "case",
+                "--tag",
+                "test",
+                "--extra-profile-run",
+            ]
+        )
 
     # 2. 验证 run_case 执行逻辑
     model = build_tiny_model()
@@ -260,8 +323,20 @@ def test_merge_op_latency_breakdowns():
     b1 = OpLatencyBreakdown(
         total_ms=10.0,
         top_kernels=[
-            KernelInfo(name="aten::mm", category="gemm", cuda_ms=6.0, share=0.6, calls=2),
-            KernelInfo(name="aten::silu", category="elementwise", cuda_ms=4.0, share=0.4, calls=4),
+            KernelInfo(
+                name="aten::mm",
+                category="gemm",
+                cuda_ms=6.0,
+                share=0.6,
+                calls=2,
+            ),
+            KernelInfo(
+                name="aten::silu",
+                category="elementwise",
+                cuda_ms=4.0,
+                share=0.4,
+                calls=4,
+            ),
         ],
         time_share_by_kernel_category={"gemm": 0.6, "elementwise": 0.4},
         time_share_by_module={"mlp_block": 0.7, "attention_block": 0.3},
@@ -272,8 +347,20 @@ def test_merge_op_latency_breakdowns():
     b2 = OpLatencyBreakdown(
         total_ms=20.0,
         top_kernels=[
-            KernelInfo(name="aten::mm", category="gemm", cuda_ms=14.0, share=0.7, calls=4),
-            KernelInfo(name="aten::softmax", category="softmax", cuda_ms=6.0, share=0.3, calls=2),
+            KernelInfo(
+                name="aten::mm",
+                category="gemm",
+                cuda_ms=14.0,
+                share=0.7,
+                calls=4,
+            ),
+            KernelInfo(
+                name="aten::softmax",
+                category="softmax",
+                cuda_ms=6.0,
+                share=0.3,
+                calls=2,
+            ),
         ],
         time_share_by_kernel_category={"gemm": 0.7, "softmax": 0.3},
         time_share_by_module={"mlp_block": 0.5, "attention_block": 0.5},
@@ -310,13 +397,43 @@ def test_merge_op_latency_breakdowns_global_topk():
     b1 = OpLatencyBreakdown(
         total_ms=27.0,
         top_kernels=[
-            KernelInfo(name="aten::mm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
-            KernelInfo(name="aten::silu", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
+            KernelInfo(
+                name="aten::mm",
+                category="gemm",
+                cuda_ms=10.0,
+                share=10 / 27,
+                calls=1,
+            ),
+            KernelInfo(
+                name="aten::silu",
+                category="elementwise",
+                cuda_ms=9.0,
+                share=9 / 27,
+                calls=1,
+            ),
         ],
         all_kernels=[
-            KernelInfo(name="aten::mm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
-            KernelInfo(name="aten::silu", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
-            KernelInfo(name="aten::add", category="elementwise", cuda_ms=8.0, share=8 / 27, calls=1),
+            KernelInfo(
+                name="aten::mm",
+                category="gemm",
+                cuda_ms=10.0,
+                share=10 / 27,
+                calls=1,
+            ),
+            KernelInfo(
+                name="aten::silu",
+                category="elementwise",
+                cuda_ms=9.0,
+                share=9 / 27,
+                calls=1,
+            ),
+            KernelInfo(
+                name="aten::add",
+                category="elementwise",
+                cuda_ms=8.0,
+                share=8 / 27,
+                calls=1,
+            ),
         ],
         time_share_by_kernel_category={"gemm": 10 / 27, "elementwise": 17 / 27},
         time_share_by_module={"mlp_block": 1.0},
@@ -326,13 +443,43 @@ def test_merge_op_latency_breakdowns_global_topk():
     b2 = OpLatencyBreakdown(
         total_ms=27.0,
         top_kernels=[
-            KernelInfo(name="aten::bmm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
-            KernelInfo(name="aten::mul", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
+            KernelInfo(
+                name="aten::bmm",
+                category="gemm",
+                cuda_ms=10.0,
+                share=10 / 27,
+                calls=1,
+            ),
+            KernelInfo(
+                name="aten::mul",
+                category="elementwise",
+                cuda_ms=9.0,
+                share=9 / 27,
+                calls=1,
+            ),
         ],
         all_kernels=[
-            KernelInfo(name="aten::bmm", category="gemm", cuda_ms=10.0, share=10 / 27, calls=1),
-            KernelInfo(name="aten::mul", category="elementwise", cuda_ms=9.0, share=9 / 27, calls=1),
-            KernelInfo(name="aten::add", category="elementwise", cuda_ms=8.0, share=8 / 27, calls=1),
+            KernelInfo(
+                name="aten::bmm",
+                category="gemm",
+                cuda_ms=10.0,
+                share=10 / 27,
+                calls=1,
+            ),
+            KernelInfo(
+                name="aten::mul",
+                category="elementwise",
+                cuda_ms=9.0,
+                share=9 / 27,
+                calls=1,
+            ),
+            KernelInfo(
+                name="aten::add",
+                category="elementwise",
+                cuda_ms=8.0,
+                share=8 / 27,
+                calls=1,
+            ),
         ],
         time_share_by_kernel_category={"gemm": 10 / 27, "elementwise": 17 / 27},
         time_share_by_module={"mlp_block": 1.0},
@@ -372,22 +519,32 @@ def test_memory_snapshot_tracker_sampling_rate(monkeypatch):
 
     # 1. sampling_rate 为 None 时，每次均记录
     for _ in range(3):
-        alloc_mb, peak_mb = tracker.record_stage("stage_none", dump=False, sampling_rate=None)
+        alloc_mb, peak_mb = tracker.record_stage(
+            "stage_none", dump=False, sampling_rate=None
+        )
         assert alloc_mb == 100.0
         assert peak_mb == 200.0
 
     # 2. sampling_rate <= 0 时，永不记录
     for _ in range(3):
-        alloc_mb, peak_mb = tracker.record_stage("stage_zero", dump=False, sampling_rate=0.0)
+        alloc_mb, peak_mb = tracker.record_stage(
+            "stage_zero", dump=False, sampling_rate=0.0
+        )
         assert alloc_mb == 0.0
         assert peak_mb == 0.0
 
     # 3. sampling_rate = 0.5（每 2 次记录一次）：第 0 次记录，第 1 次跳过，第 2 次记录
-    results = [tracker.record_stage("stage_ratio", dump=False, sampling_rate=0.5)[0] > 0 for _ in range(5)]
+    results = [
+        tracker.record_stage("stage_ratio", dump=False, sampling_rate=0.5)[0] > 0
+        for _ in range(5)
+    ]
     assert results == [True, False, True, False, True]
 
     # 4. sampling_rate = 3（整数间隔）：第 0 次记录，第 1、2 次跳过，第 3 次记录
-    results_interval = [tracker.record_stage("stage_stride", dump=False, sampling_rate=3)[0] > 0 for _ in range(7)]
+    results_interval = [
+        tracker.record_stage("stage_stride", dump=False, sampling_rate=3)[0] > 0
+        for _ in range(7)
+    ]
     assert results_interval == [True, False, False, True, False, False, True]
 
     # 5. 不同 stage 的计数器互不影响

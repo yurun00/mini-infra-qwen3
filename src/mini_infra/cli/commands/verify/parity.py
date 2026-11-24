@@ -10,8 +10,12 @@ from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
 )
-from mini_infra.verification.parity.compare_batch_lockstep import execute_compare_lockstep_batch
-from mini_infra.verification.parity.compare_batch_scheduler import execute_compare_scheduler_batch
+from mini_infra.verification.parity.compare_batch_lockstep import (
+    execute_compare_lockstep_batch,
+)
+from mini_infra.verification.parity.compare_batch_scheduler import (
+    execute_compare_scheduler_batch,
+)
 from mini_infra.verification.parity.compare_cache import execute_compare_cache
 from mini_infra.verification.parity.compare_chunked_prefill import (
     DEFAULT_PROMPTS as DEFAULT_CHUNKED_PREFILL_PROMPTS,
@@ -43,22 +47,39 @@ from mini_infra.verification.parity.compare_schedulers_token_budget import (
 from mini_infra.verification.parity.compare_schedulers_token_budget import (
     execute_compare_schedulers,
 )
-from mini_infra.verification.parity.compare_transformers import execute_compare_transformers
+from mini_infra.verification.parity.compare_transformers import (
+    execute_compare_transformers,
+)
 
 
-def _add_transformers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_transformers_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
-    parser.add_argument("--logits-atol", type=float, default=0.25, help="Logits 最大绝对误差阈值")
+    parser.add_argument(
+        "--logits-atol",
+        type=float,
+        default=0.25,
+        help="Logits 最大绝对误差阈值",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
 def _add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
     parser.add_argument("--max-new-tokens", type=int, default=32)
     parser.add_argument(
@@ -67,45 +88,85 @@ def _add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--logits-atol", type=float, default=1e-4, help="允许的最大 Logits 绝对误差")
+    parser.add_argument(
+        "--logits-atol",
+        type=float,
+        default=1e-4,
+        help="允许的最大 Logits 绝对误差",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_lockstep_batch_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_lockstep_batch_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument("--prompt", default="用一句话解释固定批处理。")
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数")
+    parser.add_argument(
+        "--max-new-tokens", type=int, default=8, help="生成的最大 Token 数"
+    )
     parser.add_argument(
         "--dtype",
         choices=("float32", "bfloat16"),
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--logits-atol", type=float, default=1e-4, help="允许的最大 Logits 绝对误差")
+    parser.add_argument(
+        "--logits-atol",
+        type=float,
+        default=1e-4,
+        help="允许的最大 Logits 绝对误差",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_scheduler_batch_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_scheduler_batch_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument(
         "--dtype",
         choices=("float32", "bfloat16"),
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
-    parser.add_argument("--max-running-requests", type=int, default=2, help="调度器最大并发请求数（默认: 2）")
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=8,
+        help="生成的最大 Token 数（至少为 2，默认: 8）",
+    )
+    parser.add_argument(
+        "--max-running-requests",
+        type=int,
+        default=2,
+        help="调度器最大并发请求数（默认: 2）",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_paged_cache_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument(
         "--prompts",
         nargs="+",
@@ -118,16 +179,37 @@ def _add_paged_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentP
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
-    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
-    parser.add_argument("--logits-atol", type=float, default=None, help="允许的最大 Logits 绝对误差")
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=8,
+        help="生成的最大 Token 数（至少为 2，默认: 8）",
+    )
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=16,
+        help="Paged KV Cache 物理块大小（默认: 16）",
+    )
+    parser.add_argument(
+        "--logits-atol",
+        type=float,
+        default=None,
+        help="允许的最大 Logits 绝对误差",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_paged_cache_scheduler_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument(
         "--prompts",
         nargs="+",
@@ -140,7 +222,12 @@ def _add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=8,
+        help="生成的最大 Token 数（至少为 2，默认: 8）",
+    )
     parser.add_argument(
         "--block-sizes",
         type=int,
@@ -148,14 +235,25 @@ def _add_paged_cache_scheduler_args(parser: argparse.ArgumentParser) -> argparse
         default=[4, 16],
         help="Paged KV Cache 物理块大小列表（默认: [4, 16]）",
     )
-    parser.add_argument("--max-running-requests", type=int, default=2, help="调度器最大并发请求数（默认: 2）")
+    parser.add_argument(
+        "--max-running-requests",
+        type=int,
+        default=2,
+        help="调度器最大并发请求数（默认: 2）",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_schedulers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_schedulers_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument(
         "--prompts",
         nargs="+",
@@ -168,22 +266,43 @@ def _add_schedulers_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=8,
+        help="生成的最大 Token 数（至少为 2，默认: 8）",
+    )
     parser.add_argument(
         "--token-budget",
         type=int,
         default=64,
         help="单次 Prefill 的 padded prompt token 预算（默认: 64）",
     )
-    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
-    parser.add_argument("--max-running-requests", type=int, default=4, help="调度器最大并发请求数（默认: 4）")
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=16,
+        help="Paged KV Cache 物理块大小（默认: 16）",
+    )
+    parser.add_argument(
+        "--max-running-requests",
+        type=int,
+        default=4,
+        help="调度器最大并发请求数（默认: 4）",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_chunked_prefill_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_chunked_prefill_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument(
         "--prompts",
         nargs="+",
@@ -196,23 +315,49 @@ def _add_chunked_prefill_args(parser: argparse.ArgumentParser) -> argparse.Argum
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（至少为 2，默认: 8）")
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=8,
+        help="生成的最大 Token 数（至少为 2，默认: 8）",
+    )
     parser.add_argument(
         "--token-budget",
         type=int,
         default=32,
         help="单次 Prefill 的 padded token 预算（默认: 32）",
     )
-    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
-    parser.add_argument("--max-running-requests", type=int, default=4, help="调度器最大并发请求数（默认: 4）")
-    parser.add_argument("--logits-atol", type=float, default=1e-4, help="首 Token Logits 最大绝对误差阈值")
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=16,
+        help="Paged KV Cache 物理块大小（默认: 16）",
+    )
+    parser.add_argument(
+        "--max-running-requests",
+        type=int,
+        default=4,
+        help="调度器最大并发请求数（默认: 4）",
+    )
+    parser.add_argument(
+        "--logits-atol",
+        type=float,
+        default=1e-4,
+        help="首 Token Logits 最大绝对误差阈值",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
 
-def _add_prefix_caching_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_prefix_caching_args(
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument("--revision", default=DEFAULT_MODEL_REVISION, help="Hugging Face 模型版本")
+    parser.add_argument(
+        "--revision",
+        default=DEFAULT_MODEL_REVISION,
+        help="Hugging Face 模型版本",
+    )
     parser.add_argument(
         "--prompts",
         nargs="+",
@@ -225,21 +370,36 @@ def _add_prefix_caching_args(parser: argparse.ArgumentParser) -> argparse.Argume
         default="float32",
         help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
     )
-    parser.add_argument("--max-new-tokens", type=int, default=8, help="生成的最大 Token 数（默认: 8）")
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=8,
+        help="生成的最大 Token 数（默认: 8）",
+    )
     parser.add_argument(
         "--token-budget",
         type=int,
         default=64,
         help="chunked-prefill 单次 Prefill 的 padded token 预算（默认: 64）",
     )
-    parser.add_argument("--block-size", type=int, default=16, help="Paged KV Cache 物理块大小（默认: 16）")
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=16,
+        help="Paged KV Cache 物理块大小（默认: 16）",
+    )
     parser.add_argument(
         "--max-running-requests",
         type=int,
         default=1,
         help="调度器最大并发请求数（默认: 1，后续请求入场时前序请求的公共前缀已写入 cached block）",
     )
-    parser.add_argument("--logits-atol", type=float, default=1e-4, help="首 Token Logits 最大绝对误差阈值")
+    parser.add_argument(
+        "--logits-atol",
+        type=float,
+        default=1e-4,
+        help="首 Token Logits 最大绝对误差阈值",
+    )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser
 
@@ -254,11 +414,15 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     _add_cache_args(p_cache)
     p_cache.set_defaults(func=_handle_cache)
 
-    p_batch = subparsers.add_parser("batch-lockstep", help="Lockstep 齐步批处理数值与请求隔离对齐")
+    p_batch = subparsers.add_parser(
+        "batch-lockstep", help="Lockstep 齐步批处理数值与请求隔离对齐"
+    )
     _add_lockstep_batch_args(p_batch)
     p_batch.set_defaults(func=_handle_lockstep_batch)
 
-    p_cont = subparsers.add_parser("batch-scheduler", help="Scheduler 批处理动态请求归属与输出一致性验证")
+    p_cont = subparsers.add_parser(
+        "batch-scheduler", help="Scheduler 批处理动态请求归属与输出一致性验证"
+    )
     _add_scheduler_batch_args(p_cont)
     p_cont.set_defaults(func=_handle_scheduler_batch)
 
@@ -283,7 +447,10 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     _add_prefix_caching_args(p_prefix)
     p_prefix.set_defaults(func=_handle_prefix_caching)
 
-    p_paged = subparsers.add_parser("paged-cache-logits", help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐")
+    p_paged = subparsers.add_parser(
+        "paged-cache-logits",
+        help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐",
+    )
     _add_paged_cache_args(p_paged)
     p_paged.set_defaults(func=_handle_paged_cache)
 

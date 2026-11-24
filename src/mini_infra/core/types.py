@@ -9,7 +9,11 @@ from enum import Enum
 from typing import Any, ClassVar, Literal
 
 KVCacheKind = Literal["none", "dense-kv-cache", "paged-kv-cache"]
-KV_CACHE_KINDS: tuple[KVCacheKind, ...] = ("none", "dense-kv-cache", "paged-kv-cache")
+KV_CACHE_KINDS: tuple[KVCacheKind, ...] = (
+    "none",
+    "dense-kv-cache",
+    "paged-kv-cache",
+)
 
 
 def parse_kv_cache_kind(value: str | None) -> KVCacheKind:
@@ -64,7 +68,9 @@ class PagedCacheConfig:
         if self.block_size < 1:
             raise ValueError("block_size 必须大于 0")
         if self.num_blocks is not None and self.num_blocks < 2:
-            raise ValueError("num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）")
+            raise ValueError(
+                "num_blocks 至少为 2（block 0 为 null block，至少还需 1 个可分配块）"
+            )
 
     def __str__(self) -> str:
         params = [f"block_size={self.block_size}"]
@@ -134,7 +140,11 @@ def kv_cache_config_from_str(
 # ============================================================================
 
 BatchingPolicyKind = Literal["prefill-first", "token-budget", "chunked-prefill"]
-BATCHING_POLICY_KINDS: tuple[BatchingPolicyKind, ...] = ("prefill-first", "token-budget", "chunked-prefill")
+BATCHING_POLICY_KINDS: tuple[BatchingPolicyKind, ...] = (
+    "prefill-first",
+    "token-budget",
+    "chunked-prefill",
+)
 
 
 def parse_batching_policy_kind(value: str | None) -> BatchingPolicyKind:
@@ -145,7 +155,9 @@ def parse_batching_policy_kind(value: str | None) -> BatchingPolicyKind:
         return "token-budget"
     if value == "chunked-prefill":
         return "chunked-prefill"
-    raise ValueError(f"未知 batching policy: {value}，可选策略: {list(BATCHING_POLICY_KINDS)}")
+    raise ValueError(
+        f"未知 batching policy: {value}，可选策略: {list(BATCHING_POLICY_KINDS)}"
+    )
 
 
 @dataclass(frozen=True)
@@ -200,7 +212,9 @@ BatchingPolicy = PrefillFirstConfig | TokenBudgetConfig | ChunkedPrefillConfig
 BudgetedBatchingPolicy = TokenBudgetConfig | ChunkedPrefillConfig
 
 
-def batching_policy_from_str(kind: str | None, *, token_budget: int | None = None) -> BatchingPolicy:
+def batching_policy_from_str(
+    kind: str | None, *, token_budget: int | None = None
+) -> BatchingPolicy:
     """根据 batching policy 标识与可选预算构造对应的 BatchingPolicy 实例（prefill-first 忽略 token_budget）。"""
     parsed = parse_batching_policy_kind(kind)
     if parsed == "prefill-first":
@@ -227,9 +241,13 @@ class SchedulerConfig:
 
     def __post_init__(self) -> None:
         if self.max_running_requests is not None and self.max_running_requests < 1:
-            raise ValueError(f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}")
+            raise ValueError(
+                f"max_running_requests 必须大于 0，实际为 {self.max_running_requests}"
+            )
 
-    def with_max_running_requests(self, max_running_requests: int | None) -> "SchedulerConfig":
+    def with_max_running_requests(
+        self, max_running_requests: int | None
+    ) -> "SchedulerConfig":
         """返回指定 max_running_requests 修改后的新 SchedulerConfig 实例。"""
         return replace(self, max_running_requests=max_running_requests)
 
@@ -272,7 +290,9 @@ class BatchingMethod(str, Enum):
         try:
             return cls(value)
         except ValueError as err:
-            raise ValueError(f"未知批处理策略: {value}，可选策略: {[m.value for m in cls]}") from err
+            raise ValueError(
+                f"未知批处理策略: {value}，可选策略: {[m.value for m in cls]}"
+            ) from err
 
     def __str__(self) -> str:
         return self.value
@@ -286,9 +306,13 @@ class SequenceOutput:
     token_ids: list[int]
     prompt_len: int
     output_len: int
-    finish_reason: str  # 结束原因: "stop"（命中 EOS）或 "max_tokens"（达到 Token 预算上限）
+    finish_reason: (
+        str  # 结束原因: "stop"（命中 EOS）或 "max_tokens"（达到 Token 预算上限）
+    )
     completion_step: int | None = None
-    prefix_cache_hit_tokens: int = 0  # prefix cache 命中、跳过 Prefill 计算的 Prompt Token 数
+    prefix_cache_hit_tokens: int = (
+        0  # prefix cache 命中、跳过 Prefill 计算的 Prompt Token 数
+    )
 
 
 @dataclass(frozen=True)
@@ -317,7 +341,10 @@ class RequestMetrics:
 
     @property
     def inter_token_latencies_ms(self) -> list[float]:
-        return [right - left for left, right in zip(self.token_times_ms, self.token_times_ms[1:])]
+        return [
+            right - left
+            for left, right in zip(self.token_times_ms, self.token_times_ms[1:])
+        ]
 
 
 def collapse_uniform(values: Sequence[Any]) -> Any:

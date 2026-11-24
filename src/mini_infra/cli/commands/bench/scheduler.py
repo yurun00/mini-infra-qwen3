@@ -12,7 +12,10 @@ from mini_infra.bench.correctness import check_correctness
 from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.env import git_info, gpu_info, require_cuda
 from mini_infra.bench.paths import CASE_DIR
-from mini_infra.bench.result import build_benchmark_record, save_benchmark_record
+from mini_infra.bench.result import (
+    build_benchmark_record,
+    save_benchmark_record,
+)
 from mini_infra.bench.scheduler.format import format_table
 from mini_infra.bench.scheduler.run_case import run_case
 from mini_infra.bench.spec.common.lengths import make_arrival_times
@@ -25,11 +28,18 @@ from mini_infra.core import (
     kv_cache_config_from_str,
     scheduler_config_from_str,
 )
-from mini_infra.engine import BatchingMethod, EngineConfig, Qwen3Tokenizer, validate_engine_config
+from mini_infra.engine import (
+    BatchingMethod,
+    EngineConfig,
+    Qwen3Tokenizer,
+    validate_engine_config,
+)
 from mini_infra.model import load_model, resolve_model_directory
 
 
-def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def _add_scheduler_case_args(
+    p: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     """向 parser 添加 scheduler case 参数。"""
     add_common_args(p)
     p.add_argument(
@@ -75,20 +85,59 @@ def _add_scheduler_case_args(p: argparse.ArgumentParser) -> argparse.ArgumentPar
         default=None,
         help="token-budget / chunked-prefill 策略下单次 Prefill 的 padded token 上限，须不小于 --max-running-requests",
     )
-    p.add_argument("--prompt-length", type=int, default=128, help="统一输入 Prompt 长度（默认: 128）")
-    p.add_argument("--prompt-lens", type=int, nargs="+", default=None, help="逐请求输入 Prompt 长度列表（可选）")
+    p.add_argument(
+        "--prompt-length",
+        type=int,
+        default=128,
+        help="统一输入 Prompt 长度（默认: 128）",
+    )
+    p.add_argument(
+        "--prompt-lens",
+        type=int,
+        nargs="+",
+        default=None,
+        help="逐请求输入 Prompt 长度列表（可选）",
+    )
     p.add_argument("--request-count", type=int, default=8, help="请求总数（默认: 8）")
-    p.add_argument("--output-budget", type=int, default=20, help="统一输出 Token 预算（默认: 20）")
-    p.add_argument("--output-budgets", type=int, nargs="+", default=None, help="逐请求输出 Token 预算列表（可选）")
-    p.add_argument("--arrival-interval-ms", type=float, default=0.0, help="错峰到达时间间隔 ms（默认: 0.0）")
-    p.add_argument("--arrival-times-ms", type=float, nargs="+", default=None, help="逐请求到达时间列表 ms（可选）")
+    p.add_argument(
+        "--output-budget",
+        type=int,
+        default=20,
+        help="统一输出 Token 预算（默认: 20）",
+    )
+    p.add_argument(
+        "--output-budgets",
+        type=int,
+        nargs="+",
+        default=None,
+        help="逐请求输出 Token 预算列表（可选）",
+    )
+    p.add_argument(
+        "--arrival-interval-ms",
+        type=float,
+        default=0.0,
+        help="错峰到达时间间隔 ms（默认: 0.0）",
+    )
+    p.add_argument(
+        "--arrival-times-ms",
+        type=float,
+        nargs="+",
+        default=None,
+        help="逐请求到达时间列表 ms（可选）",
+    )
     return p
 
 
-def register_parser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+) -> argparse.ArgumentParser:
     """在 bench 下注册 scheduler 组及 case 子命令。"""
-    scheduler_parser = subparsers.add_parser("scheduler", help="队列调度器（Scheduler: Fixed vs Continuous）基准测试")
-    scheduler_subs = scheduler_parser.add_subparsers(dest="scheduler_subcommand", required=True)
+    scheduler_parser = subparsers.add_parser(
+        "scheduler", help="队列调度器（Scheduler: Fixed vs Continuous）基准测试"
+    )
+    scheduler_subs = scheduler_parser.add_subparsers(
+        dest="scheduler_subcommand", required=True
+    )
 
     case_parser = scheduler_subs.add_parser("case", help="运行单用例 Scheduler 基准测试")
     _add_scheduler_case_args(case_parser)
@@ -130,12 +179,20 @@ def handle_case(args: argparse.Namespace) -> int:
         update_golden=False,
     )
     if correctness.passed is False and not args.allow_mismatch:
-        sys.exit("正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）")
+        sys.exit(
+            "正确性检查失败：输出与 golden 不一致，拒绝记录性能结果（--allow-mismatch 可忽略）"
+        )
 
-    req_count = len(args.prompt_lens) if args.prompt_lens is not None else args.request_count
-    prompt_len: int | tuple[int, ...] = tuple(args.prompt_lens) if args.prompt_lens is not None else args.prompt_length
+    req_count = (
+        len(args.prompt_lens) if args.prompt_lens is not None else args.request_count
+    )
+    prompt_len: int | tuple[int, ...] = (
+        tuple(args.prompt_lens) if args.prompt_lens is not None else args.prompt_length
+    )
     max_new_tokens: int | tuple[int, ...] = (
-        tuple(args.output_budgets) if args.output_budgets is not None else args.output_budget
+        tuple(args.output_budgets)
+        if args.output_budgets is not None
+        else args.output_budget
     )
     arrival_ms = (
         tuple(args.arrival_times_ms)
@@ -145,8 +202,14 @@ def handle_case(args: argparse.Namespace) -> int:
     warmup = args.warmup if args.warmup is not None else 1
     repeats = args.repeats if args.repeats is not None else 3
 
-    prompt_lens = (prompt_len,) * req_count if isinstance(prompt_len, int) else tuple(prompt_len)
-    output_budgets = (max_new_tokens,) * req_count if isinstance(max_new_tokens, int) else tuple(max_new_tokens)
+    prompt_lens = (
+        (prompt_len,) * req_count if isinstance(prompt_len, int) else tuple(prompt_len)
+    )
+    output_budgets = (
+        (max_new_tokens,) * req_count
+        if isinstance(max_new_tokens, int)
+        else tuple(max_new_tokens)
+    )
     workload_profile = WorkloadProfile(
         workload_id="custom",
         num_total_requests=req_count,
@@ -165,7 +228,11 @@ def handle_case(args: argparse.Namespace) -> int:
         engine="scheduler",
     )
 
-    block_info = f" block_size={kv_cache_config.block_size}" if isinstance(kv_cache_config, PagedCacheConfig) else ""
+    block_info = (
+        f" block_size={kv_cache_config.block_size}"
+        if isinstance(kv_cache_config, PagedCacheConfig)
+        else ""
+    )
     print(
         f"[bench-scheduler-case] case={case_name} mode={target_config}{block_info} "
         f"requests={workload_profile.num_total_requests} "
@@ -188,7 +255,10 @@ def handle_case(args: argparse.Namespace) -> int:
         repeats=repeats,
         on_step_progress=on_case_step,
     )
-    if getattr(args, "scale", None) is not None or getattr(args, "seed", None) is not None:
+    if (
+        getattr(args, "scale", None) is not None
+        or getattr(args, "seed", None) is not None
+    ):
         result = replace(
             result,
             scale=getattr(args, "scale", None),
@@ -197,7 +267,9 @@ def handle_case(args: argparse.Namespace) -> int:
     print(result.format_summary())
 
     env = gpu_info(device)
-    peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+    peaks = HardwarePeakSpecs.lookup(
+        env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops
+    )
     cost = ModelCostProfile.from_model(model)
     git = git_info()
     record = build_benchmark_record(

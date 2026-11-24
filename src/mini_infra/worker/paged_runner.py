@@ -9,7 +9,10 @@ from typing import NamedTuple
 import torch
 
 from mini_infra.device import StepTimer
-from mini_infra.model.qwen3 import DenseAttentionMetadata, PagedAttentionMetadata
+from mini_infra.model.qwen3 import (
+    DenseAttentionMetadata,
+    PagedAttentionMetadata,
+)
 from mini_infra.worker.base_runner import BaseModelRunner, PrefillOutput
 from mini_infra.worker.kv_cache import KVCache
 from mini_infra.worker.paged_block_cache import PagedBlockCache
@@ -54,7 +57,9 @@ class PagedRunner(BaseModelRunner):
         block_size = block_cache.block_size
         chunk_lens = [len(token_ids) for token_ids in chunk_token_ids]
         padded_chunk_len = max(chunk_lens)
-        num_history_blocks = [(start + block_size - 1) // block_size for start in start_positions]
+        num_history_blocks = [
+            (start + block_size - 1) // block_size for start in start_positions
+        ]
         max_history_blocks = max(num_history_blocks)
         # Host 侧将每行异构元数据拍平为等宽整数行，合并为一次 H2D 后再切片视图，避免多次零碎上卡拷贝；
         # 每行布局（L = padded_chunk_len）：[input_ids(L) | position_ids(L) | start, chunk_len | 历史 block table]。
@@ -67,7 +72,11 @@ class PagedRunner(BaseModelRunner):
             + list(table[:history_blocks])
             + [_NULL_BLOCK_ID] * (max_history_blocks - history_blocks)
             for token_ids, start, table, chunk_len, history_blocks in zip(
-                chunk_token_ids, start_positions, block_tables, chunk_lens, num_history_blocks
+                chunk_token_ids,
+                start_positions,
+                block_tables,
+                chunk_lens,
+                num_history_blocks,
             )
         ]
         # [B, 2 * padded_chunk_len + 2 + max_history_blocks]，一次 H2D
@@ -84,10 +93,16 @@ class PagedRunner(BaseModelRunner):
         attn_metadata = None
         with StepTimer(self.device) as timer:
             if max_history_blocks:
-                history_positions = torch.arange(max_history_blocks * block_size, device=self.device).unsqueeze(0)
+                history_positions = torch.arange(
+                    max_history_blocks * block_size, device=self.device
+                ).unsqueeze(0)
                 # [B, max_history_blocks * block_size + padded_chunk_len]，bool, contiguous
-                attention_mask = torch.cat((history_positions < start_lens, attention_mask), dim=1)
-                attn_metadata = DenseAttentionMetadata(past_key_values=block_cache.gather_blocks(history_block_ids))
+                attention_mask = torch.cat(
+                    (history_positions < start_lens, attention_mask), dim=1
+                )
+                attn_metadata = DenseAttentionMetadata(
+                    past_key_values=block_cache.gather_blocks(history_block_ids)
+                )
             logits, present_key_values = self.model(
                 input_ids,
                 attention_mask=attention_mask,
@@ -120,14 +135,23 @@ class PagedRunner(BaseModelRunner):
         token_rows: list[int] = []
         token_positions: list[int] = []
         slots: list[int] = []
-        for row_idx, (block_table, chunk_len, start) in enumerate(zip(block_tables, chunk_lens, start_positions)):
+        for row_idx, (block_table, chunk_len, start) in enumerate(
+            zip(block_tables, chunk_lens, start_positions)
+        ):
             for token_idx in range(chunk_len):
                 position = start + token_idx
                 token_rows.append(row_idx)
                 token_positions.append(padded_length - chunk_len + token_idx)
-                slots.append(block_table[position // block_size] * block_size + position % block_size)
+                slots.append(
+                    block_table[position // block_size] * block_size
+                    + position % block_size
+                )
         # 单次 H2D：[3, num_tokens]。
-        index_tensor = torch.tensor([token_rows, token_positions, slots], dtype=torch.long, device=self.device)
+        index_tensor = torch.tensor(
+            [token_rows, token_positions, slots],
+            dtype=torch.long,
+            device=self.device,
+        )
         block_cache.write_prefill(
             prefill_cache,
             token_rows=index_tensor[0],
@@ -154,14 +178,21 @@ class PagedRunner(BaseModelRunner):
         max_blocks = max(len(table) for table in block_tables)
         # [B, 4 + max_blocks]
         rows = [
-            [token, position, table[position // block_size] * block_size + position % block_size, position + 1]
+            [
+                token,
+                position,
+                table[position // block_size] * block_size + position % block_size,
+                position + 1,
+            ]
             + list(table)
             + [_NULL_BLOCK_ID] * (max_blocks - len(table))
             for table, token, position in zip(block_tables, last_tokens, positions)
         ]
         packed = torch.tensor(rows, dtype=torch.long, device=self.device)
         metadata = PagedAttentionMetadata(
-            slot_mapping=packed[:, 2], block_tables=packed[:, 4:], context_lens=packed[:, 3]
+            slot_mapping=packed[:, 2],
+            block_tables=packed[:, 4:],
+            context_lens=packed[:, 3],
         )
         return packed[:, 0:1], packed[:, 1:2], metadata
 
@@ -186,7 +217,10 @@ class PagedRunner(BaseModelRunner):
                 attn_metadata=attn_metadata,
             )
             next_token, _ = greedy_sample(logits)
-        return PagedDecodeOutput(next_tokens=next_token.squeeze(-1).tolist(), model_ms=timer.elapsed_ms)
+        return PagedDecodeOutput(
+            next_tokens=next_token.squeeze(-1).tolist(),
+            model_ms=timer.elapsed_ms,
+        )
 
 
 __all__ = [

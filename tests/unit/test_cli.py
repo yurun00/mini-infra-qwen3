@@ -94,7 +94,9 @@ def test_cli_scheduler_suite_dry_run(capsys):
     )
     assert ret == 0
     captured = capsys.readouterr().out
-    assert "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
+    assert (
+        "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
+    )
     assert "Scheduler 基准评测执行计划" in captured
 
 

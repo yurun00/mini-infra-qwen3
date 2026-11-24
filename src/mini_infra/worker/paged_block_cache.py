@@ -36,7 +36,10 @@ class PagedBlockCache:
         self.head_dim = head_dim
         shape = (num_blocks, block_size, num_kv_heads, head_dim)
         self.kv_pools: list[tuple[torch.Tensor, torch.Tensor]] = [
-            (torch.zeros(shape, dtype=dtype, device=device), torch.zeros(shape, dtype=dtype, device=device))
+            (
+                torch.zeros(shape, dtype=dtype, device=device),
+                torch.zeros(shape, dtype=dtype, device=device),
+            )
             for _ in range(num_layers)
         ]
 
@@ -44,14 +47,21 @@ class PagedBlockCache:
     def bytes_per_block(self) -> int:
         """单个物理块跨全部层的 K+V 字节数。"""
         key_pool, _ = self.kv_pools[0]
-        return 2 * len(self.kv_pools) * math.prod(key_pool.shape[1:]) * key_pool.element_size()
+        return (
+            2
+            * len(self.kv_pools)
+            * math.prod(key_pool.shape[1:])
+            * key_pool.element_size()
+        )
 
     @property
     def total_bytes(self) -> int:
         """整个 physical block pool（含 null block）占用的显存字节数。"""
         return self.num_blocks * self.bytes_per_block
 
-    def gather_blocks(self, block_ids: torch.Tensor) -> tuple[tuple[torch.Tensor, torch.Tensor], ...]:
+    def gather_blocks(
+        self, block_ids: torch.Tensor
+    ) -> tuple[tuple[torch.Tensor, torch.Tensor], ...]:
         """按 block table 取块，逐层拼出历史 K/V 视图（chunked prefill 的前序 chunk 历史）。
 
         block_ids: [batch, num_gathered_blocks], long；右侧以 null block 补齐，补齐位由调用方经 attention_mask 屏蔽
@@ -62,7 +72,12 @@ class PagedBlockCache:
             经 transpose(1, 2)，直接喂模型 torch.cat / matmul）。
         """
         batch_size, num_gathered_blocks = block_ids.shape
-        history_shape = (batch_size, num_gathered_blocks * self.block_size, self.num_kv_heads, self.head_dim)
+        history_shape = (
+            batch_size,
+            num_gathered_blocks * self.block_size,
+            self.num_kv_heads,
+            self.head_dim,
+        )
         return tuple(
             (
                 key_pool[block_ids].view(history_shape).transpose(1, 2),

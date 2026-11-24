@@ -17,7 +17,12 @@ from mini_infra.bench.scheduler import (
     run_suite,
 )
 from mini_infra.bench.suite import load_benchmark_suite
-from mini_infra.core import DenseCacheConfig, PagedCacheConfig, SchedulerConfig, make_requests
+from mini_infra.core import (
+    DenseCacheConfig,
+    PagedCacheConfig,
+    SchedulerConfig,
+    make_requests,
+)
 from mini_infra.engine import BatchingMethod, EngineConfig
 from mini_infra.verification.smoke import build_tiny_model
 
@@ -125,14 +130,20 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
 
     def fake_check_correctness(model, tokenizer, config, device, update_golden=False):
         captured_correctness_kwargs["config"] = config
-        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+        return CorrectnessReport(
+            checked=True, passed=True, match_ratio=1.0, updated_golden=False
+        )
 
     monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
     monkeypatch.setattr(sched_cmd, "resolve_model_directory", lambda model, rev: tmp_path)
     monkeypatch.setattr(sched_cmd, "Qwen3Tokenizer", lambda model_dir: object())
     monkeypatch.setattr(sched_cmd, "load_model", lambda model_dir, device: tiny_model)
     monkeypatch.setattr(sched_cmd, "check_correctness", fake_check_correctness)
-    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+    monkeypatch.setattr(
+        sched_cmd,
+        "gpu_info",
+        lambda device: {"gpu": "CPU", "torch": torch.__version__},
+    )
 
     out_path = tmp_path / "paged_case.json"
     parser = build_parser()
@@ -176,7 +187,10 @@ def test_handle_scheduler_case_paged_on_cpu(tmp_path, monkeypatch):
     )
     assert out_path.exists()
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    assert saved["engine_config"] == "paged-kv-cache(block_size=4,num_blocks=32)+continuous-batching+mrr=2"
+    assert (
+        saved["engine_config"]
+        == "paged-kv-cache(block_size=4,num_blocks=32)+continuous-batching+mrr=2"
+    )
     assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["block_size"] == 4
     assert saved["cases"][0]["memory"]["kv_cache"]["paged_cache"]["num_blocks"] == 32
 
@@ -195,9 +209,15 @@ def test_handle_scheduler_case_default_output_to_case_dir(tmp_path, monkeypatch)
     monkeypatch.setattr(
         sched_cmd,
         "check_correctness",
-        lambda *args, **kwargs: CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
+        lambda *args, **kwargs: CorrectnessReport(
+            checked=True, passed=True, match_ratio=1.0, updated_golden=False
+        ),
     )
-    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+    monkeypatch.setattr(
+        sched_cmd,
+        "gpu_info",
+        lambda device: {"gpu": "CPU", "torch": torch.__version__},
+    )
 
     fake_case_dir = tmp_path / "case"
     monkeypatch.setattr(sched_cmd, "CASE_DIR", fake_case_dir)
@@ -346,7 +366,9 @@ workload:
         model=model,
         engine_config_label="suite(kv-cache+fixed-batching,kv-cache+continuous-batching)",
         cases=cases,
-        correctness=CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
+        correctness=CorrectnessReport(
+            checked=True, passed=True, match_ratio=1.0, updated_golden=False
+        ),
         env={"gpu": "CPU"},
         peaks=HardwarePeakSpecs(bandwidth_gbs=None, tflops=None),
         cost=None,
@@ -523,7 +545,9 @@ def test_scheduler_suite_dry_run_main(capsys):
     assert ret == 0
 
     captured = capsys.readouterr().out
-    assert "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
+    assert (
+        "=== [Dry Run] Suite: fixed-vs-continuous-variable-output-length ===" in captured
+    )
     assert "Scheduler 基准评测执行计划" in captured
     assert "warmup" in captured
     assert "repeat 1" in captured
@@ -538,7 +562,17 @@ def test_parse_args_scheduler_case_batching_policy():
     assert default_args.token_budget is None
 
     args = parser.parse_args(
-        ["bench", "scheduler", "case", "--tag", "dev", "--batching-policy", "token-budget", "--token-budget", "64"]
+        [
+            "bench",
+            "scheduler",
+            "case",
+            "--tag",
+            "dev",
+            "--batching-policy",
+            "token-budget",
+            "--token-budget",
+            "64",
+        ]
     )
     assert args.batching_policy == "token-budget"
     assert args.token_budget == 64
@@ -559,21 +593,54 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
 
     def fake_check_correctness(model, tokenizer, config, device, update_golden=False):
         captured["config"] = config
-        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False)
+        return CorrectnessReport(
+            checked=True, passed=True, match_ratio=1.0, updated_golden=False
+        )
 
     monkeypatch.setattr(sched_cmd, "require_cuda", lambda: torch.device("cpu"))
     monkeypatch.setattr(sched_cmd, "resolve_model_directory", lambda model, rev: tmp_path)
     monkeypatch.setattr(sched_cmd, "Qwen3Tokenizer", lambda model_dir: object())
     monkeypatch.setattr(sched_cmd, "load_model", lambda model_dir, device: tiny_model)
     monkeypatch.setattr(sched_cmd, "check_correctness", fake_check_correctness)
-    monkeypatch.setattr(sched_cmd, "gpu_info", lambda device: {"gpu": "CPU", "torch": torch.__version__})
+    monkeypatch.setattr(
+        sched_cmd,
+        "gpu_info",
+        lambda device: {"gpu": "CPU", "torch": torch.__version__},
+    )
 
     out_path = tmp_path / "token_budget_case.json"
     parser = build_parser()
-    common = ["bench", "scheduler", "case", "--tag", "dev", "--request-count", "3", "--prompt-length", "4"]
-    common += ["--output-budget", "3", "--max-running-requests", "2", "--warmup", "0", "--repeats", "1"]
+    common = [
+        "bench",
+        "scheduler",
+        "case",
+        "--tag",
+        "dev",
+        "--request-count",
+        "3",
+        "--prompt-length",
+        "4",
+    ]
+    common += [
+        "--output-budget",
+        "3",
+        "--max-running-requests",
+        "2",
+        "--warmup",
+        "0",
+        "--repeats",
+        "1",
+    ]
     args = parser.parse_args(
-        [*common, "--batching-policy", "token-budget", "--token-budget", "4", "--output", str(out_path)]
+        [
+            *common,
+            "--batching-policy",
+            "token-budget",
+            "--token-budget",
+            "4",
+            "--output",
+            str(out_path),
+        ]
     )
     assert sched_cmd.handle_case(args) == 0
     assert captured["config"].scheduler_config == SchedulerConfig(
@@ -582,7 +649,10 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
     )
 
     saved = json.loads(out_path.read_text(encoding="utf-8"))
-    assert saved["engine_config"] == "dense-kv-cache+continuous-batching+mrr=2+token-budget(token_budget=4)"
+    assert (
+        saved["engine_config"]
+        == "dense-kv-cache+continuous-batching+mrr=2+token-budget(token_budget=4)"
+    )
     schedule = saved["cases"][0]["schedule"]
     # 预算 4 每次只放行 1 个 4-token 请求，decode protection 隔开每次 Prefill
     assert schedule["num_prefill_steps"]["median"] == 3
@@ -591,7 +661,15 @@ def test_handle_scheduler_case_token_budget_on_cpu(tmp_path, monkeypatch):
 
     # CLI 边界校验：token-budget 仅支持 continuous-batching
     fixed_args = parser.parse_args(
-        [*common, "--batching-method", "fixed-batching", "--batching-policy", "token-budget", "--token-budget", "4"]
+        [
+            *common,
+            "--batching-method",
+            "fixed-batching",
+            "--batching-policy",
+            "token-budget",
+            "--token-budget",
+            "4",
+        ]
     )
     with pytest.raises(ValueError, match="continuous-batching"):
         sched_cmd.handle_case(fixed_args)
@@ -645,8 +723,14 @@ comparison:
     by_policy = {c.key.batching_policy: c for c in cases}
     assert by_policy["prefill-first"].key.token_budget is None
     assert by_policy["token-budget"].key.token_budget == 4
-    assert by_policy["prefill-first"].schedule_metrics.max_consecutive_prefill_steps.median == 2
-    assert by_policy["token-budget"].schedule_metrics.max_consecutive_prefill_steps.median == 1
+    assert (
+        by_policy["prefill-first"].schedule_metrics.max_consecutive_prefill_steps.median
+        == 2
+    )
+    assert (
+        by_policy["token-budget"].schedule_metrics.max_consecutive_prefill_steps.median
+        == 1
+    )
     assert "budget 4" in by_policy["token-budget"].format_summary()
     assert "budget" not in by_policy["prefill-first"].format_summary()
     print(format_table(cases, suite_name=suite.name))
@@ -664,7 +748,9 @@ comparison:
         model=model,
         engine_config_label="suite(tiny-token-budget)",
         cases=cases,
-        correctness=CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=False),
+        correctness=CorrectnessReport(
+            checked=True, passed=True, match_ratio=1.0, updated_golden=False
+        ),
         env={"gpu": "CPU"},
         peaks=HardwarePeakSpecs(bandwidth_gbs=None, tflops=None),
         cost=None,

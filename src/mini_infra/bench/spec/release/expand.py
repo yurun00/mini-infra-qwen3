@@ -3,8 +3,15 @@
 from dataclasses import dataclass
 
 from mini_infra.bench.spec.common.checks import run_check
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
-from mini_infra.bench.spec.release.schema import RELEASE_SCALES, ReleaseScale, ReleaseSpec
+from mini_infra.bench.spec.common.workload import (
+    ResolvedWorkloadSpec,
+    resolve_workload_body,
+)
+from mini_infra.bench.spec.release.schema import (
+    RELEASE_SCALES,
+    ReleaseScale,
+    ReleaseSpec,
+)
 
 
 @dataclass(frozen=True)
@@ -16,16 +23,25 @@ class ResolvedReleaseScale:
     workload: ResolvedWorkloadSpec
 
 
-def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[ReleaseScale, ResolvedReleaseScale]:
+def resolve_release_spec(
+    spec: ReleaseSpec, seed: int | None = None
+) -> dict[ReleaseScale, ResolvedReleaseScale]:
     """展开三档负载；seed 缺省取 default_seed。"""
     effective_seed = spec.default_seed if seed is None else seed
     resolved: dict[ReleaseScale, ResolvedReleaseScale] = {}
     max_running_requests = spec.system.scheduler_spec.max_running_requests
     for scale in RELEASE_SCALES:
         scale_spec = spec.scales[scale]
-        body = {**scale_spec.workload, "seed": effective_seed, "seed_salt": scale_spec.seed_salt}
+        body = {
+            **scale_spec.workload,
+            "seed": effective_seed,
+            "seed_salt": scale_spec.seed_salt,
+        }
         workload = resolve_workload_body(
-            f"{spec.engine}_{scale}", body, {}, context=f"release {spec.engine}/{scale} (seed={effective_seed})"
+            f"{spec.engine}_{scale}",
+            body,
+            {},
+            context=f"release {spec.engine}/{scale} (seed={effective_seed})",
         )
         for check in spec.checks:
             run_check(
@@ -43,7 +59,9 @@ def resolve_release_spec(spec: ReleaseSpec, seed: int | None = None) -> dict[Rel
     return resolved
 
 
-def expand_release_scales(spec: ReleaseSpec, *, seed: int | None = None) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
+def expand_release_scales(
+    spec: ReleaseSpec, *, seed: int | None = None
+) -> dict[ReleaseScale, ResolvedWorkloadSpec]:
     """把 ReleaseSpec 转换为三档 ResolvedWorkloadSpec（seed 缺省取 default_seed，Test-only）。"""
     scales = resolve_release_spec(spec, seed=seed)
     return {scale: resolved.workload for scale, resolved in scales.items()}

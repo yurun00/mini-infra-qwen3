@@ -14,4 +14,16 @@ pytestmark = pytest.mark.gpu
 def test_compare_cache():
     from mini_infra.cli import main
 
-    assert main(["verify", "cache", "--prompt", "请用一句话介绍 KV Cache。", "--max-new-tokens", "16"]) == 0
+    assert (
+        main(
+            [
+                "verify",
+                "cache",
+                "--prompt",
+                "请用一句话介绍 KV Cache。",
+                "--max-new-tokens",
+                "16",
+            ]
+        )
+        == 0
+    )

@@ -11,7 +11,10 @@ from typing import Any
 
 from mini_infra.bench.spec.common.checks import run_check
 from mini_infra.bench.spec.common.schema import CachingSpec, SchedulerSpec
-from mini_infra.bench.spec.common.workload import ResolvedWorkloadSpec, resolve_workload_body
+from mini_infra.bench.spec.common.workload import (
+    ResolvedWorkloadSpec,
+    resolve_workload_body,
+)
 from mini_infra.bench.spec.suite.schema import SuiteSpec
 from mini_infra.engine import BatchingMethod
 
@@ -33,7 +36,9 @@ def _expand_workload_points(spec: SuiteSpec) -> list[dict[str, Any]]:
     if isinstance(sweep, list):
         return [dict(scenario) for scenario in sweep]
     keys = list(sweep)
-    return [dict(zip(keys, combo)) for combo in itertools.product(*(sweep[k] for k in keys))]
+    return [
+        dict(zip(keys, combo)) for combo in itertools.product(*(sweep[k] for k in keys))
+    ]
 
 
 def _resolve_workload(spec: SuiteSpec, point: dict[str, Any]) -> ResolvedWorkloadSpec:
@@ -67,7 +72,9 @@ def _validate_checks(
 ) -> None:
     if not spec.checks:
         return
-    mrr_axis = list(dict.fromkeys(sched.max_running_requests for _, _, sched in sys_cases))
+    mrr_axis = list(
+        dict.fromkeys(sched.max_running_requests for _, _, sched in sys_cases)
+    )
     for workload, mrr in itertools.product(workloads, mrr_axis):
         for check in spec.checks:
             run_check(

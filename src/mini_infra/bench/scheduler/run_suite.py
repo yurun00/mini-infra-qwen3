@@ -40,13 +40,22 @@ def run_suite(
     cases = suite.cases
 
     # 局部材质化同一 workload 的 requests，保证 suite 内同 workload 严格使用同一份输入
-    requests_by_workload = {case.workload_id: case.profile.to_payload(vocab_size) for case in cases}
+    requests_by_workload = {
+        case.workload_id: case.profile.to_payload(vocab_size) for case in cases
+    }
 
     # 生成执行计划
-    plan = build_scheduler_run_plan(cases, warmup=warmup_val, repeats=repeats_val, interleave=interleave_dims)
+    plan = build_scheduler_run_plan(
+        cases,
+        warmup=warmup_val,
+        repeats=repeats_val,
+        interleave=interleave_dims,
+    )
 
     # 驱动执行计划，按用例身份键（CaseKey）归集测量结果
-    runs_by_case_key: dict[CaseKey, list[ScheduleResult]] = {case.key: [] for case in cases}
+    runs_by_case_key: dict[CaseKey, list[ScheduleResult]] = {
+        case.key: [] for case in cases
+    }
     total_steps = len(plan)
     for step_number, planned_run in enumerate(plan, 1):
         if on_step_progress is not None:

@@ -9,11 +9,17 @@ import torch
 from huggingface_hub import snapshot_download
 from safetensors.torch import load_file
 
-from mini_infra.model.config import DEFAULT_MODEL_REVISION, Qwen3Config, model_dtype_from_config
+from mini_infra.model.config import (
+    DEFAULT_MODEL_REVISION,
+    Qwen3Config,
+    model_dtype_from_config,
+)
 from mini_infra.model.qwen3 import Qwen3ForCausalLM
 
 
-def resolve_model_directory(model_name_or_path: str, revision: str = DEFAULT_MODEL_REVISION) -> str:
+def resolve_model_directory(
+    model_name_or_path: str, revision: str = DEFAULT_MODEL_REVISION
+) -> str:
     """返回本地模型目录；本地路径不存在时从 Hugging Face Hub 下载固定 revision。"""
     local_path = Path(model_name_or_path).expanduser()
     if local_path.is_dir():
@@ -35,7 +41,11 @@ def resolve_model_directory(model_name_or_path: str, revision: str = DEFAULT_MOD
     )
 
 
-def load_model(model_directory: str | Path, device: torch.device, dtype: torch.dtype | None = None) -> Qwen3ForCausalLM:
+def load_model(
+    model_directory: str | Path,
+    device: torch.device,
+    dtype: torch.dtype | None = None,
+) -> Qwen3ForCausalLM:
     """从本地目录的 model.safetensors 构造并加载 Qwen3ForCausalLM（eval 态）。"""
     config = Qwen3Config.from_model_directory(model_directory)
     model = Qwen3ForCausalLM(config)

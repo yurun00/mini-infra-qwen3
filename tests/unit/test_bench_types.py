@@ -12,7 +12,12 @@ from mini_infra.bench.lockstep.types import (
 )
 from mini_infra.core import DenseCacheConfig, SchedulerConfig
 from mini_infra.engine import EngineConfig
-from mini_infra.engine.metrics import BatchScheduleInfo, KVCacheProfile, MemoryProfile, StepAggregatedMetrics
+from mini_infra.engine.metrics import (
+    BatchScheduleInfo,
+    KVCacheProfile,
+    MemoryProfile,
+    StepAggregatedMetrics,
+)
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
 
@@ -32,7 +37,16 @@ def test_distribution_stats_computation_and_immutability():
 
     # 2. 导出 dict
     d = stats.to_dict()
-    assert set(d.keys()) == {"median", "mean", "std", "min", "p90", "p95", "p99", "max"}
+    assert set(d.keys()) == {
+        "median",
+        "mean",
+        "std",
+        "min",
+        "p90",
+        "p95",
+        "p99",
+        "max",
+    }
     assert d["median"] == 30.0
 
     # 3. 不可变性验证
@@ -48,7 +62,10 @@ def test_distribution_stats_computation_and_immutability():
 
 def test_lockstep_case_result_structure_and_dot_access():
     """验证 LockstepCaseResult 强类型点号访问与各领域对象。"""
-    config = EngineConfig(DenseCacheConfig(), scheduler_config=SchedulerConfig(max_running_requests=2))
+    config = EngineConfig(
+        DenseCacheConfig(),
+        scheduler_config=SchedulerConfig(max_running_requests=2),
+    )
     workload = WorkloadProfile(
         workload_id="custom",
         num_total_requests=2,
@@ -111,15 +128,29 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert case_result.workload.num_total_requests == 2
     assert case_result.workload.prompt_lens == (16, 32)
     assert case_result.workload.output_budgets == (16, 16)
-    assert case_result.metrics.ttft_ms is not None and case_result.metrics.ttft_ms.median == 10.0
+    assert (
+        case_result.metrics.ttft_ms is not None
+        and case_result.metrics.ttft_ms.median == 10.0
+    )
     assert case_result.metrics.throughput_tok_s.mean == 10.0
     assert case_result.memory.peak_allocated_mb == 700.0
     assert case_result.memory.dynamic_peak_mb == 100.0
     assert case_result.memory.fragmentation_mb == 100.0
-    assert case_result.packing is not None and case_result.packing.padding_efficiency.median == 0.85
-    assert case_result.efficiency is not None and case_result.efficiency.decode_mbu == 0.45
-    assert case_result.metrics.gpu_time_ratio is not None and case_result.metrics.gpu_time_ratio.median == 10.0
-    assert case_result.op_breakdown is not None and case_result.op_breakdown.total_ms == 100.0
+    assert (
+        case_result.packing is not None
+        and case_result.packing.padding_efficiency.median == 0.85
+    )
+    assert (
+        case_result.efficiency is not None and case_result.efficiency.decode_mbu == 0.45
+    )
+    assert (
+        case_result.metrics.gpu_time_ratio is not None
+        and case_result.metrics.gpu_time_ratio.median == 10.0
+    )
+    assert (
+        case_result.op_breakdown is not None
+        and case_result.op_breakdown.total_ms == 100.0
+    )
 
     # 2. 验证不可变性
     with pytest.raises(FrozenInstanceError):

@@ -214,11 +214,15 @@ def test_summarize_repeated_cache_profiles():
     assert merged_paged.block_release_count == 22
 
     # 异构配置断言失败
-    p_diff_block_size = PagedCacheProfile(block_size=32, bytes_per_block=4096, num_blocks=100)
+    p_diff_block_size = PagedCacheProfile(
+        block_size=32, bytes_per_block=4096, num_blocks=100
+    )
     with pytest.raises(AssertionError, match="identical physical pool configuration"):
         summarize_repeated_paged_cache_profiles([p1, p_diff_block_size])
 
-    p_diff_num_blocks = PagedCacheProfile(block_size=16, bytes_per_block=4096, num_blocks=128)
+    p_diff_num_blocks = PagedCacheProfile(
+        block_size=16, bytes_per_block=4096, num_blocks=128
+    )
     with pytest.raises(AssertionError, match="identical physical pool configuration"):
         summarize_repeated_paged_cache_profiles([p1, p_diff_num_blocks])
 
@@ -271,7 +275,15 @@ def test_compute_step_aggregated_metrics():
 def test_aggregate_generation_results():
     """验证多 Run 结果聚合逻辑。"""
     res1 = GenerationResult(
-        sequences=[SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=3, output_len=2, finish_reason="stop")],
+        sequences=[
+            SequenceOutput(
+                request_idx=0,
+                token_ids=[1, 2],
+                prompt_len=3,
+                output_len=2,
+                finish_reason="stop",
+            )
+        ],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
             mean_tpot_ms=5.0,
@@ -299,7 +311,13 @@ def test_aggregate_generation_results():
 
     res2 = GenerationResult(
         sequences=[
-            SequenceOutput(request_idx=0, token_ids=[3, 4, 5], prompt_len=4, output_len=3, finish_reason="max_tokens")
+            SequenceOutput(
+                request_idx=0,
+                token_ids=[3, 4, 5],
+                prompt_len=4,
+                output_len=3,
+                finish_reason="max_tokens",
+            )
         ],
         metrics=StepAggregatedMetrics(
             ttft_ms=12.0,
@@ -364,7 +382,15 @@ def test_aggregate_generation_results():
 def test_aggregate_generation_results_with_options():
     """验证 aggregate_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
     res1 = GenerationResult(
-        sequences=[SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop")],
+        sequences=[
+            SequenceOutput(
+                request_idx=0,
+                token_ids=[1, 2],
+                prompt_len=2,
+                output_len=2,
+                finish_reason="stop",
+            )
+        ],
         metrics=StepAggregatedMetrics(
             ttft_ms=10.0,
             mean_tpot_ms=4.0,
@@ -383,11 +409,21 @@ def test_aggregate_generation_results_with_options():
             peak_reserved_mb=200.0,
             kv_cache=KVCacheProfile(peak_live_kv_cache_mb=10.0),
         ),
-        trace=GenerationTrace(step_latencies_ms=[10.0, 4.0], num_active_tokens_per_step=[1, 1]),
+        trace=GenerationTrace(
+            step_latencies_ms=[10.0, 4.0], num_active_tokens_per_step=[1, 1]
+        ),
         batch_size=1,
     )
     res2 = GenerationResult(
-        sequences=[SequenceOutput(request_idx=0, token_ids=[3, 4], prompt_len=2, output_len=2, finish_reason="stop")],
+        sequences=[
+            SequenceOutput(
+                request_idx=0,
+                token_ids=[3, 4],
+                prompt_len=2,
+                output_len=2,
+                finish_reason="stop",
+            )
+        ],
         metrics=StepAggregatedMetrics(
             ttft_ms=20.0,
             mean_tpot_ms=8.0,
@@ -406,7 +442,9 @@ def test_aggregate_generation_results_with_options():
             peak_reserved_mb=250.0,
             kv_cache=KVCacheProfile(peak_live_kv_cache_mb=20.0),
         ),
-        trace=GenerationTrace(step_latencies_ms=[20.0, 8.0], num_active_tokens_per_step=[1, 1]),
+        trace=GenerationTrace(
+            step_latencies_ms=[20.0, 8.0], num_active_tokens_per_step=[1, 1]
+        ),
         batch_size=1,
     )
 
@@ -419,7 +457,9 @@ def test_aggregate_generation_results_with_options():
     assert merged_mean.metrics.mean_tpot_ms == 6.0  # (4 + 8) / 2
     assert merged_mean.metrics.p50_tpot_ms == 6.0
     assert merged_mean.metrics.throughput_tok_s == 75.0  # (100 + 50) / 2
-    assert merged_mean.metrics.gpu_time_ratio == pytest.approx(27.0 / 30.0)  # 派生自 e2e_model_ms / e2e_wall_ms
+    assert merged_mean.metrics.gpu_time_ratio == pytest.approx(
+        27.0 / 30.0
+    )  # 派生自 e2e_model_ms / e2e_wall_ms
     assert merged_mean.memory.baseline_mb == 100.0  # min(100, 120)
     assert merged_mean.memory.peak_allocated_mb == 150.0  # min(150, 180)
     assert merged_mean.memory.kv_cache.peak_live_kv_cache_mb == 10.0  # min(10, 20)
@@ -429,7 +469,9 @@ def test_aggregate_generation_results_with_options():
     merged_field = aggregate_generation_results([res1, res2], options=opt_field)
     assert merged_field.metrics.e2e_wall_ms == 60.0  # sum: 20 + 40
     assert merged_field.metrics.e2e_model_ms == 54.0  # sum: 18 + 36
-    assert merged_field.metrics.gpu_time_ratio == pytest.approx(54.0 / 60.0)  # 派生自 e2e_model_ms / e2e_wall_ms
+    assert merged_field.metrics.gpu_time_ratio == pytest.approx(
+        54.0 / 60.0
+    )  # 派生自 e2e_model_ms / e2e_wall_ms
     assert merged_field.metrics.ttft_ms == 10.0  # min(10, 20)
     assert merged_field.memory.peak_allocated_mb == 165.0  # mean(150, 180)
     assert merged_field.memory.peak_reserved_mb == 250.0  # memory 默认 max(200, 250)
@@ -449,16 +491,36 @@ def test_aggregate_generation_results_with_options():
 
     # 5. 非法聚合函数字符串引发 ValueError
     with pytest.raises(ValueError, match="Unsupported aggregate function"):
-        _ = aggregate_generation_results([res1, res2], options=AggregationOptions(metrics="unknown_fn"))  # type: ignore[arg-type]
+        _ = aggregate_generation_results(
+            [res1, res2], options=AggregationOptions(metrics="unknown_fn")
+        )  # type: ignore[arg-type]
 
 
 def test_padded_output_tokens_method():
     """验证 padded_output_tokens 方法在单请求、多请求、默认及自定义 pad_token_id 场景下的正确性。"""
     # 1. 变长 sequences
     seqs = [
-        SequenceOutput(request_idx=0, token_ids=[1, 2], prompt_len=2, output_len=2, finish_reason="stop"),
-        SequenceOutput(request_idx=1, token_ids=[3, 4, 5, 6], prompt_len=4, output_len=4, finish_reason="max_tokens"),
-        SequenceOutput(request_idx=2, token_ids=[7], prompt_len=1, output_len=1, finish_reason="stop"),
+        SequenceOutput(
+            request_idx=0,
+            token_ids=[1, 2],
+            prompt_len=2,
+            output_len=2,
+            finish_reason="stop",
+        ),
+        SequenceOutput(
+            request_idx=1,
+            token_ids=[3, 4, 5, 6],
+            prompt_len=4,
+            output_len=4,
+            finish_reason="max_tokens",
+        ),
+        SequenceOutput(
+            request_idx=2,
+            token_ids=[7],
+            prompt_len=1,
+            output_len=1,
+            finish_reason="stop",
+        ),
     ]
     res = GenerationResult(
         sequences=seqs,

@@ -120,15 +120,30 @@ def test_canonical_workloads_and_build_payload():
         lw = lockstep_workloads[scale]
         assert isinstance(lw, ResolvedWorkloadSpec)
         assert lw.workload_id == f"lockstep_{scale}"
-        assert isinstance(lw.prompt_lens, tuple) and len(lw.prompt_lens) == lw.num_total_requests
-        assert isinstance(lw.output_budgets, tuple) and len(lw.output_budgets) == lw.num_total_requests
+        assert (
+            isinstance(lw.prompt_lens, tuple)
+            and len(lw.prompt_lens) == lw.num_total_requests
+        )
+        assert (
+            isinstance(lw.output_budgets, tuple)
+            and len(lw.output_budgets) == lw.num_total_requests
+        )
 
         sw = scheduler_workloads[scale]
         assert isinstance(sw, ResolvedWorkloadSpec)
         assert sw.workload_id == f"scheduler_{scale}"
-        assert isinstance(sw.prompt_lens, tuple) and len(sw.prompt_lens) == sw.num_total_requests
-        assert isinstance(sw.output_budgets, tuple) and len(sw.output_budgets) == sw.num_total_requests
-        assert isinstance(sw.arrival_ms, tuple) and len(sw.arrival_ms) == sw.num_total_requests
+        assert (
+            isinstance(sw.prompt_lens, tuple)
+            and len(sw.prompt_lens) == sw.num_total_requests
+        )
+        assert (
+            isinstance(sw.output_budgets, tuple)
+            and len(sw.output_budgets) == sw.num_total_requests
+        )
+        assert (
+            isinstance(sw.arrival_ms, tuple)
+            and len(sw.arrival_ms) == sw.num_total_requests
+        )
 
         profile = sw.to_profile()
         specs = profile.to_payload(vocab_size=32000)
@@ -173,7 +188,10 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "[3/5] 开始执行: 运行 Lockstep 基准 [large]" in out_lockstep
     assert out_lockstep.count("--profiling-mode dedicated-pass") == 1
     assert "--scale small --seed 42 --profiling-mode dedicated-pass" in out_lockstep
-    assert "-> 目标产物: benchmarks/results/history/lockstep/<commit>_v0.3.0.json" in out_lockstep
+    assert (
+        "-> 目标产物: benchmarks/results/history/lockstep/<commit>_v0.3.0.json"
+        in out_lockstep
+    )
 
     # Test scheduler dry-run
     rc_scheduler = main(
@@ -194,7 +212,10 @@ def test_release_benchmark_script_dry_run(capsys):
     assert "[1/5] 开始执行: 运行 Scheduler 基准 [small]" in out_scheduler
     assert "[2/5] 开始执行: 运行 Scheduler 基准 [medium]" in out_scheduler
     assert "[3/5] 开始执行: 运行 Scheduler 基准 [large]" in out_scheduler
-    assert "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.4.0.json" in out_scheduler
+    assert (
+        "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.4.0.json"
+        in out_scheduler
+    )
 
     # Test scheduler token-budget dry-run
     rc_token_budget = main(
@@ -219,5 +240,10 @@ def test_release_benchmark_script_dry_run(capsys):
     assert rc_token_budget == 0
     out_token_budget = capsys.readouterr().out
     assert out_token_budget.count("--caching-method paged-kv-cache") == 3
-    assert out_token_budget.count("--batching-policy token-budget --token-budget 512") == 3
-    assert "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.6.0.json" in out_token_budget
+    assert (
+        out_token_budget.count("--batching-policy token-budget --token-budget 512") == 3
+    )
+    assert (
+        "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.6.0.json"
+        in out_token_budget
+    )

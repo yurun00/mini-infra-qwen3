@@ -32,7 +32,9 @@ class LoadedReleaseSpec:
         """release YAML 声明的默认 EngineConfig（`bench release` 可通过命令行覆盖）。"""
         return self.spec.default_engine_config
 
-    def resolve(self, seed: int | None = None) -> dict[ReleaseScale, ResolvedReleaseScale]:
+    def resolve(
+        self, seed: int | None = None
+    ) -> dict[ReleaseScale, ResolvedReleaseScale]:
         """以指定 seed 重新展开三档负载（seed 缺省即 `scales`，取 default_seed）。"""
         return self.scales if seed is None else resolve_release_spec(self.spec, seed)
 
@@ -42,7 +44,9 @@ def load_release_spec(path: Path) -> LoadedReleaseSpec:
     raw = load_raw_spec(path)
     spec = ReleaseSpec.model_validate(raw)
     if path.stem != spec.engine:
-        raise ValueError(f"{path}: 文件名 {path.stem!r} 必须与 engine {spec.engine!r} 一致")
+        raise ValueError(
+            f"{path}: 文件名 {path.stem!r} 必须与 engine {spec.engine!r} 一致"
+        )
     return LoadedReleaseSpec(
         spec=spec,
         path=path,
@@ -52,9 +56,13 @@ def load_release_spec(path: Path) -> LoadedReleaseSpec:
     )
 
 
-def get_release_spec(engine: SuiteEngine, specs_dir: Path | None = None) -> LoadedReleaseSpec:
+def get_release_spec(
+    engine: SuiteEngine, specs_dir: Path | None = None
+) -> LoadedReleaseSpec:
     """按引擎加载内置 release 标准负载 `<specs_dir>/release/<engine>.yaml`。"""
-    path = (specs_dir if specs_dir is not None else SPECS_DIR) / "release" / f"{engine}.yaml"
+    path = (
+        (specs_dir if specs_dir is not None else SPECS_DIR) / "release" / f"{engine}.yaml"
+    )
     if not path.exists():
         raise ValueError(f"未找到 {engine} 的 release 负载声明: {path}")
     return load_release_spec(path)

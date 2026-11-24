@@ -30,7 +30,9 @@ context_lens:          [batch]              long   含本步新 Token 的有效�
 
 ```python
 EngineConfig(
-    kv_cache_config=PagedCacheConfig(block_size=16, num_blocks=None),  # None：按工作负载推导
+    kv_cache_config=PagedCacheConfig(
+        block_size=16, num_blocks=None
+    ),  # None：按工作负载推导
     batching_method=BatchingMethod.CONTINUOUS,
 )
 ```
@@ -93,7 +95,9 @@ flowchart LR
 EngineConfig(
     kv_cache_config=PagedCacheConfig(block_size=16, is_prefix_caching_enabled=True),
     batching_method=BatchingMethod.CONTINUOUS,
-    scheduler_config=SchedulerConfig(max_running_requests=1, batching_policy=ChunkedPrefillConfig(64)),
+    scheduler_config=SchedulerConfig(
+        max_running_requests=1, batching_policy=ChunkedPrefillConfig(64)
+    ),
 )
 ```
 

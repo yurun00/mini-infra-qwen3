@@ -29,11 +29,23 @@ class MetricPlotSpec:
 SHARED_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
     MetricPlotSpec("ttft_ms", "TTFT / Prefill Latency (ms)", "TTFT (ms)"),
     MetricPlotSpec("tpot_ms", "TPOT / ITL P50 Latency (ms/token)", "Latency (ms/token)"),
-    MetricPlotSpec("throughput_tok_s", "Output Throughput (tokens/s)", "Throughput (tokens/s)"),
-    MetricPlotSpec("throughput_req_s", "Request Throughput (req/s)", "Throughput (req/s)"),
+    MetricPlotSpec(
+        "throughput_tok_s",
+        "Output Throughput (tokens/s)",
+        "Throughput (tokens/s)",
+    ),
+    MetricPlotSpec(
+        "throughput_req_s", "Request Throughput (req/s)", "Throughput (req/s)"
+    ),
     MetricPlotSpec("e2e_wall_ms", "End-to-End Wall Latency (ms)", "E2E Latency (ms)"),
-    MetricPlotSpec("peak_allocated_mb", "Peak Allocated Memory (MiB)", "Peak Memory (MiB)"),
-    MetricPlotSpec("peak_live_kv_cache_mb", "Peak Live KV Cache Memory (MiB)", "KV Cache (MiB)"),
+    MetricPlotSpec(
+        "peak_allocated_mb", "Peak Allocated Memory (MiB)", "Peak Memory (MiB)"
+    ),
+    MetricPlotSpec(
+        "peak_live_kv_cache_mb",
+        "Peak Live KV Cache Memory (MiB)",
+        "KV Cache (MiB)",
+    ),
     MetricPlotSpec(
         "slot_utilization",
         "Execution Slot Utilization (%)",
@@ -68,7 +80,8 @@ SCHEDULER_ONLY_PLOT_SPECS: tuple[MetricPlotSpec, ...] = (
 
 
 def resolve_record_label(
-    rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any], custom: str | None = None
+    rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any],
+    custom: str | None = None,
 ) -> str:
     """提取对齐显示的模式/版本标签。"""
     if custom:
@@ -86,7 +99,9 @@ def resolve_record_label(
 
 
 def resolve_plot_specs(
-    records: Sequence[LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any]],
+    records: Sequence[
+        LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any]
+    ],
 ) -> list[MetricPlotSpec]:
     """根据待比较记录的 engine 集合，动态解析应绘制的指标面板：
 
@@ -104,7 +119,9 @@ def resolve_plot_specs(
 
 
 def records_to_wide_df(
-    records: Sequence[LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any]],
+    records: Sequence[
+        LockstepBenchmarkRecord | SchedulerBenchmarkRecord | dict[str, Any]
+    ],
     labels: Sequence[str | None] | None = None,
 ) -> pd.DataFrame:
     """将多个单 Case BenchmarkRecord 通过 pd.json_normalize 转换为对齐的 Pandas 宽表。
@@ -117,7 +134,8 @@ def records_to_wide_df(
         return pd.DataFrame()
 
     resolved_labels = [
-        resolve_record_label(rec, labels[i] if labels and i < len(labels) else None) for i, rec in enumerate(validated)
+        resolve_record_label(rec, labels[i] if labels and i < len(labels) else None)
+        for i, rec in enumerate(validated)
     ]
 
     case_dicts: list[dict[str, Any]] = []
@@ -147,14 +165,18 @@ def records_to_wide_df(
                 c_dict["correctness_passed"] = corr.get("passed")
                 c_dict["correctness_match_ratio"] = corr.get("match_ratio")
             elif isinstance(corr, dict):
-                sub_passes = [v.get("passed") for v in corr.values() if isinstance(v, dict)]
+                sub_passes = [
+                    v.get("passed") for v in corr.values() if isinstance(v, dict)
+                ]
                 sub_ratios = [
                     v.get("match_ratio")
                     for v in corr.values()
                     if isinstance(v, dict) and v.get("match_ratio") is not None
                 ]
                 c_dict["correctness_passed"] = all(sub_passes) if sub_passes else None
-                c_dict["correctness_match_ratio"] = min(sub_ratios) if sub_ratios else None
+                c_dict["correctness_match_ratio"] = (
+                    min(sub_ratios) if sub_ratios else None
+                )
             else:
                 c_dict["correctness_passed"] = None
                 c_dict["correctness_match_ratio"] = None
@@ -170,7 +192,16 @@ def records_to_wide_df(
         ("ttft_ms", "schedule.ttft_ms_p50"),
         ("tpot_ms", "schedule.itl_ms_p50"),
     ):
-        for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
+        for stat in (
+            "median",
+            "mean",
+            "std",
+            "min",
+            "p90",
+            "p95",
+            "p99",
+            "max",
+        ):
             target_col = f"{target_prefix}.{stat}"
             sched_col = f"{sched_prefix}.{stat}"
             if target_col not in wide_df.columns and sched_col in wide_df.columns:
@@ -204,15 +235,37 @@ def records_to_wide_df(
         "max_prefill_step_ms",
     )
     for key in sched_exclusive_keys:
-        for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
+        for stat in (
+            "median",
+            "mean",
+            "std",
+            "min",
+            "p90",
+            "p95",
+            "p99",
+            "max",
+        ):
             src = f"schedule.{key}.{stat}"
             dst = f"{key}.{stat}"
             if src in wide_df.columns:
                 extra_cols[dst] = wide_df[src]
 
     # 3. 将 packing.<metric>.* 提升至顶层 <metric>.* 供 MetricPlotSpec 统一索引
-    for key in ("padding_efficiency", "slot_utilization", "running_capacity_utilization"):
-        for stat in ("median", "mean", "std", "min", "p90", "p95", "p99", "max"):
+    for key in (
+        "padding_efficiency",
+        "slot_utilization",
+        "running_capacity_utilization",
+    ):
+        for stat in (
+            "median",
+            "mean",
+            "std",
+            "min",
+            "p90",
+            "p95",
+            "p99",
+            "max",
+        ):
             src = f"packing.{key}.{stat}"
             dst = f"{key}.{stat}"
             if src in wide_df.columns:
@@ -225,20 +278,32 @@ def records_to_wide_df(
         extra_cols["peak_allocated_mb.std"] = 0.0
 
     if "memory.kv_cache.peak_live_kv_cache_mb" in wide_df.columns:
-        extra_cols["peak_live_kv_cache_mb.median"] = wide_df["memory.kv_cache.peak_live_kv_cache_mb"]
+        extra_cols["peak_live_kv_cache_mb.median"] = wide_df[
+            "memory.kv_cache.peak_live_kv_cache_mb"
+        ]
         extra_cols["peak_live_kv_cache_mb.std"] = 0.0
 
     if "slot_utilization.median" in extra_cols:
-        extra_cols["slot_utilization.median"] = extra_cols["slot_utilization.median"].fillna(1.0)
+        extra_cols["slot_utilization.median"] = extra_cols[
+            "slot_utilization.median"
+        ].fillna(1.0)
     else:
-        extra_cols["slot_utilization.median"] = pd.Series(1.0, index=wide_df.index, dtype=float)
+        extra_cols["slot_utilization.median"] = pd.Series(
+            1.0, index=wide_df.index, dtype=float
+        )
     if "slot_utilization.std" in extra_cols:
-        extra_cols["slot_utilization.std"] = extra_cols["slot_utilization.std"].fillna(0.0)
+        extra_cols["slot_utilization.std"] = extra_cols["slot_utilization.std"].fillna(
+            0.0
+        )
     else:
-        extra_cols["slot_utilization.std"] = pd.Series(0.0, index=wide_df.index, dtype=float)
+        extra_cols["slot_utilization.std"] = pd.Series(
+            0.0, index=wide_df.index, dtype=float
+        )
 
     if extra_cols:
-        wide_df = pd.concat([wide_df, pd.DataFrame(extra_cols, index=wide_df.index)], axis=1)
+        wide_df = pd.concat(
+            [wide_df, pd.DataFrame(extra_cols, index=wide_df.index)], axis=1
+        )
 
     return wide_df
 
@@ -252,11 +317,21 @@ def wide_to_tidy_df(
         return pd.DataFrame()
 
     spec_by_key = {s.metric_key: s for s in specs}
-    valid_keys = [s.metric_key for s in specs if f"{s.metric_key}.median" in wide_df.columns]
+    valid_keys = [
+        s.metric_key for s in specs if f"{s.metric_key}.median" in wide_df.columns
+    ]
     if not valid_keys:
         return pd.DataFrame()
 
-    id_vars = ["order_idx", "release_idx", "label", "tag", "scale", "engine", "workload_desc"]
+    id_vars = [
+        "order_idx",
+        "release_idx",
+        "label",
+        "tag",
+        "scale",
+        "engine",
+        "workload_desc",
+    ]
     median_cols = {f"{k}.median": k for k in valid_keys}
     std_cols = {f"{k}.std": k for k in valid_keys if f"{k}.std" in wide_df.columns}
 
@@ -294,7 +369,9 @@ def wide_to_tidy_df(
     return tidy.dropna(subset=["median"]).reset_index(drop=True)
 
 
-def extract_primary_case_dict(rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord) -> dict[str, Any]:
+def extract_primary_case_dict(
+    rec: LockstepBenchmarkRecord | SchedulerBenchmarkRecord,
+) -> dict[str, Any]:
     """优先选取包含 op_latency_breakdown 的 case（如 small），否则优先选取 medium 规模作为代表性单点剖析对象。"""
     for c in rec.cases:
         if getattr(c, "op_latency_breakdown", None) is not None:

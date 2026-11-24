@@ -14,7 +14,11 @@ from typing import Any
 
 import torch
 
-from mini_infra.core.types import DenseCacheConfig, PagedCacheConfig, SequenceOutput
+from mini_infra.core.types import (
+    DenseCacheConfig,
+    PagedCacheConfig,
+    SequenceOutput,
+)
 from mini_infra.device import PendingStepLatencies, synchronize
 from mini_infra.engine.config import EngineConfig
 from mini_infra.engine.metrics import (
@@ -87,7 +91,9 @@ class LockstepState:
             self.generated_counts[i] += 1
             self.outputs[i].append(token)
 
-            stopped_by_eos = stop_on_eos and (eos_token_id is not None) and (token == eos_token_id)
+            stopped_by_eos = (
+                stop_on_eos and (eos_token_id is not None) and (token == eos_token_id)
+            )
             reached_budget = self.generated_counts[i] >= self.budgets[i]
 
             if stopped_by_eos or reached_budget:
@@ -99,9 +105,14 @@ class LockstepState:
 
     def _next_positions(self) -> list[int]:
         """计算当前活跃 batch slot 在 Decode 阶段的 position_id（即已生成的总长度 - 1）。"""
-        return [self.prompt_lengths[i] + self.generated_counts[i] - 1 for i in range(self.batch_size)]
+        return [
+            self.prompt_lengths[i] + self.generated_counts[i] - 1
+            for i in range(self.batch_size)
+        ]
 
-    def _compute_batch_metrics(self, step_latencies_ms: list[float]) -> BatchScheduleInfo[float]:
+    def _compute_batch_metrics(
+        self, step_latencies_ms: list[float]
+    ) -> BatchScheduleInfo[float]:
         """统计批处理生成过程特有明细指标（利用率、Padding 效率等）。"""
         step_count = len(step_latencies_ms)
         valid_generated_tokens_count = sum(len(output) for output in self.outputs)
@@ -111,8 +122,12 @@ class LockstepState:
         capacity_tokens = self.batch_size * step_count
 
         return BatchScheduleInfo(
-            padding_efficiency=num_prompt_tokens / num_padded_prompt_tokens if num_padded_prompt_tokens else 0.0,
-            slot_utilization=valid_generated_tokens_count / capacity_tokens if capacity_tokens else 0.0,
+            padding_efficiency=num_prompt_tokens / num_padded_prompt_tokens
+            if num_padded_prompt_tokens
+            else 0.0,
+            slot_utilization=valid_generated_tokens_count / capacity_tokens
+            if capacity_tokens
+            else 0.0,
         )
 
 
@@ -139,7 +154,9 @@ def run_lockstep(
     """
     kv_cache_config = config.kv_cache_config
     if isinstance(kv_cache_config, PagedCacheConfig):
-        raise ValueError("lockstep 暂不支持 PagedCacheConfig，请使用 NoCacheConfig 或 DenseCacheConfig")
+        raise ValueError(
+            "lockstep 暂不支持 PagedCacheConfig，请使用 NoCacheConfig 或 DenseCacheConfig"
+        )
     use_cache = isinstance(kv_cache_config, DenseCacheConfig)
 
     runner = LockstepRunner(model, pad_token_id)
@@ -172,7 +189,9 @@ def run_lockstep(
         nonlocal memory_after_prefill_bytes
         for step in range(state.max_steps):
             with latencies.measure_step():
-                step_out = runner.step(batch, capture_logits=capture_logits, use_cache=use_cache)
+                step_out = runner.step(
+                    batch, capture_logits=capture_logits, use_cache=use_cache
+                )
 
             if step == 0 and is_cuda:
                 memory_after_prefill_bytes = torch.cuda.memory_allocated(device)
@@ -199,7 +218,9 @@ def run_lockstep(
 
     op_breakdown = None
     if profile:
-        with profile_scope(model, device=device, tensorboard_options=tensorboard_options) as prof_collector:
+        with profile_scope(
+            model, device=device, tensorboard_options=tensorboard_options
+        ) as prof_collector:
             _execute_loop()
         op_breakdown = prof_collector.get_latency_breakdown(top=top_kernels)
     else:

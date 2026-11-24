@@ -45,9 +45,13 @@ class BenchmarkExecutionContext:
         tokenizer = Qwen3Tokenizer(model_dir)
         model = load_model(model_dir, device)
         env = gpu_info(device)
-        peaks = HardwarePeakSpecs.lookup(env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops)
+        peaks = HardwarePeakSpecs.lookup(
+            env["gpu"], args.peak_bandwidth_gbs, args.peak_tflops
+        )
         if peaks.bandwidth_gbs is None or peaks.tflops is None:
-            print(f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）")
+            print(
+                f"[warn] 未识别 GPU 峰值规格 {env['gpu']}，对应 MBU/MFU 将为空（可用 --peak-* 指定）"
+            )
         return cls(
             model=model,
             tokenizer=tokenizer,

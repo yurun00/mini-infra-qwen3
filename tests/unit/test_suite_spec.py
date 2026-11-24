@@ -22,7 +22,11 @@ from mini_infra.bench.suite import BenchmarkSuite, get_benchmark_suite
 from mini_infra.core import PagedCacheConfig, collapse_uniform
 from mini_infra.engine import BatchingMethod
 
-GOLDEN = json.loads((Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(encoding="utf-8"))
+GOLDEN = json.loads(
+    (Path(__file__).parent / "data" / "suite_cases_golden.json").read_text(
+        encoding="utf-8"
+    )
+)
 VOCAB = GOLDEN["vocab_size"]
 
 
@@ -39,12 +43,21 @@ def _scheduler_entry(name: str) -> dict[str, Any]:
             "engine_config": str(c.engine_config),
             "max_running_requests": c.scheduler_config.max_running_requests,
             "paged_cache_config": (
-                {"block_size": c.kv_cache_config.block_size, "num_blocks": c.kv_cache_config.num_blocks}
+                {
+                    "block_size": c.kv_cache_config.block_size,
+                    "num_blocks": c.kv_cache_config.num_blocks,
+                }
                 if isinstance(c.kv_cache_config, PagedCacheConfig)
                 else None
             ),
             "specs": [
-                [s.request_idx, _digest(s.token_ids), len(s.token_ids), s.max_new_tokens, s.arrival_ms]
+                [
+                    s.request_idx,
+                    _digest(s.token_ids),
+                    len(s.token_ids),
+                    s.max_new_tokens,
+                    s.arrival_ms,
+                ]
                 for s in c.profile.to_payload(VOCAB)
             ],
         }
@@ -121,7 +134,10 @@ def test_suite_info_is_json_serializable_and_hash_is_stable():
     info = loaded.info()
     json.dumps(info)
     assert info["name"] == "dense-vs-paged-block-size"
-    assert info["spec_sha256"] == get_suite_spec("scheduler", "dense-vs-paged-block-size").sha256
+    assert (
+        info["spec_sha256"]
+        == get_suite_spec("scheduler", "dense-vs-paged-block-size").sha256
+    )
     assert info["spec"]["sweep"] == {
         "system": {
             "caching_spec": [
@@ -207,7 +223,9 @@ sweep:
 """
     spec = load_suite_spec(_write(tmp_path, text)).spec
     workloads = expand_workload(spec)
-    assert [(w.workload_id, w.num_total_requests, w.prompt_lens[0]) for w in workloads] == [
+    assert [
+        (w.workload_id, w.num_total_requests, w.prompt_lens[0]) for w in workloads
+    ] == [
         ("w_1_8", 1, 8),
         ("w_1_16", 1, 16),
         ("w_2_8", 2, 8),
@@ -215,7 +233,12 @@ sweep:
     ]
     case_specs = expand_suite_spec(spec)
     assert [
-        (cs.workload.workload_id, cs.workload.num_total_requests, cs.workload.prompt_lens[0]) for cs in case_specs
+        (
+            cs.workload.workload_id,
+            cs.workload.num_total_requests,
+            cs.workload.prompt_lens[0],
+        )
+        for cs in case_specs
     ] == [
         ("w_1_8", 1, 8),
         ("w_1_16", 1, 16),
@@ -293,19 +316,43 @@ def test_deep_merge_does_not_mutate_inputs():
         (lambda t: t.replace("count: 2", "count: 2\n  count: 3"), "重复 key"),
         (lambda t: t.replace("name: demo", "name: Demo_X"), "只能包含"),
         (lambda t: t + "unknown_field: 1\n", "Extra inputs"),
-        (lambda t: t.replace("prompt_len: 8", "prompt_len: 0"), "greater than 0"),
+        (
+            lambda t: t.replace("prompt_len: 8", "prompt_len: 0"),
+            "greater than 0",
+        ),
         (lambda t: t.replace("prompt_len: 8", "prompt_len: true"), "布尔"),
-        (lambda t: t.replace("prompt_len: 8", "prompt_len: [8]"), "必须等于 count"),
-        (lambda t: t.replace("prompt_len: 8", "prompt_len: {ladder: {max: 8}}"), "count == 4"),
-        (lambda t: t.replace("  scheduler_spec:\n    max_running_requests: 4\n", ""), "max_running_requests"),
-        (lambda t: t + "sweep:\n  workload:\n    nope: [1]\n", "未在 workload.vars 中声明"),
-        (lambda t: t + "sweep:\n  system:\n    caching_spec: []\n", "at least 1"),
+        (
+            lambda t: t.replace("prompt_len: 8", "prompt_len: [8]"),
+            "必须等于 count",
+        ),
+        (
+            lambda t: t.replace("prompt_len: 8", "prompt_len: {ladder: {max: 8}}"),
+            "count == 4",
+        ),
+        (
+            lambda t: t.replace("  scheduler_spec:\n    max_running_requests: 4\n", ""),
+            "max_running_requests",
+        ),
+        (
+            lambda t: t + "sweep:\n  workload:\n    nope: [1]\n",
+            "未在 workload.vars 中声明",
+        ),
+        (
+            lambda t: t + "sweep:\n  system:\n    caching_spec: []\n",
+            "at least 1",
+        ),
         (
             lambda t: t + "sweep:\n  system:\n    block_size: [8]\n",
             "Extra inputs",
         ),
-        (lambda t: t.replace("output_len: 4", "output_len: ${missing}"), "未定义的变量"),
-        (lambda t: t + "checks:\n  - min_max_running_requests: 8\n", "要求 max_running_requests >= 8"),
+        (
+            lambda t: t.replace("output_len: 4", "output_len: ${missing}"),
+            "未定义的变量",
+        ),
+        (
+            lambda t: t + "checks:\n  - min_max_running_requests: 8\n",
+            "要求 max_running_requests >= 8",
+        ),
     ],
 )
 def test_invalid_scheduler_specs_are_rejected_at_load(tmp_path, mutation, message):
@@ -314,7 +361,11 @@ def test_invalid_scheduler_specs_are_rejected_at_load(tmp_path, mutation, messag
 
 
 def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
-    from mini_infra.core import PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
+    from mini_infra.core import (
+        PrefillFirstConfig,
+        SchedulerConfig,
+        TokenBudgetConfig,
+    )
 
     text = (
         _SCHEDULER_BASE
@@ -325,17 +376,39 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
         + "      - {batching_policy: {kind: token-budget, token_budget: 64}}\n"
     )
     loaded = load_suite_spec(_write(tmp_path, text))
-    assert [(cs.caching_spec.kind, cs.scheduler_spec.scheduler_config) for cs in loaded.cases] == [
-        ("dense-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig())),
-        ("dense-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=TokenBudgetConfig(64))),
-        ("paged-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig())),
-        ("paged-kv-cache", SchedulerConfig(max_running_requests=4, batching_policy=TokenBudgetConfig(64))),
+    assert [
+        (cs.caching_spec.kind, cs.scheduler_spec.scheduler_config) for cs in loaded.cases
+    ] == [
+        (
+            "dense-kv-cache",
+            SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig()),
+        ),
+        (
+            "dense-kv-cache",
+            SchedulerConfig(
+                max_running_requests=4, batching_policy=TokenBudgetConfig(64)
+            ),
+        ),
+        (
+            "paged-kv-cache",
+            SchedulerConfig(max_running_requests=4, batching_policy=PrefillFirstConfig()),
+        ),
+        (
+            "paged-kv-cache",
+            SchedulerConfig(
+                max_running_requests=4, batching_policy=TokenBudgetConfig(64)
+            ),
+        ),
     ]
     suite = BenchmarkSuite.from_spec(loaded)
     assert [c.key.token_budget for c in suite.cases] == [None, 64, None, 64]
     # 基线 system 未声明 batching_policy 时默认 prefill-first，既有 suite 的 engine_config 字符串不变
-    default_suite = BenchmarkSuite.from_spec(load_suite_spec(_write(tmp_path, _SCHEDULER_BASE)))
-    assert [str(m) for m in default_suite.engine_configs()] == ["dense-kv-cache+continuous-batching+mrr=4"]
+    default_suite = BenchmarkSuite.from_spec(
+        load_suite_spec(_write(tmp_path, _SCHEDULER_BASE))
+    )
+    assert [str(m) for m in default_suite.engine_configs()] == [
+        "dense-kv-cache+continuous-batching+mrr=4"
+    ]
 
     # 基线 system.scheduler_spec 声明了 batching_policy 时，仅扫描 max_running_requests 的 sweep 项也会继承该策略
     inherit_policy_text = (
@@ -436,7 +509,10 @@ def test_scheduler_spec_sweep_expands_as_innermost_axis(tmp_path):
             "      - {batching_policy: {kind: chunked-prefill, token_budget: 2}}\n",
             "不能小于",
         ),
-        ("sweep:\n  system:\n    scheduler_spec: [prefill-first]\n", "Input should be a valid dictionary"),
+        (
+            "sweep:\n  system:\n    scheduler_spec: [prefill-first]\n",
+            "Input should be a valid dictionary",
+        ),
     ],
 )
 def test_invalid_scheduler_spec_combinations_are_rejected(tmp_path, tail, message):
@@ -476,10 +552,19 @@ workload: {id: w, count: 1, prompt_len: 8, output_len: 4}
 def test_system_spec_scheduler_spec_default_engine_config():
     """验证 SystemSpec.scheduler_spec 解析与 default_engine_config 透传。"""
     from mini_infra.bench.spec.common import SystemSpec
-    from mini_infra.core import ChunkedPrefillConfig, PrefillFirstConfig, SchedulerConfig, TokenBudgetConfig
+    from mini_infra.core import (
+        ChunkedPrefillConfig,
+        PrefillFirstConfig,
+        SchedulerConfig,
+        TokenBudgetConfig,
+    )
 
-    default_sys = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "continuous-batching"})
-    assert default_sys.default_engine_config.scheduler_config == SchedulerConfig(batching_policy=PrefillFirstConfig())
+    default_sys = SystemSpec.model_validate(
+        {"engine_mode": "scheduler", "batching_method": "continuous-batching"}
+    )
+    assert default_sys.default_engine_config.scheduler_config == SchedulerConfig(
+        batching_policy=PrefillFirstConfig()
+    )
 
     budget_sys = SystemSpec.model_validate(
         {
@@ -487,7 +572,10 @@ def test_system_spec_scheduler_spec_default_engine_config():
             "batching_method": "continuous-batching",
             "scheduler_spec": {
                 "max_running_requests": 4,
-                "batching_policy": {"kind": "token-budget", "token_budget": 128},
+                "batching_policy": {
+                    "kind": "token-budget",
+                    "token_budget": 128,
+                },
             },
         }
     )
@@ -503,7 +591,10 @@ def test_system_spec_scheduler_spec_default_engine_config():
             "caching_spec": "paged-kv-cache",
             "scheduler_spec": {
                 "max_running_requests": 4,
-                "batching_policy": {"kind": "chunked-prefill", "token_budget": 256},
+                "batching_policy": {
+                    "kind": "chunked-prefill",
+                    "token_budget": 256,
+                },
             },
         }
     )
@@ -553,19 +644,40 @@ workload: {{id: w, count: 1, prompt_len: 8, output_len: 4}}
         "interleave": "execution: {interleave: [batching_method]}\n",
     }.get(extra, "")
     with pytest.raises((ValueError, pydantic.ValidationError)):
-        load_suite_spec(_write(tmp_path, base.format(system_extra=system_extra, caching=caching, tail=tail)))
+        load_suite_spec(
+            _write(
+                tmp_path,
+                base.format(system_extra=system_extra, caching=caching, tail=tail),
+            )
+        )
 
 
 def test_length_and_arrival_expansion_edge_cases():
-    from mini_infra.bench.spec.common import GroupSpec, expand_arrival, expand_length
+    from mini_infra.bench.spec.common import (
+        GroupSpec,
+        expand_arrival,
+        expand_length,
+    )
 
     def group(**kwargs: Any) -> GroupSpec:
-        return GroupSpec.model_validate({"count": 4, "prompt_len": 8, "output_len": 4, **kwargs})
+        return GroupSpec.model_validate(
+            {"count": 4, "prompt_len": 8, "output_len": 4, **kwargs}
+        )
 
     assert expand_length(
-        GroupSpec.model_validate({"count": 3, "prompt_len": {"alternating": [10, 20]}, "output_len": 1}).prompt_len, 3
+        GroupSpec.model_validate(
+            {
+                "count": 3,
+                "prompt_len": {"alternating": [10, 20]},
+                "output_len": 1,
+            }
+        ).prompt_len,
+        3,
     ) == (10, 20, 10)
-    ladder = group(prompt_len={"ladder": {"max": 4}}, output_len={"ladder": {"max": 8, "floor": 2}})
+    ladder = group(
+        prompt_len={"ladder": {"max": 4}},
+        output_len={"ladder": {"max": 8, "floor": 2}},
+    )
     assert expand_length(ladder.prompt_len, 4) == (1, 1, 2, 4)
     assert expand_length(ladder.output_len, 4) == (2, 2, 4, 8)
     # 与历史 make_variable_prompt_lengths / make_variable_output_budgets 的取值一致
@@ -575,17 +687,35 @@ def test_length_and_arrival_expansion_edge_cases():
         (64, 2, (8, 16, 32, 64)),
         (2, 2, (2, 2, 2, 2)),
     ]:
-        assert expand_length(group(prompt_len={"ladder": {"max": max_len, "floor": floor}}).prompt_len, 4) == expected
-    assert expand_arrival(group(arrival_ms={"interval": 150}).arrival_ms, 4) == (0.0, 150.0, 300.0, 450.0)
+        assert (
+            expand_length(
+                group(prompt_len={"ladder": {"max": max_len, "floor": floor}}).prompt_len,
+                4,
+            )
+            == expected
+        )
+    assert expand_arrival(group(arrival_ms={"interval": 150}).arrival_ms, 4) == (
+        0.0,
+        150.0,
+        300.0,
+        450.0,
+    )
     assert expand_arrival(group(arrival_ms=5).arrival_ms, 2) == (5.0, 5.0)
-    assert expand_arrival(group(arrival_ms=[0, 1, 2, 3]).arrival_ms, 4) == (0.0, 1.0, 2.0, 3.0)
+    assert expand_arrival(group(arrival_ms=[0, 1, 2, 3]).arrival_ms, 4) == (
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+    )
 
 
 def test_negative_arrival_and_unknown_length_kind_are_rejected():
     from mini_infra.bench.spec.common import GroupSpec
 
     with pytest.raises(ValueError, match="greater than or equal to 0"):
-        GroupSpec.model_validate({"count": 1, "prompt_len": 8, "output_len": 4, "arrival_ms": -1})
+        GroupSpec.model_validate(
+            {"count": 1, "prompt_len": 8, "output_len": 4, "arrival_ms": -1}
+        )
     with pytest.raises(ValueError):
         GroupSpec.model_validate({"count": 1, "prompt_len": {"zipf": 1}, "output_len": 4})
 
@@ -599,19 +729,29 @@ def test_system_spec_caching_spec_discriminated_union():
     )
 
     # 1. 默认与标量字符串简写
-    s_default = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
+    s_default = SystemSpec.model_validate(
+        {"engine_mode": "lockstep", "batching_method": "fixed-batching"}
+    )
     assert isinstance(s_default.caching_spec, DenseCacheSpec)
     assert s_default.caching_spec.kind == "dense-kv-cache"
 
     s_none = SystemSpec.model_validate(
-        {"engine_mode": "lockstep", "batching_method": "fixed-batching", "caching_spec": "none"}
+        {
+            "engine_mode": "lockstep",
+            "batching_method": "fixed-batching",
+            "caching_spec": "none",
+        }
     )
     assert isinstance(s_none.caching_spec, NoCacheSpec)
     assert s_none.caching_spec.kind == "none"
 
     # 2. Paged 显式声明与默认参数
     s_paged_str = SystemSpec.model_validate(
-        {"engine_mode": "scheduler", "batching_method": "continuous-batching", "caching_spec": "paged-kv-cache"}
+        {
+            "engine_mode": "scheduler",
+            "batching_method": "continuous-batching",
+            "caching_spec": "paged-kv-cache",
+        }
     )
     assert isinstance(s_paged_str.caching_spec, PagedCacheSpec)
     assert s_paged_str.caching_spec.block_size == 16
@@ -622,7 +762,11 @@ def test_system_spec_caching_spec_discriminated_union():
         {
             "engine_mode": "scheduler",
             "batching_method": "continuous-batching",
-            "caching_spec": {"kind": "paged-kv-cache", "block_size": 32, "num_blocks": 64},
+            "caching_spec": {
+                "kind": "paged-kv-cache",
+                "block_size": 32,
+                "num_blocks": 64,
+            },
         }
     )
     assert isinstance(s_paged_dict.caching_spec, PagedCacheSpec)
@@ -661,11 +805,15 @@ def test_system_spec_engine_mode_discriminated_union():
     from mini_infra.bench.spec.suite import SuiteSpec
 
     # 1. 标量简写与字典形式
-    s_lockstep = SystemSpec.model_validate({"engine_mode": "lockstep", "batching_method": "fixed-batching"})
+    s_lockstep = SystemSpec.model_validate(
+        {"engine_mode": "lockstep", "batching_method": "fixed-batching"}
+    )
     assert isinstance(s_lockstep.engine_mode, LockstepEngineSpec)
     assert s_lockstep.engine_mode.kind == "lockstep"
 
-    s_scheduler = SystemSpec.model_validate({"engine_mode": "scheduler", "batching_method": "fixed-batching"})
+    s_scheduler = SystemSpec.model_validate(
+        {"engine_mode": "scheduler", "batching_method": "fixed-batching"}
+    )
     assert isinstance(s_scheduler.engine_mode, SchedulerEngineSpec)
     assert s_scheduler.engine_mode.kind == "scheduler"
     assert s_scheduler.scheduler_spec.max_running_requests is None
@@ -706,7 +854,15 @@ def test_system_spec_engine_mode_discriminated_union():
             {
                 "name": "demo",
                 "engine": "scheduler",
-                "system": {"engine_mode": "scheduler", "batching_method": "fixed-batching"},
-                "workload": {"id": "w", "count": 1, "prompt_len": 8, "output_len": 4},
+                "system": {
+                    "engine_mode": "scheduler",
+                    "batching_method": "fixed-batching",
+                },
+                "workload": {
+                    "id": "w",
+                    "count": 1,
+                    "prompt_len": 8,
+                    "output_len": 4,
+                },
             }
         )

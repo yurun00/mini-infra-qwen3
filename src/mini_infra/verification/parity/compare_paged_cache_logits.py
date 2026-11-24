@@ -161,7 +161,9 @@ def execute_compare_paged_logits(
     device, _, tokenizer, model_instance = prepare_cuda_model(model, revision, dtype)
     prompts_to_run = list(prompts) if prompts else DEFAULT_PROMPTS
 
-    print(f"=== 开始 Paged KV Cache Logits 对照 (dtype={dtype}, atol={logits_atol}, block_size={block_size}) ===")
+    print(
+        f"=== 开始 Paged KV Cache Logits 对照 (dtype={dtype}, atol={logits_atol}, block_size={block_size}) ==="
+    )
     results = [
         compare_paged_prompt(
             model_instance,

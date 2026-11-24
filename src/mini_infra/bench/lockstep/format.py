@@ -28,7 +28,11 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     pack = w.packing
     if has_packing:
         if pack:
-            eff_p = f"{w.metrics.effective_prompt_tok_s.mean:.1f}" if w.metrics.effective_prompt_tok_s else ""
+            eff_p = (
+                f"{w.metrics.effective_prompt_tok_s.mean:.1f}"
+                if w.metrics.effective_prompt_tok_s
+                else ""
+            )
             row.extend(
                 [
                     f"{pack.padding_efficiency.mean * 100:.2f}%",
@@ -60,7 +64,9 @@ def format_table(case_results: Sequence[LockstepCaseResult]) -> str:
 
     has_packing = any(w.packing is not None for w in case_results)
     if has_packing:
-        header.extend(["padding_efficiency", "slot_utilization", "effective_prompt_tok_s"])
+        header.extend(
+            ["padding_efficiency", "slot_utilization", "effective_prompt_tok_s"]
+        )
 
     lines = [",".join(header)]
     for w in case_results:
@@ -68,7 +74,9 @@ def format_table(case_results: Sequence[LockstepCaseResult]) -> str:
     return "\n".join(lines)
 
 
-def format_suite_plan(suite_name: str, cases: "Sequence[BenchmarkCase]", warmup: int, repeats: int) -> str:
+def format_suite_plan(
+    suite_name: str, cases: "Sequence[BenchmarkCase]", warmup: int, repeats: int
+) -> str:
     """格式化 Lockstep 套件的用例列表，用于 --dry-run 预览（用例顺序即执行顺序）。"""
     lines = [
         f"Lockstep 基准评测执行计划（suite={suite_name}，共 {len(cases)} 个用例，"

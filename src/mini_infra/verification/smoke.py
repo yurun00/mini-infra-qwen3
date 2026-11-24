@@ -25,8 +25,17 @@ from mini_infra.engine import (
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
-from mini_infra.model import DenseAttentionMetadata, Qwen3Config, Qwen3ForCausalLM
-from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner, cache_size_bytes
+from mini_infra.model import (
+    DenseAttentionMetadata,
+    Qwen3Config,
+    Qwen3ForCausalLM,
+)
+from mini_infra.worker import (
+    KVCache,
+    PagedBlockCache,
+    PagedRunner,
+    cache_size_bytes,
+)
 from mini_infra.worker.base_runner import _left_pad_sequences
 
 
@@ -102,7 +111,10 @@ def check_kv_cache_correctness(model):
     full_context = torch.cat((prompt, next_input), dim=1)
     with torch.inference_mode():
         full_logits, _ = model(full_context)
-        cached_logits, present = model(next_input, attn_metadata=DenseAttentionMetadata(tuple(cache.past_key_values)))
+        cached_logits, present = model(
+            next_input,
+            attn_metadata=DenseAttentionMetadata(tuple(cache.past_key_values)),
+        )
     cache = KVCache(present)
 
     assert torch.allclose(full_logits[:, -1, :], cached_logits[:, -1, :], atol=1e-5)
@@ -117,31 +129,78 @@ def check_fixed_batching(model):
     request_b = [11, 13]
     request_c = [17, 19]
 
-    input_ids, attention_mask, position_ids, prompt_lengths = _left_pad_sequences([request_a, request_b], 0, device)
+    input_ids, attention_mask, position_ids, prompt_lengths = _left_pad_sequences(
+        [request_a, request_b], 0, device
+    )
     assert input_ids.tolist() == [[3, 5, 7, 9], [0, 0, 11, 13]]
     assert attention_mask.tolist() == [[True] * 4, [False, False, True, True]]
     assert position_ids.tolist() == [[0, 1, 2, 3], [0, 0, 0, 1]]
     assert prompt_lengths.tolist() == [4, 2]
     print("左 Padding、Position IDs、请求隔离、排列不变性检查通过")
 
-    fixed_batching_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.FIXED)
-    logits_opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False, capture_logits=True)
+    fixed_batching_config = EngineConfig(
+        DenseCacheConfig(), batching_method=BatchingMethod.FIXED
+    )
+    logits_opts = GenerationOptions(
+        eos_token_id=-1, stop_on_eos=False, capture_logits=True
+    )
     single = generate(fixed_batching_config, model, [request_a], 4, options=logits_opts)
-    paired = generate(fixed_batching_config, model, [request_b, request_a], [4, 4], options=logits_opts)
-    replaced = generate(fixed_batching_config, model, [request_c, request_a], [4, 4], options=logits_opts)
+    paired = generate(
+        fixed_batching_config,
+        model,
+        [request_b, request_a],
+        [4, 4],
+        options=logits_opts,
+    )
+    replaced = generate(
+        fixed_batching_config,
+        model,
+        [request_c, request_a],
+        [4, 4],
+        options=logits_opts,
+    )
 
-    assert single.sequences[0].token_ids == paired.sequences[1].token_ids == replaced.sequences[1].token_ids
+    assert (
+        single.sequences[0].token_ids
+        == paired.sequences[1].token_ids
+        == replaced.sequences[1].token_ids
+    )
     for step in range(4):
-        assert torch.allclose(single.trace.logits_trace[step][0], paired.trace.logits_trace[step][1], atol=1e-5)
-        assert torch.allclose(paired.trace.logits_trace[step][1], replaced.trace.logits_trace[step][1], atol=1e-5)
+        assert torch.allclose(
+            single.trace.logits_trace[step][0],
+            paired.trace.logits_trace[step][1],
+            atol=1e-5,
+        )
+        assert torch.allclose(
+            paired.trace.logits_trace[step][1],
+            replaced.trace.logits_trace[step][1],
+            atol=1e-5,
+        )
 
     base_opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
-    batched = generate(fixed_batching_config, model, [request_a, request_b], [2, 4], options=base_opts)
+    batched = generate(
+        fixed_batching_config,
+        model,
+        [request_a, request_b],
+        [2, 4],
+        options=base_opts,
+    )
     assert batched.trace.num_active_tokens_per_step == [2, 2, 1, 1]
     assert [s.completion_step for s in batched.sequences] == [2, 4]
     assert abs(batched.batch_info.slot_utilization - 0.75) < 1e-12
-    expected_bytes = 2 * config.num_hidden_layers * 2 * config.num_key_value_heads * config.head_dim * 7 * 4
-    assert abs(batched.memory.kv_cache.peak_live_kv_cache_mb - expected_bytes / (1024**2)) < 1e-12
+    expected_bytes = (
+        2
+        * config.num_hidden_layers
+        * 2
+        * config.num_key_value_heads
+        * config.head_dim
+        * 7
+        * 4
+    )
+    assert (
+        abs(batched.memory.kv_cache.peak_live_kv_cache_mb - expected_bytes / (1024**2))
+        < 1e-12
+    )
     print("Batched KV Cache、completion_step 和利用率检查通过")
 
     # 串行 baseline（单请求 generate 路径）与 Batch 输出的 Token 应完全一致。
@@ -152,7 +211,9 @@ def check_fixed_batching(model):
         [2, 4],
         options=base_opts,
     )
-    assert [s.token_ids for s in serial.sequences] == [s.token_ids for s in batched.sequences]
+    assert [s.token_ids for s in serial.sequences] == [
+        s.token_ids for s in batched.sequences
+    ]
     print("Batch 与串行输出一致性检查通过")
 
     # 非法 Cache batch 维和错误长度的 Attention Mask 必须被拒绝。
@@ -182,13 +243,17 @@ def check_continuous_batching(model):
     budgets = [2, 4, 3, 2]
 
     # 1. 统一 generate 接口分发验证（多请求异构预算）
-    continuous_config = EngineConfig(DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS)
+    continuous_config = EngineConfig(
+        DenseCacheConfig(), batching_method=BatchingMethod.CONTINUOUS
+    )
     serial_config = EngineConfig(DenseCacheConfig())
     base_opts = GenerationOptions(eos_token_id=-1, stop_on_eos=False)
 
     cont_gen = generate(continuous_config, model, sequences, budgets, options=base_opts)
     serial_gen = generate(serial_config, model, sequences, budgets, options=base_opts)
-    assert [s.token_ids for s in cont_gen.sequences] == [s.token_ids for s in serial_gen.sequences]
+    assert [s.token_ids for s in cont_gen.sequences] == [
+        s.token_ids for s in serial_gen.sequences
+    ]
 
     # 2. 队列调度引擎对比：固定批次 (Fixed, 容量 2)、连续批次 (Continuous, 容量 2) 与串行 (Serialized, 容量 1)
     requests = make_requests(sequences, budgets)
@@ -226,11 +291,19 @@ def check_continuous_batching(model):
         stop_on_eos=False,
     )
 
-    assert [s.token_ids for s in fixed.sequences] == [s.token_ids for s in serialized.sequences]
-    assert [s.token_ids for s in continuous.sequences] == [s.token_ids for s in serialized.sequences]
+    assert [s.token_ids for s in fixed.sequences] == [
+        s.token_ids for s in serialized.sequences
+    ]
+    assert [s.token_ids for s in continuous.sequences] == [
+        s.token_ids for s in serialized.sequences
+    ]
 
     # 3. 动态退场与 batch slot 插队轨迹 (Dynamic Admission Trace)：Req 0 完成后 Req 2 动态插队，随后 Req 3 插队
-    prefill_admissions = [list(e.admitted_request_ids) for e in continuous.events if e.phase == SchedulePhase.PREFILL]
+    prefill_admissions = [
+        list(e.admitted_request_ids)
+        for e in continuous.events
+        if e.phase == SchedulePhase.PREFILL
+    ]
     assert prefill_admissions[0] == [0, 1]
     assert prefill_admissions[1] == [2]
     assert prefill_admissions[2] == [3]
@@ -274,7 +347,11 @@ def check_continuous_batching(model):
         -1,
         stop_on_eos=False,
     )
-    flattened_admissions = [request_idx for event in same_arrival.events for request_idx in event.admitted_request_ids]
+    flattened_admissions = [
+        request_idx
+        for event in same_arrival.events
+        for request_idx in event.admitted_request_ids
+    ]
     assert flattened_admissions == list(range(12))
 
     print("Continuous Batching 动态加入退出、FCFS 与输出一致性检查通过")
@@ -304,7 +381,9 @@ def check_paged_kv_cache(model):
     head_dim = config.head_dim
     expected_layers = []
     for layer_idx in range(config.num_hidden_layers):
-        key = torch.arange(num_kv_heads * 6 * head_dim, dtype=torch.float32).view(1, num_kv_heads, 6, head_dim)
+        key = torch.arange(num_kv_heads * 6 * head_dim, dtype=torch.float32).view(
+            1, num_kv_heads, 6, head_dim
+        )
         key = key + layer_idx * 1000.0
         value = key + 500.0
         expected_layers.append((key, value))
@@ -317,8 +396,16 @@ def check_paged_kv_cache(model):
 
     for layer_idx, (exp_key, exp_val) in enumerate(expected_layers):
         key_pool, val_pool = block_cache.kv_pools[layer_idx]
-        gathered_k = torch.cat([key_pool[b] for b in old_block_ids], dim=0)[:6].transpose(0, 1).unsqueeze(0)
-        gathered_v = torch.cat([val_pool[b] for b in old_block_ids], dim=0)[:6].transpose(0, 1).unsqueeze(0)
+        gathered_k = (
+            torch.cat([key_pool[b] for b in old_block_ids], dim=0)[:6]
+            .transpose(0, 1)
+            .unsqueeze(0)
+        )
+        gathered_v = (
+            torch.cat([val_pool[b] for b in old_block_ids], dim=0)[:6]
+            .transpose(0, 1)
+            .unsqueeze(0)
+        )
         assert torch.equal(gathered_k, exp_key)
         assert torch.equal(gathered_v, exp_val)
 
@@ -350,7 +437,9 @@ def check_paged_kv_cache(model):
     assert manager.stats.block_reuse_count == 1
 
     short_layers = [(k[:, :, :2, :], v[:, :, :2, :]) for k, v in expected_layers]
-    runner.store_prefill(block_cache, KVCache(short_layers), [manager.block_table(1)], [2], [0])
+    runner.store_prefill(
+        block_cache, KVCache(short_layers), [manager.block_table(1)], [2], [0]
+    )
     for layer_idx, (exp_key, exp_val) in enumerate(short_layers):
         key_pool, val_pool = block_cache.kv_pools[layer_idx]
         b0 = manager.block_table(1)[0]
@@ -390,7 +479,10 @@ def check_paged_kv_cache(model):
         stop_on_eos=False,
     )
     paged_gen = generate(
-        EngineConfig(PagedCacheConfig(block_size=block_size), batching_method=BatchingMethod.CONTINUOUS),
+        EngineConfig(
+            PagedCacheConfig(block_size=block_size),
+            batching_method=BatchingMethod.CONTINUOUS,
+        ),
         model,
         sequences,
         budgets,
@@ -400,14 +492,22 @@ def check_paged_kv_cache(model):
         ),
     )
 
-    assert [s.token_ids for s in dense.sequences] == [s.token_ids for s in paged.sequences]
-    assert [s.token_ids for s in dense.sequences] == [s.token_ids for s in paged_gen.sequences]
+    assert [s.token_ids for s in dense.sequences] == [
+        s.token_ids for s in paged.sequences
+    ]
+    assert [s.token_ids for s in dense.sequences] == [
+        s.token_ids for s in paged_gen.sequences
+    ]
     assert paged.memory.kv_cache.paged_cache is not None
     assert paged.memory.kv_cache.paged_cache.block_reuse_count > 0
     assert paged.memory.kv_cache.paged_cache.peak_used_blocks > 0
     assert dense.memory.kv_cache.accessed_kv_cache_tokens > 0
     assert paged.memory.kv_cache.accessed_kv_cache_tokens > 0
-    admissions = [request_idx for event in paged.events for request_idx in event.admitted_request_ids]
+    admissions = [
+        request_idx
+        for event in paged.events
+        for request_idx in event.admitted_request_ids
+    ]
     assert admissions == [0, 1, 2, 3]
 
     print("Physical block 跨界写入、读取、释放和复用检查通过")
@@ -443,17 +543,27 @@ def check_token_budget_scheduling(model):
         stop_on_eos=False,
     )
 
-    assert [s.token_ids for s in token_budget_run.sequences] == [s.token_ids for s in prefill_first.sequences]
+    assert [s.token_ids for s in token_budget_run.sequences] == [
+        s.token_ids for s in prefill_first.sequences
+    ]
     assert prefill_first.schedule_metrics.max_consecutive_prefill_steps > 1
     assert token_budget_run.schedule_metrics.max_consecutive_prefill_steps == 1
-    assert token_budget_run.schedule_metrics.num_oversize_prefill_steps == 0  # 本负载不触发 oversize prefill
-    budget_prefills = [e for e in token_budget_run.events if e.phase is SchedulePhase.PREFILL]
+    assert (
+        token_budget_run.schedule_metrics.num_oversize_prefill_steps == 0
+    )  # 本负载不触发 oversize prefill
+    budget_prefills = [
+        e for e in token_budget_run.events if e.phase is SchedulePhase.PREFILL
+    ]
     assert all(e.num_scheduled_tokens <= token_budget for e in budget_prefills)
-    assert _num_padded_prompt_tokens(token_budget_run.events) <= _num_padded_prompt_tokens(prefill_first.events)
+    assert _num_padded_prompt_tokens(
+        token_budget_run.events
+    ) <= _num_padded_prompt_tokens(prefill_first.events)
     paged_profile = token_budget_run.memory.kv_cache.paged_cache
     assert paged_profile is not None and paged_profile.block_reuse_count > 0
 
-    print("token-budget 调度：预算拆分、decode protection 与 prefill-first 输出一致性检查通过")
+    print(
+        "token-budget 调度：预算拆分、decode protection 与 prefill-first 输出一致性检查通过"
+    )
 
 
 def check_chunked_prefill_scheduling(model):
@@ -480,13 +590,23 @@ def check_chunked_prefill_scheduling(model):
         stop_on_eos=False,
     )
 
-    assert [s.token_ids for s in chunked.sequences] == [s.token_ids for s in prefill_first.sequences]
+    assert [s.token_ids for s in chunked.sequences] == [
+        s.token_ids for s in prefill_first.sequences
+    ]
     metrics = chunked.schedule_metrics
-    assert metrics.max_prefill_step_tokens <= token_budget < prefill_first.schedule_metrics.max_prefill_step_tokens
+    assert (
+        metrics.max_prefill_step_tokens
+        <= token_budget
+        < prefill_first.schedule_metrics.max_prefill_step_tokens
+    )
     assert metrics.num_oversize_prefill_steps == 0
-    assert metrics.num_prefill_chunks > len(requests)  # 13-token Prompt 无法在 6 token 预算内一步写满
+    assert metrics.num_prefill_chunks > len(
+        requests
+    )  # 13-token Prompt 无法在 6 token 预算内一步写满
     # 每个请求恰入场一次；在途请求存在时不出现连续两步 PREFILL
-    assert sorted(i for e in chunked.events for i in e.admitted_request_ids) == list(range(len(requests)))
+    assert sorted(i for e in chunked.events for i in e.admitted_request_ids) == list(
+        range(len(requests))
+    )
     for prev, curr in zip(chunked.events, chunked.events[1:]):
         if prev.phase is SchedulePhase.PREFILL and curr.phase is SchedulePhase.PREFILL:
             assert prev.num_generated_tokens == len(prev.finished_request_ids)
@@ -503,21 +623,33 @@ def check_prefix_caching(model):
         config = EngineConfig(
             PagedCacheConfig(block_size=4),
             batching_method=BatchingMethod.CONTINUOUS,
-            scheduler_config=SchedulerConfig(max_running_requests=1, batching_policy=policy),
+            scheduler_config=SchedulerConfig(
+                max_running_requests=1, batching_policy=policy
+            ),
         )
         disabled = run_scheduler(config, model, requests, -1, stop_on_eos=False)
         enabled = run_scheduler(
-            config.with_kv_cache_config(PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True)),
+            config.with_kv_cache_config(
+                PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True)
+            ),
             model,
             requests,
             -1,
             stop_on_eos=False,
         )
 
-        assert [s.token_ids for s in enabled.sequences] == [s.token_ids for s in disabled.sequences]
+        assert [s.token_ids for s in enabled.sequences] == [
+            s.token_ids for s in disabled.sequences
+        ]
         # 并发 1：后续请求入场时前序请求的 9 Token 公共前缀已写满 2 个块（8 Token）
-        assert [s.prefix_cache_hit_tokens for s in enabled.sequences] == [0, 8, 8]
-        assert _num_padded_prompt_tokens(enabled.events) < _num_padded_prompt_tokens(disabled.events)
+        assert [s.prefix_cache_hit_tokens for s in enabled.sequences] == [
+            0,
+            8,
+            8,
+        ]
+        assert _num_padded_prompt_tokens(enabled.events) < _num_padded_prompt_tokens(
+            disabled.events
+        )
         profile = enabled.memory.kv_cache.paged_cache
         assert profile is not None and profile.prefix_cache_hit_tokens == 16
 

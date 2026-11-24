@@ -53,9 +53,13 @@ class ReleaseSpec(_Strict):
 
     @field_validator("scales")
     @classmethod
-    def _all_scales_present(cls, value: dict[ReleaseScale, ScaleSpec]) -> dict[ReleaseScale, ScaleSpec]:
+    def _all_scales_present(
+        cls, value: dict[ReleaseScale, ScaleSpec]
+    ) -> dict[ReleaseScale, ScaleSpec]:
         if set(value) != set(RELEASE_SCALES):
-            raise ValueError(f"scales 必须恰好包含 {list(RELEASE_SCALES)}，实际为 {list(value)}")
+            raise ValueError(
+                f"scales 必须恰好包含 {list(RELEASE_SCALES)}，实际为 {list(value)}"
+            )
         return value
 
     @model_validator(mode="after")
@@ -71,20 +75,32 @@ class ReleaseSpec(_Strict):
             if isinstance(policy, BudgetedBatchingPolicySpec):
                 raise ValueError(f"lockstep release 不支持 {policy.kind} 调度策略")
             for check in self.checks:
-                if check == "free_batch_slot_at_t0" or isinstance(check, MinMaxRunningRequestsCheck):
+                if check == "free_batch_slot_at_t0" or isinstance(
+                    check, MinMaxRunningRequestsCheck
+                ):
                     raise ValueError(f"lockstep release 不支持检查 {check!r}")
         else:
             mrr = self.system.scheduler_spec.max_running_requests
             if mrr is None:
-                raise ValueError("scheduler release 必须在 system.scheduler_spec 中提供 max_running_requests")
+                raise ValueError(
+                    "scheduler release 必须在 system.scheduler_spec 中提供 max_running_requests"
+                )
             policy = self.system.scheduler_spec.batching_policy
             if isinstance(policy, BudgetedBatchingPolicySpec):
                 if self.system.batching_method is not BatchingMethod.CONTINUOUS:
-                    raise ValueError(f"{policy.kind} 调度策略要求 batching_method 为 continuous-batching")
+                    raise ValueError(
+                        f"{policy.kind} 调度策略要求 batching_method 为 continuous-batching"
+                    )
                 if policy.token_budget < mrr:
-                    raise ValueError(f"token_budget={policy.token_budget} 不能小于 max_running_requests={mrr}")
-                if isinstance(policy, ChunkedPrefillSpec) and not isinstance(self.system.caching_spec, PagedCacheSpec):
-                    raise ValueError("chunked-prefill 调度策略要求 caching_spec 为 paged-kv-cache")
+                    raise ValueError(
+                        f"token_budget={policy.token_budget} 不能小于 max_running_requests={mrr}"
+                    )
+                if isinstance(policy, ChunkedPrefillSpec) and not isinstance(
+                    self.system.caching_spec, PagedCacheSpec
+                ):
+                    raise ValueError(
+                        "chunked-prefill 调度策略要求 caching_spec 为 paged-kv-cache"
+                    )
         return self
 
 

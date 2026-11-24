@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 
 _SCALE_ORDER = {"small": 0, "medium": 1, "large": 2}
 
-_BENCHMARK_RECORD_ADAPTER: TypeAdapter[LockstepBenchmarkRecord | SchedulerBenchmarkRecord] = TypeAdapter(
-    AnyBenchmarkRecord
-)
+_BENCHMARK_RECORD_ADAPTER: TypeAdapter[
+    LockstepBenchmarkRecord | SchedulerBenchmarkRecord
+] = TypeAdapter(AnyBenchmarkRecord)
 
 
 def build_benchmark_record(
@@ -85,7 +85,9 @@ def build_benchmark_record(
             "revision": getattr(args, "revision", None),
             "dtype": dtype_str,
             "tokenizer_included": False,
-            "profiling_mode": str(args.profiling_mode) if getattr(args, "profiling_mode", None) else None,
+            "profiling_mode": str(args.profiling_mode)
+            if getattr(args, "profiling_mode", None)
+            else None,
         },
         "correctness": correctness_dict,
         "cases": record_cases,
@@ -159,13 +161,19 @@ def load_benchmark_record(
     return rec
 
 
-def save_benchmark_record(output: Path, record: BaseModel, is_dirty: bool = False) -> None:
+def save_benchmark_record(
+    output: Path, record: BaseModel, is_dirty: bool = False
+) -> None:
     """将评测结果保存至指定 JSON 文件路径（若同 tag 下按 scale 分步运行，自动按 small/medium/large 归并）。"""
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = record.model_dump(mode="json", exclude_none=True)
     new_cases = payload.get("cases", [])
 
-    if output.exists() and len(new_cases) == 1 and new_cases[0].get("scale") in _SCALE_ORDER:
+    if (
+        output.exists()
+        and len(new_cases) == 1
+        and new_cases[0].get("scale") in _SCALE_ORDER
+    ):
         try:
             existing = json.loads(output.read_text(encoding="utf-8"))
         except Exception:  # infra-legacy: 历史破损 JSON 降级为全新覆写
@@ -178,7 +186,9 @@ def save_benchmark_record(output: Path, record: BaseModel, is_dirty: bool = Fals
         ):
             new_scale = new_cases[0]["scale"]
             merged_cases = [
-                c for c in existing.get("cases", []) if c.get("scale") in _SCALE_ORDER and c.get("scale") != new_scale
+                c
+                for c in existing.get("cases", [])
+                if c.get("scale") in _SCALE_ORDER and c.get("scale") != new_scale
             ]
             merged_cases.append(new_cases[0])
             merged_cases.sort(key=lambda c: _SCALE_ORDER.get(c.get("scale", ""), 99))

@@ -56,15 +56,26 @@ def check_correctness(
 
     if update_golden:
         GOLDEN_OUTPUT_PATH.write_text(
-            json.dumps({"prompt": GOLDEN_PROMPT, "tokens": tokens, "commit": git_info()["commit"]}, indent=2),
+            json.dumps(
+                {
+                    "prompt": GOLDEN_PROMPT,
+                    "tokens": tokens,
+                    "commit": git_info()["commit"],
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
         print(f"[golden] 已写入 {GOLDEN_OUTPUT_PATH.name}（{len(tokens)} tokens）")
-        return CorrectnessReport(checked=True, passed=True, match_ratio=1.0, updated_golden=True)
+        return CorrectnessReport(
+            checked=True, passed=True, match_ratio=1.0, updated_golden=True
+        )
 
     if not GOLDEN_OUTPUT_PATH.exists():
         print("[golden] 未找到 golden 文件，跳过正确性检查（先用 --update-golden 生成）")
-        return CorrectnessReport(checked=False, passed=None, match_ratio=None, updated_golden=False)
+        return CorrectnessReport(
+            checked=False, passed=None, match_ratio=None, updated_golden=False
+        )
 
     golden = json.loads(GOLDEN_OUTPUT_PATH.read_text(encoding="utf-8"))["tokens"]
     n = min(len(golden), len(tokens))
@@ -72,7 +83,9 @@ def check_correctness(
     ratio = matched / n if n else 0.0
     is_passed = tokens == golden
     print(f"[golden] 匹配 {matched}/{n}，{'通过' if is_passed else '失败'}")
-    return CorrectnessReport(checked=True, passed=is_passed, match_ratio=ratio, updated_golden=False)
+    return CorrectnessReport(
+        checked=True, passed=is_passed, match_ratio=ratio, updated_golden=False
+    )
 
 
 __all__ = [

@@ -133,7 +133,11 @@ class MemorySnapshotTracker:
         if sampling_rate is not None:
             if sampling_rate <= 0:
                 return 0.0, 0.0
-            interval = max(1, round(1.0 / sampling_rate)) if sampling_rate < 1.0 else max(1, int(sampling_rate))
+            interval = (
+                max(1, round(1.0 / sampling_rate))
+                if sampling_rate < 1.0
+                else max(1, int(sampling_rate))
+            )
             if stage_count % interval != 0:
                 return 0.0, 0.0
 
@@ -147,7 +151,9 @@ class MemorySnapshotTracker:
         print(msg)
 
         if dump and self.output_dir:
-            snapshot_path = self.output_dir / f"snapshot_{self._step_counter:03d}_{stage_name}.pickle"
+            snapshot_path = (
+                self.output_dir / f"snapshot_{self._step_counter:03d}_{stage_name}.pickle"
+            )
             torch.cuda.memory._dump_snapshot(str(snapshot_path))
         self._step_counter += 1
         return alloc_mb, peak_mb

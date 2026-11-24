@@ -28,7 +28,9 @@ workload: {id: w, count: 2, prompt_len: 8, output_len: 4}
 
 
 def test_committed_json_schema_is_up_to_date():
-    committed = json.loads((BENCH_ARTIFACTS_DIR / "specs" / "suite.schema.json").read_text(encoding="utf-8"))
+    committed = json.loads(
+        (BENCH_ARTIFACTS_DIR / "specs" / "suite.schema.json").read_text(encoding="utf-8")
+    )
     assert committed == suite_json_schema(), (
         "运行 `mini-infra bench suites schema --output benchmarks/specs/suite.schema.json`"
     )
@@ -37,14 +39,24 @@ def test_committed_json_schema_is_up_to_date():
 def test_json_schema_shape():
     schema = suite_json_schema()
     assert schema["required"] == ["name"]
-    assert {"name", "extends", "system", "workload", "sweep", "comparison", "checks"} <= set(schema["properties"])
+    assert {
+        "name",
+        "extends",
+        "system",
+        "workload",
+        "sweep",
+        "comparison",
+        "checks",
+    } <= set(schema["properties"])
     assert "WorkloadTemplate" not in schema["$defs"] and "GroupSpec" in schema["$defs"]
 
 
 def test_suites_list_and_show(capsys):
     assert main(["bench", "suites", "list"]) == 0
     out = capsys.readouterr().out
-    assert "dense-vs-paged-block-size" in out and "serial-vs-fixed-batch-throughput" in out
+    assert (
+        "dense-vs-paged-block-size" in out and "serial-vs-fixed-batch-throughput" in out
+    )
     assert "_bases" not in out and "dense_vs_paged" not in out
 
     assert main(["bench", "suites", "list", "--engine", "lockstep"]) == 0
@@ -89,7 +101,22 @@ def test_suite_and_spec_and_all_are_mutually_exclusive(tmp_path):
 def test_scheduler_suite_dry_run_with_spec(tmp_path, capsys):
     path = tmp_path / "demo-spec.yaml"
     path.write_text(_SCHEDULER_YAML, encoding="utf-8")
-    assert main(["bench", "sweep", "--engine", "scheduler", "--tag", "dev", "--dry-run", "--spec", str(path)]) == 0
+    assert (
+        main(
+            [
+                "bench",
+                "sweep",
+                "--engine",
+                "scheduler",
+                "--tag",
+                "dev",
+                "--dry-run",
+                "--spec",
+                str(path),
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr().out
     assert "=== [Dry Run] Suite: demo-spec ===" in out and "suite=demo-spec" in out
 
@@ -124,7 +151,22 @@ def test_lockstep_suite_dry_run_with_spec(tmp_path, capsys):
         "workload: {id: w, count: 2, prompt_len: 8, output_len: 4}\n",
         encoding="utf-8",
     )
-    assert main(["bench", "sweep", "--engine", "lockstep", "--tag", "dev", "--dry-run", "--spec", str(path)]) == 0
+    assert (
+        main(
+            [
+                "bench",
+                "sweep",
+                "--engine",
+                "lockstep",
+                "--tag",
+                "dev",
+                "--dry-run",
+                "--spec",
+                str(path),
+            ]
+        )
+        == 0
+    )
     assert "Suite: demo-lockstep" in capsys.readouterr().out
 
 
@@ -133,22 +175,44 @@ def test_suite_output_path_routing(tmp_path):
         return argparse.Namespace(**{"output": None, "spec": None, "tag": "dev", **kw})
 
     kw = {"experimental": False}
-    assert suite_output_path(ns(), "lockstep", "s", "abc", **kw) == SUITES_DIR / "lockstep" / "s" / "abc_dev.json"
-    assert suite_output_path(ns(), "scheduler", "s", "abc", **kw) == SUITES_DIR / "scheduler" / "s" / "abc_dev.json"
+    assert (
+        suite_output_path(ns(), "lockstep", "s", "abc", **kw)
+        == SUITES_DIR / "lockstep" / "s" / "abc_dev.json"
+    )
+    assert (
+        suite_output_path(ns(), "scheduler", "s", "abc", **kw)
+        == SUITES_DIR / "scheduler" / "s" / "abc_dev.json"
+    )
     # --spec 的实验结果默认进入被 .gitignore 忽略的 tmp/，不污染受控的 benchmarks/
-    experimental = suite_output_path(ns(spec=Path("x.yaml")), "scheduler", "s", "abc", experimental=True)
-    assert experimental == REPO_ROOT / "tmp" / "results" / "suites" / "scheduler" / "s" / "abc_dev.json"
+    experimental = suite_output_path(
+        ns(spec=Path("x.yaml")), "scheduler", "s", "abc", experimental=True
+    )
+    assert (
+        experimental
+        == REPO_ROOT / "tmp" / "results" / "suites" / "scheduler" / "s" / "abc_dev.json"
+    )
     explicit = tmp_path / "o.json"
-    assert suite_output_path(ns(output=explicit), "lockstep", "s", "abc", experimental=True) == explicit
+    assert (
+        suite_output_path(ns(output=explicit), "lockstep", "s", "abc", experimental=True)
+        == explicit
+    )
 
 
 def test_committed_release_json_schema_is_up_to_date():
     from mini_infra.bench.spec import release_json_schema
 
-    committed = json.loads((BENCH_ARTIFACTS_DIR / "specs" / "release.schema.json").read_text(encoding="utf-8"))
+    committed = json.loads(
+        (BENCH_ARTIFACTS_DIR / "specs" / "release.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
     hint = "运行 `mini-infra bench suites schema --kind release --output benchmarks/specs/release.schema.json` 重新生成"
     assert committed == release_json_schema(), hint
-    assert set(committed["properties"]["scales"]["properties"]) == {"small", "medium", "large"}
+    assert set(committed["properties"]["scales"]["properties"]) == {
+        "small",
+        "medium",
+        "large",
+    }
     assert "required" not in committed and "GroupSpec" in committed["$defs"]
 
 

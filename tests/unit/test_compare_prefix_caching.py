@@ -14,7 +14,11 @@ from mini_infra.verification.parity.compare_prefix_caching import (
 
 def test_run_compare_prefix_caching_on_cpu(diverse_model, tmp_path):
     shared_prefix = [(j * 7) % 90 + 1 for j in range(10)]
-    sequences = [shared_prefix + [11, 12], shared_prefix + [21, 22, 23], shared_prefix + [31]]
+    sequences = [
+        shared_prefix + [11, 12],
+        shared_prefix + [21, 22, 23],
+        shared_prefix + [31],
+    ]
     out_file = tmp_path / "compare_prefix_caching_result.json"
 
     result = run_compare_prefix_caching(
@@ -31,11 +35,24 @@ def test_run_compare_prefix_caching_on_cpu(diverse_model, tmp_path):
     assert result["tokens_match"] is True
     assert result["max_first_token_logit_error"] <= 1e-4
     # 后续请求命中 10 Token 公共前缀中的 2 个满块（8 Token）
-    assert result["enabled_metrics"]["per_request_prefix_cache_hit_tokens"] == [0, 8, 8]
+    assert result["enabled_metrics"]["per_request_prefix_cache_hit_tokens"] == [
+        0,
+        8,
+        8,
+    ]
     assert result["disabled_metrics"]["per_request_prefix_cache_hit_tokens"] == [0, 0, 0]
-    assert result["per_request_logit_prefix_cache_hit_tokens"] == {"0": 0, "1": 8, "2": 8}
-    assert result["enabled_metrics"]["num_computed_prompt_tokens"] == sum(map(len, sequences)) - 16
-    assert result["disabled_metrics"]["num_computed_prompt_tokens"] == sum(map(len, sequences))
+    assert result["per_request_logit_prefix_cache_hit_tokens"] == {
+        "0": 0,
+        "1": 8,
+        "2": 8,
+    }
+    assert (
+        result["enabled_metrics"]["num_computed_prompt_tokens"]
+        == sum(map(len, sequences)) - 16
+    )
+    assert result["disabled_metrics"]["num_computed_prompt_tokens"] == sum(
+        map(len, sequences)
+    )
     assert result["enabled_metrics"]["prefix_cache_hit_tokens"] == 16
 
     data = json.loads(out_file.read_text(encoding="utf-8"))
