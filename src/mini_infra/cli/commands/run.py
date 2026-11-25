@@ -292,6 +292,7 @@ def _print_schedule_metrics(result: ScheduleResult) -> None:
     sm = result.schedule_metrics
     print("Makespan: %.2f ms" % sm.makespan_ms)
     print("排队延迟 p50/p95: %.2f / %.2f ms" % (sm.queue_ms_p50, sm.queue_ms_p95))
+    print("Prefill 延迟 p50/p95: %.2f / %.2f ms" % (sm.prefill_ms_p50, sm.prefill_ms_p95))
     print("TTFT p50/p95: %.2f / %.2f ms" % (sm.ttft_ms_p50, sm.ttft_ms_p95))
     print(
         "ITL p50/p95/max: %.2f / %.2f / %.2f ms"

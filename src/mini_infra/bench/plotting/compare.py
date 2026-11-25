@@ -24,6 +24,8 @@ _LATENCY_KEYS = {
     "e2e_wall_ms",
     "makespan_ms",
     "queue_ms_p95",
+    "prefill_ms_p50",
+    "prefill_ms_p95",
     "ttft_ms_p95",
     "itl_ms_p95",
     "itl_ms_max",

@@ -122,6 +122,8 @@ class SchedulerCaseResult:
                 "scheduler_ms": sm.scheduler_ms.to_dict(),
                 "queue_ms_p50": sm.queue_ms_p50.to_dict(),
                 "queue_ms_p95": sm.queue_ms_p95.to_dict(),
+                "prefill_ms_p50": sm.prefill_ms_p50.to_dict(),
+                "prefill_ms_p95": sm.prefill_ms_p95.to_dict(),
                 "ttft_ms_p50": sm.ttft_ms_p50.to_dict(),
                 "ttft_ms_p95": sm.ttft_ms_p95.to_dict(),
                 "end_to_end_ms_p50": sm.end_to_end_ms_p50.to_dict(),
@@ -277,6 +279,12 @@ class SchedulerCaseResult:
             ),
             queue_ms_p95=DistributionStats.from_samples(
                 [r.schedule_metrics.queue_ms_p95 for r in runs]
+            ),
+            prefill_ms_p50=DistributionStats.from_samples(
+                [r.schedule_metrics.prefill_ms_p50 for r in runs]
+            ),
+            prefill_ms_p95=DistributionStats.from_samples(
+                [r.schedule_metrics.prefill_ms_p95 for r in runs]
             ),
             ttft_ms_p50=DistributionStats.from_samples(
                 [r.schedule_metrics.ttft_ms_p50 for r in runs]

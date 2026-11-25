@@ -54,6 +54,8 @@ def test_run_compare_prefix_caching_on_cpu(diverse_model, tmp_path):
         map(len, sequences)
     )
     assert result["enabled_metrics"]["prefix_cache_hit_tokens"] == 16
+    assert result["enabled_metrics"]["prefill_ms_p50"] > 0
+    assert result["disabled_metrics"]["prefill_ms_p50"] > 0
 
     data = json.loads(out_file.read_text(encoding="utf-8"))
     assert data["result"]["tokens_match"] is True

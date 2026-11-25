@@ -135,6 +135,9 @@ class ScheduleMetricsRecord(_RecordModel):
     scheduler_ms: DistributionStatsRecord | None = None
     queue_ms_p50: DistributionStatsRecord
     queue_ms_p95: DistributionStatsRecord
+    # 剥离排队的请求级 Prefill 阶段延迟（first_token_ms - admitted_ms）：早于 prefix-caching 的历史记录无此字段，缺省为 None
+    prefill_ms_p50: DistributionStatsRecord | None = None
+    prefill_ms_p95: DistributionStatsRecord | None = None
     ttft_ms_p50: DistributionStatsRecord
     ttft_ms_p95: DistributionStatsRecord
     end_to_end_ms_p50: DistributionStatsRecord

@@ -182,7 +182,8 @@ def test_continuous_batching_gpu_parity() -> None:
     assert len(cont_result.request_metrics) == len(requests)
     for rm in cont_result.request_metrics:
         assert rm.num_output_tokens > 0
-        assert rm.ttft_ms > 0
+        assert rm.prefill_ms > 0
+        assert rm.ttft_ms == pytest.approx(rm.queue_ms + rm.prefill_ms)
         assert rm.end_to_end_ms >= rm.ttft_ms
 
 

@@ -311,11 +311,13 @@ def check_continuous_batching(model):
     # 4. batch slot 有效利用率优势对比
     assert continuous.batch_info.slot_utilization > fixed.batch_info.slot_utilization
 
-    # 5. 请求时序指标逻辑自洽性校验 (queue_ms >= 0, ttft_ms >= queue_ms, end_to_end_ms >= ttft_ms)
+    # 5. 请求时序指标逻辑自洽性校验 (queue_ms >= 0, prefill_ms >= 0, ttft_ms == queue_ms + prefill_ms, end_to_end_ms >= ttft_ms)
     assert all(
-        rm.queue_ms >= 0 and rm.ttft_ms >= queue_ms_val and rm.end_to_end_ms >= rm.ttft_ms
+        rm.queue_ms >= 0
+        and rm.prefill_ms >= 0
+        and abs(rm.queue_ms + rm.prefill_ms - rm.ttft_ms) < 1e-9
+        and rm.end_to_end_ms >= rm.ttft_ms
         for rm in continuous.request_metrics
-        for queue_ms_val in [rm.queue_ms]
     )
 
     # 6. 错峰到达时序门禁 (Staggered Arrival Timeline)

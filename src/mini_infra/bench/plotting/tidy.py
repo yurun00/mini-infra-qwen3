@@ -218,6 +218,8 @@ def records_to_wide_df(
         "scheduler_ms",
         "queue_ms_p50",
         "queue_ms_p95",
+        "prefill_ms_p50",
+        "prefill_ms_p95",
         "ttft_ms_p50",
         "ttft_ms_p95",
         "end_to_end_ms_p50",

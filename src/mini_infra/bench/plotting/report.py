@@ -170,10 +170,18 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
             )
         lines.append("")
 
+        pf_p50_raw = sched.get("prefill_ms_p50")
+        pf_p95_raw = sched.get("prefill_ms_p95")
+        pf_text = (
+            f"**Prefill 延迟**：P50 = `{float(pf_p50_raw.get('median', 0.0)):.1f} ms`，"
+            f"P95 = `{float((pf_p95_raw or {}).get('median', 0.0)):.1f} ms`；"
+            if pf_p50_raw is not None
+            else ""
+        )
         lines.append("### 2. 请求排队与尾延迟诊断（P50 vs P95）")
         lines.append(
             f"- 🔹 **排队延迟**：P50 = `{q_p50:.1f} ms`，P95 = `{q_p95:.1f} ms`；"
-            f"**TTFT**：P50 = `{ttft_p50:.1f} ms`，P95 = `{ttft_p95:.1f} ms`。"
+            f"{pf_text}**TTFT**：P50 = `{ttft_p50:.1f} ms`，P95 = `{ttft_p95:.1f} ms`。"
         )
         lines.append(
             f"- 🔹 **Decode 步间延迟（ITL）**：P50 = `{itl_p50:.2f} ms`，"

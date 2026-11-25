@@ -433,6 +433,8 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(
     schedule = current["cases"][0]["schedule"]
     for key, value in (
         ("scheduler_ms", 1.2),
+        ("prefill_ms_p50", 18.0),
+        ("prefill_ms_p95", 36.0),
         ("num_prefill_steps", 6.0),
         ("num_decode_steps", 40.0),
         ("max_consecutive_prefill_steps", 1.0),
@@ -448,12 +450,16 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(
     rec_current = validate_benchmark_record(current, require_single_case=True)
     assert isinstance(rec_legacy, SchedulerBenchmarkRecord)
     assert isinstance(rec_current, SchedulerBenchmarkRecord)
+    assert rec_legacy.cases[0].schedule.prefill_ms_p50 is None
+    assert rec_current.cases[0].schedule.prefill_ms_p50 is not None
     assert rec_legacy.cases[0].schedule.max_consecutive_prefill_steps is None
     assert rec_current.cases[0].schedule.max_consecutive_prefill_steps is not None
     assert rec_legacy.cases[0].schedule.max_prefill_step_ms is None
     assert rec_current.cases[0].schedule.max_prefill_step_ms is not None
 
     wide_df = records_to_wide_df([rec_legacy, rec_current])
+    assert wide_df["prefill_ms_p50.median"].isna().iloc[0]
+    assert wide_df["prefill_ms_p50.median"].iloc[1] == pytest.approx(18.0)
     assert wide_df["max_consecutive_prefill_steps.median"].isna().iloc[0]
     assert wide_df["max_consecutive_prefill_steps.median"].iloc[1] == pytest.approx(1.0)
     tidy = wide_to_tidy_df(wide_df, resolve_plot_specs([rec_legacy, rec_current]))
@@ -478,10 +484,12 @@ def test_mixed_legacy_and_step_metric_scheduler_records_plot_and_report(
     assert "token-budget" in markdown_table([rec_legacy, rec_current], rec_legacy)
 
     current_guidance = generate_optimization_guidance(rec_current)
+    assert "**Prefill 延迟**：P50 = `18.0 ms`，P95 = `36.0 ms`" in current_guidance
     assert "最长连续 Prefill `1` 步" in current_guidance
     assert "oversize prefill `2` 次" in current_guidance
     assert "Chunked Prefill" in current_guidance
     assert "共 `9` 个 Prompt chunk" in current_guidance
     assert "最长 Prefill 步 `31.50 ms`" in current_guidance
     legacy_guidance = generate_optimization_guidance(rec_legacy)
+    assert "**Prefill 延迟**" not in legacy_guidance
     assert "迭代调度步数" not in legacy_guidance

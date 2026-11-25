@@ -366,6 +366,8 @@ def test_compute_comparisons():
             scheduler_ms=dist(0.5),
             queue_ms_p50=dist(0.0),
             queue_ms_p95=dist(0.0),
+            prefill_ms_p50=dist(20.0),
+            prefill_ms_p95=dist(25.0),
             ttft_ms_p50=dist(20.0),
             ttft_ms_p95=dist(25.0),
             end_to_end_ms_p50=dist(makespan),

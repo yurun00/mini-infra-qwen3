@@ -466,15 +466,30 @@ def plot_profiling_and_optimization(
             ax_mod.set_axis_off()
 
         sched = w.get("schedule") or {}
-        lat_categories = ["Queue Delay", "TTFT", "ITL (per tok)", "End-to-End"]
+        has_prefill_pct = sched.get("prefill_ms_p50") is not None
+        lat_categories = (
+            ["Queue Delay", "Prefill", "TTFT", "ITL (per tok)", "End-to-End"]
+            if has_prefill_pct
+            else ["Queue Delay", "TTFT", "ITL (per tok)", "End-to-End"]
+        )
         p50_vals = [
             float((sched.get("queue_ms_p50") or {}).get("median", 0.0)),
+            *(
+                [float((sched.get("prefill_ms_p50") or {}).get("median", 0.0))]
+                if has_prefill_pct
+                else []
+            ),
             float((sched.get("ttft_ms_p50") or {}).get("median", 0.0)),
             float((sched.get("itl_ms_p50") or {}).get("median", 0.0)),
             float((sched.get("end_to_end_ms_p50") or {}).get("median", 0.0)),
         ]
         p95_vals = [
             float((sched.get("queue_ms_p95") or {}).get("median", 0.0)),
+            *(
+                [float((sched.get("prefill_ms_p95") or {}).get("median", 0.0))]
+                if has_prefill_pct
+                else []
+            ),
             float((sched.get("ttft_ms_p95") or {}).get("median", 0.0)),
             float((sched.get("itl_ms_p95") or {}).get("median", 0.0)),
             float((sched.get("end_to_end_ms_p95") or {}).get("median", 0.0)),

@@ -70,6 +70,8 @@ def _summarize_policy_metrics(run: ScheduleResult) -> dict[str, float | int]:
         "scheduler_ms": sm.scheduler_ms,
         "queue_ms_p50": sm.queue_ms_p50,
         "queue_ms_p95": sm.queue_ms_p95,
+        "prefill_ms_p50": sm.prefill_ms_p50,
+        "prefill_ms_p95": sm.prefill_ms_p95,
         "ttft_ms_p50": sm.ttft_ms_p50,
         "ttft_ms_p95": sm.ttft_ms_p95,
         "itl_ms_p50": sm.itl_ms_p50,

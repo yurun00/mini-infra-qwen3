@@ -351,6 +351,8 @@ class ScheduleMetrics(Generic[_MetricT]):
     scheduler_ms: _MetricT
     queue_ms_p50: _MetricT
     queue_ms_p95: _MetricT
+    prefill_ms_p50: _MetricT
+    prefill_ms_p95: _MetricT
     ttft_ms_p50: _MetricT
     ttft_ms_p95: _MetricT
     end_to_end_ms_p50: _MetricT
@@ -420,7 +422,7 @@ def summarize_schedule(
     cache_ms = sum(e.cache_management_ms for e in events)
     scheduler_ms = sum(e.scheduler_ms for e in events)
     prefill_events = [e for e in events if e.phase is SchedulePhase.PREFILL]
-    prefill_ms = sum(e.step_ms for e in prefill_events)
+    total_prefill_step_ms = sum(e.step_ms for e in prefill_events)
     e2e_wall_ms = e2e_wall_ms if e2e_wall_ms is not None else busy_ms
     num_output_tokens = sum(r.num_output_tokens for r in requests)
     total_executed_slots = sum(e.physical_batch_size for e in events)
@@ -462,11 +464,11 @@ def summarize_schedule(
         throughput_tok_s=num_output_tokens * 1000 / busy_ms if busy_ms else 0.0,
         throughput_req_s=len(requests) * 1000 / busy_ms if busy_ms else 0.0,
         gpu_time_ratio=gpu_time_ratio,
-        effective_prompt_tok_s=num_prompt_tokens * 1000 / prefill_ms
-        if prefill_ms
+        effective_prompt_tok_s=num_prompt_tokens * 1000 / total_prefill_step_ms
+        if total_prefill_step_ms
         else 0.0,
-        padded_prompt_tok_s=num_padded_prompt_tokens * 1000 / prefill_ms
-        if prefill_ms
+        padded_prompt_tok_s=num_padded_prompt_tokens * 1000 / total_prefill_step_ms
+        if total_prefill_step_ms
         else 0.0,
         ttft_ms=None,
         mean_tpot_ms=None,
@@ -501,6 +503,8 @@ def summarize_schedule(
         scheduler_ms=scheduler_ms,
         queue_ms_p50=percentile([r.queue_ms for r in requests], 50),
         queue_ms_p95=percentile([r.queue_ms for r in requests], 95),
+        prefill_ms_p50=percentile([r.prefill_ms for r in requests], 50),
+        prefill_ms_p95=percentile([r.prefill_ms for r in requests], 95),
         ttft_ms_p50=percentile([r.ttft_ms for r in requests], 50),
         ttft_ms_p95=percentile([r.ttft_ms for r in requests], 95),
         end_to_end_ms_p50=percentile([r.end_to_end_ms for r in requests], 50),

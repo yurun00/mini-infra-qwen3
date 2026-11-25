@@ -68,6 +68,8 @@ def _summarize_run(run: ScheduleResult) -> dict[str, Any]:
         "num_blocks": profile.num_blocks,
         "makespan_ms": sm.makespan_ms,
         "busy_ms": sm.busy_ms,
+        "prefill_ms_p50": sm.prefill_ms_p50,
+        "prefill_ms_p95": sm.prefill_ms_p95,
         "ttft_ms_p50": sm.ttft_ms_p50,
         "ttft_ms_p95": sm.ttft_ms_p95,
         "num_prefill_steps": sm.num_prefill_steps,
@@ -253,6 +255,10 @@ def run_compare_prefix_caching(
             enabled_metrics["num_computed_prompt_tokens"],
             enabled_metrics["num_prompt_tokens"],
         )
+    )
+    print(
+        "Prefill 延迟 p50: %.2f ms -> %.2f ms"
+        % (disabled_metrics["prefill_ms_p50"], enabled_metrics["prefill_ms_p50"])
     )
     print(
         "TTFT p50: %.2f ms -> %.2f ms"

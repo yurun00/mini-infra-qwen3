@@ -332,6 +332,11 @@ class RequestMetrics:
         return self.admitted_ms - self.arrival_ms
 
     @property
+    def prefill_ms(self) -> float:
+        """从入场调度到产出首 Token 的 Prefill 阶段耗时（剥离 queue_ms，满足 ttft_ms == queue_ms + prefill_ms）。"""
+        return self.first_token_ms - self.admitted_ms
+
+    @property
     def ttft_ms(self) -> float:
         return self.first_token_ms - self.arrival_ms
 

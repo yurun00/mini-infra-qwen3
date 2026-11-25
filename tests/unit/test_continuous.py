@@ -158,7 +158,8 @@ def test_timeline_and_metric_invariants(model, method, case):
         )
         assert (
             request.queue_ms >= 0
-            and request.ttft_ms > 0
+            and request.prefill_ms > 0
+            and request.ttft_ms == pytest.approx(request.queue_ms + request.prefill_ms)
             and request.end_to_end_ms >= request.ttft_ms
         )
         assert request.num_output_tokens == budget == len(request.token_times_ms)
@@ -194,6 +195,7 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert 0 < result.batch_info.slot_utilization <= 1
     assert 0 < result.batch_info.running_capacity_utilization <= 1
     assert 0 <= metrics.cache_management_fraction < 1
+    assert metrics.prefill_ms_p50 <= metrics.prefill_ms_p95
     assert metrics.ttft_ms_p50 <= metrics.ttft_ms_p95
     assert sum(e.num_generated_tokens for e in result.events) == sum(budgets)
     assert sorted(i for e in result.events for i in e.admitted_request_ids) == list(
