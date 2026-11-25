@@ -1,7 +1,7 @@
 """生成性能度量、显存画像与批调度明细结构体及聚合函数。"""
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Generic, TypeVar
 
 import torch
@@ -12,6 +12,8 @@ from mini_infra.core.types import (
     BatchingMethod,
     DenseCacheConfig,
     KVCacheConfig,
+    RequestMetrics,
+    SequenceOutput,
 )
 from mini_infra.utils import percentile
 
@@ -338,17 +340,15 @@ class ScheduleEvent:
     )
 
 
+def _serialize_metric(val: Any) -> Any:
+    return val.to_dict() if hasattr(val, "to_dict") else val
+
+
 @dataclass(frozen=True)
-class ScheduleMetrics(Generic[_MetricT]):
-    """一次或多次调度运行的调度器专属聚合指标（支持单次标量 float 或多轮评测统计分布 DistributionStats）。"""
+class RequestAggregatedMetrics(Generic[_MetricT]):
+    """请求级聚合指标：仅由一组请求的 RequestMetrics 与 SequenceOutput 决定（支持标量或 DistributionStats）。"""
 
     request_count: int
-    max_running_requests: int
-    makespan_ms: _MetricT
-    busy_ms: _MetricT
-    cache_management_ms: _MetricT
-    cache_management_fraction: _MetricT
-    scheduler_ms: _MetricT
     queue_ms_p50: _MetricT
     queue_ms_p95: _MetricT
     prefill_ms_p50: _MetricT
@@ -360,6 +360,66 @@ class ScheduleMetrics(Generic[_MetricT]):
     itl_ms_p50: _MetricT
     itl_ms_p95: _MetricT
     itl_ms_max: _MetricT
+    num_computed_prompt_tokens: (
+        _MetricT  # 实际送入前向的 Prompt Token 数（扣除 prefix_cache_hit_tokens）
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_count": self.request_count,
+            "queue_ms_p50": _serialize_metric(self.queue_ms_p50),
+            "queue_ms_p95": _serialize_metric(self.queue_ms_p95),
+            "prefill_ms_p50": _serialize_metric(self.prefill_ms_p50),
+            "prefill_ms_p95": _serialize_metric(self.prefill_ms_p95),
+            "ttft_ms_p50": _serialize_metric(self.ttft_ms_p50),
+            "ttft_ms_p95": _serialize_metric(self.ttft_ms_p95),
+            "end_to_end_ms_p50": _serialize_metric(self.end_to_end_ms_p50),
+            "end_to_end_ms_p95": _serialize_metric(self.end_to_end_ms_p95),
+            "itl_ms_p50": _serialize_metric(self.itl_ms_p50),
+            "itl_ms_p95": _serialize_metric(self.itl_ms_p95),
+            "itl_ms_max": _serialize_metric(self.itl_ms_max),
+            "num_computed_prompt_tokens": _serialize_metric(
+                self.num_computed_prompt_tokens
+            ),
+        }
+
+
+def compute_request_aggregated_metrics(
+    requests: Sequence[RequestMetrics],
+    sequences: Sequence[SequenceOutput],
+) -> RequestAggregatedMetrics[float]:
+    """计算一组请求的延迟分位数与实际计算 Prompt Token 数（全量与具名请求组共用）。"""
+    itls = [itl for r in requests for itl in r.inter_token_latencies_ms]
+    num_computed_prompt_tokens = sum(
+        s.prompt_len - s.prefix_cache_hit_tokens for s in sequences
+    )
+    return RequestAggregatedMetrics(
+        request_count=len(requests),
+        queue_ms_p50=percentile([r.queue_ms for r in requests], 50),
+        queue_ms_p95=percentile([r.queue_ms for r in requests], 95),
+        prefill_ms_p50=percentile([r.prefill_ms for r in requests], 50),
+        prefill_ms_p95=percentile([r.prefill_ms for r in requests], 95),
+        ttft_ms_p50=percentile([r.ttft_ms for r in requests], 50),
+        ttft_ms_p95=percentile([r.ttft_ms for r in requests], 95),
+        end_to_end_ms_p50=percentile([r.end_to_end_ms for r in requests], 50),
+        end_to_end_ms_p95=percentile([r.end_to_end_ms for r in requests], 95),
+        itl_ms_p50=percentile(itls, 50),
+        itl_ms_p95=percentile(itls, 95),
+        itl_ms_max=max(itls, default=0.0),
+        num_computed_prompt_tokens=num_computed_prompt_tokens,
+    )
+
+
+@dataclass(frozen=True)
+class ScheduleMetrics(RequestAggregatedMetrics[_MetricT]):
+    """一次或多次调度运行的调度器专属聚合指标：继承请求级聚合指标并扩展步进/引擎级指标。"""
+
+    max_running_requests: int
+    makespan_ms: _MetricT
+    busy_ms: _MetricT
+    cache_management_ms: _MetricT
+    cache_management_fraction: _MetricT
+    scheduler_ms: _MetricT
     num_prefill_steps: _MetricT
     num_decode_steps: _MetricT
     max_consecutive_prefill_steps: (
@@ -369,6 +429,30 @@ class ScheduleMetrics(Generic[_MetricT]):
     num_prefill_chunks: _MetricT  # PREFILL 步内各请求的 Prompt 区间总数；非 chunked-prefill 策略下等于请求数
     max_prefill_step_tokens: _MetricT  # 单个 PREFILL 步的最大 padded chunk token 数（chunked-prefill 下 <= token_budget）
     max_prefill_step_ms: _MetricT  # 单个 PREFILL 步的最长耗时：在途 Decode 被 Prefill 阻塞的上界，直接决定 itl_ms_max
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **super().to_dict(),
+            "max_running_requests": self.max_running_requests,
+            "makespan_ms": _serialize_metric(self.makespan_ms),
+            "busy_ms": _serialize_metric(self.busy_ms),
+            "cache_management_ms": _serialize_metric(self.cache_management_ms),
+            "cache_management_fraction": _serialize_metric(
+                self.cache_management_fraction
+            ),
+            "scheduler_ms": _serialize_metric(self.scheduler_ms),
+            "num_prefill_steps": _serialize_metric(self.num_prefill_steps),
+            "num_decode_steps": _serialize_metric(self.num_decode_steps),
+            "max_consecutive_prefill_steps": _serialize_metric(
+                self.max_consecutive_prefill_steps
+            ),
+            "num_oversize_prefill_steps": _serialize_metric(
+                self.num_oversize_prefill_steps
+            ),
+            "num_prefill_chunks": _serialize_metric(self.num_prefill_chunks),
+            "max_prefill_step_tokens": _serialize_metric(self.max_prefill_step_tokens),
+            "max_prefill_step_ms": _serialize_metric(self.max_prefill_step_ms),
+        }
 
 
 def _max_consecutive_prefill_steps(events: Sequence[ScheduleEvent]) -> int:
@@ -428,7 +512,6 @@ def summarize_schedule(
     num_output_tokens = sum(r.num_output_tokens for r in requests)
     total_executed_slots = sum(e.physical_batch_size for e in events)
     capacity_area = sum(e.num_active_requests * e.step_ms for e in events)
-    itls = [itl for r in requests for itl in r.inter_token_latencies_ms]
     mib = 1024**2
 
     slot_util = num_output_tokens / total_executed_slots if total_executed_slots else 0.0
@@ -440,11 +523,10 @@ def summarize_schedule(
     cache_realign_moved_bytes = sum(e.cache_realign_moved_bytes for e in events)
     accessed_kv_cache_tokens = sum(e.accessed_kv_cache_tokens for e in events)
 
+    req_agg_metrics = compute_request_aggregated_metrics(requests, sequences)
     num_prompt_tokens = sum(state.request.prompt_len for state in states)
     # 实际送入前向的有效 Prompt Token 数：prefix cache 命中部分不参与 Prefill 计算（未启用时等于 num_prompt_tokens）
-    num_computed_prompt_tokens = num_prompt_tokens - sum(
-        state.prefix_cache_hit_tokens for state in states
-    )
+    num_computed_prompt_tokens = int(req_agg_metrics.num_computed_prompt_tokens)
     num_padded_prompt_tokens = sum(e.num_scheduled_tokens for e in prefill_events)
     if num_padded_prompt_tokens == 0:
         num_padded_prompt_tokens = num_computed_prompt_tokens
@@ -494,25 +576,21 @@ def summarize_schedule(
         slot_utilization=slot_util,
         running_capacity_utilization=running_capacity_util,
     )
+    req_agg_kwargs = {
+        f.name: getattr(req_agg_metrics, f.name) for f in fields(RequestAggregatedMetrics)
+    }
+    req_agg_kwargs = {
+        f.name: getattr(req_agg_metrics, f.name)
+        for f in fields(RequestAggregatedMetrics)
+    }
     schedule_metrics: ScheduleMetrics[float] = ScheduleMetrics(
-        request_count=len(requests),
+        **req_agg_kwargs,
         max_running_requests=max_running_requests,
         makespan_ms=makespan_ms,
         busy_ms=busy_ms,
         cache_management_ms=cache_ms,
         cache_management_fraction=cache_ms / busy_ms if busy_ms else 0.0,
         scheduler_ms=scheduler_ms,
-        queue_ms_p50=percentile([r.queue_ms for r in requests], 50),
-        queue_ms_p95=percentile([r.queue_ms for r in requests], 95),
-        prefill_ms_p50=percentile([r.prefill_ms for r in requests], 50),
-        prefill_ms_p95=percentile([r.prefill_ms for r in requests], 95),
-        ttft_ms_p50=percentile([r.ttft_ms for r in requests], 50),
-        ttft_ms_p95=percentile([r.ttft_ms for r in requests], 95),
-        end_to_end_ms_p50=percentile([r.end_to_end_ms for r in requests], 50),
-        end_to_end_ms_p95=percentile([r.end_to_end_ms for r in requests], 95),
-        itl_ms_p50=percentile(itls, 50),
-        itl_ms_p95=percentile(itls, 95),
-        itl_ms_max=max(itls, default=0.0),
         num_prefill_steps=len(prefill_events),
         num_decode_steps=sum(1 for e in events if e.phase is SchedulePhase.DECODE),
         max_consecutive_prefill_steps=_max_consecutive_prefill_steps(events),
@@ -550,10 +628,12 @@ __all__ = [
     "KVCacheProfile",
     "MemoryProfile",
     "PagedCacheProfile",
+    "RequestAggregatedMetrics",
     "ScheduleEvent",
     "ScheduleMetrics",
     "StepAggregatedMetrics",
     "build_memory_profile",
+    "compute_request_aggregated_metrics",
     "compute_step_aggregated_metrics",
     "summarize_repeated_kv_cache_profiles",
     "summarize_repeated_paged_cache_profiles",

@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../suite.schema.json
+name: prefix-caching-disabled-vs-enabled-shared-prefix
+description: >-
+  8 个请求共享 2048-token 公共前缀 + 64-token 私有后缀（t=0 同时到达，max_running_requests=1 按 FCFS 顺序执行，
+  chunked-prefill token_budget=512）：具名请求组 cold（第 1 条，面对空 prefix cache）与 warm（其余 7 条，各命中 2048 token）
+  分别聚合请求级延迟，对比 prefix caching 关闭 / 开启下的 cold / warm prefill_ms（剥离 FCFS 排队的 service TTFT）、
+  实际计算 Prompt Token 数、Prefill 步数、makespan、输出吞吐、峰值显存与 physical block 峰值。
+execution:
+  warmup: 1
+  repeats: 3
+  interleave: [prefix_caching]
+system:
+  engine_mode: scheduler
+  batching_method: continuous-batching
+  caching_spec: {kind: paged-kv-cache, block_size: 16}
+  scheduler_spec:
+    max_running_requests: 1
+    batching_policy: {kind: chunked-prefill, token_budget: 512}
+sweep:
+  system:
+    caching_spec:
+      - {kind: paged-kv-cache}
+      - {kind: paged-kv-cache, prefix_caching: true}
+workload:
+  vars:
+    cold_requests: 1
+    warm_requests: 7
+    shared_prefix_len: 2048
+    prompt_len: 2112  # shared_prefix_len + 64-token 私有后缀
+    output_len: 32
+  id: shared_prefix_${shared_prefix_len}
+  shared_prefix_len: ${shared_prefix_len}
+  groups:
+    - {name: cold, count: "${cold_requests}", prompt_len: "${prompt_len}", output_len: "${output_len}"}
+    - {name: warm, count: "${warm_requests}", prompt_len: "${prompt_len}", output_len: "${output_len}"}
+comparison:
+  group_by: [workload_id]
+  baseline: {prefix_caching: false}
+  metrics:
+    - {path: group_metrics.cold.prefill_ms_p50, kind: reduction, name: cold-prefill}
+    - {path: group_metrics.warm.prefill_ms_p50, kind: reduction, name: warm-prefill-p50}
+    - {path: group_metrics.warm.prefill_ms_p95, kind: reduction, name: warm-prefill-p95}
+    - {path: schedule_metrics.num_computed_prompt_tokens, kind: reduction, name: computed-prompt-tokens}
+    - {path: schedule_metrics.num_prefill_steps, kind: reduction, name: prefill-steps}
+    - {path: schedule_metrics.makespan_ms, kind: reduction, name: makespan}
+    - {path: metrics.throughput_tok_s, kind: gain, name: throughput}
+    - {path: memory.peak_allocated_mb, kind: reduction, name: peak-mem}
+    - {path: memory.kv_cache.paged_cache.peak_used_blocks, kind: reduction, name: peak-used-blocks}

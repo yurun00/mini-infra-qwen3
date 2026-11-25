@@ -58,7 +58,9 @@ def run_case(
         if on_step_progress is not None:
             on_step_progress("measure", i, repeats)
         runs.append(run_case_once(model, device, case, requests=reqs))
-    return SchedulerCaseResult.from_runs(case.key, runs, warmup=warmup)
+    return SchedulerCaseResult.from_runs(
+        case.key, runs, workload=case.profile, warmup=warmup
+    )
 
 
 __all__ = [

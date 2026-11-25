@@ -20,6 +20,7 @@
         "max_running_requests",
         "block_size",
         "num_blocks",
+        "prefix_caching",
         "batching_policy",
         "token_budget"
       ],
@@ -70,6 +71,9 @@
         "baseline": {
           "additionalProperties": {
             "anyOf": [
+              {
+                "type": "boolean"
+              },
               {
                 "type": "string"
               },
@@ -235,7 +239,7 @@
     },
     "PagedCacheSpec": {
       "additionalProperties": false,
-      "description": "Paged KV Cache（physical block pool，按需动态分配）。",
+      "description": "Paged KV Cache（physical block pool，按需动态分配；prefix_caching 开启跨请求复用 cached block）。",
       "properties": {
         "kind": {
           "const": "paged-kv-cache",
@@ -261,6 +265,11 @@
           ],
           "default": null,
           "title": "Num Blocks"
+        },
+        "prefix_caching": {
+          "default": false,
+          "title": "Prefix Caching",
+          "type": "boolean"
         }
       },
       "title": "PagedCacheSpec",
@@ -760,8 +769,21 @@
     },
     "GroupSpec": {
       "additionalProperties": false,
-      "description": "一组同构请求；多个组按声明顺序拼接成整体请求序列（request_idx 连续编号）。",
+      "description": "一组同构请求；多个组按声明顺序拼接成整体请求序列（request_idx 连续编号）。\n\n可选 name 将该组对应的 [start, end) 请求切片注册为具名子集，产出 group_metrics.<name>.* 统计。",
       "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z_][a-zA-Z0-9_-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
         "count": {
           "exclusiveMinimum": 0,
           "title": "Count",

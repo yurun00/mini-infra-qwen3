@@ -42,7 +42,7 @@ class ProfilingMode(str, Enum):
         return self.value
 
 
-CaseDimensionValue = str | BatchingMethod | frozenset[FeatureFlag] | int | None
+CaseDimensionValue = str | BatchingMethod | frozenset[FeatureFlag] | bool | int | None
 
 
 class CaseDimension(str, Enum):
@@ -59,6 +59,7 @@ class CaseDimension(str, Enum):
     MAX_RUNNING_REQUESTS = "max_running_requests"
     BLOCK_SIZE = "block_size"
     NUM_BLOCKS = "num_blocks"
+    PREFIX_CACHING = "prefix_caching"
     BATCHING_POLICY = "batching_policy"
     TOKEN_BUDGET = "token_budget"
     # TODO: 后续引入正交调度维度时在此平铺扩展（严禁塞入 BATCHING_POLICY）：
@@ -94,7 +95,7 @@ class CaseDimension(str, Enum):
 class CaseKey:
     """用例全局唯一身份键：聚合 workload_id、caching_method、batching_method、max_running_requests 等全展平维度。
 
-    嵌套配置按 kind + 专属字段展平（caching_method + block_size / num_blocks、batching_policy + token_budget）；
+    嵌套配置按 kind + 专属字段展平（caching_method + block_size / num_blocks / prefix_caching、batching_policy + token_budget）；
     新增维度取默认值时不进入 canonical_id / to_dict / 缩写名，保证既有用例身份与历史记录不变。
 
     符合现代推理评测规范：
@@ -111,6 +112,7 @@ class CaseKey:
     flags: frozenset[FeatureFlag] = frozenset()
     block_size: int | None = None
     num_blocks: int | None = None
+    prefix_caching: bool = False
     batching_policy: BatchingPolicyKind = PrefillFirstConfig.kind
     token_budget: int | None = None
 
@@ -122,6 +124,7 @@ class CaseKey:
                 self.caching_method,
                 block_size=self.block_size,
                 num_blocks=self.num_blocks,
+                is_prefix_caching_enabled=self.prefix_caching,
             ),
             batching_method=self.batching_method,
             flags=self.flags,
@@ -167,6 +170,8 @@ class CaseKey:
             parts.append(f"block={self.block_size}")
         if self.num_blocks is not None:
             parts.append(f"num_blocks={self.num_blocks}")
+        if self.prefix_caching:
+            parts.append("prefix_caching=enabled")
         if not self._is_default_batching_policy:
             parts.append(f"sched={self.batching_policy}")
         if self.token_budget is not None:
@@ -187,10 +192,13 @@ class CaseKey:
     def abbreviated_engine_config(self) -> str:
         """提取策略名各维度各词首字母缩写，保留 '+' 分隔符（如 dense-kv-cache+continuous-batching -> dkc+cb）。
 
-        非默认组批策略追加在末尾（如 paged-kv-cache+continuous-batching+token-budget -> pkc+cb+tb）。
+        非默认组批策略追加在末尾（如 paged-kv-cache+continuous-batching+token-budget -> pkc+cb+tb）；
+        开启 prefix caching 时紧随缓存类型（如 pkc+pc+cb+cp）。
         """
         cache_label = "no-cache" if self.caching_method == "none" else self.caching_method
         parts = [*sorted(f.value for f in self.flags), cache_label]
+        if self.prefix_caching:
+            parts.append("prefix-caching")
         if self.batching_method != BatchingMethod.NONE:
             parts.append(self.batching_method.value)
         if not self._is_default_batching_policy:
@@ -237,6 +245,8 @@ class CaseKey:
             data["block_size"] = self.block_size
         if self.num_blocks is not None:
             data["num_blocks"] = self.num_blocks
+        if self.prefix_caching:
+            data["prefix_caching"] = True
         if not self._is_default_batching_policy:
             data["batching_policy"] = self.batching_policy
         if self.token_budget is not None:
@@ -265,6 +275,7 @@ class CaseKey:
             num_blocks=int(data["num_blocks"])
             if data.get("num_blocks") is not None
             else None,
+            prefix_caching=bool(data.get("prefix_caching", False)),
             batching_policy=parse_batching_policy_kind(data.get("batching_policy")),
             token_budget=int(data["token_budget"])
             if data.get("token_budget") is not None
@@ -272,11 +283,45 @@ class CaseKey:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class WorkloadGroup:
+    """工作负载中具名请求子集的左闭右开索引切片 [start, end)。"""
+
+    name: str
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("WorkloadGroup.name 不能为空")
+        if self.start < 0 or self.end <= self.start:
+            raise ValueError(
+                f"WorkloadGroup '{self.name}' 区间非法: [{self.start}, {self.end})"
+            )
+
+
+def _check_workload_groups(
+    groups: tuple[WorkloadGroup, ...], num_total_requests: int
+) -> None:
+    """校验具名请求组切片边界与名称唯一性。"""
+    seen: set[str] = set()
+    for g in groups:
+        if g.name in seen:
+            raise ValueError(f"WorkloadGroup 存在重复名称: '{g.name}'")
+        seen.add(g.name)
+        if g.end > num_total_requests:
+            raise ValueError(
+                f"WorkloadGroup '{g.name}' 右边界 ({g.end}) 超出 num_total_requests ({num_total_requests})"
+            )
+
+
 @dataclass(frozen=True)
 class WorkloadProfile:
     """被测工作负载的轻量级请求数值画像（纯数值元数据，无 Token，纯 CPU）。
 
-    作为用例身份、执行结果 (CaseResult)、统计报表与绘图分析的共享负载描述符。
+    作为用例身份、执行结果 (CaseResult)、统计报表与绘图分析的共享负载描述符；
+    shared_prefix_len 为全体请求 Prompt 共享的公共前缀 Token 数（prompt_lens 含该前缀）；
+    groups 为可选的具名请求子集切片列表，供 Scheduler 按组聚合 group_metrics。
     """
 
     workload_id: str
@@ -284,6 +329,8 @@ class WorkloadProfile:
     prompt_lens: tuple[int, ...]
     output_budgets: tuple[int, ...]
     arrival_ms: tuple[float, ...]
+    shared_prefix_len: int = 0
+    groups: tuple[WorkloadGroup, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.workload_id:
@@ -305,6 +352,11 @@ class WorkloadProfile:
             raise ValueError(
                 f"arrival_ms 长度 ({len(self.arrival_ms)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
             )
+        if self.shared_prefix_len < 0 or self.shared_prefix_len > min(self.prompt_lens):
+            raise ValueError(
+                f"shared_prefix_len ({self.shared_prefix_len}) 须落在 [0, {min(self.prompt_lens)}] 内"
+            )
+        _check_workload_groups(self.groups, self.num_total_requests)
 
     def to_payload(self, vocab_size: int) -> tuple[Request, ...]:
         """把数值画像按需装配为具体合成 Token 序列的 Request 载荷元组（即用即弃，函数局部变量）。"""
@@ -312,7 +364,7 @@ class WorkloadProfile:
 
         return tuple(
             make_requests(
-                make_sequences(self.prompt_lens, vocab_size),
+                make_sequences(self.prompt_lens, vocab_size, self.shared_prefix_len),
                 self.output_budgets,
                 self.arrival_ms,
             )
@@ -387,6 +439,7 @@ class BenchmarkCase:
             flags=self.flags,
             block_size=paged.block_size if paged is not None else None,
             num_blocks=paged.num_blocks if paged is not None else None,
+            prefix_caching=paged is not None and paged.is_prefix_caching_enabled,
             batching_policy=policy.kind,
             token_budget=budget.token_budget if budget is not None else None,
         )
@@ -410,5 +463,6 @@ __all__ = [
     "DEFAULT_REPEATS",
     "DEFAULT_WARMUP",
     "ProfilingMode",
+    "WorkloadGroup",
     "WorkloadProfile",
 ]

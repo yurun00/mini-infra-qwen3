@@ -74,6 +74,7 @@ def run_suite(
         res = SchedulerCaseResult.from_runs(
             case.key,
             runs_by_case_key[case.key],
+            workload=case.profile,
             warmup=warmup_val,
         )
         results.append(res)

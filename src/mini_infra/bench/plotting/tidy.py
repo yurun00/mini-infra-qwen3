@@ -235,6 +235,7 @@ def records_to_wide_df(
         "num_prefill_chunks",
         "max_prefill_step_tokens",
         "max_prefill_step_ms",
+        "num_computed_prompt_tokens",
     )
     for key in sched_exclusive_keys:
         for stat in (

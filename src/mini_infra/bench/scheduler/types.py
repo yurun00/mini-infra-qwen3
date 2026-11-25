@@ -1,7 +1,7 @@
 """Continuous Batching 与固定批次 Scheduler 评测结果领域类型。"""
 
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
 from mini_infra.bench.cases import (
@@ -14,12 +14,45 @@ from mini_infra.core import collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     MemoryProfile,
+    RequestAggregatedMetrics,
     ScheduleEvent,
     ScheduleMetrics,
     StepAggregatedMetrics,
+    compute_request_aggregated_metrics,
     summarize_repeated_kv_cache_profiles,
 )
 from mini_infra.engine.results import ScheduleResult
+
+
+def _aggregate_request_metrics(
+    samples: Sequence[RequestAggregatedMetrics[float]],
+) -> RequestAggregatedMetrics[DistributionStats]:
+    """将多轮运行的 RequestAggregatedMetrics[float] 样本聚合为 DistributionStats（全量与具名组共用）。"""
+    return RequestAggregatedMetrics(
+        request_count=samples[0].request_count,
+        queue_ms_p50=DistributionStats.from_samples([s.queue_ms_p50 for s in samples]),
+        queue_ms_p95=DistributionStats.from_samples([s.queue_ms_p95 for s in samples]),
+        prefill_ms_p50=DistributionStats.from_samples(
+            [s.prefill_ms_p50 for s in samples]
+        ),
+        prefill_ms_p95=DistributionStats.from_samples(
+            [s.prefill_ms_p95 for s in samples]
+        ),
+        ttft_ms_p50=DistributionStats.from_samples([s.ttft_ms_p50 for s in samples]),
+        ttft_ms_p95=DistributionStats.from_samples([s.ttft_ms_p95 for s in samples]),
+        end_to_end_ms_p50=DistributionStats.from_samples(
+            [s.end_to_end_ms_p50 for s in samples]
+        ),
+        end_to_end_ms_p95=DistributionStats.from_samples(
+            [s.end_to_end_ms_p95 for s in samples]
+        ),
+        itl_ms_p50=DistributionStats.from_samples([s.itl_ms_p50 for s in samples]),
+        itl_ms_p95=DistributionStats.from_samples([s.itl_ms_p95 for s in samples]),
+        itl_ms_max=DistributionStats.from_samples([s.itl_ms_max for s in samples]),
+        num_computed_prompt_tokens=DistributionStats.from_samples(
+            [s.num_computed_prompt_tokens for s in samples]
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -40,6 +73,9 @@ class SchedulerCaseResult:
     efficiency: EfficiencyMetrics | None = None
     repeat_samples: list[dict[str, Any]] = field(default_factory=list)
     sample_events: list[ScheduleEvent] = field(default_factory=list)
+    group_metrics: dict[str, RequestAggregatedMetrics[DistributionStats]] = field(
+        default_factory=dict
+    )
     scale: str | None = None
     seed: int | None = None
 
@@ -63,6 +99,27 @@ class SchedulerCaseResult:
             f"ttft_p95 {self.schedule_metrics.ttft_ms_p95.mean:.2f} ms | "
             f"itl_p95 {self.schedule_metrics.itl_ms_p95.mean:.2f} ms"
             f"{cache_info}{pool_info}{self._format_token_budget_info()}"
+            f"{self._format_prefix_caching_info()}{self._format_group_info()}"
+        )
+
+    def _format_prefix_caching_info(self) -> str:
+        """开启 prefix caching 的用例追加实际计算 Prompt Token 数与命中率。"""
+        paged = self.memory.kv_cache.paged_cache
+        if not self.key.prefix_caching or paged is None:
+            return ""
+        sm = self.schedule_metrics
+        return (
+            f" | computed_prompt {sm.num_computed_prompt_tokens.mean:.0f}"
+            f" | prefix_hit {paged.prefix_cache_hit_rate * 100:.1f}%"
+        )
+
+    def _format_group_info(self) -> str:
+        """含具名请求组时追加各组 prefill_ms_p50 摘要。"""
+        if not self.group_metrics:
+            return ""
+        return "".join(
+            f" | {name}_pf_p50 {gm.prefill_ms_p50.mean:.2f} ms"
+            for name, gm in self.group_metrics.items()
         )
 
     def _format_token_budget_info(self) -> str:
@@ -79,7 +136,6 @@ class SchedulerCaseResult:
 
     def to_record_dict(self) -> dict[str, Any]:
         """导出为与 BaseCaseRecord / SchedulerCaseRecord 完全对齐的标准字典结构。"""
-        sm = self.schedule_metrics
         pl = collapse_uniform(self.workload.prompt_lens)
         mn = collapse_uniform(self.workload.output_budgets)
         rec: dict[str, Any] = {
@@ -112,33 +168,7 @@ class SchedulerCaseResult:
                 else None
             ),
             "memory": self.memory.to_dict(),
-            "schedule": {
-                "request_count": sm.request_count,
-                "max_running_requests": sm.max_running_requests,
-                "makespan_ms": sm.makespan_ms.to_dict(),
-                "busy_ms": sm.busy_ms.to_dict(),
-                "cache_management_ms": sm.cache_management_ms.to_dict(),
-                "cache_management_fraction": sm.cache_management_fraction.to_dict(),
-                "scheduler_ms": sm.scheduler_ms.to_dict(),
-                "queue_ms_p50": sm.queue_ms_p50.to_dict(),
-                "queue_ms_p95": sm.queue_ms_p95.to_dict(),
-                "prefill_ms_p50": sm.prefill_ms_p50.to_dict(),
-                "prefill_ms_p95": sm.prefill_ms_p95.to_dict(),
-                "ttft_ms_p50": sm.ttft_ms_p50.to_dict(),
-                "ttft_ms_p95": sm.ttft_ms_p95.to_dict(),
-                "end_to_end_ms_p50": sm.end_to_end_ms_p50.to_dict(),
-                "end_to_end_ms_p95": sm.end_to_end_ms_p95.to_dict(),
-                "itl_ms_p50": sm.itl_ms_p50.to_dict(),
-                "itl_ms_p95": sm.itl_ms_p95.to_dict(),
-                "itl_ms_max": sm.itl_ms_max.to_dict(),
-                "num_prefill_steps": sm.num_prefill_steps.to_dict(),
-                "num_decode_steps": sm.num_decode_steps.to_dict(),
-                "max_consecutive_prefill_steps": sm.max_consecutive_prefill_steps.to_dict(),
-                "num_oversize_prefill_steps": sm.num_oversize_prefill_steps.to_dict(),
-                "num_prefill_chunks": sm.num_prefill_chunks.to_dict(),
-                "max_prefill_step_tokens": sm.max_prefill_step_tokens.to_dict(),
-                "max_prefill_step_ms": sm.max_prefill_step_ms.to_dict(),
-            },
+            "schedule": self.schedule_metrics.to_dict(),
             "repeat_samples": self.repeat_samples,
             "sample_event_trace": [
                 {**asdict(e), "phase": str(e.phase)} for e in self.sample_events
@@ -148,6 +178,12 @@ class SchedulerCaseResult:
             rec["paged_cache_config"] = {
                 "block_size": self.key.block_size,
                 "num_blocks": self.key.num_blocks,
+            }
+            if self.key.prefix_caching:
+                rec["paged_cache_config"]["prefix_caching"] = True
+        if self.group_metrics:
+            rec["group_metrics"] = {
+                name: gm.to_dict() for name, gm in self.group_metrics.items()
             }
         if self.scale is not None:
             rec["scale"] = self.scale
@@ -165,6 +201,7 @@ class SchedulerCaseResult:
         case_key: CaseKey,
         runs: Sequence[ScheduleResult],
         *,
+        workload: WorkloadProfile | None = None,
         warmup: int = 0,
         scale: str | None = None,
         seed: int | None = None,
@@ -174,18 +211,36 @@ class SchedulerCaseResult:
             raise ValueError("runs 不能为空")
 
         first_run = runs[0]
-        first_workload = extract_workload_profile(
+        extracted_first = extract_workload_profile(
             first_run, workload_id=case_key.workload_id
         )
         if any(
             extract_workload_profile(r, workload_id=case_key.workload_id)
-            != first_workload
+            != extracted_first
             for r in runs
         ):
             raise ValueError(
                 "SchedulerCaseResult.from_runs 中的所有 run 必须具有相同的负载规格"
             )
-        workload = first_workload
+        if workload is not None:
+            if (
+                workload.workload_id,
+                workload.num_total_requests,
+                workload.prompt_lens,
+                workload.output_budgets,
+                workload.arrival_ms,
+            ) != (
+                extracted_first.workload_id,
+                extracted_first.num_total_requests,
+                extracted_first.prompt_lens,
+                extracted_first.output_budgets,
+                extracted_first.arrival_ms,
+            ):
+                raise ValueError(
+                    "SchedulerCaseResult.from_runs 传入的 workload 与实测请求规格不一致"
+                )
+        else:
+            workload = extracted_first
 
         repeat_samples = [
             {
@@ -256,8 +311,13 @@ class SchedulerCaseResult:
             p95_tpot_ms=None,
         )
 
+        req_agg_dist = _aggregate_request_metrics([r.schedule_metrics for r in runs])
+        req_agg_kwargs = {
+            f.name: getattr(req_agg_dist, f.name)
+            for f in fields(RequestAggregatedMetrics)
+        }
         sched_dist: ScheduleMetrics[DistributionStats] = ScheduleMetrics(
-            request_count=first_run.schedule_metrics.request_count,
+            **req_agg_kwargs,
             max_running_requests=first_run.schedule_metrics.max_running_requests,
             makespan_ms=DistributionStats.from_samples(
                 [r.schedule_metrics.makespan_ms for r in runs]
@@ -273,39 +333,6 @@ class SchedulerCaseResult:
             ),
             scheduler_ms=DistributionStats.from_samples(
                 [r.schedule_metrics.scheduler_ms for r in runs]
-            ),
-            queue_ms_p50=DistributionStats.from_samples(
-                [r.schedule_metrics.queue_ms_p50 for r in runs]
-            ),
-            queue_ms_p95=DistributionStats.from_samples(
-                [r.schedule_metrics.queue_ms_p95 for r in runs]
-            ),
-            prefill_ms_p50=DistributionStats.from_samples(
-                [r.schedule_metrics.prefill_ms_p50 for r in runs]
-            ),
-            prefill_ms_p95=DistributionStats.from_samples(
-                [r.schedule_metrics.prefill_ms_p95 for r in runs]
-            ),
-            ttft_ms_p50=DistributionStats.from_samples(
-                [r.schedule_metrics.ttft_ms_p50 for r in runs]
-            ),
-            ttft_ms_p95=DistributionStats.from_samples(
-                [r.schedule_metrics.ttft_ms_p95 for r in runs]
-            ),
-            end_to_end_ms_p50=DistributionStats.from_samples(
-                [r.schedule_metrics.end_to_end_ms_p50 for r in runs]
-            ),
-            end_to_end_ms_p95=DistributionStats.from_samples(
-                [r.schedule_metrics.end_to_end_ms_p95 for r in runs]
-            ),
-            itl_ms_p50=DistributionStats.from_samples(
-                [r.schedule_metrics.itl_ms_p50 for r in runs]
-            ),
-            itl_ms_p95=DistributionStats.from_samples(
-                [r.schedule_metrics.itl_ms_p95 for r in runs]
-            ),
-            itl_ms_max=DistributionStats.from_samples(
-                [r.schedule_metrics.itl_ms_max for r in runs]
             ),
             num_prefill_steps=DistributionStats.from_samples(
                 [r.schedule_metrics.num_prefill_steps for r in runs]
@@ -350,6 +377,19 @@ class SchedulerCaseResult:
                 else None,
             )
 
+        group_metrics = {
+            g.name: _aggregate_request_metrics(
+                [
+                    compute_request_aggregated_metrics(
+                        r.request_metrics[g.start : g.end],
+                        r.sequences[g.start : g.end],
+                    )
+                    for r in runs
+                ]
+            )
+            for g in workload.groups
+        }
+
         return cls(
             key=case_key,
             workload=workload,
@@ -361,6 +401,7 @@ class SchedulerCaseResult:
             packing=packing,
             repeat_samples=repeat_samples,
             sample_events=list(runs[0].events),
+            group_metrics=group_metrics,
             scale=scale,
             seed=seed,
         )

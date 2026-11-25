@@ -8,6 +8,7 @@ from mini_infra.bench.cases import (
     BenchmarkCase,
     CaseDimension,
     CaseKey,
+    WorkloadGroup,
     WorkloadProfile,
 )
 from mini_infra.bench.comparison import (
@@ -56,10 +57,11 @@ def test_scheduler_suites_registry():
             "token-budget-vs-chunked-prefill-long-prompt",
             "token-budget-vs-chunked-prefill-short-control",
             "token-budget-vs-chunked-prefill-no-decode-control",
+            "prefix-caching-disabled-vs-enabled-shared-prefix",
         ]
     )
     suites = get_all_benchmark_suites("scheduler")
-    assert len(suites) == 11
+    assert len(suites) == 12
     for suite in suites:
         assert isinstance(suite, BenchmarkSuite)
         assert isinstance(suite.cases, tuple)
@@ -382,6 +384,7 @@ def test_compute_comparisons():
             num_prefill_chunks=dist(8.0),
             max_prefill_step_tokens=dist(512.0),
             max_prefill_step_ms=dist(20.0),
+            num_computed_prompt_tokens=dist(1024.0),
         )
         key = CaseKey(
             workload_id=wid,
@@ -740,3 +743,162 @@ comparison:
     )
     validated = validate_benchmark_record(record.to_dict())
     assert len(validated.cases) == 2 and len(validated.comparisons) == 3
+
+
+def test_prefix_caching_builtin_suite():
+    """验证共享长前缀 prefix caching 主实验套件的展开、用例身份键与对比配对。"""
+    suite = get_benchmark_suite(
+        "scheduler", "prefix-caching-disabled-vs-enabled-shared-prefix"
+    )
+    assert suite.interleave == (CaseDimension.PREFIX_CACHING,)
+    assert (suite.warmup, suite.repeats) == (1, 3)
+    assert [c.key.prefix_caching for c in suite.cases] == [False, True]
+    disabled, enabled = (c.key for c in suite.cases)
+    assert (enabled.max_running_requests, enabled.block_size) == (1, 16)
+    assert (enabled.batching_policy, enabled.token_budget) == ("chunked-prefill", 512)
+    assert "prefix_caching" not in disabled.canonical_id
+    assert enabled.canonical_id.endswith(
+        "/prefix_caching=enabled/sched=chunked-prefill/budget=512"
+    )
+    assert enabled.to_dict()["prefix_caching"] is True
+    assert "prefix_caching" not in disabled.to_dict()
+    assert enabled.abbreviated_engine_config == "pkc+pc+cb+cp"
+    assert CaseKey.from_dict(enabled.to_dict()) == enabled
+    assert enabled.engine_config.kv_cache_config.is_prefix_caching_enabled
+
+    prof = suite.cases[0].profile
+    assert prof == suite.cases[1].profile
+    assert prof.workload_id == "shared_prefix_2048"
+    assert prof.prompt_lens == (2112,) * 8
+    assert prof.output_budgets == (32,) * 8
+    assert prof.arrival_ms == (0.0,) * 8
+    assert prof.shared_prefix_len == 2048
+    assert prof.groups == (WorkloadGroup("cold", 0, 1), WorkloadGroup("warm", 1, 8))
+    # 拆成 1 + 7 具名组与单组 count=8 生成的请求序列逐 Token 一致
+    single_group = WorkloadProfile(
+        "shared_prefix_2048", 8, (2112,) * 8, (32,) * 8, (0.0,) * 8, 2048
+    )
+    assert prof.to_payload(32000) == single_group.to_payload(32000)
+
+    assert suite.comparison is not None
+    assert suite.comparison.group_by == (CaseDimension.WORKLOAD_ID,)
+    assert suite.comparison.baseline == {CaseDimension.PREFIX_CACHING: False}
+
+
+def test_prefix_caching_suite_end_to_end_cpu(tmp_path, diverse_model):
+    """CPU 端到端运行具名 groups（cold / warm）共享前缀迷你套件，验证 group_metrics 聚合与记录落盘校验。"""
+    from types import SimpleNamespace
+
+    import pydantic
+    import torch
+
+    from mini_infra.bench.efficiency import HardwarePeakSpecs
+    from mini_infra.bench.result import (
+        build_benchmark_record,
+        validate_benchmark_record,
+    )
+    from mini_infra.bench.scheduler.run_suite import run_suite
+    from mini_infra.bench.spec import load_suite_spec
+    from mini_infra.bench.spec.common.schema import WorkloadSpec
+    from mini_infra.bench.suite import BenchmarkSuite
+
+    with pytest.raises(pydantic.ValidationError, match="重复的组名"):
+        WorkloadSpec.model_validate(
+            {
+                "groups": [
+                    {"name": "dup", "count": 1, "prompt_len": 8, "output_len": 2},
+                    {"name": "dup", "count": 1, "prompt_len": 8, "output_len": 2},
+                ]
+            }
+        )
+
+    spec_path = tmp_path / "mini-prefix.yaml"
+    spec_path.write_text(
+        """name: mini-prefix
+execution: {warmup: 0, repeats: 2, interleave: [prefix_caching]}
+system:
+  engine_mode: scheduler
+  batching_method: continuous-batching
+  caching_spec: {kind: paged-kv-cache, block_size: 4}
+  scheduler_spec:
+    max_running_requests: 1
+    batching_policy: {kind: chunked-prefill, token_budget: 8}
+sweep:
+  system:
+    caching_spec:
+      - {kind: paged-kv-cache}
+      - {kind: paged-kv-cache, prefix_caching: true}
+workload:
+  id: mini_shared
+  shared_prefix_len: 16
+  groups:
+    - {name: cold, count: 1, prompt_len: 18, output_len: 3}
+    - {name: warm, count: 2, prompt_len: 18, output_len: 3}
+comparison:
+  group_by: [workload_id]
+  baseline: {prefix_caching: false}
+  metrics:
+    - {path: group_metrics.cold.prefill_ms_p50, kind: reduction, name: cold-prefill}
+    - {path: group_metrics.warm.prefill_ms_p50, kind: reduction, name: warm-prefill-p50}
+    - {path: schedule_metrics.num_computed_prompt_tokens, kind: reduction, name: computed}
+""",
+        encoding="utf-8",
+    )
+    suite = BenchmarkSuite.from_spec(load_suite_spec(spec_path))
+    results = run_suite(
+        diverse_model,
+        torch.device("cpu"),
+        suite,
+        vocab_size=diverse_model.config.vocab_size,
+    )
+    disabled_res, enabled_res = results
+    # 3 × 18 Prompt Token；开启后 2 个 warm 请求各命中 16 Token（(18 - 1) // 4 = 4 个满块）
+    assert disabled_res.schedule_metrics.num_computed_prompt_tokens.median == 54.0
+    assert enabled_res.schedule_metrics.num_computed_prompt_tokens.median == 22.0
+    assert enabled_res.group_metrics["cold"].num_computed_prompt_tokens.median == 18.0
+    assert enabled_res.group_metrics["warm"].num_computed_prompt_tokens.median == 4.0
+    paged = enabled_res.memory.kv_cache.paged_cache
+    assert paged is not None and paged.prefix_cache_hit_tokens == 2 * 32
+    for res in results:
+        assert res.group_metrics["cold"].request_count == 1
+        assert res.group_metrics["warm"].request_count == 2
+        assert res.group_metrics["cold"].prefill_ms_p50.median > 0
+        assert res.group_metrics["warm"].prefill_ms_p50.median > 0
+    assert "prefix_hit" in enabled_res.format_summary()
+    assert "warm_pf_p50" in enabled_res.format_summary()
+    assert "prefix_hit" not in disabled_res.format_summary()
+    assert "warm_pf_p50" in disabled_res.format_summary()
+
+    assert suite.comparison is not None
+    comps = compute_comparisons(results, suite.comparison)
+    assert [c.metric_name for c in comps] == [
+        "cold-prefill",
+        "warm-prefill-p50",
+        "computed",
+    ]
+
+    record = build_benchmark_record(
+        SimpleNamespace(tag="dev"),
+        diverse_model,
+        "|".join(str(m) for m in suite.engine_configs()),
+        results,
+        {},
+        {"gpu": "CPU"},
+        HardwarePeakSpecs(None, None),
+        None,
+        {"commit": "deadbeef", "dirty": False},
+        suite.warmup,
+        suite.repeats,
+        suite_info=suite.to_dict(),
+        engine="scheduler",
+        comparisons=comps,
+    )
+    validated = validate_benchmark_record(record.to_dict())
+    disabled_rec, enabled_rec = validated.cases
+    assert disabled_rec.paged_cache_config is not None
+    assert not disabled_rec.paged_cache_config.prefix_caching
+    assert enabled_rec.paged_cache_config is not None
+    assert enabled_rec.paged_cache_config.prefix_caching
+    assert enabled_rec.group_metrics is not None
+    assert enabled_rec.group_metrics["warm"].request_count == 2
+    assert validated.comparisons[0].candidate_key.prefix_caching

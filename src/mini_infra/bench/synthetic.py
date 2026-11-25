@@ -34,21 +34,26 @@ def make_sequence(
 def make_sequences(
     lengths: Sequence[int],
     vocab_size: int,
+    shared_prefix_len: int = 0,
 ) -> list[list[int]]:
     """批量生成指定长度列表的合成 prompt sequences（支持等长或不等长）。
 
-    每条 sequence 按照固定 salt 规则 (23 * (index + 1)) 传入，
-    确保 batch 内各序列随机内容不同且确定可复现。
+    每条 sequence 由全体共享的 shared_prefix_len 个公共前缀 Token 与按固定 salt 规则
+    (23 * (index + 1)) 生成的私有后缀拼接而成，确保 batch 内各序列后缀不同且确定可复现；
+    shared_prefix_len = 0 时退化为各序列完全独立。
 
     Args:
-        lengths: 各序列长度列表，如 [128, 128] 或 [16, 32, 64, 128]。
+        lengths: 各序列总长度列表（含公共前缀），如 [128, 128] 或 [16, 32, 64, 128]。
         vocab_size: 词表大小。
+        shared_prefix_len: 全体序列共享的公共前缀长度，须不大于最短序列长度，默认 0。
 
     Returns:
         包含各序列 Python int 列表的列表。
     """
+    prefix = make_sequence(shared_prefix_len, vocab_size, salt=-1)
     return [
-        make_sequence(length, vocab_size, salt=23 * (index + 1))
+        prefix
+        + make_sequence(length - shared_prefix_len, vocab_size, salt=23 * (index + 1))
         for index, length in enumerate(lengths)
     ]
 

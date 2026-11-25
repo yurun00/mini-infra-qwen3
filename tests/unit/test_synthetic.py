@@ -63,6 +63,35 @@ def test_make_sequences_variable_lengths():
     assert seqs[0] != seqs[1][:16]
 
 
+def test_make_sequences_shared_prefix():
+    vocab_size = 32000
+    lengths = [40, 40, 48]
+    seqs = make_sequences(lengths, vocab_size, shared_prefix_len=32)
+
+    assert [len(s) for s in seqs] == lengths
+    assert seqs[0][:32] == seqs[1][:32] == seqs[2][:32]
+    assert seqs[0][32:] != seqs[1][32:]
+    # shared_prefix_len=0 与既有独立序列逐 Token 一致（golden 与历史基准不受影响）
+    assert make_sequences(lengths, vocab_size, shared_prefix_len=0) == [
+        make_sequence(length, vocab_size, salt=23 * (i + 1))
+        for i, length in enumerate(lengths)
+    ]
+
+
+def test_resolved_workload_rejects_shared_prefix_longer_than_prompt():
+    import pytest
+
+    with pytest.raises(ValueError, match="shared_prefix_len"):
+        ResolvedWorkloadSpec(
+            workload_id="w",
+            num_total_requests=2,
+            prompt_lens=(16, 8),
+            output_budgets=(4, 4),
+            arrival_ms=(0.0, 0.0),
+            shared_prefix_len=12,
+        )
+
+
 def test_golden_prompt_defaults():
     assert isinstance(GOLDEN_PROMPT, str)
     assert GOLDEN_MAX_OUTPUT_TOKENS > 0

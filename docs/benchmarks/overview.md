@@ -230,6 +230,9 @@ mini-infra bench scheduler case \
 10. **`token-budget-vs-chunked-prefill-short-control`**（短 Prompt 负对照）：将 200 ms 到达的请求改为 128-token（不超过 `token_budget=256`），验证无可拆分长 Prompt 时无虚高 ITL max 削减收益。
 11. **`token-budget-vs-chunked-prefill-no-decode-control`**（无并行 Decode 负对照）：移除初始在途 Decode 请求，单跑 1 个 2048-token 长 Prompt 并扫描 token budget（256 / 512 / 1024），验证无在途 Decode 保护对象时无长尾 ITL 毛刺削减，单独量化分块粒度对长请求 TTFT、吞吐与峰值显存的影响。
 
+**prefix caching 受控对比套件（交替维度 `interleave=(prefix_caching,)`）**：
+12. **`prefix-caching-disabled-vs-enabled-shared-prefix`**：8 个请求共享 2048-token 公共前缀（`workload.shared_prefix_len`）+ 64-token 私有后缀，`max_running_requests=1` 按 FCFS 顺序执行（chunked-prefill，`token_budget=512`）；通过具名请求组 `cold`（第 1 条）与 `warm`（第 2~8 条）的 `group_metrics.{cold,warm}.prefill_ms_*` 对比剥离 FCFS 排队的 service TTFT，同时对比实际计算 Prompt Token 数（`num_computed_prompt_tokens`）、Prefill 步数、makespan、吞吐、峰值显存与 physical block 峰值。可用 `--set workload.vars.shared_prefix_len=1024 --set workload.vars.prompt_len=1088` 等覆盖负载参数。
+
 > [!NOTE]
 > 与 lockstep 一致：套件的 `warmup` / `repeats` 取自 YAML 的 `execution`，命令行 `--warmup` / `--repeats` 仅在显式传入时覆盖。
 
@@ -251,7 +254,7 @@ mini-infra bench sweep --engine scheduler \
   --suite dense-vs-paged-block-size
 
 # 4. 自定义交替轮换维度（可选: workload_id, caching_method, batching_method, flags, max_running_requests, block_size,
-#    num_blocks, batching_policy, token_budget）
+#    num_blocks, prefix_caching, batching_policy, token_budget）
 mini-infra bench sweep --engine scheduler \
   --tag v0.5.0 \
   --suite dense-vs-paged-block-size \

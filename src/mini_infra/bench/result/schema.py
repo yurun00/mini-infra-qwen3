@@ -123,16 +123,10 @@ class EfficiencyMetricsRecord(_RecordModel):
     decode_mbu: float | None = None
 
 
-class ScheduleMetricsRecord(_RecordModel):
-    """Scheduler 专属队列与步进调度统计 Schema（对应 `engine.metrics.ScheduleMetrics[DistributionStats]`）。"""
+class RequestAggregatedMetricsRecord(_RecordModel):
+    """请求级聚合指标 Schema（对应 `engine.metrics.RequestAggregatedMetrics[DistributionStats]`，全量与具名组共用）。"""
 
     request_count: int
-    max_running_requests: int
-    makespan_ms: DistributionStatsRecord
-    busy_ms: DistributionStatsRecord
-    cache_management_ms: DistributionStatsRecord
-    cache_management_fraction: DistributionStatsRecord
-    scheduler_ms: DistributionStatsRecord | None = None
     queue_ms_p50: DistributionStatsRecord
     queue_ms_p95: DistributionStatsRecord
     # 剥离排队的请求级 Prefill 阶段延迟（first_token_ms - admitted_ms）：早于 prefix-caching 的历史记录无此字段，缺省为 None
@@ -145,6 +139,19 @@ class ScheduleMetricsRecord(_RecordModel):
     itl_ms_p50: DistributionStatsRecord
     itl_ms_p95: DistributionStatsRecord
     itl_ms_max: DistributionStatsRecord
+    # 扣除 prefix_cache_hit_tokens 后实际送入前向的 Prompt Token 数：早于 prefix-caching 评测套件的历史记录缺省为 None
+    num_computed_prompt_tokens: DistributionStatsRecord | None = None
+
+
+class ScheduleMetricsRecord(RequestAggregatedMetricsRecord):
+    """Scheduler 专属队列与步进调度统计 Schema（对应 `engine.metrics.ScheduleMetrics[DistributionStats]`）。"""
+
+    max_running_requests: int
+    makespan_ms: DistributionStatsRecord
+    busy_ms: DistributionStatsRecord
+    cache_management_ms: DistributionStatsRecord
+    cache_management_fraction: DistributionStatsRecord
+    scheduler_ms: DistributionStatsRecord | None = None
     # 迭代调度步数类指标：早于 token-budget 的历史记录无此字段，缺省为 None（不回填）
     num_prefill_steps: DistributionStatsRecord | None = None
     num_decode_steps: DistributionStatsRecord | None = None
@@ -204,6 +211,7 @@ class PagedCacheConfigRecord(_RecordModel):
 
     block_size: int = 16
     num_blocks: int | None = None
+    prefix_caching: bool = False
 
 
 class CaseKeyRecord(_RecordModel):
@@ -216,6 +224,7 @@ class CaseKeyRecord(_RecordModel):
     max_running_requests: int
     block_size: int | None = None
     num_blocks: int | None = None
+    prefix_caching: bool = False
     batching_policy: str | None = None  # 缺省即默认 prefill-first
     token_budget: int | None = None
     canonical_id: str | None = None
@@ -231,6 +240,7 @@ class SchedulerCaseRecord(BaseCaseRecord):
     repeat_samples: list[dict[str, Any]] = Field(default_factory=list)
     sample_event_trace: list[dict[str, Any]] = Field(default_factory=list)
     paged_cache_config: PagedCacheConfigRecord | None = None
+    group_metrics: dict[str, RequestAggregatedMetricsRecord] | None = None
 
 
 class ComparisonResultRecord(_RecordModel):
@@ -308,6 +318,7 @@ __all__ = [
     "PackingInfoRecord",
     "PagedCacheConfigRecord",
     "PagedCacheProfileRecord",
+    "RequestAggregatedMetricsRecord",
     "SCHEMA_VERSION",
     "ScheduleMetricsRecord",
     "SchedulerBenchmarkRecord",

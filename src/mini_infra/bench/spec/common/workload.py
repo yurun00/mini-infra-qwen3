@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from mini_infra.bench.cases import WorkloadGroup, _check_workload_groups
 from mini_infra.bench.spec.common.lengths import expand_arrival, expand_length
 from mini_infra.bench.spec.common.schema import (
     WorkloadSpec,
@@ -24,7 +25,7 @@ _PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 class ResolvedWorkloadSpec:
     """插值并展开后的具体请求负载规格（纯 CPU，不依赖 vocab 与 torch）。
 
-    持有确定性的逐请求流量序列（prompt_lens / output_budgets / arrival_ms）。
+    持有确定性的逐请求流量序列（prompt_lens / output_budgets / arrival_ms）与全体共享的公共前缀长度。
     """
 
     workload_id: str
@@ -32,6 +33,8 @@ class ResolvedWorkloadSpec:
     prompt_lens: tuple[int, ...]
     output_budgets: tuple[int, ...]
     arrival_ms: tuple[float, ...]
+    shared_prefix_len: int = 0
+    groups: tuple[WorkloadGroup, ...] = ()
 
     def __post_init__(self) -> None:
         if self.num_total_requests <= 0:
@@ -51,6 +54,11 @@ class ResolvedWorkloadSpec:
             raise ValueError(
                 f"arrival_ms 长度 ({len(self.arrival_ms)}) 与 num_total_requests ({self.num_total_requests}) 不一致"
             )
+        if self.shared_prefix_len > min(self.prompt_lens):
+            raise ValueError(
+                f"shared_prefix_len ({self.shared_prefix_len}) 不能大于最短 prompt_len ({min(self.prompt_lens)})"
+            )
+        _check_workload_groups(self.groups, self.num_total_requests)
 
     def to_profile(self) -> WorkloadProfile:
         """转换为运行期轻量数值画像 WorkloadProfile。"""
@@ -62,6 +70,8 @@ class ResolvedWorkloadSpec:
             prompt_lens=self.prompt_lens,
             output_budgets=self.output_budgets,
             arrival_ms=self.arrival_ms,
+            shared_prefix_len=self.shared_prefix_len,
+            groups=self.groups,
         )
 
 
@@ -115,11 +125,15 @@ def resolve_workload_body(
     prompt_lens: list[int] = []
     budgets: list[int] = []
     arrivals: list[float] = []
+    groups: list[WorkloadGroup] = []
 
     for group in parsed.groups:
+        start = len(prompt_lens)
         prompt_lens.extend(expand_length(group.prompt_len, group.count, rng))
         budgets.extend(expand_length(group.output_len, group.count, rng))
         arrivals.extend(expand_arrival(group.arrival_ms, group.count, rng))
+        if group.name is not None:
+            groups.append(WorkloadGroup(group.name, start, len(prompt_lens)))
 
     return ResolvedWorkloadSpec(
         workload_id=resolved_id,
@@ -127,6 +141,8 @@ def resolve_workload_body(
         prompt_lens=tuple(prompt_lens),
         output_budgets=tuple(budgets),
         arrival_ms=tuple(arrivals),
+        shared_prefix_len=parsed.shared_prefix_len,
+        groups=tuple(groups),
     )
 
 

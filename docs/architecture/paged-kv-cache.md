@@ -87,7 +87,7 @@ flowchart LR
 
 ### 3. 指标
 
-`PagedCacheProfile`（落盘为 `memory.kv_cache.paged_cache`）新增 `prefix_cache_prompt_tokens` / `prefix_cache_hit_tokens` 与 `prefix_cache_block_eviction_count`；`padding_efficiency` 的分子改为实际参与前向的 Prompt Token 数（扣除命中部分，未启用时不变）。
+`PagedCacheProfile`（落盘为 `memory.kv_cache.paged_cache`）新增 `prefix_cache_prompt_tokens` / `prefix_cache_hit_tokens` 与 `prefix_cache_block_eviction_count`；`padding_efficiency` 的分子改为实际参与前向的 Prompt Token 数（扣除命中部分，未启用时不变）。`ScheduleMetrics`（继承自请求级聚合基类 `RequestAggregatedMetrics`）新增通用的 `num_computed_prompt_tokens`（实际送入前向的 Prompt Token 数）；评测套件中的冷/热等子集指标直接复用 `RequestAggregatedMetrics` 输出 `group_metrics.<name>.*`（如 `cold` / `warm` 的 `prefill_ms_{p50,p95}` 与 `num_computed_prompt_tokens`）。
 
 ### 4. 使用
 
@@ -114,6 +114,11 @@ mini-infra run \
 
 # float32 真实权重正确性对照（输出一致、首 Token Logits 误差、Prefill 计算量）
 mini-infra verify prefix-caching
+
+# 对应 chapter_08 benchmark_prefix_cache.py：8 个请求共享 2048-token 前缀的受控性能对比（warmup 1 + 交错 repeats 3）
+mini-infra bench sweep --engine scheduler --tag dev \
+  --suite prefix-caching-disabled-vs-enabled-shared-prefix \
+  --output tmp/results/prefix-caching-shared-prefix.local.json
 ```
 
 ## 五、与 vLLM 的差异（已知限制）
@@ -122,7 +127,7 @@ mini-infra verify prefix-caching
 - Prefix caching 的 block hash 采用 Python 内建 `hash`（进程内确定，cache 生命周期为单次 `run_scheduler`），不含 LoRA / 多模态 extra keys；同一步重复计算的块不去重（同一 block hash 只保留首个登记的 physical block）。
 - 当前仅支持 `continuous-batching` 与 `fixed-batching`；None 批处理与 `paged-kv-cache` 组合会被拒绝。
 - Attention 为纯 PyTorch 的「按 block table gather 后做稠密 Attention」，无融合 Paged Attention Kernel；每层会拷贝一次上下文。
-- 历史发版基准数据（`benchmarks/results/history/`）对齐受控发版计划维护，`bench scheduler` 已完整集成 Paged KV Cache 单用例与对比套件（prefix caching 受控对比套件尚未接入）。
+- 历史发版基准数据（`benchmarks/results/history/`）对齐受控发版计划维护，`bench scheduler` 已完整集成 Paged KV Cache 单用例与对比套件（含 prefix caching 受控对比套件 `prefix-caching-disabled-vs-enabled-shared-prefix`；cached block 与活跃请求共享同一 physical block pool，不像 chapter_08 那样额外追加 `prefix_cache_capacity_blocks`）。
 
 ## 六、验证
 

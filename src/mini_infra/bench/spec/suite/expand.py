@@ -89,6 +89,8 @@ def _validate_checks(
 def expand_suite_spec(spec: SuiteSpec) -> list[CaseSpec]:
     """把 SuiteSpec 展开为有序的 CaseSpec 列表。"""
     workloads = expand_workload(spec)
+    if spec.engine == "lockstep" and any(w.groups for w in workloads):
+        raise ValueError("lockstep suite 不支持具名请求组（workload.groups[].name）")
     sys_cases = list(_generate_system_cases(spec))
     _validate_checks(spec, workloads, sys_cases)
 

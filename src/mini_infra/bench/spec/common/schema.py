@@ -30,6 +30,7 @@ SuiteEngine = Literal["scheduler", "lockstep"]
 # 严格正整数：拒绝 YAML 中的 true/false 与 8.0 之类的隐式转换。
 PositiveInt = Annotated[int, Field(strict=True, gt=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0.0)]
+GroupName = Annotated[str, Field(pattern=r"^[a-zA-Z_][a-zA-Z0-9_-]*$")]
 
 _LADDER_REQUESTS = 4
 
@@ -195,8 +196,12 @@ ArrivalSpec = Annotated[
 
 
 class GroupSpec(_Strict):
-    """一组同构请求；多个组按声明顺序拼接成整体请求序列（request_idx 连续编号）。"""
+    """一组同构请求；多个组按声明顺序拼接成整体请求序列（request_idx 连续编号）。
 
+    可选 name 将该组对应的 [start, end) 请求切片注册为具名子集，产出 group_metrics.<name>.* 统计。
+    """
+
+    name: GroupName | None = None
     count: PositiveInt
     prompt_len: LengthSpec
     output_len: LengthSpec
@@ -229,11 +234,13 @@ class WorkloadSpec(_Strict):
 
     seed / seed_salt：随机分布（log_uniform / poisson）共用一个 `random.Random(seed * 1000 + seed_salt)`，
     按「组顺序 → 每组 prompt_len → output_len → arrival_ms」依次抽样，因此结果由种子严格确定。
+    shared_prefix_len：全体请求 Prompt 共享的公共前缀 Token 数（prompt_len 含该前缀），用于 prefix caching 评测；默认 0 即各请求独立。
     """
 
     groups: Annotated[list[GroupSpec], Field(min_length=1)]
     seed: Annotated[int, Field(strict=True)] | None = None
     seed_salt: Annotated[int, Field(strict=True)] = 0
+    shared_prefix_len: Annotated[int, Field(strict=True, ge=0)] = 0
 
     @model_validator(mode="after")
     def _stochastic_needs_seed(self) -> "WorkloadSpec":
@@ -245,6 +252,9 @@ class WorkloadSpec(_Strict):
         )
         if stochastic and self.seed is None:
             raise ValueError("使用 log_uniform / poisson 时必须提供 workload.seed")
+        names = [g.name for g in self.groups if g.name is not None]
+        if len(names) != len(set(names)):
+            raise ValueError(f"workload.groups 中存在重复的组名: {names}")
         return self
 
 
@@ -256,7 +266,11 @@ def normalize_workload_body(body: dict[str, Any]) -> dict[str, Any]:
 
     供 expand 阶段在插值完成后、模型校验前调用。
     """
-    meta = {key: body[key] for key in ("seed", "seed_salt") if key in body}
+    meta = {
+        key: body[key]
+        for key in ("seed", "seed_salt", "shared_prefix_len")
+        if key in body
+    }
     rest = {key: value for key, value in body.items() if key not in meta}
     if "groups" in rest:
         if _GROUP_FIELDS & rest.keys():
@@ -323,15 +337,20 @@ class DenseCacheSpec(_Strict):
 
 
 class PagedCacheSpec(_Strict):
-    """Paged KV Cache（physical block pool，按需动态分配）。"""
+    """Paged KV Cache（physical block pool，按需动态分配；prefix_caching 开启跨请求复用 cached block）。"""
 
     kind: Literal["paged-kv-cache"] = "paged-kv-cache"
     block_size: PositiveInt = PagedCacheConfig.block_size
     num_blocks: Annotated[int, Field(strict=True, ge=2)] | None = None
+    prefix_caching: Annotated[bool, Field(strict=True)] = False
 
     @property
     def kv_cache_config(self) -> PagedCacheConfig:
-        return PagedCacheConfig(block_size=self.block_size, num_blocks=self.num_blocks)
+        return PagedCacheConfig(
+            block_size=self.block_size,
+            num_blocks=self.num_blocks,
+            is_prefix_caching_enabled=self.prefix_caching,
+        )
 
 
 def _normalize_caching(raw: Any) -> Any:

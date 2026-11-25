@@ -94,7 +94,7 @@ class MetricSpec(_Strict):
 class ComparisonSpec(_Strict):
     metrics: Annotated[list[MetricSpec], Field(min_length=1)]
     group_by: Annotated[list[CaseDimension], Field(min_length=1)]
-    baseline: Annotated[dict[CaseDimension, str | int], Field(min_length=1)]
+    baseline: Annotated[dict[CaseDimension, bool | str | int], Field(min_length=1)]
 
 
 # --------------------------------------------------------------------------- 顶层

@@ -4271,6 +4271,209 @@
    "repeats": 3,
    "warmup": 1
   },
+  "prefix-caching-disabled-vs-enabled-shared-prefix": {
+   "cases": [
+    {
+     "engine_config": "paged-kv-cache(block_size=16)+continuous-batching+mrr=1+chunked-prefill(token_budget=512)",
+     "max_running_requests": 1,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "aa3c289b3f25df45",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       1,
+       "3b2f8ae59a2935fd",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       2,
+       "54d490f964aa11be",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       3,
+       "b2301a52e445eee0",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       4,
+       "2032d7ef48b8d6f2",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       5,
+       "501e512ffc01a1e4",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       6,
+       "f09c61b9b54b49e2",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       7,
+       "07630ffcfb94750d",
+       2112,
+       32,
+       0.0
+      ]
+     ],
+     "workload_id": "shared_prefix_2048"
+    },
+    {
+     "engine_config": "paged-kv-cache(block_size=16,prefix_caching)+continuous-batching+mrr=1+chunked-prefill(token_budget=512)",
+     "max_running_requests": 1,
+     "paged_cache_config": {
+      "block_size": 16,
+      "num_blocks": null
+     },
+     "specs": [
+      [
+       0,
+       "aa3c289b3f25df45",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       1,
+       "3b2f8ae59a2935fd",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       2,
+       "54d490f964aa11be",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       3,
+       "b2301a52e445eee0",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       4,
+       "2032d7ef48b8d6f2",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       5,
+       "501e512ffc01a1e4",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       6,
+       "f09c61b9b54b49e2",
+       2112,
+       32,
+       0.0
+      ],
+      [
+       7,
+       "07630ffcfb94750d",
+       2112,
+       32,
+       0.0
+      ]
+     ],
+     "workload_id": "shared_prefix_2048"
+    }
+   ],
+   "comparison": {
+    "baseline": {
+     "prefix_caching": "False"
+    },
+    "group_by": [
+     "workload_id"
+    ],
+    "metrics": [
+     {
+      "kind": "reduction",
+      "name": "cold-prefill",
+      "path": "group_metrics.cold.prefill_ms_p50"
+     },
+     {
+      "kind": "reduction",
+      "name": "warm-prefill-p50",
+      "path": "group_metrics.warm.prefill_ms_p50"
+     },
+     {
+      "kind": "reduction",
+      "name": "warm-prefill-p95",
+      "path": "group_metrics.warm.prefill_ms_p95"
+     },
+     {
+      "kind": "reduction",
+      "name": "computed-prompt-tokens",
+      "path": "schedule_metrics.num_computed_prompt_tokens"
+     },
+     {
+      "kind": "reduction",
+      "name": "prefill-steps",
+      "path": "schedule_metrics.num_prefill_steps"
+     },
+     {
+      "kind": "reduction",
+      "name": "makespan",
+      "path": "schedule_metrics.makespan_ms"
+     },
+     {
+      "kind": "gain",
+      "name": "throughput",
+      "path": "metrics.throughput_tok_s"
+     },
+     {
+      "kind": "reduction",
+      "name": "peak-mem",
+      "path": "memory.peak_allocated_mb"
+     },
+     {
+      "kind": "reduction",
+      "name": "peak-used-blocks",
+      "path": "memory.kv_cache.paged_cache.peak_used_blocks"
+     }
+    ]
+   },
+   "engine_configs": [
+    "paged-kv-cache(block_size=16)+continuous-batching+mrr=1+chunked-prefill(token_budget=512)",
+    "paged-kv-cache(block_size=16,prefix_caching)+continuous-batching+mrr=1+chunked-prefill(token_budget=512)"
+   ],
+   "interleave": [
+    "prefix_caching"
+   ],
+   "max_running_requests": 1,
+   "repeats": 3,
+   "warmup": 1
+  },
   "token-budget-vs-chunked-prefill-long-prompt": {
    "cases": [
     {

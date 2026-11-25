@@ -84,6 +84,10 @@ class Comparison:
                 if not isinstance(raw, int) and raw is not None:
                     raise ValueError("baseline.num_blocks 必须是整数或 null")
                 baseline[dim] = raw
+            elif dim is CaseDimension.PREFIX_CACHING:
+                if not isinstance(raw, bool):
+                    raise ValueError("baseline.prefix_caching 必须是布尔值")
+                baseline[dim] = raw
             elif dim is CaseDimension.BATCHING_POLICY:
                 baseline[dim] = parse_batching_policy_kind(str(raw))
             elif dim is CaseDimension.TOKEN_BUDGET:
@@ -180,14 +184,21 @@ class ComparisonResult:
 
 
 def _extract_metric_by_path(obj: Any, path: str) -> float:
-    """沿点分路径从对象中提取目标标量浮点值。"""
+    """沿点分路径从对象（支持属性读取与 Mapping 键查找）中提取目标标量浮点值。"""
     curr = obj
     for segment in path.split("."):
-        if not hasattr(curr, segment):
+        if isinstance(curr, Mapping):
+            if segment not in curr:
+                raise KeyError(
+                    f"映射不包含键 '{segment}'（完整路径: '{path}'，可用键: {sorted(curr)}）"
+                )
+            curr = curr[segment]
+        elif hasattr(curr, segment):
+            curr = getattr(curr, segment)
+        else:
             raise AttributeError(
                 f"{type(curr).__name__} 不包含属性 '{segment}'（完整路径: '{path}'）"
             )
-        curr = getattr(curr, segment)
     if hasattr(curr, "mean"):
         val = curr.mean
     elif isinstance(curr, (int, float)):
