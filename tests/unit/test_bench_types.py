@@ -1,4 +1,4 @@
-"""单元测试：验证 bench/types.py 中 LockstepCaseResult 强类型领域模型与功能。"""
+"""单元测试：验证 bench/lockstep/results.py 中 LockstepCaseResult 强类型领域模型与功能。"""
 
 from dataclasses import FrozenInstanceError
 
@@ -6,7 +6,7 @@ import pytest
 
 from mini_infra.bench.cases import CaseKey, WorkloadProfile
 from mini_infra.bench.efficiency import EfficiencyMetrics
-from mini_infra.bench.lockstep.types import (
+from mini_infra.bench.lockstep.results import (
     DistributionStats,
     LockstepCaseResult,
 )

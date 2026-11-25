@@ -290,7 +290,7 @@ def test_compute_comparisons():
     from mini_infra.bench.scheduler.format import (
         format_table,
     )
-    from mini_infra.bench.scheduler.types import (
+    from mini_infra.bench.scheduler.results import (
         SchedulerCaseResult,
     )
     from mini_infra.bench.stats import DistributionStats

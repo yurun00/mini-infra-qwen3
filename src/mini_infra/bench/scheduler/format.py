@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from mini_infra.bench.scheduler.types import SchedulerCaseResult
+from mini_infra.bench.scheduler.results import SchedulerCaseResult
 
 
 def _abbreviate_suite_name(name: str) -> str:

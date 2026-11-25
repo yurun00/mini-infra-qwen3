@@ -116,12 +116,12 @@ mini-infra-qwen3/
 │           │   ├── suite/             # Suite 声明式配置、检查守卫、笛卡尔积展开与套件加载发现
 │           │   └── release/           # Release 标准负载（small/medium/large）：YAML 声明与展开为 ResolvedWorkloadSpec
 │           ├── lockstep/              # 齐步（Lockstep：所有请求同时开始，无调度器）基准测试
-│           │   ├── types.py           # LockstepCaseResult 领域模型与多轮聚合
+│           │   ├── results.py         # LockstepCaseResult 领域模型与多轮聚合
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── run_case.py        # run_case_once / run_case 单用例基准测试执行引擎
 │           │   └── run_suite.py       # 预设测试套件执行引擎
 │           ├── scheduler/             # 队列调度器（Scheduler：Fixed vs Continuous Batching）基准测试
-│           │   ├── types.py           # SchedulerCaseResult 等领域模型与多轮聚合
+│           │   ├── results.py         # SchedulerCaseResult 等领域模型与多轮聚合
 │           │   ├── format.py          # 终端表格格式化与摘要输出
 │           │   ├── plan.py            # 特征多维展开与基于 Feature 的 Interleave 执行计划生成器
 │           │   ├── run_case.py        # run_case_once / run_case 单用例评测执行引擎

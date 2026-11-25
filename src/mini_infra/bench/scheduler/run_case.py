@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 import torch
 
 from mini_infra.bench.cases import BenchmarkCase
-from mini_infra.bench.scheduler.types import (
+from mini_infra.bench.scheduler.results import (
     SchedulerCaseResult,
 )
 from mini_infra.core.request import Request

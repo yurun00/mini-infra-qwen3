@@ -20,8 +20,8 @@ from mini_infra.bench.result.schema import (
 
 if TYPE_CHECKING:
     from mini_infra.bench.comparison import ComparisonResult
-    from mini_infra.bench.lockstep.types import LockstepCaseResult
-    from mini_infra.bench.scheduler.types import SchedulerCaseResult
+    from mini_infra.bench.lockstep.results import LockstepCaseResult
+    from mini_infra.bench.scheduler.results import SchedulerCaseResult
 
 _SCALE_ORDER = {"small": 0, "medium": 1, "large": 2}
 

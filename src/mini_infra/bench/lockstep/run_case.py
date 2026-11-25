@@ -31,7 +31,7 @@ from mini_infra.bench.cases import (
     ProfilingMode,
 )
 from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
-from mini_infra.bench.lockstep.types import (
+from mini_infra.bench.lockstep.results import (
     LockstepCaseResult,
 )
 from mini_infra.engine import GenerationResult

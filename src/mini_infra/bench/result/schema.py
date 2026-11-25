@@ -14,9 +14,9 @@ pydantic.BaseModel
       │
       ├── 第二层：单用例记录层 (Case Level)
       │    └── BaseCaseRecord              # 共享 ResolvedWorkloadSpec + 公共指标 + 叶子画像
-      │         ├── LockstepCaseRecord     <-> bench.lockstep.types.LockstepCaseResult
+      │         ├── LockstepCaseRecord     <-> bench.lockstep.results.LockstepCaseResult
       │         │                              (扩展 ttft_ms, tpot_ms, op_latency_breakdown)
-      │         └── SchedulerCaseRecord    <-> bench.scheduler.types.SchedulerCaseResult
+      │         └── SchedulerCaseRecord    <-> bench.scheduler.results.SchedulerCaseResult
       │                                        (扩展 workload_id, max_running_requests,
       │                                         arrival_times_ms, schedule, paged_cache_config 等)
       │
@@ -199,7 +199,7 @@ class BaseCaseRecord(_RecordModel):
 
 
 class LockstepCaseRecord(BaseCaseRecord):
-    """Lockstep 单用例评测结果记录（对应 `bench.lockstep.types.LockstepCaseResult.to_record_dict()`）。"""
+    """Lockstep 单用例评测结果记录（对应 `bench.lockstep.results.LockstepCaseResult.to_record_dict()`）。"""
 
     ttft_ms: DistributionStatsRecord | None = None
     tpot_ms: DistributionStatsRecord | None = None
@@ -231,7 +231,7 @@ class CaseKeyRecord(_RecordModel):
 
 
 class SchedulerCaseRecord(BaseCaseRecord):
-    """Scheduler 单用例评测结果记录（对应 `bench.scheduler.types.SchedulerCaseResult.to_record_dict()`）。"""
+    """Scheduler 单用例评测结果记录（对应 `bench.scheduler.results.SchedulerCaseResult.to_record_dict()`）。"""
 
     workload_id: str
     max_running_requests: int

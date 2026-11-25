@@ -14,10 +14,10 @@ from mini_infra.bench.scheduler.plan import (
     RunPhase,
     build_scheduler_run_plan,
 )
-from mini_infra.bench.scheduler.run_case import run_case_once
-from mini_infra.bench.scheduler.types import (
+from mini_infra.bench.scheduler.results import (
     SchedulerCaseResult,
 )
+from mini_infra.bench.scheduler.run_case import run_case_once
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.engine import ScheduleResult
 

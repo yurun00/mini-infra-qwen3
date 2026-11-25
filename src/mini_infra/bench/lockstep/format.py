@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 from mini_infra.bench.cases import BenchmarkCase
 from mini_infra.bench.format import format_lengths
-from mini_infra.bench.lockstep.types import LockstepCaseResult
+from mini_infra.bench.lockstep.results import LockstepCaseResult
 
 
 def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:

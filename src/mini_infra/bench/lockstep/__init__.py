@@ -3,16 +3,16 @@
 from mini_infra.bench.lockstep.format import (
     format_table,
 )
+from mini_infra.bench.lockstep.results import (
+    DistributionStats,
+    LockstepCaseResult,
+)
 from mini_infra.bench.lockstep.run_case import (
     broadcast_case_lengths,
     run_case,
     run_case_once,
 )
 from mini_infra.bench.lockstep.run_suite import run_suite
-from mini_infra.bench.lockstep.types import (
-    DistributionStats,
-    LockstepCaseResult,
-)
 
 __all__ = [
     "DistributionStats",

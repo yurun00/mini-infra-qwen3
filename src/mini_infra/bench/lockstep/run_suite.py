@@ -9,8 +9,8 @@ import torch
 
 from mini_infra.bench.cases import BenchmarkCase, ProfilingMode
 from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
+from mini_infra.bench.lockstep.results import LockstepCaseResult
 from mini_infra.bench.lockstep.run_case import run_case
-from mini_infra.bench.lockstep.types import LockstepCaseResult
 from mini_infra.bench.suite import BenchmarkSuite
 from mini_infra.profiling import TensorBoardOptions
 
