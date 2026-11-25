@@ -276,3 +276,37 @@ def test_release_benchmark_script_dry_run(capsys):
         "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.6.0.json"
         in out_token_budget
     )
+
+    # Test scheduler prefix-caching dry-run (v0.8.0)
+    rc_prefix_caching = main(
+        [
+            "bench",
+            "release",
+            "--engine",
+            "scheduler",
+            "--tag",
+            "v0.8.0",
+            "--release-feature",
+            "prefix caching",
+            "--caching-method",
+            "paged-kv-cache",
+            "--prefix-caching",
+            "enabled",
+            "--batching-policy",
+            "chunked-prefill",
+            "--token-budget",
+            "512",
+            "--dry-run",
+        ]
+    )
+    assert rc_prefix_caching == 0
+    out_prefix_caching = capsys.readouterr().out
+    assert out_prefix_caching.count("--prefix-caching enabled") == 3
+    assert (
+        out_prefix_caching.count("--batching-policy chunked-prefill --token-budget 512")
+        == 3
+    )
+    assert (
+        "-> 目标产物: benchmarks/results/history/scheduler/<commit>_v0.8.0.json"
+        in out_prefix_caching
+    )

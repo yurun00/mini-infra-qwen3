@@ -238,11 +238,20 @@ def generate_optimization_guidance(target_rec: RecordInput) -> str:
             f"- 🔹 **峰值活跃 KV Cache 为 {kv_mb:.1f} MiB**，动态显存峰值增量为 **{dyn_mb:.1f} MiB**，"
             f"Allocator 预留碎片为 **{frag_mb:.1f} MiB**，Cache 搬移开销占比为 **{cache_frac * 100:.2f}%**。"
         )
+        has_prefix_caching = "prefix_caching" in str(
+            w.get("engine_config", "")
+        ).lower() or bool((w.get("paged_cache_config") or {}).get("prefix_caching"))
         is_paged = (
             "paged" in str(w.get("engine_config", "")).lower()
             or "paged" in str(getattr(validated_target, "release_feature", "")).lower()
         )
-        if is_paged:
+        if has_prefix_caching:
+            lines.append(
+                "- 👉 **下一步核心演进方向**：引入 **FlashAttention / SDPA 算子融合** 与 "
+                "**融合 Paged Attention Kernel**，"
+                "消除 Prefill 阶段的二次方 Attention 显存占用与跨层 gather 拷贝开销。"
+            )
+        elif is_paged:
             lines.append(
                 "- 👉 **下一步核心演进方向**：引入 **Prefix Cache（前缀缓存与物理块复用）** 与 "
                 "**融合 Paged Attention Kernel**，"

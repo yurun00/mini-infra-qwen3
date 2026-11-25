@@ -579,10 +579,6 @@ def summarize_schedule(
     req_agg_kwargs = {
         f.name: getattr(req_agg_metrics, f.name) for f in fields(RequestAggregatedMetrics)
     }
-    req_agg_kwargs = {
-        f.name: getattr(req_agg_metrics, f.name)
-        for f in fields(RequestAggregatedMetrics)
-    }
     schedule_metrics: ScheduleMetrics[float] = ScheduleMetrics(
         **req_agg_kwargs,
         max_running_requests=max_running_requests,

@@ -67,6 +67,13 @@ def _add_scheduler_case_args(
         help="Paged KV Cache 的 physical block pool 总块数（可选，默认按负载自动推导，仅 paged-kv-cache 时生效）",
     )
     p.add_argument(
+        "--prefix-caching",
+        choices=["disabled", "enabled"],
+        default="disabled",
+        help="Paged KV Cache 的 prefix caching：复用多请求公共前缀的 K/V 并跳过其 Prefill 计算，"
+        "仅支持 paged-kv-cache（默认: %(default)s）",
+    )
+    p.add_argument(
         "--max-running-requests",
         type=int,
         default=None,
@@ -158,6 +165,7 @@ def handle_case(args: argparse.Namespace) -> int:
         args.caching_method,
         block_size=args.block_size,
         num_blocks=args.num_blocks,
+        is_prefix_caching_enabled=(args.prefix_caching == "enabled"),
     )
     scheduler_config = scheduler_config_from_str(
         args.batching_policy,

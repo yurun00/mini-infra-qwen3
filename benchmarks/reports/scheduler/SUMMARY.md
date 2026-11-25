@@ -19,6 +19,9 @@
 | v0.7.0 (chunked prefill)* | `small` | 827d726 | 16 | 16..63(μ=35) | 9..31(μ=17) | 1628.60 (1.48x) | 85.63 (10.66x) | 89.20 | 168.2 (1.48x) | 1338 | 82.2 | 105.0 | 100.0% | ✅ |
 | v0.7.0 (chunked prefill)* | `medium` | 827d726 | 32 | 64..247(μ=138) | 33..93(μ=58) | 8679.70 (1.36x) | 241.93 (9.86x) | 90.94 | 214.4 (1.36x) | 1898 | 351.8 | 449.8 | 99.4% | ✅ |
 | v0.7.0 (chunked prefill)* | `large` | 827d726 | 64 | 261..1003(μ=554) | 65..189(μ=116) | 38116.75 (1.48x) | 9401.67 (1.52x) | 113.27 | 195.4 (1.48x) | 4231 | 1261.8 | 1744.8 | 96.8% | ✅ |
+| v0.8.0 (prefix caching)* | `small` | b9ce82c | 16 | 16..63(μ=35) | 9..31(μ=17) | 1702.93 (1.41x) | 66.06 (13.81x) | 94.02 | 160.9 (1.41x) | 1338 | 82.2 | 105.0 | 100.0% | ✅ |
+| v0.8.0 (prefix caching)* | `medium` | b9ce82c | 32 | 64..247(μ=138) | 33..93(μ=58) | 9137.10 (1.29x) | 257.92 (9.25x) | 97.56 | 203.7 (1.29x) | 1898 | 351.8 | 449.8 | 99.4% | ✅ |
+| v0.8.0 (prefix caching)* | `large` | b9ce82c | 64 | 261..1003(μ=554) | 65..189(μ=116) | 38026.86 (1.49x) | 9334.98 (1.53x) | 113.76 | 195.9 (1.49x) | 4231 | 1261.8 | 1744.8 | 96.8% | ✅ |
 
 ## 一、跨版本演化与扩展趋势 (Evolution & Scaling Across Releases)
 
@@ -28,20 +31,20 @@
 
 ![Profiling](./profiling_and_optimization.png)
 
-基于当前调度器版本 `v0.7.0 (chunked prefill)*`（`requests=32, max_running=16`）下的基准测量与轨迹剖析，诊断如下：
+基于当前调度器版本 `v0.8.0 (prefix caching)*`（`requests=32, max_running=16`）下的基准测量与轨迹剖析，诊断如下：
 
 ### 1. batch slot 与并发容量利用率诊断（调度效率）
-- 🔹 **执行 batch slot 有效率（Slot Utilization）为 99.4%**，**并发容量利用率（Running Capacity Utilization）为 70.9%**，**Prompt Padding 有效率为 87.6%**。
+- 🔹 **执行 batch slot 有效率（Slot Utilization）为 99.4%**，**并发容量利用率（Running Capacity Utilization）为 71.5%**，**Prompt Padding 有效率为 87.2%**。
 
 ### 2. 请求排队与尾延迟诊断（P50 vs P95）
-- 🔹 **排队延迟**：P50 = `39.5 ms`，P95 = `2117.7 ms`；**TTFT**：P50 = `241.9 ms`，P95 = `2165.9 ms`。
-- 🔹 **Decode 步间延迟（ITL）**：P50 = `45.21 ms`，P95 = `90.94 ms`，Max = `107.39 ms`。
-- 🔹 **迭代调度步数**：Prefill `21` 步 / Decode `168` 步，最长连续 Prefill `1` 步，oversize prefill `0` 次。
-- 🔹 **Prefill 步规模**：共 `43` 个 Prompt chunk，单步最大 padded token `512`，最长 Prefill 步 `54.83 ms`（在途 Decode 的阻塞上界）。
+- 🔹 **排队延迟**：P50 = `77.3 ms`，P95 = `2322.4 ms`；**Prefill 延迟**：P50 = `48.8 ms`，P95 = `257.9 ms`；**TTFT**：P50 = `257.9 ms`，P95 = `2369.2 ms`。
+- 🔹 **Decode 步间延迟（ITL）**：P50 = `47.78 ms`，P95 = `97.56 ms`，Max = `124.82 ms`。
+- 🔹 **迭代调度步数**：Prefill `22` 步 / Decode `167` 步，最长连续 Prefill `1` 步，oversize prefill `0` 次。
+- 🔹 **Prefill 步规模**：共 `43` 个 Prompt chunk，单步最大 padded token `512`，最长 Prefill 步 `60.31 ms`（在途 Decode 的阻塞上界）。
 - 🟡 **观测到新请求 Prefill 插队导致的 Decode 尾延迟毛刺（ITL Max > 1.4x P50）**：建议引入 **更小的 token_budget** 以缩短单步 Prefill，或演进到 **chunk 与 Decode 同一次前向混批**（需 varlen Attention）。
 
 ### 3. 显存足迹与 KV Cache 管理诊断
-- 🔹 **峰值活跃 KV Cache 为 351.8 MiB**，动态显存峰值增量为 **752.7 MiB**，Allocator 预留碎片为 **66.3 MiB**，Cache 搬移开销占比为 **0.79%**。
-- 👉 **下一步核心演进方向**：引入 **Prefix Cache（前缀缓存与物理块复用）** 与 **融合 Paged Attention Kernel**，按物理 Block 按需复用长 Prompt 并消除 Prefill 阶段的高峰值激活与跨层 gather 拷贝开销。
+- 🔹 **峰值活跃 KV Cache 为 351.8 MiB**，动态显存峰值增量为 **752.7 MiB**，Allocator 预留碎片为 **66.3 MiB**，Cache 搬移开销占比为 **0.86%**。
+- 👉 **下一步核心演进方向**：引入 **FlashAttention / SDPA 算子融合** 与 **融合 Paged Attention Kernel**，消除 Prefill 阶段的二次方 Attention 显存占用与跨层 gather 拷贝开销。
 
 

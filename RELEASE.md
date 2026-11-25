@@ -104,6 +104,16 @@ mini-infra bench release \
   --caching-method paged-kv-cache \
   --batching-policy chunked-prefill \
   --token-budget 512
+
+# 6) 若为前缀缓存复用特性（如 v0.8.0 Prefix Caching）：
+mini-infra bench release \
+  --engine scheduler \
+  --tag "v0.8.0" \
+  --release-feature "prefix caching" \
+  --caching-method paged-kv-cache \
+  --prefix-caching enabled \
+  --batching-policy chunked-prefill \
+  --token-budget 512
 ```
 
 > 💡 **支持 `--dry-run` 预览**：在无 GPU 环境或执行前可附加 `--dry-run` 参数查看完整的子命令展开与预期生成的全部产物清单。

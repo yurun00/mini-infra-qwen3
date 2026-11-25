@@ -176,8 +176,11 @@ def _build_scheduler_case_cmd(
         "--repeats",
         str(repeats),
     ]
-    if isinstance(config.kv_cache_config, PagedCacheConfig) and block_size is not None:
-        cmd.extend(["--block-size", str(block_size)])
+    if isinstance(config.kv_cache_config, PagedCacheConfig):
+        if block_size is not None:
+            cmd.extend(["--block-size", str(block_size)])
+        if config.kv_cache_config.is_prefix_caching_enabled:
+            cmd.extend(["--prefix-caching", "enabled"])
     policy = config.scheduler_config.batching_policy
     if isinstance(policy, BudgetedBatchingPolicy):
         cmd.extend(
@@ -287,6 +290,12 @@ def _add_release_args(p: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="Paged KV Cache 的 physical block 大小（默认: 16，仅 paged-kv-cache 时生效）",
     )
     p.add_argument(
+        "--prefix-caching",
+        choices=["disabled", "enabled"],
+        default="disabled",
+        help="Paged KV Cache 的 prefix caching（默认: %(default)s，仅 paged-kv-cache 时生效）",
+    )
+    p.add_argument(
         "--batching-policy",
         choices=list(BATCHING_POLICY_KINDS),
         default=None,
@@ -333,11 +342,16 @@ def register_parser(
 def _plan_release_steps(args: argparse.Namespace) -> list[_ReleaseStep]:
     """根据解析后的参数生成有序的 _ReleaseStep 列表（仅替换 EngineConfig，其余 Workload 字段保持一致）。"""
     steps: list[_ReleaseStep] = []
+    is_prefix_caching_enabled = getattr(args, "prefix_caching", "disabled") == "enabled"
     if getattr(args, "caching_method", None):
-        kv_cache_config = kv_cache_config_from_str(args.caching_method)
+        kv_cache_config = kv_cache_config_from_str(
+            args.caching_method,
+            is_prefix_caching_enabled=is_prefix_caching_enabled,
+        )
     else:
         kv_cache_config = kv_cache_config_from_str(
-            "dense-kv-cache" if args.kv_cache else "none"
+            "dense-kv-cache" if args.kv_cache else "none",
+            is_prefix_caching_enabled=is_prefix_caching_enabled,
         )
     scales: list[ReleaseScale] = list(getattr(args, "scales", None) or RELEASE_SCALES)
     custom_seed: int | None = getattr(args, "seed", None)
