@@ -51,6 +51,7 @@ def _run_schedule_loop(
     scheduler_config: SchedulerConfig,
     eos_token_id: int | None,
     stop_on_eos: bool = True,
+    should_capture_first_token_logits: bool = False,
 ) -> ScheduleResult:
     """采用三级队列（ArrivalQueue -> IterationScheduler[WaitingQueue -> RunningQueue]）驱动统一的调度主循环。"""
     device = backend.device
@@ -61,6 +62,9 @@ def _run_schedule_loop(
         backend.kv_cache_manager,
     )
     events: list[ScheduleEvent] = []
+    first_token_logits_by_request_idx: dict[int, torch.Tensor] | None = (
+        {} if should_capture_first_token_logits else None
+    )
     wall_start = time.perf_counter()
     pending_scheduler_ms = 0.0
 
@@ -81,10 +85,24 @@ def _run_schedule_loop(
         # 3. 后端执行本步前向（Prefill 或 Decode）
         num_active_requests = len(scheduler.running_queue)
         if output.phase is SchedulePhase.PREFILL:
-            step_output = backend.execute_prefill(output.prefill_chunks)
+            step_output = backend.execute_prefill(
+                output.prefill_chunks,
+                should_capture_first_token_logits=should_capture_first_token_logits,
+            )
             admitted_request_ids = tuple(
                 c.state.request.request_idx for c in output.prefill_chunks if c.is_first
             )
+            if first_token_logits_by_request_idx is not None:
+                assert step_output.first_token_logits is not None
+                completed_prefill_ids = (
+                    c.state.request.request_idx
+                    for c in output.prefill_chunks
+                    if c.is_last
+                )
+                for request_idx, req_logits in zip(
+                    completed_prefill_ids, step_output.first_token_logits
+                ):
+                    first_token_logits_by_request_idx[request_idx] = req_logits
         else:
             step_output = backend.execute_decode(output.scheduled_requests)
             admitted_request_ids = ()
@@ -125,6 +143,14 @@ def _run_schedule_loop(
 
     synchronize(device)
     e2e_wall_ms = (time.perf_counter() - wall_start) * 1000.0
+    first_token_logits = (
+        tuple(
+            first_token_logits_by_request_idx[state.request.request_idx]
+            for state in states
+        )
+        if first_token_logits_by_request_idx is not None
+        else None
+    )
 
     return summarize_schedule(
         backend.batching_method,
@@ -137,6 +163,7 @@ def _run_schedule_loop(
         is_cuda=device.type == "cuda",
         kv_cache_config=backend.kv_cache_config,
         paged_cache_profile=backend.collect_paged_cache_profile(),
+        first_token_logits=first_token_logits,
     )
 
 
@@ -149,6 +176,7 @@ def run_scheduler(
     *,
     pad_token_id: int = 0,
     stop_on_eos: bool = True,
+    should_capture_first_token_logits: bool = False,
 ) -> ScheduleResult:
     """校验批处理策略并执行统一的队列调度循环（CONTINUOUS、FIXED 或 NONE 串行单槽调度）。
 
@@ -159,6 +187,7 @@ def run_scheduler(
         eos_token_id: 结束 Token ID。
         pad_token_id: 填充 Token ID。
         stop_on_eos: 命中 EOS 时是否提前停止生成。
+        should_capture_first_token_logits: 是否按请求采集首 Token Logits（供数值等价性校验使用）。
 
     Returns:
         ScheduleResult: 调度阶段事件、指标统计与各请求结果。
@@ -216,4 +245,5 @@ def run_scheduler(
         scheduler_config=config.scheduler_config,
         eos_token_id=eos_token_id,
         stop_on_eos=stop_on_eos,
+        should_capture_first_token_logits=should_capture_first_token_logits,
     )

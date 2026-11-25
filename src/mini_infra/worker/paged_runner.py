@@ -38,6 +38,8 @@ class PagedRunner(BaseModelRunner):
         start_positions: Sequence[int],
         block_tables: Sequence[Sequence[int]],
         block_cache: PagedBlockCache,
+        *,
+        should_capture_logits: bool = False,
     ) -> PrefillOutput:
         """对一批 Prompt 区间（整段 Prompt 或 chunk）做左 Padding Prefill，前序 chunk 的历史 K/V 经 block table 读回。
 
@@ -53,6 +55,7 @@ class PagedRunner(BaseModelRunner):
         next_tokens:     各行 chunk 末位 logits 的贪心 Token；仅 chunk 写满 Prompt 的行有意义
         prefill_cache:   逐层 (key, value) 均为 [B, H_kv, num_history_slots + padded_chunk_len, D]，
                          各行本 chunk 的有效 Token 位于末尾 len(chunk_token_ids[i]) 个位置
+        last_logits:     [B, vocab_size], float32, cpu, contiguous（未启用采集时为 None）
         """
         block_size = block_cache.block_size
         chunk_lens = [len(token_ids) for token_ids in chunk_token_ids]
@@ -109,11 +112,17 @@ class PagedRunner(BaseModelRunner):
                 position_ids=position_ids,
                 attn_metadata=attn_metadata,
             )
-            next_token, _ = greedy_sample(logits)
+            next_token, last_logits = greedy_sample(logits)
+        captured_logits = (
+            last_logits.to(device="cpu", dtype=torch.float32, copy=True)
+            if should_capture_logits
+            else None
+        )
         return PrefillOutput(
             next_tokens=next_token.squeeze(-1).tolist(),
             prefill_cache=KVCache(present_key_values),
             model_ms=timer.elapsed_ms,
+            last_logits=captured_logits,
         )
 
     def store_prefill(

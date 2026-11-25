@@ -100,13 +100,27 @@ class GenerationResult:
 
 @dataclass(frozen=True)
 class ScheduleResult(GenerationResult):
-    """批调度运行的顶层不可变结果容器（继承公共 GenerationResult 并扩展非空调度专属字段）。"""
+    """批调度运行的顶层不可变结果容器（继承公共 GenerationResult 并扩展非空调度专属字段）。
+
+    first_token_logits: 按 sequences 次序排列的逐请求首 Token Logits（[vocab_size], float32, cpu），
+    仅在 run_scheduler(..., should_capture_first_token_logits=True) 时非空。
+    """
 
     schedule_metrics: ScheduleMetrics[float] = field(kw_only=True)
     events: list[ScheduleEvent] = field(kw_only=True)
     request_metrics: list[RequestMetrics] = field(kw_only=True)
     batching_method: BatchingMethod = BatchingMethod.CONTINUOUS
     kv_cache_config: KVCacheConfig = DenseCacheConfig()
+    first_token_logits: tuple[torch.Tensor, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.first_token_logits is not None:
+            for request_idx, t in enumerate(self.first_token_logits):
+                if t.device.type != "cpu":
+                    raise ValueError(
+                        "first_token_logits 元素必须驻留在 CPU 设备上，"
+                        f"但在索引 {request_idx} 处检测到 device='{t.device}'"
+                    )
 
 
 AggFunc = Literal["sum", "mean", "max", "min"] | Callable[[Sequence[float]], float]

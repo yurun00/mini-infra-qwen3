@@ -16,11 +16,15 @@ from mini_infra.worker.sampler import greedy_sample
 
 
 class PrefillOutput(NamedTuple):
-    """Prefill 单步产出：各请求首个 Token ID 列表、Prefill Cache 容器与模型耗时（ms）。"""
+    """Prefill 单步产出：各请求首个 Token ID 列表、Prefill Cache 容器、模型耗时（ms）与可选末位 Logits。
+
+    last_logits: [B, vocab_size], float32, cpu, contiguous（should_capture_logits=False 时为 None）
+    """
 
     next_tokens: list[int]
     prefill_cache: KVCache
     model_ms: float
+    last_logits: torch.Tensor | None = None
 
 
 def _left_pad_sequences(
@@ -81,11 +85,15 @@ class BaseModelRunner:
         self.pad_token_id = pad_token_id
 
     def run_prefill_step(
-        self, prompt_sequences: Sequence[Sequence[int]]
+        self,
+        prompt_sequences: Sequence[Sequence[int]],
+        *,
+        should_capture_logits: bool = False,
     ) -> PrefillOutput:
         """对一批新入场请求做左 Padding Prefill，返回各请求首个 Token 列表、Prefill Cache 与模型耗时。
 
         prefill_cache: 逐层 (key, value) 均为 [B, H_kv, L, D], model_dtype, contiguous
+        last_logits:   [B, vocab_size], float32, cpu, contiguous（未启用采集时为 None）
         """
         input_ids, attention_mask, position_ids, _ = _left_pad_sequences(
             prompt_sequences, self.pad_token_id, self.device
@@ -96,11 +104,17 @@ class BaseModelRunner:
                 attention_mask=attention_mask,
                 position_ids=position_ids,
             )
-            next_token, _ = greedy_sample(logits)
+            next_token, last_logits = greedy_sample(logits)
+        captured_logits = (
+            last_logits.to(device="cpu", dtype=torch.float32, copy=True)
+            if should_capture_logits
+            else None
+        )
         return PrefillOutput(
             next_tokens=next_token.squeeze(-1).tolist(),
             prefill_cache=KVCache(present_key_values),
             model_ms=timer.elapsed_ms,
+            last_logits=captured_logits,
         )
 
 

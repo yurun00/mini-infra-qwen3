@@ -42,10 +42,16 @@ class DenseScheduleBackend(ScheduleBackend):
     def kv_cache_config(self) -> KVCacheConfig:
         return DenseCacheConfig()
 
-    def execute_prefill(self, chunks: Sequence[PrefillChunk]) -> ScheduleStepOutput:
+    def execute_prefill(
+        self,
+        chunks: Sequence[PrefillChunk],
+        *,
+        should_capture_first_token_logits: bool = False,
+    ) -> ScheduleStepOutput:
         scheduled_requests = [c.state for c in chunks]
         prefill_out = self.runner.run_prefill_step(
-            [s.request.token_ids for s in scheduled_requests]
+            [s.request.token_ids for s in scheduled_requests],
+            should_capture_logits=should_capture_first_token_logits,
         )
         self.snapshot_tracker.record_stage("02_dense_prefill_forward_done")
         batch_slot_indices = [s.batch_slot_idx for s in scheduled_requests]
@@ -66,6 +72,11 @@ class DenseScheduleBackend(ScheduleBackend):
             moved_bytes = 0
         self.snapshot_tracker.record_stage("03_dense_prefill_absorbed")
         next_tokens = prefill_out.next_tokens
+        first_token_logits = (
+            list(prefill_out.last_logits.unbind(0))
+            if prefill_out.last_logits is not None
+            else None
+        )
         model_ms = prefill_out.model_ms
         del prefill_out
         self.snapshot_tracker.record_stage("04_dense_prefill_cleaned")
@@ -78,6 +89,7 @@ class DenseScheduleBackend(ScheduleBackend):
             kv_cache_pool_bytes=self.dense_slot_cache.total_bytes,
             cache_realign_moved_bytes=moved_bytes,
             accessed_kv_cache_tokens=0,
+            first_token_logits=first_token_logits,
         )
 
     def execute_decode(

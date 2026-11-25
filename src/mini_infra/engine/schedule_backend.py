@@ -41,6 +41,7 @@ class ScheduleStepOutput:
     kv_cache_pool_bytes: int = 0
     cache_realign_moved_bytes: int = 0
     accessed_kv_cache_tokens: int = 0
+    first_token_logits: list[torch.Tensor] | None = None
 
 
 class ScheduleBackend(abc.ABC):
@@ -71,10 +72,16 @@ class ScheduleBackend(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def execute_prefill(self, chunks: Sequence[PrefillChunk]) -> ScheduleStepOutput:
+    def execute_prefill(
+        self,
+        chunks: Sequence[PrefillChunk],
+        *,
+        should_capture_first_token_logits: bool = False,
+    ) -> ScheduleStepOutput:
         """执行一批 Prompt 区间（整段 Prompt 或 chunk）的 Prefill 前向，将 KV 写入缓存并返回耗时。
 
-        ScheduleStepOutput.next_tokens 仅覆盖本步写满 Prompt 的请求（PrefillChunk.is_last），按 chunks 次序。
+        ScheduleStepOutput.next_tokens（及启用采集时的 first_token_logits）仅覆盖本步写满 Prompt 的请求
+        （PrefillChunk.is_last），按 chunks 次序。
         """
         ...
 

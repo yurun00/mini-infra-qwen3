@@ -10,12 +10,10 @@ import torch
 
 from mini_infra.core import (
     ChunkedPrefillConfig,
-    KVCacheManager,
     PagedCacheConfig,
     SchedulerConfig,
     TokenBudgetConfig,
     make_requests,
-    num_blocks_for_tokens,
 )
 from mini_infra.engine import (
     BatchingMethod,
@@ -27,14 +25,13 @@ from mini_infra.engine import (
 from mini_infra.model import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
-    DenseAttentionMetadata,
 )
 from mini_infra.verification.parity._common import (
     build_environment,
     dump_json,
+    first_token_logit_errors,
     prepare_cuda_model,
 )
-from mini_infra.worker import KVCache, PagedBlockCache, PagedRunner
 
 DEFAULT_PROMPTS = [
     "用一句话解释 Chunked Prefill。",
@@ -89,101 +86,6 @@ def _summarize_policy_metrics(run: ScheduleResult) -> dict[str, float | int]:
     }
 
 
-def _compare_first_token_logits(
-    model: torch.nn.Module,
-    sequences: Sequence[Sequence[int]],
-    chunk_size: int,
-    block_size: int,
-) -> dict[str, float]:
-    """逐请求对比整段 Prefill 与按 chunk_size 分块 Prefill 的首 Token Logits 最大绝对误差。
-
-    直接复用 PagedBlockCache.gather_blocks 与 PagedRunner.store_prefill，不侵入 engine / worker 生产接口。
-    """
-    param = next(model.parameters())
-    device = param.device
-    dtype = param.dtype
-    config = model.config  # type: ignore[attr-defined]
-    runner = PagedRunner(model)
-    errors: dict[str, float] = {}
-
-    for request_idx, sequence in enumerate(sequences):
-        prompt_len = len(sequence)
-        full_ids = torch.tensor([sequence], dtype=torch.long, device=device)
-        full_logits, _ = model(full_ids)
-        ref_logits = full_logits[0, -1, :].float().cpu()
-
-        num_blocks = num_blocks_for_tokens(prompt_len, block_size) + 1  # 含 null block 0
-        block_cache = PagedBlockCache(
-            num_layers=config.num_hidden_layers,
-            num_blocks=num_blocks,
-            block_size=block_size,
-            num_kv_heads=config.num_key_value_heads,
-            head_dim=config.head_dim,
-            dtype=dtype,
-            device=device,
-        )
-        manager = KVCacheManager(block_size=block_size, num_blocks=num_blocks)
-        chunked_logits: torch.Tensor | None = None
-
-        for start in range(0, prompt_len, chunk_size):
-            end = min(start + chunk_size, prompt_len)
-            chunk_len = end - start
-            if not manager.allocate_slots(0, chunk_len):
-                raise RuntimeError(
-                    f"请求 {request_idx} chunk [{start}, {end}) 分配物理块失败"
-                )
-            block_table = manager.block_table(0)
-            chunk_ids = torch.tensor(
-                [sequence[start:end]], dtype=torch.long, device=device
-            )
-            position_ids = torch.arange(
-                start, end, dtype=torch.long, device=device
-            ).unsqueeze(0)
-            chunk_mask = torch.ones((1, chunk_len), dtype=torch.bool, device=device)
-            if start > 0:
-                num_history_blocks = num_blocks_for_tokens(start, block_size)
-                history_block_ids = torch.tensor(
-                    [block_table[:num_history_blocks]],
-                    dtype=torch.long,
-                    device=device,
-                )
-                history_mask = (
-                    torch.arange(
-                        num_history_blocks * block_size, device=device
-                    ).unsqueeze(0)
-                    < start
-                )
-                attention_mask = torch.cat((history_mask, chunk_mask), dim=1)
-                attn_metadata: DenseAttentionMetadata | None = DenseAttentionMetadata(
-                    past_key_values=block_cache.gather_blocks(history_block_ids)
-                )
-            else:
-                attention_mask = chunk_mask
-                attn_metadata = None
-            logits, present = model(
-                chunk_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                attn_metadata=attn_metadata,
-            )
-            runner.store_prefill(
-                block_cache,
-                KVCache(present),
-                [block_table],
-                [chunk_len],
-                [start],
-            )
-            if end == prompt_len:
-                chunked_logits = logits[0, -1, :].float().cpu()
-
-        assert chunked_logits is not None
-        errors[str(request_idx)] = float(
-            torch.max(torch.abs(ref_logits - chunked_logits)).item()
-        )
-
-    return errors
-
-
 @torch.inference_mode()
 def run_compare_chunked_prefill(
     model: torch.nn.Module,
@@ -220,6 +122,7 @@ def run_compare_chunked_prefill(
         requests,
         eos_token_id=eos_token_id,
         stop_on_eos=False,
+        should_capture_first_token_logits=True,
     )
     chunked = run_scheduler(
         base_config.with_batching_policy(ChunkedPrefillConfig(token_budget)),
@@ -227,16 +130,13 @@ def run_compare_chunked_prefill(
         requests,
         eos_token_id=eos_token_id,
         stop_on_eos=False,
+        should_capture_first_token_logits=True,
     )
 
     full_token_ids = [s.token_ids for s in full.sequences]
     chunked_token_ids = [s.token_ids for s in chunked.sequences]
     is_match = full_token_ids == chunked_token_ids
-    # 用并发满载时的单请求 chunk 上限做首 Token Logits 对照，确保短 Prompt 也会跨越多个 chunk
-    chunk_size = max(1, token_budget // max_running_requests)
-    logit_errors = _compare_first_token_logits(
-        model, sequences, chunk_size=chunk_size, block_size=block_size
-    )
+    logit_errors = first_token_logit_errors(full, chunked)
     max_logit_error = max(logit_errors.values())
     full_metrics = _summarize_policy_metrics(full)
     chunked_metrics = _summarize_policy_metrics(chunked)

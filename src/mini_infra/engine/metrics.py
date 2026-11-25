@@ -391,6 +391,7 @@ def summarize_schedule(
     is_cuda: bool = False,
     kv_cache_config: KVCacheConfig | None = None,
     paged_cache_profile: PagedCacheProfile | None = None,
+    first_token_logits: tuple[torch.Tensor, ...] | None = None,
 ) -> Any:
     """把运行结束后的请求状态与事件流汇总为 ScheduleResult（固定批次与 Continuous 共用）。"""
     from mini_infra.engine.results import ScheduleResult
@@ -539,6 +540,7 @@ def summarize_schedule(
         request_metrics=requests,
         batching_method=batching_method,
         kv_cache_config=resolved_kv_config,
+        first_token_logits=first_token_logits,
     )
 
 

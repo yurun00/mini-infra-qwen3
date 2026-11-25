@@ -77,7 +77,12 @@ class PagedScheduleBackend(ScheduleBackend):
     def kv_cache_config(self) -> KVCacheConfig:
         return self.paged_cache_config
 
-    def execute_prefill(self, chunks: Sequence[PrefillChunk]) -> ScheduleStepOutput:
+    def execute_prefill(
+        self,
+        chunks: Sequence[PrefillChunk],
+        *,
+        should_capture_first_token_logits: bool = False,
+    ) -> ScheduleStepOutput:
         block_tables = [
             self.kv_cache_manager.block_table(c.state.request.request_idx) for c in chunks
         ]
@@ -87,6 +92,7 @@ class PagedScheduleBackend(ScheduleBackend):
             start_positions,
             block_tables,
             self.paged_block_cache,
+            should_capture_logits=should_capture_first_token_logits,
         )
         self.snapshot_tracker.record_stage("02_paged_prefill_forward_done")
         synchronize(self.device)
@@ -105,6 +111,15 @@ class PagedScheduleBackend(ScheduleBackend):
         next_tokens = [
             token for token, c in zip(prefill_out.next_tokens, chunks) if c.is_last
         ]
+        first_token_logits = (
+            [
+                prefill_out.last_logits[row_idx]
+                for row_idx, c in enumerate(chunks)
+                if c.is_last
+            ]
+            if prefill_out.last_logits is not None
+            else None
+        )
         model_ms = prefill_out.model_ms
         del prefill_out
         self.snapshot_tracker.record_stage("04_paged_prefill_cleaned")
@@ -118,6 +133,7 @@ class PagedScheduleBackend(ScheduleBackend):
             kv_cache_pool_bytes=self.paged_block_cache.total_bytes,
             cache_realign_moved_bytes=0,
             accessed_kv_cache_tokens=sum(c.start for c in chunks),
+            first_token_logits=first_token_logits,
         )
 
     def execute_decode(

@@ -14,7 +14,7 @@ from typing import Any
 
 import torch
 
-from mini_infra.engine import Qwen3Tokenizer
+from mini_infra.engine import Qwen3Tokenizer, ScheduleResult
 from mini_infra.model import load_model, resolve_model_directory
 
 _DTYPE_BY_NAME = {
@@ -133,6 +133,23 @@ def _logits_abs_error(
     """计算两组 logits 的最大/平均绝对误差（先转 float32 再相减，避免低精度截断）。"""
     difference = (reference_logits.float() - candidate_logits.float()).abs()
     return difference.max().item(), difference.mean().item()
+
+
+def first_token_logit_errors(
+    reference: ScheduleResult,
+    candidate: ScheduleResult,
+) -> dict[str, float]:
+    """逐请求计算两次调度运行首 Token Logits 的最大绝对误差（须启用 should_capture_first_token_logits）。"""
+    assert reference.first_token_logits is not None
+    assert candidate.first_token_logits is not None
+    return {
+        str(seq.request_idx): _logits_abs_error(ref_logits, cand_logits)[0]
+        for seq, ref_logits, cand_logits in zip(
+            reference.sequences,
+            reference.first_token_logits,
+            candidate.first_token_logits,
+        )
+    }
 
 
 def _report_top_logits(title: str, logits: torch.Tensor, k: int = 3) -> None:

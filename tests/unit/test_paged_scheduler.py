@@ -680,3 +680,56 @@ def test_chunked_prefill_requires_paged_continuous_and_budget_not_below_capacity
         )
     with pytest.raises(ValueError, match="不能小于 max_running_requests"):
         run_paged(model, requests, 8, block_size=4, token_budget=4, chunked=True)
+
+
+def test_run_scheduler_captures_first_token_logits_across_backends(model):
+    import torch
+
+    shared = [3, 5, 7, 9, 11, 13]
+    prompts = [shared + [17, 19], shared + [23], [29, 31, 37, 41, 43]]
+    requests = make_requests(prompts, [3, 2, 4], [0.0, 0.1, 0.1])
+    with torch.inference_mode():
+        expected = [model(torch.tensor([p]))[0][0, -1, :].float() for p in prompts]
+
+    default_run = run_scheduler(
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
+        model,
+        requests,
+        -1,
+        stop_on_eos=False,
+    )
+    assert default_run.first_token_logits is None
+
+    configs = [
+        EngineConfig(
+            DenseCacheConfig(),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(max_running_requests=2),
+        ),
+        EngineConfig(
+            PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True),
+            batching_method=BatchingMethod.CONTINUOUS,
+            scheduler_config=SchedulerConfig(
+                max_running_requests=2,
+                batching_policy=ChunkedPrefillConfig(4),
+            ),
+        ),
+    ]
+    for cfg in configs:
+        res = run_scheduler(
+            cfg,
+            model,
+            requests,
+            -1,
+            stop_on_eos=False,
+            should_capture_first_token_logits=True,
+        )
+        assert res.first_token_logits is not None
+        assert len(res.first_token_logits) == len(prompts)
+        for captured, ref in zip(res.first_token_logits, expected):
+            assert captured.device.type == "cpu" and captured.dtype is torch.float32
+            assert torch.allclose(captured, ref, atol=1e-5)
