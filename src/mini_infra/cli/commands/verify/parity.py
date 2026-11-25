@@ -36,9 +36,6 @@ from mini_infra.verification.parity.compare_paged_cache_scheduler import (
     execute_compare_paged_cache_scheduler,
 )
 from mini_infra.verification.parity.compare_prefix_caching import (
-    DEFAULT_PROMPTS as DEFAULT_PREFIX_CACHING_PROMPTS,
-)
-from mini_infra.verification.parity.compare_prefix_caching import (
     execute_compare_prefix_caching,
 )
 from mini_infra.verification.parity.compare_schedulers_token_budget import (
@@ -361,8 +358,8 @@ def _add_prefix_caching_args(
     parser.add_argument(
         "--prompts",
         nargs="+",
-        default=DEFAULT_PREFIX_CACHING_PROMPTS,
-        help="至少 2 条共享前缀的 prompt（默认: 共享长背景 + 不同问题）",
+        default=None,
+        help="自定义共享前缀 prompt（至少 2 条；默认运行内置 4 条多边界自然语言对照）",
     )
     parser.add_argument(
         "--dtype",
@@ -397,8 +394,8 @@ def _add_prefix_caching_args(
     parser.add_argument(
         "--logits-atol",
         type=float,
-        default=1e-4,
-        help="首 Token Logits 最大绝对误差阈值",
+        default=None,
+        help="首 Token Logits 最大绝对误差阈值（默认: float32 为 1e-4，bfloat16 为 1.0）",
     )
     parser.add_argument("--output", help="可选 JSON 输出路径")
     return parser

@@ -294,7 +294,7 @@ pytest tests/unit/test_compare_chunked_prefill.py
 ### 8. Prefix Caching 对照（prefix caching 关闭 vs 开启）
 
 * **对应源码**：[`src/mini_infra/verification/parity/compare_prefix_caching.py`](../../src/mini_infra/verification/parity/compare_prefix_caching.py)
-* **核心目标**：对应参考实现 chapter_08 的 `run_inference.py` / `compare_prefix_cache.py`。在 3 条共享长背景、问题不同的请求上（`chunked-prefill`，`token_budget = 64`，`block_size = 16`，`max_running_requests = 1`），唯一变量为 `PagedCacheConfig.is_prefix_caching_enabled`，对照逐请求输出、命中 Token 数与实际 Prefill 计算的 Prompt Token 数；并直接驱动 `KVCacheManager` + `PagedBlockCache` 逐请求验证「命中前序请求 cached block 后只算剩余 Prompt」与「整段 Prompt 无缓存 Prefill」的首 Token Logits 最大绝对误差。
+* **核心目标**：对应参考实现 chapter_08 的 `run_inference.py` / `compare_prefix_cache.py`。以单组 4 条自然语言请求同时覆盖冷启动、整块对齐前缀命中（288 Token）、非对齐前缀截断（290 → 288 Token）与「不同首块 + 相同后续 17 个满块」防误命中（命中 0 并触发紧凑池惰性淘汰），唯一变量为 `PagedCacheConfig.is_prefix_caching_enabled`，直接在 `chunked-prefill` 调度循环中对照逐请求输出、首 Token Logits 最大绝对误差、命中 Token 数、实际 Prefill 计算量与排空后的 physical block 引用归零。
 
 #### CLI 运行指令
 ```bash
@@ -322,9 +322,9 @@ pytest tests/unit/test_compare_prefix_caching.py tests/unit/test_prefix_caching.
 ```
 
 * **判定标准**：
-  - 启用 prefix caching 后至少一个请求命中（`enabled_metrics.per_request_prefix_cache_hit_tokens` 之和 > 0）；
-  - `tokens_match` 为 `True`（关闭 / 开启逐请求生成序列完全一致）；
-  - `float32` 下 `max_first_token_logit_error <= logits_atol`（默认 `1e-4`）。
+  - 启用 prefix caching 后至少一个请求命中（默认内置 4 条请求在单并发、`block_size=16` 下精确命中 `[0, 288, 288, 0]`）；
+  - `float32` 下 `tokens_match` 为 `True`；
+  - `max_first_token_logit_error <= logits_atol`（`float32` 默认 `1e-4`，`bfloat16` 默认 `1.0`），且运行排空后全部 physical block 引用计数归零。
 
 ---
 

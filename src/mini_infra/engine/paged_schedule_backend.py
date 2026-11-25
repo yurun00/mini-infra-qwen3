@@ -169,6 +169,13 @@ class PagedScheduleBackend(ScheduleBackend):
             accessed_kv_cache_tokens=sum(s.cache_length + 1 for s in scheduled_requests),
         )
 
+    def retire(self, finished: Sequence[RequestState], *, is_idle: bool) -> None:
+        if is_idle:
+            assert self.kv_cache_manager.num_used_blocks == 0, (
+                "RunningQueue 已排空，但仍有未释放引用的 physical block: "
+                f"num_used_blocks={self.kv_cache_manager.num_used_blocks}"
+            )
+
     def collect_paged_cache_profile(self) -> PagedCacheProfile:
         stats = self.kv_cache_manager.stats
         return PagedCacheProfile(

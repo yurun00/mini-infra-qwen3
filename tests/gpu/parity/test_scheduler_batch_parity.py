@@ -237,7 +237,8 @@ def test_compare_chunked_prefill_cli():
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="需要 NVIDIA GPU")
-def test_compare_prefix_caching_cli():
+@pytest.mark.parametrize("dtype", ["float32", "bfloat16"])
+def test_compare_prefix_caching_cli(dtype: str):
     from mini_infra.cli import main
 
     assert (
@@ -245,6 +246,8 @@ def test_compare_prefix_caching_cli():
             [
                 "verify",
                 "prefix-caching",
+                "--dtype",
+                dtype,
                 "--max-new-tokens",
                 "4",
                 "--block-size",

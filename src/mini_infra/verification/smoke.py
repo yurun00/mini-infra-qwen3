@@ -617,45 +617,79 @@ def check_chunked_prefill_scheduling(model):
 
 
 def check_prefix_caching(model):
-    """验证 prefix caching：共享前缀的后续请求命中 cached block、跳过其 Prefill，输出与未启用时逐位一致。"""
-    shared_prefix = [3, 5, 7, 11, 13, 17, 19, 23, 29]
-    sequences = [shared_prefix + suffix for suffix in ([31, 37], [41, 43, 47], [53])]
-    requests = make_requests(sequences, [4, 3, 5], [0.0, 0.0, 0.1])
+    """单组 4 请求复合自检：冷启动、整块 Prompt 保留末块、受限池惰性 LRU 淘汰与根块存活重命中。"""
+    prefix = [3, 5, 7, 11, 13, 17, 19, 23]  # 2 个满块：A0=[3,5,7,11], A1=[13,17,19,23]
+    requests = make_requests(
+        [
+            prefix + [29, 31],  # Req 0: 冷启动写满 A0、A1 -> 命中 0
+            prefix,  # Req 1: 完全相同整块 Prompt -> 保留末块算 logits，命中 4 并刷新 A0 LRU 次序
+            [
+                47,
+                53,
+                59,
+                61,
+                67,
+                71,
+                73,
+                79,
+                83,
+            ],  # Req 2: 占 3 块触发淘汰旧块 A1，A0 留存 -> 命中 0
+            prefix
+            + [89],  # Req 3: 命中存活根块 A0（4 Token），重算已淘汰的 A1 并再次触发淘汰
+        ],
+        [2, 2, 1, 1],
+    )
     for policy in (PrefillFirstConfig(), ChunkedPrefillConfig(4)):
+        # num_blocks=5（1 个 null block + 4 个可分配块）：恰好逼出局部 LRU 淘汰且不耗尽活跃块
         config = EngineConfig(
-            PagedCacheConfig(block_size=4),
+            PagedCacheConfig(block_size=4, num_blocks=5),
             batching_method=BatchingMethod.CONTINUOUS,
             scheduler_config=SchedulerConfig(
                 max_running_requests=1, batching_policy=policy
             ),
         )
-        disabled = run_scheduler(config, model, requests, -1, stop_on_eos=False)
+        disabled = run_scheduler(
+            config,
+            model,
+            requests,
+            -1,
+            stop_on_eos=False,
+            should_capture_first_token_logits=True,
+        )
         enabled = run_scheduler(
             config.with_kv_cache_config(
-                PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True)
+                PagedCacheConfig(
+                    block_size=4, num_blocks=5, is_prefix_caching_enabled=True
+                )
             ),
             model,
             requests,
             -1,
             stop_on_eos=False,
+            should_capture_first_token_logits=True,
         )
 
         assert [s.token_ids for s in enabled.sequences] == [
             s.token_ids for s in disabled.sequences
         ]
-        # 并发 1：后续请求入场时前序请求的 9 Token 公共前缀已写满 2 个块（8 Token）
-        assert [s.prefix_cache_hit_tokens for s in enabled.sequences] == [
-            0,
-            8,
-            8,
-        ]
+        assert disabled.first_token_logits is not None
+        assert enabled.first_token_logits is not None
+        for ref_logits, cand_logits in zip(
+            disabled.first_token_logits, enabled.first_token_logits
+        ):
+            assert torch.allclose(ref_logits, cand_logits, atol=1e-4)
+        assert [s.prefix_cache_hit_tokens for s in enabled.sequences] == [0, 4, 0, 4]
         assert _num_padded_prompt_tokens(enabled.events) < _num_padded_prompt_tokens(
             disabled.events
         )
         profile = enabled.memory.kv_cache.paged_cache
-        assert profile is not None and profile.prefix_cache_hit_tokens == 16
+        assert (
+            profile is not None
+            and profile.prefix_cache_hit_tokens == 8
+            and profile.prefix_cache_block_eviction_count == 2
+        )
 
-    print("prefix caching：前缀命中、Prefill 跳过与未启用时输出一致性检查通过")
+    print("prefix caching：前缀命中、末块保留、LRU 淘汰与输出一致性检查通过")
 
 
 def run_smoke_test():

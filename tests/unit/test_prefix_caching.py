@@ -380,3 +380,47 @@ def test_prefix_caching_with_fixed_batching_matches_serial(model):
     )
     # 第二波请求命中第一波写入的公共前缀块
     assert [s.prefix_cache_hit_tokens for s in result.sequences] == [0, 0, 8, 8]
+
+
+def test_same_middle_block_under_different_prefix_never_hits(model):
+    """不同历史上下文下的相同中间块：链式 block hash 不同，端到端调度绝不误命中。"""
+    same_second_block = [53, 59, 61, 67]
+    prompts = [
+        [2, 3, 5, 7] + same_second_block + [71],
+        [11, 13, 17, 19] + same_second_block + [73],
+    ]
+    budgets = [3, 3]
+    requests = make_requests(prompts, budgets)
+
+    result = run_paged(
+        model,
+        requests,
+        1,
+        policy=ChunkedPrefillConfig(4),
+        block_size=4,
+        is_prefix_caching_enabled=True,
+    )
+
+    assert [s.token_ids for s in result.sequences] == serial_outputs(
+        model, prompts, budgets
+    )
+    assert [s.prefix_cache_hit_tokens for s in result.sequences] == [0, 0]
+
+
+def test_paged_backend_retire_rejects_unreleased_blocks_when_idle(model):
+    from mini_infra.engine.paged_schedule_backend import PagedScheduleBackend
+
+    requests = make_requests([[1, 2, 3, 4, 5]], [2])
+    backend = PagedScheduleBackend(
+        model=model,
+        requests=requests,
+        max_running_requests=1,
+        paged_cache_config=PagedCacheConfig(block_size=4, is_prefix_caching_enabled=True),
+    )
+    assert backend.kv_cache_manager.allocate_slots(0, 5)
+    # 仍有活跃请求时（is_idle=False）不报错；RunningQueue 排空时若仍有未释放块则触发守恒断言
+    backend.retire((), is_idle=False)
+    with pytest.raises(AssertionError, match="num_used_blocks="):
+        backend.retire((), is_idle=True)
+    backend.kv_cache_manager.free(0)
+    backend.retire((), is_idle=True)
