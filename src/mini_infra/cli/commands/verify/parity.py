@@ -2,14 +2,15 @@
 
 包含 transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget /
 chunked-prefill / prefix-caching / paged-cache-logits / paged-cache-scheduler。
+各子命令的参数集合与默认值均以对应 execute_compare_* 函数签名为唯一真源。
 """
 
 import argparse
+import inspect
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from typing import Literal
 
-from mini_infra.model import (
-    DEFAULT_MODEL_ID,
-    DEFAULT_MODEL_REVISION,
-)
 from mini_infra.verification.parity.compare_batch_lockstep import (
     execute_compare_lockstep_batch,
 )
@@ -18,28 +19,16 @@ from mini_infra.verification.parity.compare_batch_scheduler import (
 )
 from mini_infra.verification.parity.compare_cache import execute_compare_cache
 from mini_infra.verification.parity.compare_chunked_prefill import (
-    DEFAULT_PROMPTS as DEFAULT_CHUNKED_PREFILL_PROMPTS,
-)
-from mini_infra.verification.parity.compare_chunked_prefill import (
     execute_compare_chunked_prefill,
 )
 from mini_infra.verification.parity.compare_paged_cache_logits import (
-    DEFAULT_PROMPTS as DEFAULT_PAGED_PROMPTS,
-)
-from mini_infra.verification.parity.compare_paged_cache_logits import (
     execute_compare_paged_logits,
-)
-from mini_infra.verification.parity.compare_paged_cache_scheduler import (
-    DEFAULT_PROMPTS as DEFAULT_PAGED_SCHEDULER_PROMPTS,
 )
 from mini_infra.verification.parity.compare_paged_cache_scheduler import (
     execute_compare_paged_cache_scheduler,
 )
 from mini_infra.verification.parity.compare_prefix_caching import (
     execute_compare_prefix_caching,
-)
-from mini_infra.verification.parity.compare_schedulers_token_budget import (
-    DEFAULT_PROMPTS as DEFAULT_SCHEDULERS_PROMPTS,
 )
 from mini_infra.verification.parity.compare_schedulers_token_budget import (
     execute_compare_schedulers,
@@ -49,527 +38,181 @@ from mini_infra.verification.parity.compare_transformers import (
 )
 
 
-def _add_transformers_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
-    parser.add_argument("--max-new-tokens", type=int, default=32)
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=0.25,
-        help="Logits 最大绝对误差阈值",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
+@dataclass(frozen=True)
+class _ArgSpec:
+    """单个标准 CLI 参数的解析规格（默认值从 execute_compare_* 签名提取）。"""
+
+    help: str
+    arg_type: type[int] | type[float] | None = None
+    choices: tuple[str, ...] | None = None
+    nargs: Literal["+"] | None = None
+
+    def register(
+        self,
+        parser: argparse.ArgumentParser,
+        dest: str,
+        default: object,
+        help_override: str | None = None,
+    ) -> None:
+        parser.add_argument(
+            f"--{dest.replace('_', '-')}",
+            type=self.arg_type,
+            choices=self.choices,
+            nargs=self.nargs,
+            default=default,
+            help=help_override or self.help,
+        )
 
 
-def _add_cache_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument("--prompt", default="请用一句话介绍 KV Cache。")
-    parser.add_argument("--max-new-tokens", type=int, default=32)
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=1e-4,
-        help="允许的最大 Logits 绝对误差",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
-
-
-def _add_lockstep_batch_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument("--prompt", default="用一句话解释固定批处理。")
-    parser.add_argument(
-        "--max-new-tokens", type=int, default=8, help="生成的最大 Token 数"
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=1e-4,
-        help="允许的最大 Logits 绝对误差",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
-
-
-def _add_scheduler_batch_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=8,
-        help="生成的最大 Token 数（至少为 2，默认: 8）",
-    )
-    parser.add_argument(
-        "--max-running-requests",
-        type=int,
-        default=2,
-        help="调度器最大并发请求数（默认: 2）",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
-
-
-def _add_paged_cache_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument(
-        "--prompts",
+_ARG_SPECS: Mapping[str, _ArgSpec] = {
+    "model": _ArgSpec(help="模型 ID 或本地目录（默认: %(default)s）"),
+    "revision": _ArgSpec(help="Hugging Face 模型版本（默认: %(default)s）"),
+    "prompt": _ArgSpec(help="单条测试 prompt（默认: %(default)s）"),
+    "prompts": _ArgSpec(
         nargs="+",
-        default=DEFAULT_PAGED_PROMPTS,
-        help="待测试的一条或多条 prompt",
-    )
-    parser.add_argument(
-        "--dtype",
+        help="待测试的一条或多条 prompt（默认使用内置对照集）",
+    ),
+    "dtype": _ArgSpec(
         choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=8,
-        help="生成的最大 Token 数（至少为 2，默认: 8）",
-    )
-    parser.add_argument(
-        "--block-size",
-        type=int,
-        default=16,
-        help="Paged KV Cache 物理块大小（默认: 16）",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=None,
-        help="允许的最大 Logits 绝对误差",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
-
-
-def _add_paged_cache_scheduler_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument(
-        "--prompts",
+        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断（默认: %(default)s）",
+    ),
+    "max_new_tokens": _ArgSpec(
+        arg_type=int,
+        help="生成的最大 Token 数（默认: %(default)s）",
+    ),
+    "logits_atol": _ArgSpec(
+        arg_type=float,
+        help="允许的最大 Logits 绝对误差（默认: %(default)s）",
+    ),
+    "block_size": _ArgSpec(
+        arg_type=int,
+        help="Paged KV Cache physical block 大小（默认: %(default)s）",
+    ),
+    "block_sizes": _ArgSpec(
+        arg_type=int,
         nargs="+",
-        default=DEFAULT_PAGED_SCHEDULER_PROMPTS,
-        help="待测试的一条或多条 prompt",
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=8,
-        help="生成的最大 Token 数（至少为 2，默认: 8）",
-    )
-    parser.add_argument(
-        "--block-sizes",
-        type=int,
-        nargs="+",
-        default=[4, 16],
-        help="Paged KV Cache 物理块大小列表（默认: [4, 16]）",
-    )
-    parser.add_argument(
-        "--max-running-requests",
-        type=int,
-        default=2,
-        help="调度器最大并发请求数（默认: 2）",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
+        help="Paged KV Cache physical block 大小列表（默认: %(default)s）",
+    ),
+    "max_running_requests": _ArgSpec(
+        arg_type=int,
+        help="scheduler 最大并发请求数（默认: %(default)s）",
+    ),
+    "token_budget": _ArgSpec(
+        arg_type=int,
+        help="单次 Prefill 的 padded token 预算（默认: %(default)s）",
+    ),
+    "output": _ArgSpec(help="可选 JSON 输出路径"),
+}
 
 
-def _add_schedulers_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument(
-        "--prompts",
-        nargs="+",
-        default=DEFAULT_SCHEDULERS_PROMPTS,
-        help="待测试的一条或多条 prompt",
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=8,
-        help="生成的最大 Token 数（至少为 2，默认: 8）",
-    )
-    parser.add_argument(
-        "--token-budget",
-        type=int,
-        default=64,
-        help="单次 Prefill 的 padded prompt token 预算（默认: 64）",
-    )
-    parser.add_argument(
-        "--block-size",
-        type=int,
-        default=16,
-        help="Paged KV Cache 物理块大小（默认: 16）",
-    )
-    parser.add_argument(
-        "--max-running-requests",
-        type=int,
-        default=4,
-        help="调度器最大并发请求数（默认: 4）",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
+@dataclass(frozen=True)
+class _ParityCommandSpec:
+    """单个 verify parity 子命令的声明。"""
+
+    name: str
+    help: str
+    runner: Callable[..., int]
+    help_overrides: Mapping[str, str] = field(default_factory=dict)
 
 
-def _add_chunked_prefill_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument(
-        "--prompts",
-        nargs="+",
-        default=DEFAULT_CHUNKED_PREFILL_PROMPTS,
-        help="待测试的一条或多条 prompt",
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=8,
-        help="生成的最大 Token 数（至少为 2，默认: 8）",
-    )
-    parser.add_argument(
-        "--token-budget",
-        type=int,
-        default=32,
-        help="单次 Prefill 的 padded token 预算（默认: 32）",
-    )
-    parser.add_argument(
-        "--block-size",
-        type=int,
-        default=16,
-        help="Paged KV Cache 物理块大小（默认: 16）",
-    )
-    parser.add_argument(
-        "--max-running-requests",
-        type=int,
-        default=4,
-        help="调度器最大并发请求数（默认: 4）",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=1e-4,
-        help="首 Token Logits 最大绝对误差阈值",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
+_DYNAMIC_ATOL_HELP = (
+    "允许的最大 Logits 绝对误差（默认: float32 为 1e-4，bfloat16 为 1.0）"
+)
+_DYNAMIC_ATOL_HELP = "允许的最大 Logits 绝对误差（默认: float32 为 1e-4，bfloat16 为 1.0）"
+
+_COMMANDS: tuple[_ParityCommandSpec, ...] = (
+    _ParityCommandSpec(
+        name="transformers",
+        help="与 Hugging Face Transformers 对齐",
+        runner=execute_compare_transformers,
+    ),
+    _ParityCommandSpec(
+        name="cache",
+        help="KV Cache 数值对齐",
+        runner=execute_compare_cache,
+    ),
+    _ParityCommandSpec(
+        name="batch-lockstep",
+        help="Lockstep 齐步批处理数值与请求隔离对齐",
+        runner=execute_compare_lockstep_batch,
+    ),
+    _ParityCommandSpec(
+        name="batch-scheduler",
+        help="Scheduler 批处理动态请求归属与输出一致性验证",
+        runner=execute_compare_scheduler_batch,
+    ),
+    _ParityCommandSpec(
+        name="schedulers-token-budget",
+        help="prefill-first 与 token-budget 两种迭代级调度策略的输出与轨迹对齐验证",
+        runner=execute_compare_schedulers,
+    ),
+    _ParityCommandSpec(
+        name="chunked-prefill",
+        help="token-budget 与 chunked-prefill 的输出一致性、首 Token Logits 误差与轨迹验证",
+        runner=execute_compare_chunked_prefill,
+        help_overrides={
+            "logits_atol": "首 Token Logits 最大绝对误差阈值（默认: %(default)s）",
+        },
+    ),
+    _ParityCommandSpec(
+        name="prefix-caching",
+        help="prefix caching 关闭 / 开启的输出一致性、首 Token Logits 误差与 Prefill 计算量对照",
+        runner=execute_compare_prefix_caching,
+        help_overrides={
+            "prompts": "自定义共享前缀 prompt（至少 2 条；默认运行内置 4 条多边界自然语言对照）",
+            "max_running_requests": (
+                "scheduler 最大并发请求数（默认: 1，后续请求入场时前序请求的公共前缀已写入 cached block）"
+            ),
+            "logits_atol": "首 Token Logits 最大绝对误差阈值（默认: float32 为 1e-4，bfloat16 为 1.0）",
+        },
+    ),
+    _ParityCommandSpec(
+        name="paged-cache-logits",
+        help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐",
+        runner=execute_compare_paged_logits,
+        help_overrides={"logits_atol": _DYNAMIC_ATOL_HELP},
+    ),
+    _ParityCommandSpec(
+        name="paged-cache-scheduler",
+        help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
+        runner=execute_compare_paged_cache_scheduler,
+    ),
+)
 
 
-def _add_prefix_caching_args(
-    parser: argparse.ArgumentParser,
-) -> argparse.ArgumentParser:
-    parser.add_argument("--model", default=DEFAULT_MODEL_ID, help="模型 ID 或本地目录")
-    parser.add_argument(
-        "--revision",
-        default=DEFAULT_MODEL_REVISION,
-        help="Hugging Face 模型版本",
-    )
-    parser.add_argument(
-        "--prompts",
-        nargs="+",
-        default=None,
-        help="自定义共享前缀 prompt（至少 2 条；默认运行内置 4 条多边界自然语言对照）",
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=("float32", "bfloat16"),
-        default="float32",
-        help="正确性验证默认使用 float32，避免低精度路径差异干扰判断",
-    )
-    parser.add_argument(
-        "--max-new-tokens",
-        type=int,
-        default=8,
-        help="生成的最大 Token 数（默认: 8）",
-    )
-    parser.add_argument(
-        "--token-budget",
-        type=int,
-        default=64,
-        help="chunked-prefill 单次 Prefill 的 padded token 预算（默认: 64）",
-    )
-    parser.add_argument(
-        "--block-size",
-        type=int,
-        default=16,
-        help="Paged KV Cache 物理块大小（默认: 16）",
-    )
-    parser.add_argument(
-        "--max-running-requests",
-        type=int,
-        default=1,
-        help="调度器最大并发请求数（默认: 1，后续请求入场时前序请求的公共前缀已写入 cached block）",
-    )
-    parser.add_argument(
-        "--logits-atol",
-        type=float,
-        default=None,
-        help="首 Token Logits 最大绝对误差阈值（默认: float32 为 1e-4，bfloat16 为 1.0）",
-    )
-    parser.add_argument("--output", help="可选 JSON 输出路径")
-    return parser
+def _register_command(
+    subparsers: argparse._SubParsersAction,
+    spec: _ParityCommandSpec,
+) -> None:
+    parser = subparsers.add_parser(spec.name, help=spec.help)
+    sig = inspect.signature(spec.runner)
+    param_names: list[str] = []
+    for name, param in sig.parameters.items():
+        if name not in _ARG_SPECS:
+            raise KeyError(
+                f"{spec.runner.__name__} 的参数 '{name}' 未在 _ARG_SPECS 中登记"
+            )
+        default = None if param.default is inspect.Parameter.empty else param.default
+        _ARG_SPECS[name].register(
+            parser,
+            dest=name,
+            default=default,
+            help_override=spec.help_overrides.get(name),
+        )
+        param_names.append(name)
+
+    bound_names = tuple(param_names)
+
+    def _handle(args: argparse.Namespace) -> int:
+        return spec.runner(**{name: getattr(args, name) for name in bound_names})
+
+    parser.set_defaults(func=_handle)
 
 
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """注册 parity 相关验证命令，直接挂载到 verify 下。"""
-    p_tf = subparsers.add_parser("transformers", help="与 Hugging Face Transformers 对齐")
-    _add_transformers_args(p_tf)
-    p_tf.set_defaults(func=_handle_transformers)
-
-    p_cache = subparsers.add_parser("cache", help="KV Cache 数值对齐")
-    _add_cache_args(p_cache)
-    p_cache.set_defaults(func=_handle_cache)
-
-    p_batch = subparsers.add_parser(
-        "batch-lockstep", help="Lockstep 齐步批处理数值与请求隔离对齐"
-    )
-    _add_lockstep_batch_args(p_batch)
-    p_batch.set_defaults(func=_handle_lockstep_batch)
-
-    p_cont = subparsers.add_parser(
-        "batch-scheduler", help="Scheduler 批处理动态请求归属与输出一致性验证"
-    )
-    _add_scheduler_batch_args(p_cont)
-    p_cont.set_defaults(func=_handle_scheduler_batch)
-
-    p_sched = subparsers.add_parser(
-        "schedulers-token-budget",
-        help="prefill-first 与 token-budget 两种迭代级调度策略的输出与轨迹对齐验证",
-    )
-    _add_schedulers_args(p_sched)
-    p_sched.set_defaults(func=_handle_schedulers)
-
-    p_chunked = subparsers.add_parser(
-        "chunked-prefill",
-        help="token-budget 与 chunked-prefill 的输出一致性、首 Token Logits 误差与轨迹验证",
-    )
-    _add_chunked_prefill_args(p_chunked)
-    p_chunked.set_defaults(func=_handle_chunked_prefill)
-
-    p_prefix = subparsers.add_parser(
-        "prefix-caching",
-        help="prefix caching 关闭 / 开启的输出一致性、首 Token Logits 误差与 Prefill 计算量对照",
-    )
-    _add_prefix_caching_args(p_prefix)
-    p_prefix.set_defaults(func=_handle_prefix_caching)
-
-    p_paged = subparsers.add_parser(
-        "paged-cache-logits",
-        help="Dense 与 Paged KV Cache 逐步 Logits 数值对齐",
-    )
-    _add_paged_cache_args(p_paged)
-    p_paged.set_defaults(func=_handle_paged_cache)
-
-    p_paged_sched = subparsers.add_parser(
-        "paged-cache-scheduler",
-        help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
-    )
-    _add_paged_cache_scheduler_args(p_paged_sched)
-    p_paged_sched.set_defaults(func=_handle_paged_cache_scheduler)
+    for spec in _COMMANDS:
+        _register_command(subparsers, spec)
 
 
-def _handle_transformers(args: argparse.Namespace) -> int:
-    return execute_compare_transformers(
-        model=args.model,
-        revision=args.revision,
-        prompt=args.prompt,
-        max_new_tokens=args.max_new_tokens,
-        logits_atol=args.logits_atol,
-        output=args.output,
-    )
-
-
-def _handle_cache(args: argparse.Namespace) -> int:
-    return execute_compare_cache(
-        model=args.model,
-        revision=args.revision,
-        prompt=args.prompt,
-        max_new_tokens=args.max_new_tokens,
-        dtype=args.dtype,
-        logits_atol=args.logits_atol,
-        output=args.output,
-    )
-
-
-def _handle_lockstep_batch(args: argparse.Namespace) -> int:
-    return execute_compare_lockstep_batch(
-        model=args.model,
-        revision=args.revision,
-        prompt=args.prompt,
-        max_new_tokens=args.max_new_tokens,
-        dtype=args.dtype,
-        logits_atol=args.logits_atol,
-        output=args.output,
-    )
-
-
-def _handle_scheduler_batch(args: argparse.Namespace) -> int:
-    return execute_compare_scheduler_batch(
-        model=args.model,
-        revision=args.revision,
-        dtype=args.dtype,
-        max_new_tokens=args.max_new_tokens,
-        max_running_requests=args.max_running_requests,
-        output=args.output,
-    )
-
-
-def _handle_schedulers(args: argparse.Namespace) -> int:
-    return execute_compare_schedulers(
-        model=args.model,
-        revision=args.revision,
-        prompts=args.prompts,
-        max_new_tokens=args.max_new_tokens,
-        token_budget=args.token_budget,
-        block_size=args.block_size,
-        max_running_requests=args.max_running_requests,
-        dtype=args.dtype,
-        output=args.output,
-    )
-
-
-def _handle_chunked_prefill(args: argparse.Namespace) -> int:
-    return execute_compare_chunked_prefill(
-        model=args.model,
-        revision=args.revision,
-        prompts=args.prompts,
-        max_new_tokens=args.max_new_tokens,
-        token_budget=args.token_budget,
-        block_size=args.block_size,
-        max_running_requests=args.max_running_requests,
-        dtype=args.dtype,
-        logits_atol=args.logits_atol,
-        output=args.output,
-    )
-
-
-def _handle_prefix_caching(args: argparse.Namespace) -> int:
-    return execute_compare_prefix_caching(
-        model=args.model,
-        revision=args.revision,
-        prompts=args.prompts,
-        max_new_tokens=args.max_new_tokens,
-        token_budget=args.token_budget,
-        block_size=args.block_size,
-        max_running_requests=args.max_running_requests,
-        dtype=args.dtype,
-        logits_atol=args.logits_atol,
-        output=args.output,
-    )
-
-
-def _handle_paged_cache(args: argparse.Namespace) -> int:
-    return execute_compare_paged_logits(
-        model=args.model,
-        revision=args.revision,
-        prompts=args.prompts,
-        max_new_tokens=args.max_new_tokens,
-        block_size=args.block_size,
-        dtype=args.dtype,
-        logits_atol=args.logits_atol,
-        output=args.output,
-    )
-
-
-def _handle_paged_cache_scheduler(args: argparse.Namespace) -> int:
-    return execute_compare_paged_cache_scheduler(
-        model=args.model,
-        revision=args.revision,
-        prompts=args.prompts,
-        max_new_tokens=args.max_new_tokens,
-        block_sizes=args.block_sizes,
-        max_running_requests=args.max_running_requests,
-        dtype=args.dtype,
-        output=args.output,
-    )
+__all__ = ["register_parser"]
