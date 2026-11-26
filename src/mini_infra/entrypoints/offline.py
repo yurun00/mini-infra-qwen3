@@ -23,6 +23,7 @@ from mini_infra.engine.preprocessing import (
 )
 from mini_infra.engine.results import (
     GenerationResult,
+    LockstepResult,
     ScheduleResult,
     merge_serial_generation_results,
 )
@@ -92,7 +93,7 @@ def _dispatch_lockstep(
     has_uniform_prompt_len: bool,
     budgets: Sequence[int],
     opts: GenerationOptions,
-) -> GenerationResult:
+) -> LockstepResult:
     """以齐步（Lockstep）循环执行（支持有/无 KV Cache、Profile、Logits 捕获等）。"""
     return run_lockstep(
         config=config,
@@ -116,15 +117,16 @@ def _dispatch_serial_baseline(
     token_sequences: Sequence[Sequence[int]],
     budgets: Sequence[int],
     opts: GenerationOptions,
-) -> GenerationResult:
+) -> LockstepResult:
     """按顺序逐个执行请求（串行 baseline 模式）。"""
     results = [
-        generate(
+        _dispatch_lockstep(
             config,
             model,
-            seq,
-            budget,
-            options=opts,
+            (seq,),
+            has_uniform_prompt_len=True,
+            budgets=(budget,),
+            opts=opts,
         )
         for seq, budget in zip(token_sequences, budgets)
     ]
@@ -154,7 +156,6 @@ def _dispatch_continuous(
 
 __all__ = [
     "GenerationOptions",
-    "GenerationResult",
     "PromptInput",
     "generate",
 ]

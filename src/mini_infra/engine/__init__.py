@@ -20,17 +20,19 @@ from mini_infra.engine.config import (
 from mini_infra.engine.lockstep_loop import LockstepState, run_lockstep
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
+    ExecutionMetrics,
     GenerationTrace,
     KVCacheProfile,
+    LockstepMetrics,
     MemoryProfile,
     PagedCacheProfile,
     RequestAggregatedMetrics,
     ScheduleEvent,
     ScheduleMetrics,
-    StepAggregatedMetrics,
     build_memory_profile,
+    compute_execution_metrics,
+    compute_lockstep_metrics,
     compute_request_aggregated_metrics,
-    compute_step_aggregated_metrics,
     summarize_schedule,
 )
 from mini_infra.engine.preprocessing import (
@@ -38,9 +40,10 @@ from mini_infra.engine.preprocessing import (
     normalize_token_sequences,
 )
 from mini_infra.engine.results import (
-    AggregationOptions,
     GenerationResult,
+    LockstepResult,
     ScheduleResult,
+    SerialMergeOptions,
     merge_serial_generation_results,
     pad_output_tokens,
 )
@@ -51,18 +54,20 @@ from mini_infra.engine.tokenizer import (
 )
 
 __all__ = [
-    "AggregationOptions",
     "BatchScheduleInfo",
     "BatchingMethod",
     "BatchingPolicy",
     "ChunkedPrefillConfig",
     "DenseCacheConfig",
     "EngineConfig",
+    "ExecutionMetrics",
     "FeatureFlag",
     "GenerationResult",
     "GenerationTrace",
     "KVCacheConfig",
     "KVCacheProfile",
+    "LockstepMetrics",
+    "LockstepResult",
     "LockstepState",
     "MemoryProfile",
     "NoCacheConfig",
@@ -76,11 +81,12 @@ __all__ = [
     "ScheduleMetrics",
     "ScheduleResult",
     "SchedulerConfig",
-    "StepAggregatedMetrics",
+    "SerialMergeOptions",
     "TokenBudgetConfig",
     "build_memory_profile",
+    "compute_execution_metrics",
+    "compute_lockstep_metrics",
     "compute_request_aggregated_metrics",
-    "compute_step_aggregated_metrics",
     "merge_serial_generation_results",
     "normalize_budgets",
     "normalize_token_sequences",

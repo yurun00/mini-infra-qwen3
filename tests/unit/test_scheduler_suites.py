@@ -296,11 +296,11 @@ def test_compute_comparisons():
     from mini_infra.bench.stats import DistributionStats
     from mini_infra.core.block_manager import PagedCacheConfig
     from mini_infra.engine.metrics import (
+        ExecutionMetrics,
         KVCacheProfile,
         MemoryProfile,
         PagedCacheProfile,
         ScheduleMetrics,
-        StepAggregatedMetrics,
     )
 
     def dist(val: float) -> DistributionStats:
@@ -352,11 +352,13 @@ def test_compute_comparisons():
                 paged_cache=paged_prof,
             )
         )
-        step_metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
+        exec_metrics: ExecutionMetrics[DistributionStats] = ExecutionMetrics(
             e2e_wall_ms=dist(makespan),
             e2e_model_ms=dist(makespan * 0.9),
             throughput_tok_s=dist(tok_s),
             throughput_req_s=dist(10.0),
+            effective_prompt_tok_s=dist(1000.0),
+            padded_prompt_tok_s=dist(1000.0),
         )
         sched_metrics: ScheduleMetrics[DistributionStats] = ScheduleMetrics(
             request_count=8,
@@ -401,7 +403,7 @@ def test_compute_comparisons():
         return SchedulerCaseResult(
             key=key,
             workload=workload,
-            metrics=step_metrics,
+            metrics=exec_metrics,
             schedule_metrics=sched_metrics,
             memory=mem,
         )

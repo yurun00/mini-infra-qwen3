@@ -174,7 +174,7 @@ class BaseCaseRecord(_RecordModel):
     聚合了：
     1. `bench.spec.common.ResolvedWorkloadSpec` 的通用负载描述
        （engine_config, num_total_requests, prompt_len, max_new_tokens, repeats, warmup）
-    2. `engine.metrics.StepAggregatedMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
+    2. `engine.metrics.ExecutionMetrics[DistributionStats]` 的跨场景公共吞吐与耗时指标
     3. 叶子画像组件（memory, packing, efficiency）
     """
 

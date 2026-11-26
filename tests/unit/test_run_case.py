@@ -112,6 +112,19 @@ def test_run_case_on_cpu():
     once_res = run_case_once(model, torch.device("cpu"), case_scalar)
     assert once_res.metrics.throughput_tok_s > 0
 
+    # 验证 run_case_once 对非 Lockstep 配置快速失败（跑模型前报错）
+    from mini_infra.core import PagedCacheConfig
+    from mini_infra.engine import BatchingMethod
+
+    bad_case = BenchmarkCase(
+        profile=WorkloadProfile.from_requests("bad", (req1,)),
+        batching_method=BatchingMethod.CONTINUOUS,
+        kv_cache_config=PagedCacheConfig(block_size=4, num_blocks=8),
+        engine="scheduler",
+    )
+    with pytest.raises(ValueError, match="Lockstep 评测不支持调度引擎配置"):
+        run_case_once(model, torch.device("cpu"), bad_case)
+
     res_scalar = run_case(
         model=model,
         device=torch.device("cpu"),

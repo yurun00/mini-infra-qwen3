@@ -25,9 +25,10 @@ from mini_infra.engine.metrics import (
     BatchScheduleInfo,
     GenerationTrace,
     build_memory_profile,
-    compute_step_aggregated_metrics,
+    compute_execution_metrics,
+    compute_lockstep_metrics,
 )
-from mini_infra.engine.results import GenerationResult
+from mini_infra.engine.results import LockstepResult
 from mini_infra.profiling import profile_scope
 from mini_infra.worker import LockstepRunner
 
@@ -146,11 +147,11 @@ def run_lockstep(
     profile: bool = False,
     top_kernels: int = 10,
     tensorboard_options: Any = None,
-) -> GenerationResult:
+) -> LockstepResult:
     """执行齐步（Lockstep）自回归生成迭代循环（所有请求同时开始，含 step 0 Prefill 与后续 Decode 步）。
 
     内部驱动纯 CPU LockstepState 状态机，委托 LockstepRunner 在 data plane 自治流转 GPU 输入与 KV Cache，
-    直接构建并返回由核心共享值对象组成的 GenerationResult。
+    直接构建并返回 LockstepResult。
     """
     kv_cache_config = config.kv_cache_config
     if isinstance(kv_cache_config, PagedCacheConfig):
@@ -250,15 +251,16 @@ def run_lockstep(
     ]
     cache_bytes = batch.cache_bytes if use_cache else 0
 
-    metrics = compute_step_aggregated_metrics(
-        step_latencies_ms=step_latencies_ms,
+    lockstep_metrics = compute_lockstep_metrics(step_latencies_ms)
+    metrics = compute_execution_metrics(
         e2e_wall_ms=e2e_wall_ms,
         e2e_model_ms=e2e_model_ms,
-        total_tokens=valid_tokens,
-        batch_size=state.batch_size,
+        num_output_tokens=valid_tokens,
+        num_requests=state.batch_size,
         is_cuda=is_cuda,
         num_prompt_tokens=sum(state.prompt_lengths),
         num_padded_prompt_tokens=state.batch_size * state.padded_prompt_length,
+        prefill_ms=lockstep_metrics.ttft_ms,
     )
     memory = build_memory_profile(
         baseline_allocated_bytes=baseline_allocated_bytes,
@@ -273,9 +275,10 @@ def run_lockstep(
         logits_trace=logits_trace,
     )
 
-    return GenerationResult(
+    return LockstepResult(
         sequences=sequences,
         metrics=metrics,
+        lockstep_metrics=lockstep_metrics,
         memory=memory,
         trace=trace,
         batch_size=state.batch_size,

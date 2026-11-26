@@ -34,7 +34,8 @@ from mini_infra.bench.efficiency import HardwarePeakSpecs, ModelCostProfile
 from mini_infra.bench.lockstep.results import (
     LockstepCaseResult,
 )
-from mini_infra.engine import GenerationResult
+from mini_infra.core import PagedCacheConfig
+from mini_infra.engine import BatchingMethod, LockstepResult
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.profiling import TensorBoardOptions, merge_op_latency_breakdowns
 
@@ -94,8 +95,14 @@ def run_case_once(
     case: BenchmarkCase,
     options: GenerationOptions | None = None,
     prompts: Sequence[Sequence[int]] | None = None,
-) -> GenerationResult:
+) -> LockstepResult:
     """执行单一 BenchmarkCase 的单次生成运行（原子操作）。"""
+    if case.batching_method is BatchingMethod.CONTINUOUS or isinstance(
+        case.kv_cache_config, PagedCacheConfig
+    ):
+        raise ValueError(
+            f"Lockstep 评测不支持调度引擎配置 {case.engine_config}，请改用 scheduler 评测引擎"
+        )
     if prompts is None:
         requests = case.profile.to_payload(model.config.vocab_size)
         resolved_prompts = [list(r.token_ids) for r in requests]
@@ -114,6 +121,8 @@ def run_case_once(
         max_new_tokens,
         options=opts,
     )
+    if not isinstance(res, LockstepResult):
+        raise TypeError(f"期望 LockstepResult，实际得到 {type(res).__name__}")
     gc.collect()
     if device.type == "cuda":
         torch.cuda.empty_cache()
