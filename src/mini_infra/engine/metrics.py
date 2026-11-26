@@ -306,6 +306,14 @@ class LockstepMetrics(Generic[_MetricT]):
     p50_tpot_ms: _MetricT
     p95_tpot_ms: _MetricT
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ttft_ms": _serialize_metric(self.ttft_ms),
+            "tpot_ms": _serialize_metric(self.mean_tpot_ms),
+            "p50_tpot_ms": _serialize_metric(self.p50_tpot_ms),
+            "p95_tpot_ms": _serialize_metric(self.p95_tpot_ms),
+        }
+
 
 def compute_lockstep_metrics(
     step_latencies_ms: Sequence[float],

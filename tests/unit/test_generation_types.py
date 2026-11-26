@@ -406,8 +406,6 @@ def test_merge_serial_generation_results():
     assert merged.trace.num_active_tokens_per_step == [1, 1, 1, 1, 1, 1, 1]
 
 
-
-
 def test_merge_serial_generation_results_with_options():
     """验证 merge_serial_generation_results 空序列校验及三域 SerialMergeOptions 合并正确性。"""
     with pytest.raises(ValueError, match="results 不能为空"):

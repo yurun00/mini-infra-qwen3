@@ -186,11 +186,11 @@ def records_to_wide_df(
     extra_cols: dict[str, Any] = {}
 
     # 1. 跨边界对齐：
-    #    - Lockstep 的 ttft_ms <-> Scheduler 的 schedule.ttft_ms_p50
-    #    - Lockstep 的 tpot_ms <-> Scheduler 的 schedule.itl_ms_p50
-    for target_prefix, sched_prefix in (
-        ("ttft_ms", "schedule.ttft_ms_p50"),
-        ("tpot_ms", "schedule.itl_ms_p50"),
+    #    - Lockstep 的 lockstep.ttft_ms <-> Scheduler 的 schedule.ttft_ms_p50 -> ttft_ms.*
+    #    - Lockstep 的 lockstep.tpot_ms <-> Scheduler 的 schedule.itl_ms_p50  -> tpot_ms.*
+    for target_prefix, lock_prefix, sched_prefix in (
+        ("ttft_ms", "lockstep.ttft_ms", "schedule.ttft_ms_p50"),
+        ("tpot_ms", "lockstep.tpot_ms", "schedule.itl_ms_p50"),
     ):
         for stat in (
             "median",
@@ -203,11 +203,16 @@ def records_to_wide_df(
             "max",
         ):
             target_col = f"{target_prefix}.{stat}"
+            lock_col = f"{lock_prefix}.{stat}"
             sched_col = f"{sched_prefix}.{stat}"
-            if target_col not in wide_df.columns and sched_col in wide_df.columns:
+            if lock_col in wide_df.columns and sched_col in wide_df.columns:
+                extra_cols[target_col] = wide_df[lock_col].combine_first(
+                    wide_df[sched_col]
+                )
+            elif lock_col in wide_df.columns:
+                extra_cols[target_col] = wide_df[lock_col]
+            elif sched_col in wide_df.columns:
                 extra_cols[target_col] = wide_df[sched_col]
-            elif target_col in wide_df.columns and sched_col in wide_df.columns:
-                wide_df[target_col] = wide_df[target_col].fillna(wide_df[sched_col])
 
     # 2. 将 Scheduler 专属 schedule.<metric>.* 提升至顶层 <metric>.* 供 MetricPlotSpec 统一索引
     sched_exclusive_keys = (

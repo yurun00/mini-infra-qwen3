@@ -63,8 +63,6 @@ class LockstepCaseResult:
             "num_total_requests": self.workload.num_total_requests,
             "repeats": self.repeats,
             "warmup": self.warmup,
-            "ttft_ms": self.lockstep_metrics.ttft_ms.to_dict(),
-            "tpot_ms": self.lockstep_metrics.mean_tpot_ms.to_dict(),
             "e2e_wall_ms": self.metrics.e2e_wall_ms.to_dict(),
             "e2e_model_ms": self.metrics.e2e_model_ms.to_dict(),
             "throughput_tok_s": self.metrics.throughput_tok_s.to_dict(),
@@ -77,6 +75,7 @@ class LockstepCaseResult:
             "effective_prompt_tok_s": self.metrics.effective_prompt_tok_s.to_dict(),
             "padded_prompt_tok_s": self.metrics.padded_prompt_tok_s.to_dict(),
             "memory": self.memory.to_dict(),
+            "lockstep": self.lockstep_metrics.to_dict(),
         }
         if self.scale is not None:
             rec["scale"] = self.scale

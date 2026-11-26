@@ -171,8 +171,10 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert rec["num_total_requests"] == 2
     assert rec["prompt_len"] == [16, 32]
     assert rec["max_new_tokens"] == 16
-    assert rec["ttft_ms"]["median"] == 10.0
-    assert rec["tpot_ms"]["median"] == 10.0
+    assert rec["lockstep"]["ttft_ms"]["median"] == 10.0
+    assert rec["lockstep"]["tpot_ms"]["median"] == 10.0
+    assert rec["lockstep"]["p50_tpot_ms"]["median"] == 10.0
+    assert rec["lockstep"]["p95_tpot_ms"]["median"] == 10.0
     assert rec["memory"]["peak_allocated_mb"] == 700.0
     assert rec["memory"]["dynamic_peak_mb"] == 100.0
     assert rec["memory"]["fragmentation_mb"] == 100.0

@@ -10,12 +10,13 @@ pydantic.BaseModel
       │    ├── MemoryProfileRecord         <-> engine.metrics.MemoryProfile
       │    ├── PackingInfoRecord           <-> engine.metrics.BatchScheduleInfo[DistributionStats]
       │    ├── EfficiencyMetricsRecord     <-> bench.efficiency.EfficiencyMetrics
+      │    ├── LockstepMetricsRecord       <-> engine.metrics.LockstepMetrics[DistributionStats]
       │    └── ScheduleMetricsRecord       <-> engine.metrics.ScheduleMetrics[DistributionStats]
       │
       ├── 第二层：单用例记录层 (Case Level)
       │    └── BaseCaseRecord              # 共享 ResolvedWorkloadSpec + 公共指标 + 叶子画像
       │         ├── LockstepCaseRecord     <-> bench.lockstep.results.LockstepCaseResult
-      │         │                              (扩展 ttft_ms, tpot_ms, op_latency_breakdown)
+      │         │                              (扩展 lockstep, op_latency_breakdown)
       │         └── SchedulerCaseRecord    <-> bench.scheduler.results.SchedulerCaseResult
       │                                        (扩展 workload_id, max_running_requests,
       │                                         arrival_times_ms, schedule, paged_cache_config 等)
@@ -123,6 +124,16 @@ class EfficiencyMetricsRecord(_RecordModel):
     decode_mbu: float | None = None
 
 
+class LockstepMetricsRecord(_RecordModel):
+    """Lockstep 专属按步统计延迟 Schema（对应 `engine.metrics.LockstepMetrics[DistributionStats]`）。"""
+
+    ttft_ms: DistributionStatsRecord
+    tpot_ms: DistributionStatsRecord
+    # 单轮内 Decode 步分位数的跨轮分布：早于 lockstep 嵌套迁移的历史记录无此字段，缺省为 None（不伪造回填）
+    p50_tpot_ms: DistributionStatsRecord | None = None
+    p95_tpot_ms: DistributionStatsRecord | None = None
+
+
 class RequestAggregatedMetricsRecord(_RecordModel):
     """请求级聚合指标 Schema（对应 `engine.metrics.RequestAggregatedMetrics[DistributionStats]`，全量与具名组共用）。"""
 
@@ -201,8 +212,7 @@ class BaseCaseRecord(_RecordModel):
 class LockstepCaseRecord(BaseCaseRecord):
     """Lockstep 单用例评测结果记录（对应 `bench.lockstep.results.LockstepCaseResult.to_record_dict()`）。"""
 
-    ttft_ms: DistributionStatsRecord | None = None
-    tpot_ms: DistributionStatsRecord | None = None
+    lockstep: LockstepMetricsRecord
     op_latency_breakdown: dict[str, Any] | None = None
 
 
@@ -314,6 +324,7 @@ __all__ = [
     "KVCacheProfileRecord",
     "LockstepBenchmarkRecord",
     "LockstepCaseRecord",
+    "LockstepMetricsRecord",
     "MemoryProfileRecord",
     "PackingInfoRecord",
     "PagedCacheConfigRecord",

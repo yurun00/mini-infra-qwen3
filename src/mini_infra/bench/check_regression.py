@@ -77,11 +77,13 @@ def compare(
         f"{'case (req/prompt/out)':<26}{'指标':<6}{'参考(ms)':>10}{'当前(ms)':>10}{'变化':>9}  结果"
     )
     for key in common:
+        ref_lockstep = ref[key]["lockstep"]
+        cand_lockstep = cand[key]["lockstep"]
         for metric, name in METRICS:
-            r, c = ref[key][metric]["median"], cand[key][metric]["median"]
+            r, c = ref_lockstep[metric]["median"], cand_lockstep[metric]["median"]
             change = (c - r) / r if r else 0.0
             # 噪声保护：变化需同时超过阈值和参考 std 的 3 倍，避免噪声误报
-            noise = 3 * max(ref[key][metric]["std"], cand[key][metric]["std"])
+            noise = 3 * max(ref_lockstep[metric]["std"], cand_lockstep[metric]["std"])
             bad = change > threshold and (c - r) > noise
             regressed |= bad
             status = "❌ 回归" if bad else ("✅ 提升" if change < -threshold else "ok")

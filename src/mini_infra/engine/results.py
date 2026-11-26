@@ -252,18 +252,6 @@ def merge_serial_generation_results(
         throughput_req_s=options._get_merge_fn("metrics", "throughput_req_s")(
             [r.metrics.throughput_req_s for r in results]
         ),
-        effective_prompt_tok_s=options._get_merge_fn("metrics", "effective_prompt_tok_s")(
-            [r.metrics.effective_prompt_tok_s for r in results]
-        ),
-        padded_prompt_tok_s=options._get_merge_fn("metrics", "padded_prompt_tok_s")(
-            [r.metrics.padded_prompt_tok_s for r in results]
-        ),
-        throughput_tok_s=options._get_merge_fn("metrics", "throughput_tok_s")(
-            [r.metrics.throughput_tok_s for r in results]
-        ),
-        throughput_req_s=options._get_merge_fn("metrics", "throughput_req_s")(
-            [r.metrics.throughput_req_s for r in results]
-        ),
         effective_prompt_tok_s=options._get_merge_fn(
             "metrics", "effective_prompt_tok_s"
         )([r.metrics.effective_prompt_tok_s for r in results]),
