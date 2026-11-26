@@ -28,7 +28,7 @@ from mini_infra.engine.metrics import (
 from mini_infra.engine.results import (
     AggregationOptions,
     GenerationResult,
-    aggregate_generation_results,
+    merge_serial_generation_results,
 )
 from mini_infra.entrypoints.types import GenerationOptions
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
@@ -272,8 +272,8 @@ def test_compute_step_aggregated_metrics():
     assert metrics.gpu_time_ratio == pytest.approx(30.0 / 35.0)
 
 
-def test_aggregate_generation_results():
-    """验证多 Run 结果聚合逻辑。"""
+def test_merge_serial_generation_results():
+    """验证串行多请求 GenerationResult 合并逻辑。"""
     res1 = GenerationResult(
         sequences=[
             SequenceOutput(
@@ -344,7 +344,7 @@ def test_aggregate_generation_results():
         batch_size=1,
     )
 
-    merged = aggregate_generation_results([res1, res2])
+    merged = merge_serial_generation_results([res1, res2])
 
     # 1. 验证 Sequences 与 Padded Tokens
     assert merged.batch_size == 2
@@ -379,8 +379,8 @@ def test_aggregate_generation_results():
     assert merged.trace.num_active_tokens_per_step == [1, 1, 1, 1, 1, 1, 1]
 
 
-def test_aggregate_generation_results_with_options():
-    """验证 aggregate_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
+def test_merge_serial_generation_results_with_options():
+    """验证 merge_serial_generation_results 在各种 AggregationOptions 下的合并正确性。"""
     res1 = GenerationResult(
         sequences=[
             SequenceOutput(
@@ -450,7 +450,7 @@ def test_aggregate_generation_results_with_options():
 
     # 1. 域级别配置：metrics="mean", memory="min"
     opt_mean = AggregationOptions(metrics="mean", memory="min")
-    merged_mean = aggregate_generation_results([res1, res2], options=opt_mean)
+    merged_mean = merge_serial_generation_results([res1, res2], options=opt_mean)
     assert merged_mean.metrics.e2e_wall_ms == 30.0  # (20 + 40) / 2
     assert merged_mean.metrics.e2e_model_ms == 27.0  # (18 + 36) / 2
     assert merged_mean.metrics.ttft_ms == 15.0  # (10 + 20) / 2
@@ -466,7 +466,7 @@ def test_aggregate_generation_results_with_options():
 
     # 2. 字段级精确覆盖：metrics 默认为 sum，但 ttft_ms="min", peak_allocated_mb="mean"
     opt_field = AggregationOptions(metrics="sum", ttft_ms="min", peak_allocated_mb="mean")
-    merged_field = aggregate_generation_results([res1, res2], options=opt_field)
+    merged_field = merge_serial_generation_results([res1, res2], options=opt_field)
     assert merged_field.metrics.e2e_wall_ms == 60.0  # sum: 20 + 40
     assert merged_field.metrics.e2e_model_ms == 54.0  # sum: 18 + 36
     assert merged_field.metrics.gpu_time_ratio == pytest.approx(
@@ -478,7 +478,7 @@ def test_aggregate_generation_results_with_options():
 
     # 3. 验证 gpu_time_ratio 完全不受 e2e 时间聚合函数影响
     opt_diff = AggregationOptions(e2e_wall_ms="max", e2e_model_ms="min")
-    merged_diff = aggregate_generation_results([res1, res2], options=opt_diff)
+    merged_diff = merge_serial_generation_results([res1, res2], options=opt_diff)
     assert merged_diff.metrics.e2e_wall_ms == 40.0  # max(20, 40)
     assert merged_diff.metrics.e2e_model_ms == 18.0  # min(18, 36)
     # 虽然聚合后的 model/wall 是 18/40=0.45，但 gpu_time_ratio 客观反映总耗时之比 (18+36)/(20+40)=0.9
@@ -486,12 +486,12 @@ def test_aggregate_generation_results_with_options():
 
     # 4. 自定义 Callable 聚合函数
     opt_custom = AggregationOptions(ttft_ms=lambda vals: max(vals) * 2.0)
-    merged_custom = aggregate_generation_results([res1, res2], options=opt_custom)
+    merged_custom = merge_serial_generation_results([res1, res2], options=opt_custom)
     assert merged_custom.metrics.ttft_ms == 40.0  # max(10, 20) * 2.0
 
     # 5. 非法聚合函数字符串引发 ValueError
     with pytest.raises(ValueError, match="Unsupported aggregate function"):
-        _ = aggregate_generation_results(
+        _ = merge_serial_generation_results(
             [res1, res2], options=AggregationOptions(metrics="unknown_fn")
         )  # type: ignore[arg-type]
 

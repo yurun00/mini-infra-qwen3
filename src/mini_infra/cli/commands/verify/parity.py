@@ -118,7 +118,6 @@ class _ParityCommandSpec:
 _DYNAMIC_ATOL_HELP = (
     "允许的最大 Logits 绝对误差（默认: float32 为 1e-4，bfloat16 为 1.0）"
 )
-_DYNAMIC_ATOL_HELP = "允许的最大 Logits 绝对误差（默认: float32 为 1e-4，bfloat16 为 1.0）"
 
 _COMMANDS: tuple[_ParityCommandSpec, ...] = (
     _ParityCommandSpec(

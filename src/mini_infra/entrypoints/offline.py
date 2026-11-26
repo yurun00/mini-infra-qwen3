@@ -24,7 +24,7 @@ from mini_infra.engine.preprocessing import (
 from mini_infra.engine.results import (
     GenerationResult,
     ScheduleResult,
-    aggregate_generation_results,
+    merge_serial_generation_results,
 )
 from mini_infra.engine.scheduler_loop import run_scheduler
 from mini_infra.entrypoints.types import GenerationOptions, PromptInput
@@ -118,7 +118,7 @@ def _dispatch_serial_baseline(
     opts: GenerationOptions,
 ) -> GenerationResult:
     """按顺序逐个执行请求（串行 baseline 模式）。"""
-    runs = [
+    results = [
         generate(
             config,
             model,
@@ -128,7 +128,7 @@ def _dispatch_serial_baseline(
         )
         for seq, budget in zip(token_sequences, budgets)
     ]
-    return aggregate_generation_results(runs)
+    return merge_serial_generation_results(results)
 
 
 def _dispatch_continuous(

@@ -1,4 +1,4 @@
-"""生成结果容器、输出对齐与多轮结果聚合。"""
+"""生成结果容器、输出对齐与串行结果合并。"""
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -184,21 +184,21 @@ class AggregationOptions:
         return _resolve_agg_fn(domain_default)
 
 
-def aggregate_generation_results(
-    runs: list[GenerationResult],
+def merge_serial_generation_results(
+    results: Sequence[GenerationResult],
     options: AggregationOptions | None = None,
 ) -> GenerationResult:
-    """把各运行结果聚合为一个 GenerationResult。"""
+    """将串行逐条执行的多个 GenerationResult 合并为单个多请求 GenerationResult。"""
     if options is None:
         options = AggregationOptions()
 
     sequences: list[SequenceOutput] = []
-    request_counter = 0
-    for run in runs:
-        for seq in run.sequences:
+    next_request_idx = 0
+    for res in results:
+        for seq in res.sequences:
             sequences.append(
                 SequenceOutput(
-                    request_idx=request_counter,
+                    request_idx=next_request_idx,
                     token_ids=seq.token_ids,
                     prompt_len=seq.prompt_len,
                     output_len=seq.output_len,
@@ -207,27 +207,29 @@ def aggregate_generation_results(
                     prefix_cache_hit_tokens=seq.prefix_cache_hit_tokens,
                 )
             )
-            request_counter += 1
+            next_request_idx += 1
 
     total_requests = len(sequences)
-    step_latencies = [x for run in runs for x in run.trace.step_latencies_ms]
-    num_active_tokens = [x for run in runs for x in run.trace.num_active_tokens_per_step]
+    step_latencies = [x for res in results for x in res.trace.step_latencies_ms]
+    num_active_tokens = [
+        x for res in results for x in res.trace.num_active_tokens_per_step
+    ]
 
     e2e_wall_ms = options._get_agg_fn("metrics", "e2e_wall_ms")(
-        [r.metrics.e2e_wall_ms for r in runs]
+        [r.metrics.e2e_wall_ms for r in results]
     )
     e2e_model_ms = options._get_agg_fn("metrics", "e2e_model_ms")(
-        [r.metrics.e2e_model_ms for r in runs]
+        [r.metrics.e2e_model_ms for r in results]
     )
-    ttft_vals = [r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]
+    ttft_vals = [r.metrics.ttft_ms for r in results if r.metrics.ttft_ms is not None]
     mean_tpot_vals = [
-        r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None
+        r.metrics.mean_tpot_ms for r in results if r.metrics.mean_tpot_ms is not None
     ]
     p50_tpot_vals = [
-        r.metrics.p50_tpot_ms for r in runs if r.metrics.p50_tpot_ms is not None
+        r.metrics.p50_tpot_ms for r in results if r.metrics.p50_tpot_ms is not None
     ]
     p95_tpot_vals = [
-        r.metrics.p95_tpot_ms for r in runs if r.metrics.p95_tpot_ms is not None
+        r.metrics.p95_tpot_ms for r in results if r.metrics.p95_tpot_ms is not None
     ]
     ttft_ms = options._get_agg_fn("metrics", "ttft_ms")(ttft_vals) if ttft_vals else None
     mean_tpot_ms = (
@@ -246,15 +248,15 @@ def aggregate_generation_results(
         else None
     )
     throughput_tok_s = options._get_agg_fn("metrics", "throughput_tok_s")(
-        [r.metrics.throughput_tok_s for r in runs]
+        [r.metrics.throughput_tok_s for r in results]
     )
     throughput_req_s = options._get_agg_fn("metrics", "throughput_req_s")(
-        [r.metrics.throughput_req_s for r in runs]
+        [r.metrics.throughput_req_s for r in results]
     )
 
-    has_cuda = any(r.metrics.gpu_time_ratio is not None for r in runs)
-    total_model_ms = sum(r.metrics.e2e_model_ms for r in runs)
-    total_wall_ms = sum(r.metrics.e2e_wall_ms for r in runs)
+    has_cuda = any(r.metrics.gpu_time_ratio is not None for r in results)
+    total_model_ms = sum(r.metrics.e2e_model_ms for r in results)
+    total_wall_ms = sum(r.metrics.e2e_wall_ms for r in results)
     gpu_time_ratio = (
         min(1.0, total_model_ms / total_wall_ms)
         if (has_cuda and total_wall_ms > 0)
@@ -278,40 +280,44 @@ def aggregate_generation_results(
     peak_allocated_mb_fn = options._get_agg_fn("memory", "peak_allocated_mb")
     peak_reserved_mb_fn = options._get_agg_fn("memory", "peak_reserved_mb")
     peak_live_kv_cache_mb_fn = options._get_agg_fn("memory", "peak_live_kv_cache_mb")
-    prefill_vals = [r.memory.prefill_mb for r in runs if r.memory.prefill_mb is not None]
+    prefill_vals = [
+        r.memory.prefill_mb for r in results if r.memory.prefill_mb is not None
+    ]
 
     memory = MemoryProfile(
-        baseline_mb=baseline_mb_fn([r.memory.baseline_mb for r in runs]),
+        baseline_mb=baseline_mb_fn([r.memory.baseline_mb for r in results]),
         prefill_mb=prefill_mb_fn(prefill_vals) if prefill_vals else None,
         peak_allocated_mb=peak_allocated_mb_fn(
-            [r.memory.peak_allocated_mb for r in runs]
+            [r.memory.peak_allocated_mb for r in results]
         ),
-        peak_reserved_mb=peak_reserved_mb_fn([r.memory.peak_reserved_mb for r in runs]),
+        peak_reserved_mb=peak_reserved_mb_fn(
+            [r.memory.peak_reserved_mb for r in results]
+        ),
         kv_cache=KVCacheProfile(
             peak_live_kv_cache_mb=peak_live_kv_cache_mb_fn(
-                [r.memory.kv_cache.peak_live_kv_cache_mb for r in runs]
+                [r.memory.kv_cache.peak_live_kv_cache_mb for r in results]
             ),
             peak_kv_cache_pool_mb=max(
-                (r.memory.kv_cache.peak_kv_cache_pool_mb for r in runs),
+                (r.memory.kv_cache.peak_kv_cache_pool_mb for r in results),
                 default=0.0,
             ),
             cache_realign_moved_bytes=sum(
-                r.memory.kv_cache.cache_realign_moved_bytes for r in runs
+                r.memory.kv_cache.cache_realign_moved_bytes for r in results
             ),
             accessed_kv_cache_tokens=sum(
-                r.memory.kv_cache.accessed_kv_cache_tokens for r in runs
+                r.memory.kv_cache.accessed_kv_cache_tokens for r in results
             ),
             paged_cache=summarize_repeated_paged_cache_profiles(
                 [
                     r.memory.kv_cache.paged_cache
-                    for r in runs
+                    for r in results
                     if r.memory.kv_cache.paged_cache is not None
                 ]
             ),
         ),
     )
 
-    op_breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
+    op_breakdowns = [r.op_breakdown for r in results if r.op_breakdown is not None]
     op_breakdown = merge_op_latency_breakdowns(op_breakdowns)
 
     trace = GenerationTrace(
@@ -336,6 +342,6 @@ __all__ = [
     "AggregationOptions",
     "GenerationResult",
     "ScheduleResult",
-    "aggregate_generation_results",
+    "merge_serial_generation_results",
     "pad_output_tokens",
 ]

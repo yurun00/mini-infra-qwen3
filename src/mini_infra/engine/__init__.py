@@ -41,7 +41,7 @@ from mini_infra.engine.results import (
     AggregationOptions,
     GenerationResult,
     ScheduleResult,
-    aggregate_generation_results,
+    merge_serial_generation_results,
     pad_output_tokens,
 )
 from mini_infra.engine.scheduler_loop import run_scheduler
@@ -78,10 +78,10 @@ __all__ = [
     "SchedulerConfig",
     "StepAggregatedMetrics",
     "TokenBudgetConfig",
-    "aggregate_generation_results",
     "build_memory_profile",
     "compute_request_aggregated_metrics",
     "compute_step_aggregated_metrics",
+    "merge_serial_generation_results",
     "normalize_budgets",
     "normalize_token_sequences",
     "pad_output_tokens",
