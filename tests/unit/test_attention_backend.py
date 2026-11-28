@@ -122,3 +122,74 @@ def test_cli_attention_backend_and_compare_feature():
     assert eager_config.attention_backend == "eager"
     assert flash_config == eager_config.with_attention_backend("flash")
     assert description == "attention-backend: eager vs flash"
+
+
+def test_flash_backend_raises_clear_runtime_error_when_triton_missing(monkeypatch):
+    """未安装 Triton 时选择 flash backend 或调用 flash_attention_forward 均给出可读 RuntimeError。"""
+    from mini_infra.model.attention import flash_attention as flash_mod
+
+    monkeypatch.setattr(flash_mod, "triton", None)
+    with pytest.raises(RuntimeError, match="需要安装 Triton"):
+        get_attn_backend("flash")
+    with pytest.raises(RuntimeError, match="需要安装 Triton"):
+        PagedRunner(build_tiny_model(), 0, "flash")
+    tensor = torch.zeros((1, 4, 4, 16))
+    valid = torch.ones((1, 4), dtype=torch.bool)
+    with pytest.raises(RuntimeError, match="需要安装 Triton"):
+        flash_mod.flash_attention_forward(tensor, tensor, tensor, valid, valid, 0)
+
+
+def test_kernel_case_mask_specs_build_expected_geometries():
+    """验证 _MaskSpec 各变体（无 Padding / 左填充 / Chunk 中间空洞 / Paged 右屏蔽）的掩码几何。"""
+    from mini_infra.verification.parity.compare_flash_attention import (
+        _ChunkSpans,
+        _KernelCase,
+        _LeftPad,
+        _PagedContextLens,
+        _Unpadded,
+    )
+
+    device = torch.device("cpu")
+
+    unpadded = _KernelCase("unpadded", 4, 10, _Unpadded(2)).build_mask(device)
+    assert unpadded.causal_offset == 6
+    assert unpadded.key_valid.shape == (2, 10) and torch.all(unpadded.key_valid)
+    assert unpadded.query_valid.shape == (2, 4) and torch.all(unpadded.query_valid)
+
+    left_pad = _KernelCase("left-pad", 6, 6, _LeftPad((0, 2))).build_mask(device)
+    assert torch.equal(
+        left_pad.key_valid,
+        torch.tensor(
+            [[True, True, True, True, True, True], [False, False, True, True, True, True]]
+        ),
+    )
+
+    chunk_case = _KernelCase(
+        "left-padded-chunk-batch",
+        query_len=64,
+        kv_len=320,
+        mask_spec=_ChunkSpans(((256, 0), (256, 11), (180, 20), (0, 34))),
+    )
+    mask = chunk_case.build_mask(device)
+    assert mask.causal_offset == 256
+    assert mask.key_valid.shape == (4, 320)
+    assert mask.query_valid.shape == (4, 64)
+    # 第 1 行对齐 chapter_09 compare_attention.py：0..255 有效，256..266 为当前 chunk 左 padding 空洞，267..319 有效
+    assert torch.all(mask.key_valid[1, :256])
+    assert not torch.any(mask.key_valid[1, 256:267])
+    assert torch.all(mask.key_valid[1, 267:])
+    assert torch.equal(mask.query_valid, mask.key_valid[:, 256:])
+    # 第 2 行同时覆盖历史尾块未写满空洞（180..255）与当前 chunk 左 padding（256..275）
+    assert torch.all(mask.key_valid[2, :180])
+    assert not torch.any(mask.key_valid[2, 180:276])
+    assert torch.all(mask.key_valid[2, 276:])
+
+    paged = _KernelCase("paged-decode", 1, 8, _PagedContextLens((8, 3))).build_mask(
+        device
+    )
+    assert paged.causal_offset == 7
+    assert torch.all(paged.query_valid)
+    assert torch.equal(
+        paged.key_valid[1],
+        torch.tensor([True, True, True, False, False, False, False, False]),
+    )

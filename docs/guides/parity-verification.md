@@ -345,8 +345,8 @@ pytest tests/gpu/parity/test_flash_attention_parity.py
 ```
 
 * **判定标准**：
-  - Kernel 级：以真实模型 head 配置（K/V 取 transpose 视图）构造 6 类用例，有效 Query 行最大绝对误差 `float32 <= 1e-5`、`bfloat16 <= 3e-2`，且输出全部有限；
-  - 模型级（仅 `float32` 判定）：两条引擎路径 Greedy Token 100% 一致，Logits 最大绝对误差 `<= logits_atol`（默认 `1e-4`）。
+  - Kernel 级：以真实模型 head 配置（K/V 取 transpose 视图）构造 7 类用例（含有效历史前缀 + 中间 Padding 空洞与 Paged Decode 右侧屏蔽），有效 Query 行最大绝对误差 `float32 <= 1e-5`、`bfloat16 <= 3e-2`，且输出全部有限；
+  - 模型级：校验捕获 Logits 全部有限；`float32` 下两条引擎路径 Greedy Token 100% 一致且逐步最大绝对误差 `<= logits_atol`（默认 `1e-4`）；`bfloat16` 下同输入首 Token Logits 最大绝对误差 `<= logits_atol`（默认 `1.0`）。
 
 ---
 

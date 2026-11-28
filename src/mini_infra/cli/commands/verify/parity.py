@@ -184,7 +184,9 @@ _COMMANDS: tuple[_ParityCommandSpec, ...] = (
         help="eager 与 flash attention backend 的 Kernel 级误差与 Lockstep / Paged chunked-prefill 模型级输出对齐",
         runner=execute_compare_flash_attention,
         help_overrides={
-            "logits_atol": "模型级 Logits 最大绝对误差阈值，仅 float32 判定（默认: %(default)s）",
+            "logits_atol": (
+                "模型级 Logits 最大绝对误差阈值（默认: float32 为 1e-4，bfloat16 首 Token 为 1.0）"
+            ),
         },
     ),
 )

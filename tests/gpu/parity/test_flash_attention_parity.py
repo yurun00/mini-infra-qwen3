@@ -122,12 +122,14 @@ def test_compare_flash_attention_model_direct() -> None:
     )
     assert len(rows) == 2
     for row in rows:
+        assert row["is_logits_finite"], row["engine_config"]
         assert row["tokens_match"], row["engine_config"]
         assert row["max_logit_error"] <= 1e-4, row
 
 
-def test_compare_flash_attention_cli() -> None:
+@pytest.mark.parametrize("dtype", ["float32", "bfloat16"])
+def test_compare_flash_attention_cli(dtype: str) -> None:
     exit_code = main(
-        ["verify", "flash-attention", "--max-new-tokens", "4", "--dtype", "float32"]
+        ["verify", "flash-attention", "--max-new-tokens", "4", "--dtype", dtype]
     )
     assert exit_code == 0

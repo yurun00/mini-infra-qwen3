@@ -28,8 +28,13 @@ import math
 from dataclasses import dataclass
 
 import torch
-import triton
-import triton.language as tl
+
+try:
+    import triton
+    import triton.language as tl
+except ImportError:  # CPU-only 环境不要求安装 Triton。
+    triton = None  # type: ignore[assignment]
+    tl = None  # type: ignore[assignment]
 
 from mini_infra.model.attention.backend import (
     AttentionBackend,
@@ -40,134 +45,144 @@ from mini_infra.model.attention.backend import (
 _SUPPORTED_DTYPES = (torch.bfloat16, torch.float16, torch.float32)
 
 
-@triton.jit
-def _flash_attention_forward_kernel(
-    query,
-    key,
-    value,
-    key_valid,
-    query_valid,
-    output,
-    stride_qb,
-    stride_qh,
-    stride_qm,
-    stride_kb,
-    stride_kh,
-    stride_kn,
-    stride_vb,
-    stride_vh,
-    stride_vn,
-    stride_key_valid_b,
-    stride_query_valid_b,
-    stride_ob,
-    stride_om,
-    stride_oh,
-    query_len,
-    kv_len,
-    causal_offset,
-    softmax_scale_log2,
-    NUM_HEADS: tl.constexpr,
-    NUM_KV_GROUPS: tl.constexpr,
-    HEAD_DIM: tl.constexpr,
-    BLOCK_M: tl.constexpr,
-    BLOCK_N: tl.constexpr,
-    INPUT_PRECISION: tl.constexpr,
-):
-    query_block_idx = tl.program_id(0)
-    batch_head_idx = tl.program_id(1)
-    batch_idx = batch_head_idx // NUM_HEADS
-    head_idx = batch_head_idx % NUM_HEADS
-    # 原生 GQA：同组 Query head 共享同一个 KV head，不展开 K/V。
-    kv_head_idx = head_idx // NUM_KV_GROUPS
+def _require_triton() -> None:
+    """确认当前环境已安装 Triton；缺失时给出明确安装指引而非 ModuleNotFoundError。"""
+    if triton is None:
+        raise RuntimeError(
+            "FlashAttention backend 需要安装 Triton（pip install -e '.[flash]'）"
+        )
 
-    query_offsets = query_block_idx * BLOCK_M + tl.arange(0, BLOCK_M)
-    dim_offsets = tl.arange(0, HEAD_DIM)
-    # is_query_in_bounds: [BLOCK_M], bool (int1)；标记本 Tile 内未超出 query_len 尾边界的行。
-    is_query_in_bounds = query_offsets < query_len
 
-    # query_tile: [BLOCK_M, HEAD_DIM], model_dtype；整个 Key 循环内常驻寄存器 / 共享内存。
-    query_tile = tl.load(
-        query
-        + batch_idx * stride_qb
-        + head_idx * stride_qh
-        + query_offsets[:, None] * stride_qm
-        + dim_offsets[None, :],
-        mask=is_query_in_bounds[:, None],
-        other=0.0,
-    )
+if triton is not None:
 
-    row_max = tl.full((BLOCK_M,), float("-inf"), dtype=tl.float32)
-    row_sum = tl.zeros((BLOCK_M,), dtype=tl.float32)
-    accumulator = tl.zeros((BLOCK_M, HEAD_DIM), dtype=tl.float32)
+    @triton.jit
+    def _flash_attention_forward_kernel(
+        query,
+        key,
+        value,
+        key_valid,
+        query_valid,
+        output,
+        stride_qb,
+        stride_qh,
+        stride_qm,
+        stride_kb,
+        stride_kh,
+        stride_kn,
+        stride_vb,
+        stride_vh,
+        stride_vn,
+        stride_key_valid_b,
+        stride_query_valid_b,
+        stride_ob,
+        stride_om,
+        stride_oh,
+        query_len,
+        kv_len,
+        causal_offset,
+        softmax_scale_log2,
+        NUM_HEADS: tl.constexpr,
+        NUM_KV_GROUPS: tl.constexpr,
+        HEAD_DIM: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        INPUT_PRECISION: tl.constexpr,
+    ):
+        query_block_idx = tl.program_id(0)
+        batch_head_idx = tl.program_id(1)
+        batch_idx = batch_head_idx // NUM_HEADS
+        head_idx = batch_head_idx % NUM_HEADS
+        # 原生 GQA：同组 Query head 共享同一个 KV head，不展开 K/V。
+        kv_head_idx = head_idx // NUM_KV_GROUPS
 
-    key_base = key + batch_idx * stride_kb + kv_head_idx * stride_kh
-    value_base = value + batch_idx * stride_vb + kv_head_idx * stride_vh
-    key_valid_base = key_valid + batch_idx * stride_key_valid_b
+        query_offsets = query_block_idx * BLOCK_M + tl.arange(0, BLOCK_M)
+        dim_offsets = tl.arange(0, HEAD_DIM)
+        # is_query_in_bounds: [BLOCK_M], bool (int1)；标记本 Tile 内未超出 query_len 尾边界的行。
+        is_query_in_bounds = query_offsets < query_len
 
-    # 因果 Tile 跳过：本 Tile 末行的全局位置为 causal_offset + (query_block_idx + 1) * BLOCK_M - 1，
-    # 其后的 Key 分块对本 Tile 全部不可见，直接不读。
-    key_end = tl.minimum(kv_len, causal_offset + (query_block_idx + 1) * BLOCK_M)
-    for key_start in range(0, key_end, BLOCK_N):
-        key_offsets = key_start + tl.arange(0, BLOCK_N)
-        is_key_in_bounds = key_offsets < kv_len
-        is_key_valid = tl.load(
-            key_valid_base + key_offsets, mask=is_key_in_bounds, other=0
+        # query_tile: [BLOCK_M, HEAD_DIM], model_dtype；整个 Key 循环内常驻寄存器 / 共享内存。
+        query_tile = tl.load(
+            query
+            + batch_idx * stride_qb
+            + head_idx * stride_qh
+            + query_offsets[:, None] * stride_qm
+            + dim_offsets[None, :],
+            mask=is_query_in_bounds[:, None],
+            other=0.0,
+        )
+
+        row_max = tl.full((BLOCK_M,), float("-inf"), dtype=tl.float32)
+        row_sum = tl.zeros((BLOCK_M,), dtype=tl.float32)
+        accumulator = tl.zeros((BLOCK_M, HEAD_DIM), dtype=tl.float32)
+
+        key_base = key + batch_idx * stride_kb + kv_head_idx * stride_kh
+        value_base = value + batch_idx * stride_vb + kv_head_idx * stride_vh
+        key_valid_base = key_valid + batch_idx * stride_key_valid_b
+
+        # 因果 Tile 跳过：本 Tile 末行的全局位置为 causal_offset + (query_block_idx + 1) * BLOCK_M - 1，
+        # 其后的 Key 分块对本 Tile 全部不可见，直接不读。
+        key_end = tl.minimum(kv_len, causal_offset + (query_block_idx + 1) * BLOCK_M)
+        for key_start in range(0, key_end, BLOCK_N):
+            key_offsets = key_start + tl.arange(0, BLOCK_N)
+            is_key_in_bounds = key_offsets < kv_len
+            is_key_valid = tl.load(
+                key_valid_base + key_offsets, mask=is_key_in_bounds, other=0
+            ).to(tl.int1)
+            # key_tile 以转置形态加载：[HEAD_DIM, BLOCK_N]，供 tl.dot(query_tile, key_tile) 直接得到 Score Tile。
+            key_tile = tl.load(
+                key_base + key_offsets[None, :] * stride_kn + dim_offsets[:, None],
+                mask=is_key_in_bounds[None, :],
+                other=0.0,
+            )
+            # scores: [BLOCK_M, BLOCK_N], float32；预乘 log2(e) 以便用 exp2 代替 exp。
+            scores = (
+                tl.dot(query_tile, key_tile, input_precision=INPUT_PRECISION)
+                * softmax_scale_log2
+            )
+            is_allowed = is_key_valid[None, :] & (
+                key_offsets[None, :] <= causal_offset + query_offsets[:, None]
+            )
+            scores = tl.where(is_allowed, scores, float("-inf"))
+
+            new_row_max = tl.maximum(row_max, tl.max(scores, axis=1))
+            # 某行至今全部被屏蔽（如左 padding 覆盖整个 Key 分块）时 new_row_max 为 -inf：
+            # 以 0 作指数基准，避免 (-inf) - (-inf) = NaN；此时 P 全为 0，alpha 作用于全零状态，结果不变。
+            safe_row_max = tl.where(new_row_max == float("-inf"), 0.0, new_row_max)
+            correction = tl.exp2(row_max - safe_row_max)
+            probabilities = tl.exp2(scores - safe_row_max[:, None])
+            row_sum = row_sum * correction + tl.sum(probabilities, axis=1)
+
+            # value_tile: [BLOCK_N, HEAD_DIM], model_dtype
+            value_tile = tl.load(
+                value_base + key_offsets[:, None] * stride_vn + dim_offsets[None, :],
+                mask=is_key_in_bounds[:, None],
+                other=0.0,
+            )
+            accumulator = accumulator * correction[:, None] + tl.dot(
+                probabilities.to(value_tile.dtype),
+                value_tile,
+                input_precision=INPUT_PRECISION,
+            )
+            row_max = new_row_max
+
+        is_query_valid = tl.load(
+            query_valid + batch_idx * stride_query_valid_b + query_offsets,
+            mask=is_query_in_bounds,
+            other=0,
         ).to(tl.int1)
-        # key_tile 以转置形态加载：[HEAD_DIM, BLOCK_N]，供 tl.dot(query_tile, key_tile) 直接得到 Score Tile。
-        key_tile = tl.load(
-            key_base + key_offsets[None, :] * stride_kn + dim_offsets[:, None],
-            mask=is_key_in_bounds[None, :],
-            other=0.0,
+        # padding Query 行（或无任何可见 Key 的行）row_sum 为 0：输出置 0，避免 0 / 0。
+        safe_row_sum = tl.where(row_sum == 0.0, 1.0, row_sum)
+        normalized = accumulator / safe_row_sum[:, None]
+        normalized = tl.where(is_query_valid[:, None], normalized, 0.0)
+        tl.store(
+            output
+            + batch_idx * stride_ob
+            + head_idx * stride_oh
+            + query_offsets[:, None] * stride_om
+            + dim_offsets[None, :],
+            normalized.to(output.dtype.element_ty),
+            mask=is_query_in_bounds[:, None],
         )
-        # scores: [BLOCK_M, BLOCK_N], float32；预乘 log2(e) 以便用 exp2 代替 exp。
-        scores = (
-            tl.dot(query_tile, key_tile, input_precision=INPUT_PRECISION)
-            * softmax_scale_log2
-        )
-        is_allowed = is_key_valid[None, :] & (
-            key_offsets[None, :] <= causal_offset + query_offsets[:, None]
-        )
-        scores = tl.where(is_allowed, scores, float("-inf"))
-
-        new_row_max = tl.maximum(row_max, tl.max(scores, axis=1))
-        # 某行至今全部被屏蔽（如左 padding 覆盖整个 Key 分块）时 new_row_max 为 -inf：
-        # 以 0 作指数基准，避免 (-inf) - (-inf) = NaN；此时 P 全为 0，alpha 作用于全零状态，结果不变。
-        safe_row_max = tl.where(new_row_max == float("-inf"), 0.0, new_row_max)
-        correction = tl.exp2(row_max - safe_row_max)
-        probabilities = tl.exp2(scores - safe_row_max[:, None])
-        row_sum = row_sum * correction + tl.sum(probabilities, axis=1)
-
-        # value_tile: [BLOCK_N, HEAD_DIM], model_dtype
-        value_tile = tl.load(
-            value_base + key_offsets[:, None] * stride_vn + dim_offsets[None, :],
-            mask=is_key_in_bounds[:, None],
-            other=0.0,
-        )
-        accumulator = accumulator * correction[:, None] + tl.dot(
-            probabilities.to(value_tile.dtype),
-            value_tile,
-            input_precision=INPUT_PRECISION,
-        )
-        row_max = new_row_max
-
-    is_query_valid = tl.load(
-        query_valid + batch_idx * stride_query_valid_b + query_offsets,
-        mask=is_query_in_bounds,
-        other=0,
-    ).to(tl.int1)
-    # padding Query 行（或无任何可见 Key 的行）row_sum 为 0：输出置 0，避免 0 / 0。
-    safe_row_sum = tl.where(row_sum == 0.0, 1.0, row_sum)
-    normalized = accumulator / safe_row_sum[:, None]
-    normalized = tl.where(is_query_valid[:, None], normalized, 0.0)
-    tl.store(
-        output
-        + batch_idx * stride_ob
-        + head_idx * stride_oh
-        + query_offsets[:, None] * stride_om
-        + dim_offsets[None, :],
-        normalized.to(output.dtype.element_ty),
-        mask=is_query_in_bounds[:, None],
-    )
 
 
 def _validate_inputs(
@@ -179,6 +194,7 @@ def _validate_inputs(
     causal_offset: int,
 ) -> None:
     """算子 API 边界的形状 / dtype / 布局校验（纯 Python 元数据检查，零 Host-Device 同步）。"""
+    _require_triton()
     if not query.is_cuda:
         raise RuntimeError("FlashAttention backend 只支持 CUDA Tensor")
     if query.dtype not in _SUPPORTED_DTYPES:
@@ -246,6 +262,7 @@ def flash_attention_forward(
                 padding Query 行输出为 0）
     """
     _validate_inputs(query, key, value, key_valid, query_valid, causal_offset)
+    assert triton is not None
     batch_size, num_heads, query_len, head_dim = query.shape
     num_kv_heads, kv_len = key.shape[1], key.shape[2]
     scale = head_dim**-0.5 if softmax_scale is None else softmax_scale
@@ -309,6 +326,9 @@ class FlashAttentionBackend(AttentionBackend[FlashAttentionInputs]):
     """Triton FlashAttention backend：单步输入持有 CausalPaddingMask，不物化 4D Mask / Bias。"""
 
     kind = "flash"
+
+    def __init__(self) -> None:
+        _require_triton()
 
     def prepare_inputs(
         self, mask: CausalPaddingMask, dtype: torch.dtype

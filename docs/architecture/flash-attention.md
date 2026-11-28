@@ -97,11 +97,11 @@ python scripts/benchmark/attention_kernel.py --mode decode --batch-size 8 \
 
 | 层级 | 用例 | 最大绝对误差 |
 |---|---|---:|
-| Kernel | Full Prefill 128 / 非整 Tile 257 / Chunked 64→320 / 左 Padding Chunk Batch / 左 Padding Prefill Batch / Decode 1→1025 | ≤ 8.4e-7 |
+| Kernel | Full Prefill 128 / 非整 Tile 257 / Chunked 64→320 / 左 Padding Chunk Batch（含中间空洞） / 左 Padding Prefill Batch / Dense Decode 1→1025 / Paged Decode 1→1024 | ≤ 8.4e-7 |
 | 模型 | Lockstep dense-kv-cache + fixed-batching（全部步 Logits） | 3.7e-5，Token 100% 一致 |
 | 模型 | Paged chunked-prefill（首 Token Logits） | 4.0e-5，Token 100% 一致 |
 
-bfloat16 下 Kernel 最大误差约 1e-2（输出本身的 bf16 舍入量级）；28 层归约顺序差异会累积，greedy 临界点可能翻转个别 Token，这是预期现象，正确性结论以 float32 为准。
+bfloat16 下 Kernel 最大误差约 1e-2（输出本身的 bf16 舍入量级）；模型级 `--dtype bfloat16` 校验全部捕获 Logits 有限且首 Token Logits 最大绝对误差 `<= 1.0`（实测约 `0.59`～`0.69`），后续自回归步因 28 层归约顺序差异在 greedy 临界点可能翻转个别 Token，严格逐字等价性结论以 float32 为准。
 
 ### Full Prefill 微基准（batch=1，16 Q 头 / 8 KV 头，head_dim=128，bfloat16，因果）
 

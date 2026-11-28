@@ -25,6 +25,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Triton FlashAttention 前向 Kernel（CUDA 版 PyTorch 默认随附，也可显式安装）
+flash = [
+    "triton>=3.0.0; sys_platform == 'linux'",
+]
 # 与 Transformers 的逐 Token 对照
 compare = [
     "transformers>=4.45.0",
