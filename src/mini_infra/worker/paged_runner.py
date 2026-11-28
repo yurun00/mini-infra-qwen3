@@ -111,6 +111,7 @@ class PagedRunner(BaseModelRunner):
                 attention_mask=attention_mask,
                 position_ids=position_ids,
                 attn_metadata=attn_metadata,
+                attn_backend=self.attn_backend,
             )
             next_token, last_logits = greedy_sample(logits)
         captured_logits = (
@@ -224,6 +225,7 @@ class PagedRunner(BaseModelRunner):
                 input_ids,
                 position_ids=position_ids,
                 attn_metadata=attn_metadata,
+                attn_backend=self.attn_backend,
             )
             next_token, _ = greedy_sample(logits)
         return PagedDecodeOutput(

@@ -16,7 +16,9 @@ from mini_infra.core import (
 from mini_infra.engine import (
     BatchingMethod,
     EngineConfig,
+    ExecutionMetrics,
     GenerationResult,
+    LockstepResult,
     ScheduleResult,
     run_scheduler,
 )
@@ -176,10 +178,10 @@ def test_timeline_and_metric_invariants(model, method, case):
     assert result.metrics.e2e_wall_ms >= result.metrics.e2e_model_ms
     assert result.metrics.throughput_req_s > 0
     assert result.metrics.throughput_tok_s > 0
-    assert (result.metrics.effective_prompt_tok_s or 0) > 0
-    assert (result.metrics.padded_prompt_tok_s or 0) > 0
-    assert result.metrics.ttft_ms is None
-    assert result.metrics.mean_tpot_ms is None
+    assert result.metrics.effective_prompt_tok_s > 0
+    assert result.metrics.padded_prompt_tok_s > 0
+    assert type(result.metrics) is ExecutionMetrics
+    assert not hasattr(result, "lockstep_metrics")
     assert result.memory.prefill_mb is None
     assert result.memory.kv_cache.peak_live_kv_cache_mb > 0
     assert result.batch_info is not None
@@ -597,6 +599,7 @@ class TestGenerateDispatch:
         assert isinstance(result, GenerationResult)
         assert isinstance(result, ScheduleResult)
         assert isinstance(fixed_result, GenerationResult)
+        assert isinstance(fixed_result, LockstepResult)
         assert not isinstance(fixed_result, ScheduleResult)
         assert result.schedule_metrics.request_count == 3
         assert len(result.request_metrics) == 3

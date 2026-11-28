@@ -14,9 +14,10 @@ from mini_infra.core import DenseCacheConfig, SchedulerConfig
 from mini_infra.engine import EngineConfig
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
+    ExecutionMetrics,
     KVCacheProfile,
+    LockstepMetrics,
     MemoryProfile,
-    StepAggregatedMetrics,
 )
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
 
@@ -75,14 +76,20 @@ def test_lockstep_case_result_structure_and_dot_access():
     )
 
     dummy_stat = DistributionStats(10.0, 10.0, 0.5, 9.0, 10.5, 10.8, 11.0, 11.0)
-    metrics: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-        ttft_ms=dummy_stat,
-        mean_tpot_ms=dummy_stat,
+    metrics: ExecutionMetrics[DistributionStats] = ExecutionMetrics(
         e2e_wall_ms=dummy_stat,
         e2e_model_ms=dummy_stat,
         throughput_tok_s=dummy_stat,
         throughput_req_s=dummy_stat,
+        effective_prompt_tok_s=dummy_stat,
+        padded_prompt_tok_s=dummy_stat,
         gpu_time_ratio=dummy_stat,
+    )
+    lockstep_metrics: LockstepMetrics[DistributionStats] = LockstepMetrics(
+        ttft_ms=dummy_stat,
+        mean_tpot_ms=dummy_stat,
+        p50_tpot_ms=dummy_stat,
+        p95_tpot_ms=dummy_stat,
     )
     memory = MemoryProfile(
         weights_mb=500.0,
@@ -115,6 +122,7 @@ def test_lockstep_case_result_structure_and_dot_access():
         key=key,
         workload=workload,
         metrics=metrics,
+        lockstep_metrics=lockstep_metrics,
         memory=memory,
         repeats=5,
         warmup=2,
@@ -128,10 +136,7 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert case_result.workload.num_total_requests == 2
     assert case_result.workload.prompt_lens == (16, 32)
     assert case_result.workload.output_budgets == (16, 16)
-    assert (
-        case_result.metrics.ttft_ms is not None
-        and case_result.metrics.ttft_ms.median == 10.0
-    )
+    assert case_result.lockstep_metrics.ttft_ms.median == 10.0
     assert case_result.metrics.throughput_tok_s.mean == 10.0
     assert case_result.memory.peak_allocated_mb == 700.0
     assert case_result.memory.dynamic_peak_mb == 100.0
@@ -166,8 +171,10 @@ def test_lockstep_case_result_structure_and_dot_access():
     assert rec["num_total_requests"] == 2
     assert rec["prompt_len"] == [16, 32]
     assert rec["max_new_tokens"] == 16
-    assert rec["ttft_ms"]["median"] == 10.0
-    assert rec["tpot_ms"]["median"] == 10.0
+    assert rec["lockstep"]["ttft_ms"]["median"] == 10.0
+    assert rec["lockstep"]["tpot_ms"]["median"] == 10.0
+    assert rec["lockstep"]["p50_tpot_ms"]["median"] == 10.0
+    assert rec["lockstep"]["p95_tpot_ms"]["median"] == 10.0
     assert rec["memory"]["peak_allocated_mb"] == 700.0
     assert rec["memory"]["dynamic_peak_mb"] == 100.0
     assert rec["memory"]["fragmentation_mb"] == 100.0

@@ -9,16 +9,16 @@ from mini_infra.bench.lockstep.results import LockstepCaseResult
 
 def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     """渲染单个用例的一行 CSV 字段（列顺序与 format_table 表头一致）。"""
-    ttft = w.metrics.ttft_ms
-    tpot = w.metrics.mean_tpot_ms
+    ttft = w.lockstep_metrics.ttft_ms
+    tpot = w.lockstep_metrics.mean_tpot_ms
     row = [
         str(w.key.engine_config),
         format_lengths(w.workload.prompt_lens),
         format_lengths(w.workload.output_budgets),
-        f"{(ttft.mean if ttft else 0.0):.3f}",
-        f"{(tpot.mean if tpot else 0.0):.3f}",
-        f"{(tpot.median if tpot else 0.0):.3f}",
-        f"{(tpot.p95 if tpot else 0.0):.3f}",
+        f"{ttft.mean:.3f}",
+        f"{tpot.mean:.3f}",
+        f"{tpot.median:.3f}",
+        f"{tpot.p95:.3f}",
         f"{w.metrics.e2e_wall_ms.mean:.3f}",
         f"{w.metrics.e2e_model_ms.mean:.3f}",
         f"{(w.memory.prefill_mb or 0.0):.2f}",
@@ -28,16 +28,11 @@ def _format_case_row(w: LockstepCaseResult, has_packing: bool) -> list[str]:
     pack = w.packing
     if has_packing:
         if pack:
-            eff_p = (
-                f"{w.metrics.effective_prompt_tok_s.mean:.1f}"
-                if w.metrics.effective_prompt_tok_s
-                else ""
-            )
             row.extend(
                 [
                     f"{pack.padding_efficiency.mean * 100:.2f}%",
                     f"{pack.slot_utilization.mean * 100:.2f}%",
-                    eff_p,
+                    f"{w.metrics.effective_prompt_tok_s.mean:.1f}",
                 ]
             )
         else:

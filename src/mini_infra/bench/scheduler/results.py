@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
+from mini_infra.bench._metrics import build_execution_metrics
 from mini_infra.bench.cases import (
     CaseKey,
     WorkloadProfile,
@@ -13,11 +14,11 @@ from mini_infra.bench.stats import DistributionStats
 from mini_infra.core import collapse_uniform
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
+    ExecutionMetrics,
     MemoryProfile,
     RequestAggregatedMetrics,
     ScheduleEvent,
     ScheduleMetrics,
-    StepAggregatedMetrics,
     compute_request_aggregated_metrics,
     summarize_repeated_kv_cache_profiles,
 )
@@ -64,7 +65,7 @@ class SchedulerCaseResult:
 
     key: CaseKey
     workload: WorkloadProfile
-    metrics: StepAggregatedMetrics[DistributionStats]
+    metrics: ExecutionMetrics[DistributionStats]
     schedule_metrics: ScheduleMetrics[DistributionStats]
     memory: MemoryProfile
     repeats: int = 1
@@ -157,16 +158,8 @@ class SchedulerCaseResult:
                 if self.metrics.gpu_time_ratio is not None
                 else None
             ),
-            "effective_prompt_tok_s": (
-                self.metrics.effective_prompt_tok_s.to_dict()
-                if self.metrics.effective_prompt_tok_s is not None
-                else None
-            ),
-            "padded_prompt_tok_s": (
-                self.metrics.padded_prompt_tok_s.to_dict()
-                if self.metrics.padded_prompt_tok_s is not None
-                else None
-            ),
+            "effective_prompt_tok_s": self.metrics.effective_prompt_tok_s.to_dict(),
+            "padded_prompt_tok_s": self.metrics.padded_prompt_tok_s.to_dict(),
             "memory": self.memory.to_dict(),
             "schedule": self.schedule_metrics.to_dict(),
             "repeat_samples": self.repeat_samples,
@@ -268,49 +261,7 @@ class SchedulerCaseResult:
             ),
         )
 
-        gpu_ratios = [r.metrics.gpu_time_ratio for r in runs]
-        gpu_ratio_stat = (
-            DistributionStats.from_samples([v for v in gpu_ratios if v is not None])
-            if all(v is not None for v in gpu_ratios)
-            else None
-        )
-        eff_prompt_vals = [
-            r.metrics.effective_prompt_tok_s
-            for r in runs
-            if r.metrics.effective_prompt_tok_s is not None
-        ]
-        pad_prompt_vals = [
-            r.metrics.padded_prompt_tok_s
-            for r in runs
-            if r.metrics.padded_prompt_tok_s is not None
-        ]
-
-        step_agg_dist: StepAggregatedMetrics[DistributionStats] = StepAggregatedMetrics(
-            e2e_wall_ms=DistributionStats.from_samples(
-                [r.metrics.e2e_wall_ms for r in runs]
-            ),
-            e2e_model_ms=DistributionStats.from_samples(
-                [r.metrics.e2e_model_ms for r in runs]
-            ),
-            throughput_tok_s=DistributionStats.from_samples(
-                [r.metrics.throughput_tok_s for r in runs]
-            ),
-            throughput_req_s=DistributionStats.from_samples(
-                [r.metrics.throughput_req_s for r in runs]
-            ),
-            gpu_time_ratio=gpu_ratio_stat,
-            effective_prompt_tok_s=DistributionStats.from_samples(eff_prompt_vals)
-            if eff_prompt_vals
-            else None,
-            padded_prompt_tok_s=DistributionStats.from_samples(pad_prompt_vals)
-            if pad_prompt_vals
-            else None,
-            ttft_ms=None,
-            mean_tpot_ms=None,
-            p50_tpot_ms=None,
-            p95_tpot_ms=None,
-        )
-
+        exec_dist = build_execution_metrics([r.metrics for r in runs])
         req_agg_dist = _aggregate_request_metrics([r.schedule_metrics for r in runs])
         req_agg_kwargs = {
             f.name: getattr(req_agg_dist, f.name)
@@ -393,7 +344,7 @@ class SchedulerCaseResult:
         return cls(
             key=case_key,
             workload=workload,
-            metrics=step_agg_dist,
+            metrics=exec_dist,
             schedule_metrics=sched_dist,
             memory=case_memory,
             repeats=len(runs),

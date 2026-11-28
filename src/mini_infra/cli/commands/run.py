@@ -27,15 +27,18 @@ from mini_infra.engine import (
     EngineConfig,
     FeatureFlag,
     GenerationResult,
+    LockstepResult,
     Qwen3Tokenizer,
     ScheduleResult,
     run_scheduler,
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import (
+    ATTENTION_BACKEND_KINDS,
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     load_model,
+    parse_attention_backend_kind,
     resolve_model_directory,
 )
 from mini_infra.profiling import TensorBoardOptions
@@ -92,6 +95,12 @@ _ENGINE_CONFIG_ARGS: dict[str, dict[str, Any]] = {
         "type": int,
         "default": None,
         "help": "token-budget / chunked-prefill 策略下单次 Prefill 的 padded token 上限，须不小于并发上限",
+    },
+    "--attention-backend": {
+        "default": "eager",
+        "choices": list(ATTENTION_BACKEND_KINDS),
+        "help": "Attention 核心计算后端：eager 显式物化 Score / Probability（baseline），"
+        "flash 为 Triton 手写 FlashAttention 前向 Kernel（需 CUDA；默认: %(default)s）",
     },
     "--feature-flags": {
         "type": _parse_feature_flags,
@@ -180,6 +189,7 @@ def build_engine_config(args: argparse.Namespace) -> EngineConfig:
             max_running_requests=args.max_running_requests,
             token_budget=args.token_budget,
         ),
+        attention_backend=parse_attention_backend_kind(args.attention_backend),
     )
 
 
@@ -358,15 +368,13 @@ def print_result(
     print("请求吞吐: %.3f requests/s" % result.metrics.throughput_req_s)
     print("输出吞吐: %.3f tokens/s" % result.metrics.throughput_tok_s)
 
-    # 细粒度执行与显存指标（包含 batch 及超集分位数分析）
-    if result.metrics.ttft_ms is not None:
-        print("Prefill 延迟: %.2f ms" % result.metrics.ttft_ms)
-    if result.metrics.mean_tpot_ms is not None:
-        print("平均 Decode 迭代延迟: %.2f ms" % result.metrics.mean_tpot_ms)
-    if result.metrics.p50_tpot_ms is not None:
-        print("P50 Decode 延迟: %.2f ms" % result.metrics.p50_tpot_ms)
-    if result.metrics.p95_tpot_ms is not None:
-        print("P95 Decode 延迟: %.2f ms" % result.metrics.p95_tpot_ms)
+    # 细粒度执行与显存指标（按 LockstepResult / ScheduleResult 对称分派）
+    if isinstance(result, LockstepResult):
+        lm = result.lockstep_metrics
+        print("Prefill 延迟: %.2f ms" % lm.ttft_ms)
+        print("平均 Decode 迭代延迟: %.2f ms" % lm.mean_tpot_ms)
+        print("P50 Decode 延迟: %.2f ms" % lm.p50_tpot_ms)
+        print("P95 Decode 延迟: %.2f ms" % lm.p95_tpot_ms)
     if config.is_batch and result.batch_info is not None:
         print("Padding 有效率: %.2f%%" % (result.batch_info.padding_efficiency * 100))
         print("batch slot 利用率: %.2f%%" % (result.batch_info.slot_utilization * 100))
@@ -393,9 +401,10 @@ def print_result(
                     pc.prefix_cache_block_eviction_count,
                 )
             )
-    decode_times = result.trace.step_latencies_ms[1:]
-    if decode_times:
-        print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])
+    if isinstance(result, LockstepResult):
+        decode_times = result.trace.step_latencies_ms[1:]
+        if decode_times:
+            print("逐步 Decode 延迟(ms):", [round(value, 2) for value in decode_times])
 
     if result.op_breakdown:
         breakdown = result.op_breakdown
@@ -515,14 +524,11 @@ def _handle_run(args: argparse.Namespace) -> int:
             s.token_ids for s in optimized.sequences
         ]
         print("逐请求 Token 一致:", same_tokens)
-        baseline_decode = baseline.metrics.mean_tpot_ms
-        optimized_decode = optimized.metrics.mean_tpot_ms
-        if (
-            baseline_decode is not None
-            and optimized_decode is not None
-            and optimized_decode > 0
-        ):
-            print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
+        if isinstance(baseline, LockstepResult) and isinstance(optimized, LockstepResult):
+            baseline_decode = baseline.lockstep_metrics.mean_tpot_ms
+            optimized_decode = optimized.lockstep_metrics.mean_tpot_ms
+            if optimized_decode > 0:
+                print("平均 Decode 加速比: %.2fx" % (baseline_decode / optimized_decode))
         if baseline.metrics.e2e_wall_ms > 0 and optimized.metrics.e2e_wall_ms > 0:
             print(
                 "端到端 Wall-clock 耗时: %.2f ms -> %.2f ms"

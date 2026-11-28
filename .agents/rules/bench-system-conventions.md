@@ -44,7 +44,7 @@ Scheduler 与 Lockstep 两套执行引擎在评测体系中保持严格结构对
 
 1. **身份与负载对称**：所有用例通过 `@property def key(self) -> CaseKey` 暴露正交特征向量；所有 `*CaseResult` 显式持有 `key: CaseKey` 与 `workload: WorkloadProfile`。
 2. **三级执行内核对称**（`bench/{lockstep,scheduler}/run_{case,suite}.py`）：
-   - **单次原子执行 `run_case_once(model, device, case, ...)`**：执行单用例全部请求序列的单次推理/调度，返回 `GenerationResult` / `ScheduleResult`。
+   - **单次原子执行 `run_case_once(model, device, case, ...)`**：执行单用例全部请求序列的单次推理/调度，返回 `LockstepResult` / `ScheduleResult`。
    - **多轮测量聚合 `run_case(model, device, case, warmup, repeats, ...)`**：执行预热与多轮测量，聚合样本统计分布并返回 `*CaseResult`。
    - **套件编排驱动 `run_suite(model, device, suite, ...)`**：解析执行计划（支持按 `CaseDimension` interleave 交替执行），驱动套件内全部用例并汇总 `list[*CaseResult]`。
 

@@ -3,8 +3,8 @@
 验证：
 1. 全面属性化（Dot-attribute Access）与不可变数据类（frozen dataclass）
 2. 彻底消除方括号字典访问与 __getattr__ 穿透
-3. 六大正交领域分离（Outputs, Metrics, Memory, Trace, Profiling, BatchInfo）
-4. 计算逻辑与容器分离纯函数（build_memory_profile, compute_step_aggregated_metrics 等）
+3. 对称结果与指标分层（GenerationResult / LockstepResult / ScheduleResult, ExecutionMetrics / LockstepMetrics）
+4. 计算逻辑与容器分离纯函数（build_memory_profile, compute_execution_metrics, compute_lockstep_metrics 等）
 """
 
 from dataclasses import FrozenInstanceError, is_dataclass
@@ -15,20 +15,23 @@ import torch
 from mini_infra.core.types import SequenceOutput
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
+    ExecutionMetrics,
     GenerationTrace,
     KVCacheProfile,
+    LockstepMetrics,
     MemoryProfile,
     PagedCacheProfile,
-    StepAggregatedMetrics,
     build_memory_profile,
-    compute_step_aggregated_metrics,
+    compute_execution_metrics,
+    compute_lockstep_metrics,
     summarize_repeated_kv_cache_profiles,
     summarize_repeated_paged_cache_profiles,
 )
 from mini_infra.engine.results import (
-    AggregationOptions,
     GenerationResult,
-    aggregate_generation_results,
+    LockstepResult,
+    SerialMergeOptions,
+    merge_serial_generation_results,
 )
 from mini_infra.entrypoints.types import GenerationOptions
 from mini_infra.profiling import KernelInfo, OpLatencyBreakdown
@@ -41,11 +44,13 @@ def test_frozen_dataclass_contract():
         SequenceOutput,
         GenerationOptions,
         MemoryProfile,
-        StepAggregatedMetrics,
+        ExecutionMetrics,
+        LockstepMetrics,
         GenerationTrace,
         BatchScheduleInfo,
         GenerationResult,
-        AggregationOptions,
+        LockstepResult,
+        SerialMergeOptions,
         KernelInfo,
         OpLatencyBreakdown,
     ]
@@ -82,16 +87,20 @@ def test_no_subscript_or_dynamic_attr_proxy():
         output_len=2,
         finish_reason="max_tokens",
     )
-    metrics = StepAggregatedMetrics(
-        ttft_ms=10.0,
-        mean_tpot_ms=5.0,
-        p50_tpot_ms=5.0,
-        p95_tpot_ms=5.0,
+    metrics = ExecutionMetrics(
         e2e_wall_ms=20.0,
         e2e_model_ms=20.0,
         throughput_tok_s=100.0,
         throughput_req_s=50.0,
+        effective_prompt_tok_s=200.0,
+        padded_prompt_tok_s=200.0,
         gpu_time_ratio=1.0,
+    )
+    lockstep_metrics = LockstepMetrics(
+        ttft_ms=10.0,
+        mean_tpot_ms=5.0,
+        p50_tpot_ms=5.0,
+        p95_tpot_ms=5.0,
     )
     mem = MemoryProfile(
         baseline_mb=100.0,
@@ -104,16 +113,18 @@ def test_no_subscript_or_dynamic_attr_proxy():
         step_latencies_ms=[10.0, 5.0, 5.0],
         num_active_tokens_per_step=[1, 1, 1],
     )
-    result = GenerationResult(
+    result = LockstepResult(
         sequences=[seq],
         metrics=metrics,
+        lockstep_metrics=lockstep_metrics,
         memory=mem,
         trace=trace,
         batch_size=1,
     )
+    assert isinstance(result, GenerationResult)
     assert torch.equal(result.padded_output_tokens(), torch.tensor([[10, 20]]))
 
-    # 1. 方括号访问引发 TypeError（'GenerationResult' object is not subscriptable）
+    # 1. 方括号访问引发 TypeError（'LockstepResult' object is not subscriptable）
     with pytest.raises(TypeError):
         _ = result["metrics"]  # type: ignore[index]
     with pytest.raises(TypeError):
@@ -124,14 +135,17 @@ def test_no_subscript_or_dynamic_attr_proxy():
     # 2. 彻底无 get / __contains__ / __getattr__ 代理
     assert not hasattr(result, "get")
     with pytest.raises(AttributeError):
-        _ = result.ttft_ms  # 不再穿透代理，必须 result.metrics.ttft_ms
+        _ = result.ttft_ms  # 不再穿透代理，必须 result.lockstep_metrics.ttft_ms
+    with pytest.raises(AttributeError):
+        _ = result.metrics.ttft_ms  # ExecutionMetrics 不含齐步专属延迟字段
     with pytest.raises(AttributeError):
         _ = result.baseline_mb  # 必须 result.memory.baseline_mb
     with pytest.raises(TypeError):
         _ = "metrics" in result  # type: ignore[operator]
 
     # 3. 强类型点属性访问
-    assert result.metrics.ttft_ms == 10.0
+    assert result.lockstep_metrics.ttft_ms == 10.0
+    assert result.metrics.throughput_tok_s == 100.0
     assert result.memory.peak_allocated_mb == 150.0
     assert result.trace.step_latencies_ms == [10.0, 5.0, 5.0]
     assert result.sequences[0].token_ids == [10, 20]
@@ -249,32 +263,36 @@ def test_summarize_repeated_cache_profiles():
     assert merged_kv.paged_cache == merged_paged
 
 
-def test_compute_step_aggregated_metrics():
-    """验证 compute_step_aggregated_metrics 纯函数。"""
+def test_compute_lockstep_and_execution_metrics():
+    """验证 compute_lockstep_metrics 与 compute_execution_metrics 纯函数。"""
     step_latencies = [10.0, 2.0, 4.0, 6.0, 8.0]
-    metrics = compute_step_aggregated_metrics(
-        step_latencies_ms=step_latencies,
+    lockstep_metrics = compute_lockstep_metrics(step_latencies)
+    exec_metrics = compute_execution_metrics(
         e2e_wall_ms=35.0,
         e2e_model_ms=30.0,
-        total_tokens=8,
-        batch_size=2,
+        num_output_tokens=8,
+        num_requests=2,
+        num_prompt_tokens=16,
+        num_padded_prompt_tokens=16,
+        prefill_ms=10.0,
         is_cuda=True,
     )
-    assert isinstance(metrics, StepAggregatedMetrics)
-    assert metrics.ttft_ms == 10.0
-    assert metrics.mean_tpot_ms == (2.0 + 4.0 + 6.0 + 8.0) / 4  # 5.0
-    assert metrics.p50_tpot_ms == percentile([2.0, 4.0, 6.0, 8.0], 50)
-    assert metrics.p95_tpot_ms == percentile([2.0, 4.0, 6.0, 8.0], 95)
-    assert metrics.e2e_wall_ms == 35.0
-    assert metrics.e2e_model_ms == 30.0
-    assert metrics.throughput_tok_s == pytest.approx(8 / (30.0 / 1000))
-    assert metrics.throughput_req_s == pytest.approx(2 * 1000 / 30.0)
-    assert metrics.gpu_time_ratio == pytest.approx(30.0 / 35.0)
+    assert isinstance(lockstep_metrics, LockstepMetrics)
+    assert isinstance(exec_metrics, ExecutionMetrics)
+    assert lockstep_metrics.ttft_ms == 10.0
+    assert lockstep_metrics.mean_tpot_ms == (2.0 + 4.0 + 6.0 + 8.0) / 4  # 5.0
+    assert lockstep_metrics.p50_tpot_ms == percentile([2.0, 4.0, 6.0, 8.0], 50)
+    assert lockstep_metrics.p95_tpot_ms == percentile([2.0, 4.0, 6.0, 8.0], 95)
+    assert exec_metrics.e2e_wall_ms == 35.0
+    assert exec_metrics.e2e_model_ms == 30.0
+    assert exec_metrics.throughput_tok_s == pytest.approx(8 / (30.0 / 1000))
+    assert exec_metrics.throughput_req_s == pytest.approx(2 * 1000 / 30.0)
+    assert exec_metrics.gpu_time_ratio == pytest.approx(30.0 / 35.0)
 
 
-def test_aggregate_generation_results():
-    """验证多 Run 结果聚合逻辑。"""
-    res1 = GenerationResult(
+def test_merge_serial_generation_results():
+    """验证串行多请求 LockstepResult 合并逻辑。"""
+    res1 = LockstepResult(
         sequences=[
             SequenceOutput(
                 request_idx=0,
@@ -284,16 +302,20 @@ def test_aggregate_generation_results():
                 finish_reason="stop",
             )
         ],
-        metrics=StepAggregatedMetrics(
-            ttft_ms=10.0,
-            mean_tpot_ms=5.0,
-            p50_tpot_ms=5.0,
-            p95_tpot_ms=5.0,
+        metrics=ExecutionMetrics(
             e2e_wall_ms=20.0,
             e2e_model_ms=18.0,
             throughput_tok_s=100.0,
             throughput_req_s=50.0,
+            effective_prompt_tok_s=300.0,
+            padded_prompt_tok_s=300.0,
             gpu_time_ratio=0.9,
+        ),
+        lockstep_metrics=LockstepMetrics(
+            ttft_ms=10.0,
+            mean_tpot_ms=5.0,
+            p50_tpot_ms=5.0,
+            p95_tpot_ms=5.0,
         ),
         memory=MemoryProfile(
             baseline_mb=100.0,
@@ -309,7 +331,7 @@ def test_aggregate_generation_results():
         batch_size=1,
     )
 
-    res2 = GenerationResult(
+    res2 = LockstepResult(
         sequences=[
             SequenceOutput(
                 request_idx=0,
@@ -319,16 +341,20 @@ def test_aggregate_generation_results():
                 finish_reason="max_tokens",
             )
         ],
-        metrics=StepAggregatedMetrics(
-            ttft_ms=12.0,
-            mean_tpot_ms=6.0,
-            p50_tpot_ms=6.0,
-            p95_tpot_ms=6.0,
+        metrics=ExecutionMetrics(
             e2e_wall_ms=30.0,
             e2e_model_ms=28.0,
             throughput_tok_s=100.0,
             throughput_req_s=33.3,
+            effective_prompt_tok_s=400.0,
+            padded_prompt_tok_s=400.0,
             gpu_time_ratio=0.93,
+        ),
+        lockstep_metrics=LockstepMetrics(
+            ttft_ms=12.0,
+            mean_tpot_ms=6.0,
+            p50_tpot_ms=6.0,
+            p95_tpot_ms=6.0,
         ),
         memory=MemoryProfile(
             baseline_mb=100.0,
@@ -344,7 +370,8 @@ def test_aggregate_generation_results():
         batch_size=1,
     )
 
-    merged = aggregate_generation_results([res1, res2])
+    merged = merge_serial_generation_results([res1, res2])
+    assert isinstance(merged, LockstepResult)
 
     # 1. 验证 Sequences 与 Padded Tokens
     assert merged.batch_size == 2
@@ -363,13 +390,13 @@ def test_aggregate_generation_results():
     assert merged.memory.peak_reserved_mb == 220.0
     assert merged.memory.kv_cache.peak_live_kv_cache_mb == 15.0
 
-    # 3. 验证 Metrics（默认 mean 聚合）
+    # 3. 验证 Metrics 与 LockstepMetrics（默认 mean 聚合）
     assert merged.metrics.e2e_wall_ms == 25.0  # (20 + 30) / 2
     assert merged.metrics.e2e_model_ms == 23.0  # (18 + 28) / 2
-    assert merged.metrics.ttft_ms == 11.0  # (10 + 12) / 2
-    assert merged.metrics.mean_tpot_ms == 5.5  # (5 + 6) / 2
-    assert merged.metrics.p50_tpot_ms == 5.5  # (5 + 6) / 2
-    assert merged.metrics.p95_tpot_ms == 5.5  # (5 + 6) / 2
+    assert merged.lockstep_metrics.ttft_ms == 11.0  # (10 + 12) / 2
+    assert merged.lockstep_metrics.mean_tpot_ms == 5.5  # (5 + 6) / 2
+    assert merged.lockstep_metrics.p50_tpot_ms == 5.5  # (5 + 6) / 2
+    assert merged.lockstep_metrics.p95_tpot_ms == 5.5  # (5 + 6) / 2
     assert merged.metrics.throughput_req_s == pytest.approx((50.0 + 33.3) / 2)
     assert merged.metrics.throughput_tok_s == pytest.approx(100.0)
     assert merged.metrics.gpu_time_ratio == pytest.approx(46.0 / 50.0)
@@ -379,9 +406,12 @@ def test_aggregate_generation_results():
     assert merged.trace.num_active_tokens_per_step == [1, 1, 1, 1, 1, 1, 1]
 
 
-def test_aggregate_generation_results_with_options():
-    """验证 aggregate_generation_results 在各种 AggregationOptions 下的聚合正确性。"""
-    res1 = GenerationResult(
+def test_merge_serial_generation_results_with_options():
+    """验证 merge_serial_generation_results 空序列校验及三域 SerialMergeOptions 合并正确性。"""
+    with pytest.raises(ValueError, match="results 不能为空"):
+        merge_serial_generation_results([])
+
+    res1 = LockstepResult(
         sequences=[
             SequenceOutput(
                 request_idx=0,
@@ -391,16 +421,20 @@ def test_aggregate_generation_results_with_options():
                 finish_reason="stop",
             )
         ],
-        metrics=StepAggregatedMetrics(
-            ttft_ms=10.0,
-            mean_tpot_ms=4.0,
-            p50_tpot_ms=4.0,
-            p95_tpot_ms=4.0,
+        metrics=ExecutionMetrics(
             e2e_wall_ms=20.0,
             e2e_model_ms=18.0,
             throughput_tok_s=100.0,
             throughput_req_s=50.0,
+            effective_prompt_tok_s=300.0,
+            padded_prompt_tok_s=300.0,
             gpu_time_ratio=0.9,
+        ),
+        lockstep_metrics=LockstepMetrics(
+            ttft_ms=10.0,
+            mean_tpot_ms=4.0,
+            p50_tpot_ms=4.0,
+            p95_tpot_ms=4.0,
         ),
         memory=MemoryProfile(
             baseline_mb=100.0,
@@ -414,7 +448,7 @@ def test_aggregate_generation_results_with_options():
         ),
         batch_size=1,
     )
-    res2 = GenerationResult(
+    res2 = LockstepResult(
         sequences=[
             SequenceOutput(
                 request_idx=0,
@@ -424,16 +458,20 @@ def test_aggregate_generation_results_with_options():
                 finish_reason="stop",
             )
         ],
-        metrics=StepAggregatedMetrics(
-            ttft_ms=20.0,
-            mean_tpot_ms=8.0,
-            p50_tpot_ms=8.0,
-            p95_tpot_ms=8.0,
+        metrics=ExecutionMetrics(
             e2e_wall_ms=40.0,
             e2e_model_ms=36.0,
             throughput_tok_s=50.0,
             throughput_req_s=25.0,
+            effective_prompt_tok_s=100.0,
+            padded_prompt_tok_s=100.0,
             gpu_time_ratio=0.8,
+        ),
+        lockstep_metrics=LockstepMetrics(
+            ttft_ms=20.0,
+            mean_tpot_ms=8.0,
+            p50_tpot_ms=8.0,
+            p95_tpot_ms=8.0,
         ),
         memory=MemoryProfile(
             baseline_mb=120.0,
@@ -448,51 +486,51 @@ def test_aggregate_generation_results_with_options():
         batch_size=1,
     )
 
-    # 1. 域级别配置：metrics="mean", memory="min"
-    opt_mean = AggregationOptions(metrics="mean", memory="min")
-    merged_mean = aggregate_generation_results([res1, res2], options=opt_mean)
-    assert merged_mean.metrics.e2e_wall_ms == 30.0  # (20 + 40) / 2
-    assert merged_mean.metrics.e2e_model_ms == 27.0  # (18 + 36) / 2
-    assert merged_mean.metrics.ttft_ms == 15.0  # (10 + 20) / 2
-    assert merged_mean.metrics.mean_tpot_ms == 6.0  # (4 + 8) / 2
-    assert merged_mean.metrics.p50_tpot_ms == 6.0
-    assert merged_mean.metrics.throughput_tok_s == 75.0  # (100 + 50) / 2
-    assert merged_mean.metrics.gpu_time_ratio == pytest.approx(
-        27.0 / 30.0
-    )  # 派生自 e2e_model_ms / e2e_wall_ms
-    assert merged_mean.memory.baseline_mb == 100.0  # min(100, 120)
-    assert merged_mean.memory.peak_allocated_mb == 150.0  # min(150, 180)
-    assert merged_mean.memory.kv_cache.peak_live_kv_cache_mb == 10.0  # min(10, 20)
+    # 1. 三域独立配置：metrics="sum", lockstep_metrics="max", memory="min"
+    opt_domains = SerialMergeOptions(metrics="sum", lockstep_metrics="max", memory="min")
+    merged_domains = merge_serial_generation_results([res1, res2], options=opt_domains)
+    assert merged_domains.metrics.e2e_wall_ms == 60.0  # sum: 20 + 40
+    assert merged_domains.metrics.e2e_model_ms == 54.0  # sum: 18 + 36
+    assert merged_domains.lockstep_metrics.ttft_ms == 20.0  # max(10, 20)
+    assert merged_domains.lockstep_metrics.mean_tpot_ms == 8.0  # max(4, 8)
+    assert merged_domains.lockstep_metrics.p50_tpot_ms == 8.0
+    assert merged_domains.metrics.throughput_tok_s == 150.0  # sum: 100 + 50
+    assert merged_domains.metrics.effective_prompt_tok_s == 400.0  # sum: 300 + 100
+    assert merged_domains.metrics.gpu_time_ratio == pytest.approx(54.0 / 60.0)
+    assert merged_domains.memory.baseline_mb == 100.0  # min(100, 120)
+    assert merged_domains.memory.peak_allocated_mb == 150.0  # min(150, 180)
+    assert merged_domains.memory.kv_cache.peak_live_kv_cache_mb == 10.0  # min(10, 20)
 
-    # 2. 字段级精确覆盖：metrics 默认为 sum，但 ttft_ms="min", peak_allocated_mb="mean"
-    opt_field = AggregationOptions(metrics="sum", ttft_ms="min", peak_allocated_mb="mean")
-    merged_field = aggregate_generation_results([res1, res2], options=opt_field)
-    assert merged_field.metrics.e2e_wall_ms == 60.0  # sum: 20 + 40
-    assert merged_field.metrics.e2e_model_ms == 54.0  # sum: 18 + 36
-    assert merged_field.metrics.gpu_time_ratio == pytest.approx(
-        54.0 / 60.0
-    )  # 派生自 e2e_model_ms / e2e_wall_ms
-    assert merged_field.metrics.ttft_ms == 10.0  # min(10, 20)
+    # 2. 字段级精确覆盖：metrics="sum", lockstep_metrics="max", 但 ttft_ms="min", peak_allocated_mb="mean"
+    opt_field = SerialMergeOptions(
+        metrics="sum",
+        lockstep_metrics="max",
+        ttft_ms="min",
+        peak_allocated_mb="mean",
+    )
+    merged_field = merge_serial_generation_results([res1, res2], options=opt_field)
+    assert merged_field.metrics.e2e_wall_ms == 60.0
+    assert merged_field.lockstep_metrics.ttft_ms == 10.0  # 字段覆盖 min(10, 20)
+    assert merged_field.lockstep_metrics.mean_tpot_ms == 8.0  # 继承域级 max(4, 8)
     assert merged_field.memory.peak_allocated_mb == 165.0  # mean(150, 180)
     assert merged_field.memory.peak_reserved_mb == 250.0  # memory 默认 max(200, 250)
 
-    # 3. 验证 gpu_time_ratio 完全不受 e2e 时间聚合函数影响
-    opt_diff = AggregationOptions(e2e_wall_ms="max", e2e_model_ms="min")
-    merged_diff = aggregate_generation_results([res1, res2], options=opt_diff)
-    assert merged_diff.metrics.e2e_wall_ms == 40.0  # max(20, 40)
-    assert merged_diff.metrics.e2e_model_ms == 18.0  # min(18, 36)
-    # 虽然聚合后的 model/wall 是 18/40=0.45，但 gpu_time_ratio 客观反映总耗时之比 (18+36)/(20+40)=0.9
+    # 3. 验证 gpu_time_ratio 完全不受 e2e 时间归约函数影响
+    opt_diff = SerialMergeOptions(e2e_wall_ms="max", e2e_model_ms="min")
+    merged_diff = merge_serial_generation_results([res1, res2], options=opt_diff)
+    assert merged_diff.metrics.e2e_wall_ms == 40.0
+    assert merged_diff.metrics.e2e_model_ms == 18.0
     assert merged_diff.metrics.gpu_time_ratio == pytest.approx(54.0 / 60.0)
 
-    # 4. 自定义 Callable 聚合函数
-    opt_custom = AggregationOptions(ttft_ms=lambda vals: max(vals) * 2.0)
-    merged_custom = aggregate_generation_results([res1, res2], options=opt_custom)
-    assert merged_custom.metrics.ttft_ms == 40.0  # max(10, 20) * 2.0
+    # 4. 自定义 Callable 归约函数
+    opt_custom = SerialMergeOptions(ttft_ms=lambda vals: max(vals) * 2.0)
+    merged_custom = merge_serial_generation_results([res1, res2], options=opt_custom)
+    assert merged_custom.lockstep_metrics.ttft_ms == 40.0
 
-    # 5. 非法聚合函数字符串引发 ValueError
-    with pytest.raises(ValueError, match="Unsupported aggregate function"):
-        _ = aggregate_generation_results(
-            [res1, res2], options=AggregationOptions(metrics="unknown_fn")
+    # 5. 非法归约函数字符串引发 ValueError
+    with pytest.raises(ValueError, match="Unsupported merge function"):
+        _ = merge_serial_generation_results(
+            [res1, res2], options=SerialMergeOptions(metrics="unknown_fn")
         )  # type: ignore[arg-type]
 
 
@@ -524,7 +562,7 @@ def test_padded_output_tokens_method():
     ]
     res = GenerationResult(
         sequences=seqs,
-        metrics=StepAggregatedMetrics(0, 0, 0, 0, 0, 0, 0, 0),
+        metrics=ExecutionMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         memory=MemoryProfile(0, 0, 0, 0, 0),
         trace=GenerationTrace([], []),
         batch_size=3,
@@ -573,7 +611,7 @@ def test_padded_output_tokens_method():
     # 4. 空 sequences
     empty_res = GenerationResult(
         sequences=[],
-        metrics=StepAggregatedMetrics(0, 0, 0, 0, 0, 0, 0, 0),
+        metrics=ExecutionMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         memory=MemoryProfile(0, 0, 0, 0, 0),
         trace=GenerationTrace([], []),
         batch_size=0,
@@ -583,30 +621,30 @@ def test_padded_output_tokens_method():
 
 
 def test_generation_result_prompt_throughput_properties():
-    """验证 compute_step_aggregated_metrics 的 effective_prompt_tok_s 与 padded_prompt_tok_s 计算。"""
-    metrics = compute_step_aggregated_metrics(
-        step_latencies_ms=[50.0, 5.0, 5.0],
+    """验证 compute_execution_metrics 的 effective_prompt_tok_s 与 padded_prompt_tok_s 计算。"""
+    metrics = compute_execution_metrics(
         e2e_wall_ms=100.0,
         e2e_model_ms=60.0,
-        total_tokens=6,
-        batch_size=2,
+        num_output_tokens=6,
+        num_requests=2,
         num_prompt_tokens=100,
         num_padded_prompt_tokens=200,
+        prefill_ms=50.0,
     )
     # 100 tokens / (50ms / 1000) = 2000 tokens/s
     assert metrics.effective_prompt_tok_s == 2000.0
     # 200 tokens / (50ms / 1000) = 4000 tokens/s
     assert metrics.padded_prompt_tok_s == 4000.0
 
-    # ttft_ms 为 0 时安全返回 0.0
-    zero_ttft_metrics = compute_step_aggregated_metrics(
-        step_latencies_ms=[0.0],
+    # prefill_ms 为 0 时安全返回 0.0
+    zero_ttft_metrics = compute_execution_metrics(
         e2e_wall_ms=10.0,
         e2e_model_ms=0.0,
-        total_tokens=2,
-        batch_size=2,
+        num_output_tokens=2,
+        num_requests=2,
         num_prompt_tokens=100,
         num_padded_prompt_tokens=200,
+        prefill_ms=0.0,
     )
     assert zero_ttft_metrics.effective_prompt_tok_s == 0.0
     assert zero_ttft_metrics.padded_prompt_tok_s == 0.0

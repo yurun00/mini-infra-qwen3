@@ -223,6 +223,7 @@ def run_scheduler(
             paged_cache_config=kv_cache_config,
             batching_method=batching_method,
             pad_token_id=pad_token_id,
+            attention_backend=config.attention_backend,
         )
         effective_max_running_requests = max_running_requests
     else:
@@ -236,6 +237,7 @@ def run_scheduler(
             max_running_requests=effective_max_running_requests,
             batching_method=batching_method,
             pad_token_id=pad_token_id,
+            attention_backend=config.attention_backend,
         )
 
     return _run_schedule_loop(

@@ -20,6 +20,7 @@ from mini_infra.engine.schedule_backend import (
     ScheduleBackend,
     ScheduleStepOutput,
 )
+from mini_infra.model.attention import AttentionBackendKind
 from mini_infra.worker import PagedBlockCache, PagedRunner
 
 __all__ = ["PagedScheduleBackend"]
@@ -36,6 +37,7 @@ class PagedScheduleBackend(ScheduleBackend):
         paged_cache_config: PagedCacheConfig,
         batching_method: BatchingMethod = BatchingMethod.CONTINUOUS,
         pad_token_id: int = 0,
+        attention_backend: AttentionBackendKind = "eager",
     ) -> None:
         self.paged_cache_config = paged_cache_config
         self.block_size = paged_cache_config.block_size
@@ -55,7 +57,7 @@ class PagedScheduleBackend(ScheduleBackend):
             )
         super().__init__(model, max_running_requests, batching_method)
         config = model.config  # type: ignore[attr-defined]
-        self.runner = PagedRunner(model, pad_token_id)
+        self.runner = PagedRunner(model, pad_token_id, attention_backend)
         self.snapshot_tracker.record_stage("00_paged_before_pool_init")
         self.paged_block_cache = PagedBlockCache(
             num_layers=config.num_hidden_layers,

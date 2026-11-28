@@ -1,5 +1,6 @@
-"""生成结果容器、输出对齐与多轮结果聚合。"""
+"""生成结果容器、输出对齐与串行结果合并。"""
 
+import statistics
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
@@ -15,12 +16,13 @@ from mini_infra.core.types import (
 )
 from mini_infra.engine.metrics import (
     BatchScheduleInfo,
+    ExecutionMetrics,
     GenerationTrace,
     KVCacheProfile,
+    LockstepMetrics,
     MemoryProfile,
     ScheduleEvent,
     ScheduleMetrics,
-    StepAggregatedMetrics,
     summarize_repeated_paged_cache_profiles,
 )
 from mini_infra.profiling import (
@@ -77,10 +79,10 @@ def pad_output_tokens(
 
 @dataclass(frozen=True)
 class GenerationResult:
-    """所有文本生成模式的公共结果基类契约（彻底属性化，不可变强类型容器）。"""
+    """所有文本生成模式的公共结果基类契约（仅承载跨引擎共享字段与 ExecutionMetrics）。"""
 
     sequences: list[SequenceOutput]
-    metrics: StepAggregatedMetrics[float]
+    metrics: ExecutionMetrics[float]
     memory: MemoryProfile
     trace: GenerationTrace
     batch_size: int
@@ -96,6 +98,13 @@ class GenerationResult:
         return pad_output_tokens(
             self.sequences, request_idx=request_idx, pad_token_id=pad_token_id
         )
+
+
+@dataclass(frozen=True)
+class LockstepResult(GenerationResult):
+    """齐步（Lockstep）与串行基线运行的不可变结果容器，扩展单波次按步延迟指标。"""
+
+    lockstep_metrics: LockstepMetrics[float] = field(kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -123,82 +132,88 @@ class ScheduleResult(GenerationResult):
                     )
 
 
-AggFunc = Literal["sum", "mean", "max", "min"] | Callable[[Sequence[float]], float]
+MergeFunc = Literal["sum", "mean", "max", "min"] | Callable[[Sequence[float]], float]
 
 
-def _resolve_agg_fn(agg: AggFunc) -> Callable[[Sequence[float]], float]:
-    """将聚合函数名称或可调用对象解析为标准 Callable。"""
-    if callable(agg):
-        return agg
-    agg_str = agg.lower()
-    if agg_str == "sum":
+def _resolve_merge_fn(func: MergeFunc) -> Callable[[Sequence[float]], float]:
+    """将合并归约函数名称或可调用对象解析为标准 Callable。"""
+    if callable(func):
+        return func
+    func_str = func.lower()
+    if func_str == "sum":
         return sum
-    elif agg_str == "mean":
-        return lambda vals: sum(vals) / len(vals) if vals else 0.0
-    elif agg_str == "max":
+    if func_str == "mean":
+        return lambda vals: statistics.fmean(vals) if vals else 0.0
+    if func_str == "max":
         return lambda vals: max(vals) if vals else 0.0
-    elif agg_str == "min":
+    if func_str == "min":
         return lambda vals: min(vals) if vals else 0.0
-    else:
-        raise ValueError(
-            f"Unsupported aggregate function: {agg!r}. Expected 'sum', 'mean', 'max', 'min', or callable."
-        )
+    raise ValueError(
+        f"Unsupported merge function: {func!r}. Expected 'sum', 'mean', 'max', 'min', or callable."
+    )
 
 
 @dataclass(frozen=True)
-class AggregationOptions:
-    """GenerationResult 聚合策略配置。自定义字段覆盖能力专供测试使用（Test-only）。
+class SerialMergeOptions:
+    """串行 LockstepResult 合并归约策略配置。自定义字段覆盖能力专供测试使用（Test-only）。
 
     支持双层配置：
-    - 域级默认聚合：metrics, memory。
-    - 细粒度字段覆盖：可针对特定字段覆盖所属域的默认聚合函数。
+    - 域级默认归约：metrics（ExecutionMetrics）、lockstep_metrics（LockstepMetrics）、memory（MemoryProfile）。
+    - 细粒度字段覆盖：可针对特定字段覆盖所属域的默认归约函数。
     """
 
-    metrics: AggFunc = "mean"
-    memory: AggFunc = "max"
+    # infra-legacy: v0.1~v0.2 受控历史基准以逐请求 mean 记录串行 e2e_wall_ms / e2e_model_ms，保持基线可对照性
+    metrics: MergeFunc = "mean"
+    lockstep_metrics: MergeFunc = "mean"
+    memory: MergeFunc = "max"
 
-    e2e_wall_ms: AggFunc | None = None
-    e2e_model_ms: AggFunc | None = None
-    ttft_ms: AggFunc | None = None
-    mean_tpot_ms: AggFunc | None = None
-    p50_tpot_ms: AggFunc | None = None
-    p95_tpot_ms: AggFunc | None = None
-    throughput_tok_s: AggFunc | None = None
-    throughput_req_s: AggFunc | None = None
+    e2e_wall_ms: MergeFunc | None = None
+    e2e_model_ms: MergeFunc | None = None
+    throughput_tok_s: MergeFunc | None = None
+    throughput_req_s: MergeFunc | None = None
+    effective_prompt_tok_s: MergeFunc | None = None
+    padded_prompt_tok_s: MergeFunc | None = None
 
-    baseline_mb: AggFunc | None = None
-    prefill_mb: AggFunc | None = None
-    peak_allocated_mb: AggFunc | None = None
-    peak_reserved_mb: AggFunc | None = None
-    peak_live_kv_cache_mb: AggFunc | None = None
+    ttft_ms: MergeFunc | None = None
+    mean_tpot_ms: MergeFunc | None = None
+    p50_tpot_ms: MergeFunc | None = None
+    p95_tpot_ms: MergeFunc | None = None
 
-    def _get_agg_fn(
+    baseline_mb: MergeFunc | None = None
+    prefill_mb: MergeFunc | None = None
+    peak_allocated_mb: MergeFunc | None = None
+    peak_reserved_mb: MergeFunc | None = None
+    peak_live_kv_cache_mb: MergeFunc | None = None
+
+    def _get_merge_fn(
         self, domain: str, field_name: str | None = None
     ) -> Callable[[Sequence[float]], float]:
-        """按优先级解析聚合函数：特定字段覆盖 > 域级默认。"""
+        """按优先级解析归约函数：特定字段覆盖 > 域级默认。"""
         if field_name and hasattr(self, field_name):
             override = getattr(self, field_name)
             if override is not None:
-                return _resolve_agg_fn(override)
+                return _resolve_merge_fn(override)
         domain_default = getattr(self, domain, "mean")
-        return _resolve_agg_fn(domain_default)
+        return _resolve_merge_fn(domain_default)
 
 
-def aggregate_generation_results(
-    runs: list[GenerationResult],
-    options: AggregationOptions | None = None,
-) -> GenerationResult:
-    """把各运行结果聚合为一个 GenerationResult。"""
+def merge_serial_generation_results(
+    results: Sequence[LockstepResult],
+    options: SerialMergeOptions | None = None,
+) -> LockstepResult:
+    """将串行逐条执行的多个 LockstepResult 合并为单个多请求 LockstepResult。"""
+    if not results:
+        raise ValueError("results 不能为空")
     if options is None:
-        options = AggregationOptions()
+        options = SerialMergeOptions()
 
     sequences: list[SequenceOutput] = []
-    request_counter = 0
-    for run in runs:
-        for seq in run.sequences:
+    next_request_idx = 0
+    for res in results:
+        for seq in res.sequences:
             sequences.append(
                 SequenceOutput(
-                    request_idx=request_counter,
+                    request_idx=next_request_idx,
                     token_ids=seq.token_ids,
                     prompt_len=seq.prompt_len,
                     output_len=seq.output_len,
@@ -207,111 +222,101 @@ def aggregate_generation_results(
                     prefix_cache_hit_tokens=seq.prefix_cache_hit_tokens,
                 )
             )
-            request_counter += 1
+            next_request_idx += 1
 
     total_requests = len(sequences)
-    step_latencies = [x for run in runs for x in run.trace.step_latencies_ms]
-    num_active_tokens = [x for run in runs for x in run.trace.num_active_tokens_per_step]
+    step_latencies = [x for res in results for x in res.trace.step_latencies_ms]
+    num_active_tokens = [
+        x for res in results for x in res.trace.num_active_tokens_per_step
+    ]
 
-    e2e_wall_ms = options._get_agg_fn("metrics", "e2e_wall_ms")(
-        [r.metrics.e2e_wall_ms for r in runs]
-    )
-    e2e_model_ms = options._get_agg_fn("metrics", "e2e_model_ms")(
-        [r.metrics.e2e_model_ms for r in runs]
-    )
-    ttft_vals = [r.metrics.ttft_ms for r in runs if r.metrics.ttft_ms is not None]
-    mean_tpot_vals = [
-        r.metrics.mean_tpot_ms for r in runs if r.metrics.mean_tpot_ms is not None
-    ]
-    p50_tpot_vals = [
-        r.metrics.p50_tpot_ms for r in runs if r.metrics.p50_tpot_ms is not None
-    ]
-    p95_tpot_vals = [
-        r.metrics.p95_tpot_ms for r in runs if r.metrics.p95_tpot_ms is not None
-    ]
-    ttft_ms = options._get_agg_fn("metrics", "ttft_ms")(ttft_vals) if ttft_vals else None
-    mean_tpot_ms = (
-        options._get_agg_fn("metrics", "mean_tpot_ms")(mean_tpot_vals)
-        if mean_tpot_vals
-        else None
-    )
-    p50_tpot_ms = (
-        options._get_agg_fn("metrics", "p50_tpot_ms")(p50_tpot_vals)
-        if p50_tpot_vals
-        else None
-    )
-    p95_tpot_ms = (
-        options._get_agg_fn("metrics", "p95_tpot_ms")(p95_tpot_vals)
-        if p95_tpot_vals
-        else None
-    )
-    throughput_tok_s = options._get_agg_fn("metrics", "throughput_tok_s")(
-        [r.metrics.throughput_tok_s for r in runs]
-    )
-    throughput_req_s = options._get_agg_fn("metrics", "throughput_req_s")(
-        [r.metrics.throughput_req_s for r in runs]
-    )
-
-    has_cuda = any(r.metrics.gpu_time_ratio is not None for r in runs)
-    total_model_ms = sum(r.metrics.e2e_model_ms for r in runs)
-    total_wall_ms = sum(r.metrics.e2e_wall_ms for r in runs)
+    has_cuda = any(r.metrics.gpu_time_ratio is not None for r in results)
+    total_model_ms = sum(r.metrics.e2e_model_ms for r in results)
+    total_wall_ms = sum(r.metrics.e2e_wall_ms for r in results)
     gpu_time_ratio = (
         min(1.0, total_model_ms / total_wall_ms)
         if (has_cuda and total_wall_ms > 0)
         else None
     )
 
-    metrics = StepAggregatedMetrics(
-        ttft_ms=ttft_ms,
-        mean_tpot_ms=mean_tpot_ms,
-        p50_tpot_ms=p50_tpot_ms,
-        p95_tpot_ms=p95_tpot_ms,
-        e2e_wall_ms=e2e_wall_ms,
-        e2e_model_ms=e2e_model_ms,
-        throughput_tok_s=throughput_tok_s,
-        throughput_req_s=throughput_req_s,
+    metrics: ExecutionMetrics[float] = ExecutionMetrics(
+        e2e_wall_ms=options._get_merge_fn("metrics", "e2e_wall_ms")(
+            [r.metrics.e2e_wall_ms for r in results]
+        ),
+        e2e_model_ms=options._get_merge_fn("metrics", "e2e_model_ms")(
+            [r.metrics.e2e_model_ms for r in results]
+        ),
+        throughput_tok_s=options._get_merge_fn("metrics", "throughput_tok_s")(
+            [r.metrics.throughput_tok_s for r in results]
+        ),
+        throughput_req_s=options._get_merge_fn("metrics", "throughput_req_s")(
+            [r.metrics.throughput_req_s for r in results]
+        ),
+        effective_prompt_tok_s=options._get_merge_fn(
+            "metrics", "effective_prompt_tok_s"
+        )([r.metrics.effective_prompt_tok_s for r in results]),
+        padded_prompt_tok_s=options._get_merge_fn("metrics", "padded_prompt_tok_s")(
+            [r.metrics.padded_prompt_tok_s for r in results]
+        ),
         gpu_time_ratio=gpu_time_ratio,
     )
+    lockstep_metrics: LockstepMetrics[float] = LockstepMetrics(
+        ttft_ms=options._get_merge_fn("lockstep_metrics", "ttft_ms")(
+            [r.lockstep_metrics.ttft_ms for r in results]
+        ),
+        mean_tpot_ms=options._get_merge_fn("lockstep_metrics", "mean_tpot_ms")(
+            [r.lockstep_metrics.mean_tpot_ms for r in results]
+        ),
+        p50_tpot_ms=options._get_merge_fn("lockstep_metrics", "p50_tpot_ms")(
+            [r.lockstep_metrics.p50_tpot_ms for r in results]
+        ),
+        p95_tpot_ms=options._get_merge_fn("lockstep_metrics", "p95_tpot_ms")(
+            [r.lockstep_metrics.p95_tpot_ms for r in results]
+        ),
+    )
 
-    baseline_mb_fn = options._get_agg_fn("memory", "baseline_mb")
-    prefill_mb_fn = options._get_agg_fn("memory", "prefill_mb")
-    peak_allocated_mb_fn = options._get_agg_fn("memory", "peak_allocated_mb")
-    peak_reserved_mb_fn = options._get_agg_fn("memory", "peak_reserved_mb")
-    peak_live_kv_cache_mb_fn = options._get_agg_fn("memory", "peak_live_kv_cache_mb")
-    prefill_vals = [r.memory.prefill_mb for r in runs if r.memory.prefill_mb is not None]
+    baseline_mb_fn = options._get_merge_fn("memory", "baseline_mb")
+    prefill_mb_fn = options._get_merge_fn("memory", "prefill_mb")
+    peak_allocated_mb_fn = options._get_merge_fn("memory", "peak_allocated_mb")
+    peak_reserved_mb_fn = options._get_merge_fn("memory", "peak_reserved_mb")
+    peak_live_kv_cache_mb_fn = options._get_merge_fn("memory", "peak_live_kv_cache_mb")
+    prefill_vals = [
+        r.memory.prefill_mb for r in results if r.memory.prefill_mb is not None
+    ]
 
     memory = MemoryProfile(
-        baseline_mb=baseline_mb_fn([r.memory.baseline_mb for r in runs]),
+        baseline_mb=baseline_mb_fn([r.memory.baseline_mb for r in results]),
         prefill_mb=prefill_mb_fn(prefill_vals) if prefill_vals else None,
         peak_allocated_mb=peak_allocated_mb_fn(
-            [r.memory.peak_allocated_mb for r in runs]
+            [r.memory.peak_allocated_mb for r in results]
         ),
-        peak_reserved_mb=peak_reserved_mb_fn([r.memory.peak_reserved_mb for r in runs]),
+        peak_reserved_mb=peak_reserved_mb_fn(
+            [r.memory.peak_reserved_mb for r in results]
+        ),
         kv_cache=KVCacheProfile(
             peak_live_kv_cache_mb=peak_live_kv_cache_mb_fn(
-                [r.memory.kv_cache.peak_live_kv_cache_mb for r in runs]
+                [r.memory.kv_cache.peak_live_kv_cache_mb for r in results]
             ),
             peak_kv_cache_pool_mb=max(
-                (r.memory.kv_cache.peak_kv_cache_pool_mb for r in runs),
-                default=0.0,
+                r.memory.kv_cache.peak_kv_cache_pool_mb for r in results
             ),
             cache_realign_moved_bytes=sum(
-                r.memory.kv_cache.cache_realign_moved_bytes for r in runs
+                r.memory.kv_cache.cache_realign_moved_bytes for r in results
             ),
             accessed_kv_cache_tokens=sum(
-                r.memory.kv_cache.accessed_kv_cache_tokens for r in runs
+                r.memory.kv_cache.accessed_kv_cache_tokens for r in results
             ),
             paged_cache=summarize_repeated_paged_cache_profiles(
                 [
                     r.memory.kv_cache.paged_cache
-                    for r in runs
+                    for r in results
                     if r.memory.kv_cache.paged_cache is not None
                 ]
             ),
         ),
     )
 
-    op_breakdowns = [r.op_breakdown for r in runs if r.op_breakdown is not None]
+    op_breakdowns = [r.op_breakdown for r in results if r.op_breakdown is not None]
     op_breakdown = merge_op_latency_breakdowns(op_breakdowns)
 
     trace = GenerationTrace(
@@ -320,9 +325,10 @@ def aggregate_generation_results(
         logits_trace=None,
     )
 
-    return GenerationResult(
+    return LockstepResult(
         sequences=sequences,
         metrics=metrics,
+        lockstep_metrics=lockstep_metrics,
         memory=memory,
         trace=trace,
         batch_size=total_requests,
@@ -332,10 +338,11 @@ def aggregate_generation_results(
 
 
 __all__ = [
-    "AggFunc",
-    "AggregationOptions",
     "GenerationResult",
+    "LockstepResult",
+    "MergeFunc",
     "ScheduleResult",
-    "aggregate_generation_results",
+    "SerialMergeOptions",
+    "merge_serial_generation_results",
     "pad_output_tokens",
 ]

@@ -1,10 +1,15 @@
 """CLI 单元测试：统一根命令与分级子命令树。"""
 
+import argparse
+import functools
+import inspect
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
 
 from mini_infra.cli import build_parser, main
+from mini_infra.cli.commands.verify import parity
 
 
 def test_cli_help(capsys):
@@ -48,6 +53,7 @@ def test_cli_subcommand_helps():
         ["verify", "prefix-caching", "--help"],
         ["verify", "paged-cache-logits", "--help"],
         ["verify", "paged-cache-scheduler", "--help"],
+        ["verify", "flash-attention", "--help"],
         ["bench", "lockstep", "case", "--help"],
         ["bench", "scheduler", "case", "--help"],
         ["bench", "sweep", "--help"],
@@ -73,6 +79,96 @@ def test_cli_verify_smoke(capsys):
     assert ret == 0
     captured = capsys.readouterr().out
     assert "smoke test passed" in captured
+
+
+@pytest.mark.parametrize("spec", parity._COMMANDS, ids=lambda s: s.name)
+def test_cli_verify_parity_defaults_match_runner_signature(monkeypatch, spec):
+    """验证每个 verify parity 子命令默认参数与 execute_compare_* 签名真源 1:1 对齐透传。"""
+    captured_kwargs: dict[str, object] = {}
+
+    @functools.wraps(spec.runner)
+    def fake_runner(**kwargs: object) -> int:
+        captured_kwargs.update(kwargs)
+        return 0
+
+    patched_commands = tuple(
+        replace(item, runner=fake_runner) if item.name == spec.name else item
+        for item in parity._COMMANDS
+    )
+    monkeypatch.setattr(parity, "_COMMANDS", patched_commands)
+
+    assert main(["verify", spec.name]) == 0
+    expected_kwargs = {
+        name: (None if param.default is inspect.Parameter.empty else param.default)
+        for name, param in inspect.signature(spec.runner).parameters.items()
+    }
+    assert captured_kwargs == expected_kwargs
+
+
+def test_cli_verify_parity_custom_args_and_unknown_param_guard(monkeypatch):
+    """验证自定义 CLI 参数覆盖透传，以及未登记形参在构建解析器时快速失败。"""
+    captured_kwargs: dict[str, object] = {}
+    target_spec = next(s for s in parity._COMMANDS if s.name == "chunked-prefill")
+
+    @functools.wraps(target_spec.runner)
+    def fake_runner(**kwargs: object) -> int:
+        captured_kwargs.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        parity,
+        "_COMMANDS",
+        tuple(
+            replace(item, runner=fake_runner) if item.name == "chunked-prefill" else item
+            for item in parity._COMMANDS
+        ),
+    )
+    ret = main(
+        [
+            "verify",
+            "chunked-prefill",
+            "--model",
+            "/tmp/local-qwen3",
+            "--prompts",
+            "p1",
+            "p2",
+            "--dtype",
+            "bfloat16",
+            "--max-new-tokens",
+            "12",
+            "--token-budget",
+            "48",
+            "--block-size",
+            "8",
+            "--max-running-requests",
+            "2",
+            "--logits-atol",
+            "0.5",
+            "--output",
+            "tmp/parity.local.json",
+        ]
+    )
+    assert ret == 0
+    assert captured_kwargs["model"] == "/tmp/local-qwen3"
+    assert captured_kwargs["prompts"] == ["p1", "p2"]
+    assert captured_kwargs["dtype"] == "bfloat16"
+    assert captured_kwargs["max_new_tokens"] == 12
+    assert captured_kwargs["token_budget"] == 48
+    assert captured_kwargs["block_size"] == 8
+    assert captured_kwargs["max_running_requests"] == 2
+    assert captured_kwargs["logits_atol"] == 0.5
+    assert captured_kwargs["output"] == "tmp/parity.local.json"
+
+    def bad_runner(unregistered_param: int = 1) -> int:
+        return unregistered_param
+
+    bad_parser = argparse.ArgumentParser()
+    bad_subs = bad_parser.add_subparsers()
+    with pytest.raises(KeyError, match="unregistered_param"):
+        parity._register_command(
+            bad_subs,
+            parity._ParityCommandSpec(name="bad", help="bad", runner=bad_runner),
+        )
 
 
 def test_cli_scheduler_suite_dry_run(capsys):

@@ -148,6 +148,9 @@ def test_existing_benchmark_json_files_validate():
         rec = load_benchmark_record(p, require_single_case=True)
         assert isinstance(rec, LockstepBenchmarkRecord)
         assert 1 <= len(rec.cases) <= 3
+        for case in rec.cases:
+            assert case.lockstep.ttft_ms.median > 0
+            assert case.lockstep.tpot_ms.median > 0
 
     scheduler_history_dir = Path("benchmarks/results/history/scheduler")
     for p in sorted(scheduler_history_dir.glob("*.json")):

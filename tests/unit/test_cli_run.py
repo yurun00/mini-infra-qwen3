@@ -28,6 +28,7 @@ from mini_infra.engine import (
     EngineConfig,
     FeatureFlag,
     GenerationResult,
+    LockstepResult,
     ScheduleResult,
 )
 from mini_infra.entrypoints import GenerationOptions
@@ -192,6 +193,7 @@ def test_run_config_uses_scheduler_for_all_methods_when_via_scheduler(
     assert fixed_sched.schedule_metrics.max_running_requests == 2
     assert isinstance(cont_sched, ScheduleResult)
     assert isinstance(fixed_plain, GenerationResult)
+    assert isinstance(fixed_plain, LockstepResult)
     assert not isinstance(fixed_plain, ScheduleResult)
     tokens = [s.token_ids for s in fixed_sched.sequences]
     assert tokens == [s.token_ids for s in cont_sched.sequences]

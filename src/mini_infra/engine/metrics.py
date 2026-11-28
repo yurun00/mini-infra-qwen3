@@ -244,73 +244,91 @@ class BatchScheduleInfo(Generic[_MetricT]):
 
 
 @dataclass(frozen=True)
-class StepAggregatedMetrics(Generic[_MetricT]):
-    """生成性能度量指标（支持单次运行标量 float 或多轮评测统计分布 DistributionStats）。"""
+class ExecutionMetrics(Generic[_MetricT]):
+    """跨引擎（Lockstep 与 Scheduler）共享的端到端执行耗时、吞吐率与 GPU 利用率指标。"""
 
-    ttft_ms: _MetricT | None = None
-    mean_tpot_ms: _MetricT | None = None
-    p50_tpot_ms: _MetricT | None = None
-    p95_tpot_ms: _MetricT | None = None
-    e2e_wall_ms: _MetricT = 0.0  # type: ignore[assignment]
-    e2e_model_ms: _MetricT = 0.0  # type: ignore[assignment]
-    throughput_tok_s: _MetricT = 0.0  # type: ignore[assignment]
-    throughput_req_s: _MetricT = 0.0  # type: ignore[assignment]
+    e2e_wall_ms: _MetricT
+    e2e_model_ms: _MetricT
+    throughput_tok_s: _MetricT
+    throughput_req_s: _MetricT
+    effective_prompt_tok_s: _MetricT
+    padded_prompt_tok_s: _MetricT
     gpu_time_ratio: _MetricT | None = None
-    effective_prompt_tok_s: _MetricT | None = None
-    padded_prompt_tok_s: _MetricT | None = None
 
 
-def compute_step_aggregated_metrics(
-    step_latencies_ms: list[float],
-    e2e_wall_ms: float,
-    e2e_model_ms: float | None = None,
+def compute_execution_metrics(
     *,
-    total_tokens: int,
-    batch_size: int,
+    e2e_wall_ms: float,
+    e2e_model_ms: float,
+    busy_ms: float | None = None,
+    num_output_tokens: int,
+    num_requests: int,
+    num_prompt_tokens: int,
+    num_padded_prompt_tokens: int,
+    prefill_ms: float,
     is_cuda: bool = False,
-    num_prompt_tokens: int | None = None,
-    num_padded_prompt_tokens: int | None = None,
-) -> StepAggregatedMetrics:
-    """计算时延分位数、吞吐率与 GPU 利用率纯标量指标（由各 step 统计聚合而成）。"""
-    decode_latencies = step_latencies_ms[1:] if len(step_latencies_ms) > 1 else []
-    ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
-    mean_tpot_ms = (
-        (sum(decode_latencies) / len(decode_latencies)) if decode_latencies else 0.0
+) -> ExecutionMetrics[float]:
+    """计算跨引擎共享的吞吐率、耗时与 GPU 利用率标量指标。
+
+    busy_ms 缺省时取 e2e_model_ms（Lockstep 路径）；Scheduler 路径传入含 Cache 搬移耗时的 busy_ms。
+    """
+    denom_ms = e2e_model_ms if busy_ms is None else busy_ms
+    throughput_tok_s = num_output_tokens * 1000.0 / denom_ms if denom_ms > 0 else 0.0
+    throughput_req_s = num_requests * 1000.0 / denom_ms if denom_ms > 0 else 0.0
+    effective_prompt_tok_s = (
+        num_prompt_tokens * 1000.0 / prefill_ms if prefill_ms > 0 else 0.0
     )
-    p50_tpot_ms = percentile(decode_latencies, 50)
-    p95_tpot_ms = percentile(decode_latencies, 95)
-    if e2e_model_ms is None:
-        e2e_model_ms = sum(step_latencies_ms)
-    throughput_tok_s = total_tokens / (e2e_model_ms / 1000) if e2e_model_ms > 0 else 0.0
-    throughput_req_s = batch_size * 1000 / e2e_model_ms if e2e_model_ms > 0 else 0.0
+    padded_prompt_tok_s = (
+        num_padded_prompt_tokens * 1000.0 / prefill_ms if prefill_ms > 0 else 0.0
+    )
     gpu_time_ratio = (
         (min(1.0, e2e_model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0)
         if is_cuda
         else None
     )
-    effective_prompt_tok_s = (
-        (num_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0)
-        if num_prompt_tokens is not None
-        else None
-    )
-    padded_prompt_tok_s = (
-        (num_padded_prompt_tokens * 1000.0 / ttft_ms if ttft_ms > 0 else 0.0)
-        if num_padded_prompt_tokens is not None
-        else None
-    )
-
-    return StepAggregatedMetrics(
-        ttft_ms=ttft_ms,
-        mean_tpot_ms=mean_tpot_ms,
-        p50_tpot_ms=p50_tpot_ms,
-        p95_tpot_ms=p95_tpot_ms,
+    return ExecutionMetrics(
         e2e_wall_ms=e2e_wall_ms,
         e2e_model_ms=e2e_model_ms,
         throughput_tok_s=throughput_tok_s,
         throughput_req_s=throughput_req_s,
-        gpu_time_ratio=gpu_time_ratio,
         effective_prompt_tok_s=effective_prompt_tok_s,
         padded_prompt_tok_s=padded_prompt_tok_s,
+        gpu_time_ratio=gpu_time_ratio,
+    )
+
+
+@dataclass(frozen=True)
+class LockstepMetrics(Generic[_MetricT]):
+    """齐步（Lockstep / 串行）专属的按步统计延迟指标（Step 0 Prefill TTFT 与 Decode TPOT）。"""
+
+    ttft_ms: _MetricT
+    mean_tpot_ms: _MetricT
+    p50_tpot_ms: _MetricT
+    p95_tpot_ms: _MetricT
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ttft_ms": _serialize_metric(self.ttft_ms),
+            "tpot_ms": _serialize_metric(self.mean_tpot_ms),
+            "p50_tpot_ms": _serialize_metric(self.p50_tpot_ms),
+            "p95_tpot_ms": _serialize_metric(self.p95_tpot_ms),
+        }
+
+
+def compute_lockstep_metrics(
+    step_latencies_ms: Sequence[float],
+) -> LockstepMetrics[float]:
+    """由齐步迭代的逐步耗时序列计算单波次 TTFT 与 Decode TPOT 统计指标。"""
+    decode_latencies = list(step_latencies_ms[1:]) if len(step_latencies_ms) > 1 else []
+    ttft_ms = step_latencies_ms[0] if step_latencies_ms else 0.0
+    mean_tpot_ms = (
+        (sum(decode_latencies) / len(decode_latencies)) if decode_latencies else 0.0
+    )
+    return LockstepMetrics(
+        ttft_ms=ttft_ms,
+        mean_tpot_ms=mean_tpot_ms,
+        p50_tpot_ms=percentile(decode_latencies, 50),
+        p95_tpot_ms=percentile(decode_latencies, 95),
     )
 
 
@@ -536,27 +554,16 @@ def summarize_schedule(
         else 0.0
     )
 
-    gpu_time_ratio = (
-        (min(1.0, model_ms / e2e_wall_ms) if e2e_wall_ms > 0 else 0.0)
-        if is_cuda
-        else None
-    )
-    step_agg_metrics: StepAggregatedMetrics[float] = StepAggregatedMetrics(
+    exec_metrics = compute_execution_metrics(
         e2e_wall_ms=e2e_wall_ms,
         e2e_model_ms=model_ms,
-        throughput_tok_s=num_output_tokens * 1000 / busy_ms if busy_ms else 0.0,
-        throughput_req_s=len(requests) * 1000 / busy_ms if busy_ms else 0.0,
-        gpu_time_ratio=gpu_time_ratio,
-        effective_prompt_tok_s=num_prompt_tokens * 1000 / total_prefill_step_ms
-        if total_prefill_step_ms
-        else 0.0,
-        padded_prompt_tok_s=num_padded_prompt_tokens * 1000 / total_prefill_step_ms
-        if total_prefill_step_ms
-        else 0.0,
-        ttft_ms=None,
-        mean_tpot_ms=None,
-        p50_tpot_ms=None,
-        p95_tpot_ms=None,
+        busy_ms=busy_ms,
+        num_output_tokens=num_output_tokens,
+        num_requests=len(requests),
+        is_cuda=is_cuda,
+        num_prompt_tokens=num_prompt_tokens,
+        num_padded_prompt_tokens=num_padded_prompt_tokens,
+        prefill_ms=total_prefill_step_ms,
     )
     memory = MemoryProfile(
         baseline_mb=baseline_mb,
@@ -604,7 +611,7 @@ def summarize_schedule(
     )
     return ScheduleResult(
         sequences=sequences,
-        metrics=step_agg_metrics,
+        metrics=exec_metrics,
         memory=memory,
         trace=trace,
         batch_size=len(requests),
@@ -620,17 +627,19 @@ def summarize_schedule(
 
 __all__ = [
     "BatchScheduleInfo",
+    "ExecutionMetrics",
     "GenerationTrace",
     "KVCacheProfile",
+    "LockstepMetrics",
     "MemoryProfile",
     "PagedCacheProfile",
     "RequestAggregatedMetrics",
     "ScheduleEvent",
     "ScheduleMetrics",
-    "StepAggregatedMetrics",
     "build_memory_profile",
+    "compute_execution_metrics",
+    "compute_lockstep_metrics",
     "compute_request_aggregated_metrics",
-    "compute_step_aggregated_metrics",
     "summarize_repeated_kv_cache_profiles",
     "summarize_repeated_paged_cache_profiles",
     "summarize_schedule",

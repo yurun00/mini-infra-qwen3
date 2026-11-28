@@ -13,6 +13,7 @@
 * [连续批处理架构与调度原理 (Continuous Batching)](architecture/continuous-batching.md)：详解 Iteration-level Scheduling、batch slot 动态管理、Prefill 插队与请求生命周期状态机。
 * [迭代级组批与调度策略 (Iteration-level Batching & Scheduling Policy)](architecture/iteration-scheduling.md)：`IterationScheduler` / `SchedulerOutput` 决策与资源约束，`prefill-first`、`token-budget`（padded prompt tokens 成本模型、oversize prefill、decode protection）与 `chunked-prefill`（Prompt 分块、硬预算、逐 chunk 块分配与入场预留）。
 * [Paged KV Cache](architecture/paged-kv-cache.md)：physical block pool、block table、`slot_mapping` 寻址、prefix caching（block hash、cached block 共享与惰性 LRU 淘汰）与 vLLM 对照及已知限制。
+* [FlashAttention](architecture/flash-attention.md)：attention backend 抽象（eager / flash）、`CausalPaddingMask` 可见性契约、Triton Online Softmax Kernel（原生 GQA、因果 Tile 跳过、任意 stride K/V）与正确性 / 微基准实测。
 
 ### 2. 实践与操作指南 (Guides)
 面向日常开发、调试与正确性验证的操作指引。

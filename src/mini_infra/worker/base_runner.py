@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 import torch
 
 from mini_infra.device import StepTimer
+from mini_infra.model.attention import AttentionBackendKind, get_attn_backend
 from mini_infra.worker.kv_cache import KVCache
 from mini_infra.worker.sampler import greedy_sample
 
@@ -77,12 +78,22 @@ def _left_pad_sequences(
 
 
 class BaseModelRunner:
-    """基础无状态模型执行器：只持有模型与硬件配置，不承载单步执行原语与请求批次状态。"""
+    """基础无状态模型执行器：只持有模型、硬件配置与 attention backend，不承载请求批次状态。
 
-    def __init__(self, model: torch.nn.Module, pad_token_id: int = 0):
+    attention_backend 在构造时解析为无状态 attn_backend 实例（对标 vLLM GPUModelRunner 持有 attention backend），
+    每次模型前向经 attn_backend= 透传给模型，模型本身不感知 backend 选择来源。
+    """
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        pad_token_id: int = 0,
+        attention_backend: AttentionBackendKind = "eager",
+    ):
         self.model = model
         self.device = next(model.parameters()).device
         self.pad_token_id = pad_token_id
+        self.attn_backend = get_attn_backend(attention_backend)
 
     def run_prefill_step(
         self,
@@ -103,6 +114,7 @@ class BaseModelRunner:
                 input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
+                attn_backend=self.attn_backend,
             )
             next_token, last_logits = greedy_sample(logits)
         captured_logits = (
