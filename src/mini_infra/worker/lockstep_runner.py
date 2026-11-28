@@ -160,6 +160,7 @@ class LockstepRunner(BaseModelRunner):
             attention_mask=attention_mask,
             position_ids=position_ids,
             attn_metadata=attn_metadata,
+            attn_backend=self.attn_backend,
         )
         next_token, last_logits = greedy_sample(logits)
         if use_cache:

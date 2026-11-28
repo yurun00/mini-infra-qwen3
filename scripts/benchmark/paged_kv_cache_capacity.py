@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""固定显存容量实验脚本（对齐 Chapter 05 §5.3.7 表 43）。
+r"""固定显存容量实验脚本（对齐 https://github.com/SVDX-lab/miniinfra/tree/main/inference/ Chapter 05 §5.3.7 表 43）。
 
 在固定显存 GPU 环境中，通过连续调度运行混合长短 Prompt 请求负载，
 扫描 Dense 与 Paged KV Cache 在多级并发档位（4/8/12/16）下的容量边界与吞吐表现。

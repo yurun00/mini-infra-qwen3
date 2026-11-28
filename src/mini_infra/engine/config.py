@@ -14,6 +14,7 @@ from mini_infra.core.types import (
     PrefillFirstConfig,
     SchedulerConfig,
 )
+from mini_infra.model.attention import AttentionBackendKind
 
 
 class FeatureFlag(str, Enum):
@@ -48,12 +49,15 @@ class EngineConfig:
     - flags: 正交的布尔型功能开关集合。
     - scheduler_config: 迭代级调度器配置（承载 max_running_requests 与 batching_policy；
       TODO 后续可扩展聚合 queue_policy 与 preemption_mode，对标 vLLM SchedulerConfig）。
+    - attention_backend: attention 核心计算后端（eager / flash，对标 vLLM --attention-backend）；
+      与 KV Cache、批处理、调度维度正交，由 worker 层 Runner 解析为 attn_backend 实例。
     """
 
     kv_cache_config: KVCacheConfig = NoCacheConfig()
     batching_method: BatchingMethod = BatchingMethod.NONE
     flags: frozenset[FeatureFlag] = frozenset()
     scheduler_config: SchedulerConfig = SchedulerConfig()
+    attention_backend: AttentionBackendKind = "eager"
 
     def with_flag(self, flag: FeatureFlag, enabled: bool = True) -> "EngineConfig":
         """返回指定 FeatureFlag 状态修改后的新 EngineConfig 实例。"""
@@ -90,6 +94,12 @@ class EngineConfig:
             scheduler_config=self.scheduler_config.with_batching_policy(batching_policy),
         )
 
+    def with_attention_backend(
+        self, attention_backend: AttentionBackendKind
+    ) -> "EngineConfig":
+        """返回指定 attention_backend 修改后的新 EngineConfig 实例。"""
+        return replace(self, attention_backend=attention_backend)
+
     @property
     def has_kv_cache(self) -> bool:
         """是否使用任一 KV Cache 实现（Dense 或 Paged）。"""
@@ -111,6 +121,9 @@ class EngineConfig:
         # 默认 prefill-first 不输出，保证历史 Record 的 engine_config 标识不变
         if not isinstance(self.scheduler_config.batching_policy, PrefillFirstConfig):
             parts.append(str(self.scheduler_config.batching_policy))
+        # 默认 eager 不输出，保证历史 Record 的 engine_config 标识不变
+        if self.attention_backend != "eager":
+            parts.append(f"{self.attention_backend}-attention")
         return "+".join(parts)
 
 

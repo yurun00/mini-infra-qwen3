@@ -17,6 +17,7 @@ from mini_infra.engine.schedule_backend import (
     ScheduleBackend,
     ScheduleStepOutput,
 )
+from mini_infra.model.attention import AttentionBackendKind
 from mini_infra.worker import DenseSlotCache, SlotRunner
 
 __all__ = ["DenseScheduleBackend"]
@@ -31,10 +32,11 @@ class DenseScheduleBackend(ScheduleBackend):
         max_running_requests: int,
         batching_method: BatchingMethod,
         pad_token_id: int = 0,
+        attention_backend: AttentionBackendKind = "eager",
     ) -> None:
         super().__init__(model, max_running_requests, batching_method)
         self.is_continuous = batching_method is BatchingMethod.CONTINUOUS
-        self.runner = SlotRunner(model, pad_token_id)
+        self.runner = SlotRunner(model, pad_token_id, attention_backend)
         self.dense_slot_cache = DenseSlotCache(max_running_requests, self.device)
         self.snapshot_tracker.record_stage("01_dense_init")
 

@@ -88,13 +88,15 @@
 | block hash | `BlockHash(hash_value, token_ids)`、`hash_block_tokens` | 满块的链式哈希（父块 `hash_value` + 本块 Token），覆盖从 Prompt 开头到本块的整段前缀 |
 | cached block | `KVCacheBlock.block_hash`、`BlockPool` | 已登记 block hash、可被多请求按 `ref_cnt` 共享的 physical block；`ref_cnt == 0` 时留在 free block queue 中（可命中、可惰性淘汰） |
 | computed blocks / prefix_cache_hit_tokens | `_get_computed_blocks` 返回值、`RequestState.prefix_cache_hit_tokens`、`SequenceOutput.prefix_cache_hit_tokens` | 新请求入场时命中的 cached block 前缀（至多 `(prompt_len - 1) // block_size` 块）及其 Token 数；Prefill 区间从 `prefix_cache_hit_tokens` 起算 |
+| attention backend | `AttentionBackend` / `AttentionInputs` / `AttentionBackendKind`（`eager` / `flash`）/ `EngineConfig.attention_backend` / `get_attn_backend` / `BaseModelRunner.attn_backend` | Attention 核心计算（QK^T -> mask -> softmax -> PV）的可替换无状态实现：`prepare_inputs` 每次前向一次产出跨层共享的 `AttentionInputs`、`forward` 逐层调用；与 KV Cache、batching、调度维度正交 |
+| causal padding mask | `CausalPaddingMask(key_valid, query_valid, causal_offset)` | backend 无关的「因果 + padding」可见性描述符：Query 行 q 可见 Key k 当且仅当 `key_valid[b, k]` 且 `k <= causal_offset + q`；eager 物化为加性 attn_bias，flash 在 Kernel 内按 Tile 现算 |
 | control plane / data plane / compute plane | 分层图 ③④⑤ | 模块 `import torch` 且持有张量即 data plane；纯 CPU 决策即 control plane；纯张量算子计算即 compute plane |
 
 **命名与反混用红线**
 
 - **禁中文别名**：physical block pool 不写「物理块池 / 块池」，block table 不写「页表」，batch slot 不写「请求槽位 / 执行槽」，cached block 不写「缓存块」；文档与注释用规范名，首次出现可附代码标识符。
 - **三个「行/位」语义严禁互混**：`slot_mapping` 的 token 级 slot（写入地址）≠ dense 的 batch slot（请求并发位）≠ 单步前向的 row（临时 batch 行）。
-- **调度正交维度严禁互混**：`batching_method`（跨步机制：`none` / `fixed-batching` / `continuous-batching`）≠ `batching_policy`（单步组批：`prefill-first` / `token-budget`）≠ `queue_policy`（排队序：`fcfs` / `priority` / `srtf`）≠ `preemption_mode`（抢占：`recompute` / `swap`）。
+- **调度正交维度严禁互混**：`batching_method`（跨步机制：`none` / `fixed-batching` / `continuous-batching`）≠ `batching_policy`（单步组批：`prefill-first` / `token-budget`）≠ `queue_policy`（排队序：`fcfs` / `priority` / `srtf`）≠ `preemption_mode`（抢占：`recompute` / `swap`）；`attention_backend`（`eager` / `flash`）只替换 Attention 核心计算，与上述调度维度及 `kv_cache_config` 均正交。
 
 ---
 

@@ -1,5 +1,14 @@
 """Qwen3 模型纯张量算子架构。"""
 
+from mini_infra.model.attention import (
+    ATTENTION_BACKEND_KINDS,
+    AttentionBackend,
+    AttentionBackendKind,
+    AttentionInputs,
+    CausalPaddingMask,
+    get_attn_backend,
+    parse_attention_backend_kind,
+)
 from mini_infra.model.config import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -24,8 +33,13 @@ from mini_infra.model.qwen3 import (
 )
 
 __all__ = [
+    "ATTENTION_BACKEND_KINDS",
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_REVISION",
+    "AttentionBackend",
+    "AttentionBackendKind",
+    "AttentionInputs",
+    "CausalPaddingMask",
     "DenseAttentionMetadata",
     "PagedAttentionMetadata",
     "PastKeyValue",
@@ -37,7 +51,9 @@ __all__ = [
     "Qwen3Model",
     "RMSNorm",
     "RotaryEmbedding",
+    "get_attn_backend",
     "load_model",
     "model_dtype_from_config",
+    "parse_attention_backend_kind",
     "resolve_model_directory",
 ]

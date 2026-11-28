@@ -18,6 +18,7 @@
 | **6. 迭代调度策略对照** | `compare_schedulers_token_budget.py` | `mini-infra verify schedulers-token-budget` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k schedulers` | `float32` | 在错峰 Burst 负载下验证 `prefill-first` 与 `token-budget` 的逐请求输出一致性、单步轨迹与 decode protection（最大连续 Prefill 步数对比） |
 | **7. Chunked Prefill 对照** | `compare_chunked_prefill.py` | `mini-infra verify chunked-prefill` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k chunked_prefill` | `float32` | 在含超长 Prompt 的错峰负载下验证 `token-budget` 与 `chunked-prefill` 的逐请求输出一致性、首 Token Logits 误差（`atol <= 1e-4`）与硬预算轨迹 |
 | **8. Prefix Caching 对照** | `compare_prefix_caching.py` | `mini-infra verify prefix-caching` | `pytest tests/gpu/parity/test_scheduler_batch_parity.py -k prefix_caching` | `float32` | 在共享长前缀负载下验证 prefix caching 关闭 / 开启的逐请求输出一致性、命中前缀后只算剩余 Prompt 的首 Token Logits 误差（`atol <= 1e-4`）与 Prefill 计算量下降 |
+| **9. FlashAttention 对照** | `compare_flash_attention.py` | `mini-infra verify flash-attention` | `pytest tests/gpu/parity/test_flash_attention_parity.py` | `float32` | Kernel 级：Full Prefill / 非整 Tile / Chunked Prefill / 左 Padding Batch / Decode 对照 float32 eager Reference；模型级：Lockstep 与 Paged chunked-prefill 两条路径 eager 与 flash 的 Greedy Token 100% 一致且 Logits 误差 `atol <= 1e-4` |
 
 ---
 
@@ -328,11 +329,32 @@ pytest tests/unit/test_compare_prefix_caching.py tests/unit/test_prefix_caching.
 
 ---
 
+### 9. FlashAttention 对照（`eager` vs `flash` attention backend）
+
+* **对应源码**：[`src/mini_infra/verification/parity/compare_flash_attention.py`](../../src/mini_infra/verification/parity/compare_flash_attention.py)
+* **核心目标**：验证 Triton 手写 FlashAttention Kernel 与显式物化 Score 的 eager baseline 数值等价（原理见 [FlashAttention](../architecture/flash-attention.md)）。
+
+#### CLI 运行指令
+```bash
+mini-infra verify flash-attention --output tmp/parity_flash_attention.json
+```
+
+#### Pytest 运行指令
+```bash
+pytest tests/gpu/parity/test_flash_attention_parity.py
+```
+
+* **判定标准**：
+  - Kernel 级：以真实模型 head 配置（K/V 取 transpose 视图）构造 6 类用例，有效 Query 行最大绝对误差 `float32 <= 1e-5`、`bfloat16 <= 3e-2`，且输出全部有限；
+  - 模型级（仅 `float32` 判定）：两条引擎路径 Greedy Token 100% 一致，Logits 最大绝对误差 `<= logits_atol`（默认 `1e-4`）。
+
+---
+
 ## 三、一键运行全部验证
 
 ### 1. 使用 CLI 依次执行全部对齐命令
 ```bash
-# 执行全部 9 项精度对齐命令
+# 执行全部 10 项精度对齐命令
 mini-infra verify transformers
 mini-infra verify cache
 mini-infra verify batch-lockstep
@@ -342,6 +364,7 @@ mini-infra verify batch-scheduler
 mini-infra verify schedulers-token-budget
 mini-infra verify chunked-prefill
 mini-infra verify prefix-caching
+mini-infra verify flash-attention
 ```
 
 ### 2. 使用 Pytest 一键回归全部 GPU 对齐测试

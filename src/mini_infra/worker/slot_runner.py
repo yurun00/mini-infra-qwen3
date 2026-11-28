@@ -108,6 +108,7 @@ class SlotRunner(BaseModelRunner):
                 attn_metadata=DenseAttentionMetadata(
                     tuple(dense_slot_cache.past_key_values)
                 ),
+                attn_backend=self.attn_backend,
             )
             next_token, _ = greedy_sample(logits)
         dense_slot_cache.commit_decode_step(attention_mask, present_key_values)

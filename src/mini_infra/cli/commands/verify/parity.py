@@ -21,6 +21,9 @@ from mini_infra.verification.parity.compare_cache import execute_compare_cache
 from mini_infra.verification.parity.compare_chunked_prefill import (
     execute_compare_chunked_prefill,
 )
+from mini_infra.verification.parity.compare_flash_attention import (
+    execute_compare_flash_attention,
+)
 from mini_infra.verification.parity.compare_paged_cache_logits import (
     execute_compare_paged_logits,
 )
@@ -175,6 +178,14 @@ _COMMANDS: tuple[_ParityCommandSpec, ...] = (
         name="paged-cache-scheduler",
         help="Scheduler 调度环境下 Dense 与多 Block Size Paged KV Cache 输出一致性验证",
         runner=execute_compare_paged_cache_scheduler,
+    ),
+    _ParityCommandSpec(
+        name="flash-attention",
+        help="eager 与 flash attention backend 的 Kernel 级误差与 Lockstep / Paged chunked-prefill 模型级输出对齐",
+        runner=execute_compare_flash_attention,
+        help_overrides={
+            "logits_atol": "模型级 Logits 最大绝对误差阈值，仅 float32 判定（默认: %(default)s）",
+        },
     ),
 )
 

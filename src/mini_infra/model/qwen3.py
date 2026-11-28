@@ -8,6 +8,10 @@
 - attn_metadata 为 PagedAttentionMetadata 时走 Paged KV Cache Decode 路径（寻址 slot_mapping / block_tables /
   context_lens 与逐层 physical block pool（kv_pools）都封装在 metadata 内，新 K/V 就地写入 physical block pool，
   按 block table gather 历史后 attend）。纯张量进出，零外部容器依赖。
+
+Attention 核心计算委托给 attn_backend（对标 vLLM AttentionImpl）：三条 Cache 路径统一产出 backend 无关的
+CausalPaddingMask，由 backend 每次前向 prepare_inputs 一次产出跨层复用的 AttentionInputs、逐层 forward；
+默认 eager backend 与历史数值路径逐算子一致。
 """
 
 from collections.abc import Sequence
@@ -17,6 +21,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from mini_infra.model.attention import (
+    EAGER_ATTENTION_BACKEND,
+    AttentionBackend,
+    AttentionInputs,
+    CausalPaddingMask,
+)
 from mini_infra.model.config import Qwen3Config
 
 # 单层历史键值：(key, value)，Dense 路径形状为 [batch_size, num_kv_heads, past_len, head_dim]，
@@ -149,20 +159,8 @@ def _apply_rotary_embedding(
     return rotated_query, rotated_key
 
 
-def _repeat_key_value(hidden_states: torch.Tensor, repeat_count: int) -> torch.Tensor:
-    """把较少的 KV 头按 GQA 分组复制到与 Query 头数相同。
-
-    hidden_states: [batch_size, num_kv_heads, kv_len, head_dim], model_dtype, contiguous / non-contiguous
-    Returns:       [batch_size, num_heads, kv_len, head_dim],    model_dtype,
-                   repeat_count == 1 时保持原视图，否则 contiguous
-    """
-    if repeat_count == 1:
-        return hidden_states
-    return hidden_states.repeat_interleave(repeat_count, dim=1)
-
-
 class Qwen3Attention(nn.Module):
-    """支持复用历史 K/V 的 Grouped Query Attention。"""
+    """支持复用历史 K/V 的 Grouped Query Attention（核心计算委托 attn_backend）。"""
 
     def __init__(self, config: Qwen3Config):
         super().__init__()
@@ -170,9 +168,6 @@ class Qwen3Attention(nn.Module):
         self.num_key_value_heads = config.num_key_value_heads
         self.head_dim = config.head_dim
         self.scaling = config.head_dim**-0.5
-        self.num_key_value_groups = (
-            config.num_attention_heads // config.num_key_value_heads
-        )
 
         query_size = config.num_attention_heads * config.head_dim
         key_value_size = config.num_key_value_heads * config.head_dim
@@ -226,46 +221,6 @@ class Qwen3Attention(nn.Module):
         query, key = _apply_rotary_embedding(query, key, cosine, sine)
         return query, key, value
 
-    def _attend(
-        self,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
-        attn_bias: torch.Tensor,
-    ) -> torch.Tensor:
-        """对完整历史 K/V 做 GQA Attention，返回 o_proj 前的隐藏表示。
-
-        query:       [batch_size, num_heads, query_len, head_dim],    model_dtype, contiguous
-        key / value: [batch_size, num_kv_heads, kv_len, head_dim],    model_dtype, contiguous / non-contiguous
-        attn_bias:   [batch_size, 1, query_len, kv_len],              model_dtype, contiguous
-
-        Returns:
-            attention_output: [batch_size, query_len, num_heads * head_dim], model_dtype, contiguous
-        """
-        batch_size, _, query_len, _ = query.shape
-
-        # 只在真正计算 Attention 前按 GQA 组展开为 [batch_size, num_heads, kv_len, head_dim]，避免 Cache 存冗余副本。
-        attention_key = _repeat_key_value(key, self.num_key_value_groups)
-        attention_value = _repeat_key_value(value, self.num_key_value_groups)
-
-        # transpose(2, 3): [batch_size, num_heads, head_dim, kv_len]（non-contiguous 视图，直接由 matmul 消费）
-        # -> attention_scores: [batch_size, num_heads, query_len, kv_len], model_dtype, contiguous
-        attention_scores = (
-            torch.matmul(query, attention_key.transpose(2, 3)) * self.scaling
-        )
-        attention_scores = attention_scores + attn_bias
-
-        # Softmax 显式升维 float32 归一化后再转回 model_dtype，防止低精度指数溢出。
-        attention_probs = F.softmax(attention_scores, dim=-1, dtype=torch.float32)
-        attention_probs = attention_probs.to(query.dtype)
-        # matmul -> [batch_size, num_heads, query_len, head_dim], model_dtype, contiguous
-        attention_output = torch.matmul(attention_probs, attention_value)
-
-        # transpose(1, 2): [batch_size, query_len, num_heads, head_dim]（non-contiguous）
-        # -> contiguous() -> view: [batch_size, query_len, num_heads * head_dim], model_dtype, contiguous
-        attention_output = attention_output.transpose(1, 2).contiguous()
-        return attention_output.view(batch_size, query_len, -1)
-
     def _apply_paged_kv_pool(
         self,
         key: torch.Tensor,
@@ -283,7 +238,7 @@ class Qwen3Attention(nn.Module):
 
         Returns:
             (history_key, history_value): 形状均为 [batch_size, num_kv_heads, max_history_len, head_dim]，model_dtype，
-            作为非连续视图供 _attend 的 matmul 消费。
+            作为末维连续的非连续视图供 attn_backend 直接消费。
         """
         batch_size = key.shape[0]
         key_pool, value_pool = kv_pool
@@ -298,7 +253,7 @@ class Qwen3Attention(nn.Module):
 
         # 按 block table 取块：[batch_size, max_blocks, block_size, num_kv_heads, head_dim]（gather 产出，contiguous）
         #   -> view 为 [batch_size, max_blocks * block_size, num_kv_heads, head_dim]（contiguous）
-        #   -> transpose 为 [batch_size, num_kv_heads, max_history_len, head_dim]（非连续视图，直接喂 matmul）。
+        #   -> transpose 为 [batch_size, num_kv_heads, max_history_len, head_dim]（非连续视图，直接喂 attn_backend）。
         max_history_len = metadata.block_tables.shape[1] * key_pool.shape[1]
         history_shape = (
             batch_size,
@@ -317,7 +272,8 @@ class Qwen3Attention(nn.Module):
         hidden_states: torch.Tensor,
         cosine: torch.Tensor,
         sine: torch.Tensor,
-        attn_bias: torch.Tensor,
+        attn_inputs: AttentionInputs,
+        attn_backend: AttentionBackend,
         past_key_value: PastKeyValue | None = None,
         kv_pool: PastKeyValue | None = None,
         attn_metadata: PagedAttentionMetadata | None = None,
@@ -326,7 +282,8 @@ class Qwen3Attention(nn.Module):
 
         hidden_states:  [batch_size, query_len, hidden_size], model_dtype, contiguous
         cosine / sine:  [batch_size, query_len, head_dim],    model_dtype, contiguous
-        attn_bias:      [batch_size, 1, query_len, kv_len],   model_dtype, contiguous
+        attn_inputs:    attn_backend.prepare_inputs 产出的后端专属单步输入（全部层共享）
+        attn_backend:   attention 核心计算后端（eager / flash）
         past_key_value: Dense 历史 (key, value)，各 [batch_size, num_kv_heads, past_len, head_dim]，
                         model_dtype，contiguous
         kv_pool:        Paged 单层 physical block pool (key_pool, value_pool)，
@@ -352,8 +309,11 @@ class Qwen3Attention(nn.Module):
         else:
             present_key_value = (key, value)
 
-        attention_output = self.o_proj(self._attend(query, key, value, attn_bias))
-        return attention_output, present_key_value
+        # attn_backend.forward -> [batch_size, query_len, num_heads * head_dim], model_dtype, contiguous
+        attention_output = attn_backend.forward(
+            query, key, value, attn_inputs, self.scaling
+        )
+        return self.o_proj(attention_output), present_key_value
 
 
 class Qwen3MLP(nn.Module):
@@ -395,7 +355,8 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         cosine: torch.Tensor,
         sine: torch.Tensor,
-        attn_bias: torch.Tensor,
+        attn_inputs: AttentionInputs,
+        attn_backend: AttentionBackend,
         past_key_value: PastKeyValue | None = None,
         kv_pool: PastKeyValue | None = None,
         attn_metadata: PagedAttentionMetadata | None = None,
@@ -404,7 +365,7 @@ class Qwen3DecoderLayer(nn.Module):
 
         hidden_states: [batch_size, query_len, hidden_size], model_dtype, contiguous
         cosine / sine: [batch_size, query_len, head_dim],    model_dtype, contiguous
-        attn_bias:     [batch_size, 1, query_len, kv_len],   model_dtype, contiguous
+        attn_inputs:   attn_backend.prepare_inputs 产出的后端专属单步输入（全部层共享）
 
         Returns:
             hidden_states:     [batch_size, query_len, hidden_size], model_dtype, contiguous
@@ -416,7 +377,8 @@ class Qwen3DecoderLayer(nn.Module):
             normalized,
             cosine,
             sine,
-            attn_bias,
+            attn_inputs,
+            attn_backend,
             past_key_value=past_key_value,
             kv_pool=kv_pool,
             attn_metadata=attn_metadata,
@@ -474,28 +436,31 @@ class Qwen3Model(nn.Module):
                 )
         return past_len
 
-    def _prepare_position_ids_and_allowed_mask(
+    def _prepare_dense_attn_inputs(
         self,
         input_ids: torch.Tensor,
-        attention_mask: torch.Tensor | None,
         position_ids: torch.Tensor | None,
-        past_key_values: Sequence[PastKeyValue] | None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """校验 Prefill / Dense Decode 输入并构造位置索引与 4D 布尔可见掩码。
+        attention_mask: torch.Tensor | None,
+        attn_metadata: DenseAttentionMetadata | None,
+    ) -> tuple[torch.Tensor, CausalPaddingMask]:
+        """校验 Prefill / Dense Decode 输入并构造位置索引与「因果 + padding」可见性描述符。
 
         input_ids:      [batch_size, query_len],            long, contiguous
-        attention_mask: [batch_size, past_len + query_len], bool / int, contiguous（None 时默认全 True）
         position_ids:   [batch_size, query_len],            long, contiguous
                         （None 时默认 past_len .. past_len + query_len - 1）
+        attention_mask: [batch_size, past_len + query_len], bool / int, contiguous（None 时默认全 True）
+        attn_metadata:  DenseAttentionMetadata（含逐层历史 K/V）或 None（Prefill / No-Cache）
 
         Returns:
-            position_ids: [batch_size, query_len],         long, contiguous / expand 视图
-            allowed_mask: [batch_size, 1, query_len, kv_len], bool, contiguous
+            position_ids: [batch_size, query_len], long, contiguous / expand 视图
+            mask:         CausalPaddingMask（key_valid [batch_size, kv_len] 为 attention_mask；
+                          query_valid [batch_size, query_len] 为其末 query_len 列切片视图；causal_offset = past_len）
         """
         if input_ids.ndim != 2 or input_ids.shape[1] < 1:
             raise ValueError("input_ids 必须是形状为 [batch, sequence] 的非空 Tensor")
         device = input_ids.device
         batch_size, query_len = input_ids.shape
+        past_key_values = None if attn_metadata is None else attn_metadata.past_key_values
         past_len = self._validate_past_key_values(past_key_values, batch_size)
         kv_len = past_len + query_len
 
@@ -521,36 +486,33 @@ class Qwen3Model(nn.Module):
             )
         position_ids = position_ids.to(device=device, dtype=torch.long)
 
-        # query_positions: [query_len], key_positions: [kv_len]
-        # -> causal_mask: [1, kv_len] <= [query_len, 1] -> [query_len, kv_len], bool, contiguous
-        query_positions = torch.arange(past_len, kv_len, device=device)
-        key_positions = torch.arange(kv_len, device=device)
-        causal_mask = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
-        # causal_mask.view: [1, 1, query_len, kv_len] & attention_mask.view: [batch_size, 1, 1, kv_len]
-        # -> allowed_mask: [batch_size, 1, query_len, kv_len], bool, contiguous（对齐 num_heads 广播维）
-        allowed_mask = causal_mask.view(1, 1, query_len, kv_len) & attention_mask.view(
-            batch_size, 1, 1, kv_len
+        # attention_mask[:, past_len:]: [batch_size, query_len], bool, 末维连续的列切片视图
+        mask = CausalPaddingMask(
+            key_valid=attention_mask,
+            query_valid=attention_mask[:, past_len:],
+            causal_offset=past_len,
         )
-        return position_ids, allowed_mask
+        return position_ids, mask
 
-    def _build_paged_inputs(
+    def _prepare_paged_attn_inputs(
         self,
         input_ids: torch.Tensor,
-        position_ids: torch.Tensor,
-        metadata: PagedAttentionMetadata,
-        dtype: torch.dtype,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """校验 Paged Decode 输入并构造广播加性注意力偏置。
+        position_ids: torch.Tensor | None,
+        attn_metadata: PagedAttentionMetadata,
+    ) -> tuple[torch.Tensor, CausalPaddingMask]:
+        """校验 Paged Decode 输入并构造「因果 + padding」可见性描述符。
 
-        input_ids:    [batch_size, 1], long, contiguous / 切片视图
-        position_ids: [batch_size, 1], long, contiguous / 切片视图
-        metadata:     PagedAttentionMetadata（含 block_tables [batch_size, max_blocks] 与 context_lens [batch_size]）
-        dtype:        model_dtype
+        input_ids:     [batch_size, 1], long, contiguous / 切片视图
+        position_ids:  [batch_size, 1], long, contiguous / 切片视图（Paged Decode 必填）
+        attn_metadata: PagedAttentionMetadata（含 block_tables [batch_size, max_blocks] 与 context_lens [batch_size]）
 
         Returns:
-            position_ids: [batch_size, 1],                    long,  保持输入视图
-            attn_bias:    [batch_size, 1, 1, max_history_len], dtype, contiguous
+            position_ids: [batch_size, 1], long, 保持输入视图
+            mask:         CausalPaddingMask（key_valid [batch_size, max_history_len]，query_valid [batch_size, 1]
+                          全 True，causal_offset = max_history_len - 1 使 Decode Token 可见全部有效历史）
         """
+        if position_ids is None:
+            raise ValueError("Paged Decode 必须提供 position_ids")
         if input_ids.ndim != 2 or input_ids.shape[1] != 1:
             raise ValueError(
                 "Paged Decode 的 input_ids 必须是形状为 [batch, 1] 的 Tensor"
@@ -559,26 +521,26 @@ class Qwen3Model(nn.Module):
             raise ValueError(
                 "Paged Decode 的 position_ids 必须是形状为 [batch, 1] 的 Tensor"
             )
-        kv_pools = metadata.kv_pools
+        kv_pools = attn_metadata.kv_pools
         if len(kv_pools) != len(self.layers):
             raise ValueError("kv_pools 层数与模型层数不一致")
 
-        # 加性注意力偏置 [batch_size, 1, 1, max_history_len]（max_history_len = max_blocks * block_size）：
-        # 仅前 context_lens[b] 个有效位置为 0.0，其余（尾块未写满位置、右侧补齐的 null block）填 dtype 最小值屏蔽。
+        # 仅前 context_lens[b] 个历史位置有效，其余（尾块未写满位置、右侧补齐的 null block）屏蔽。
         # block_tables: [batch_size, max_blocks], key_pool: [num_blocks, block_size, num_kv_heads, head_dim]
-        max_history_len = metadata.block_tables.shape[1] * kv_pools[0][0].shape[1]
+        max_history_len = attn_metadata.block_tables.shape[1] * kv_pools[0][0].shape[1]
+        device = input_ids.device
         # positions: [max_history_len], long, contiguous（0 .. max_history_len - 1）
-        positions = torch.arange(max_history_len, device=input_ids.device)
-        # allowed_mask: [1, max_history_len] < [batch_size, 1] -> [batch_size, max_history_len]
-        #   -> view: [batch_size, 1, 1, max_history_len], bool, contiguous
-        allowed_mask = (positions.unsqueeze(0) < metadata.context_lens.unsqueeze(1)).view(
-            input_ids.shape[0], 1, 1, max_history_len
+        positions = torch.arange(max_history_len, device=device)
+        # key_valid: [1, max_history_len] < [batch_size, 1] -> [batch_size, max_history_len], bool, contiguous
+        key_valid = positions.unsqueeze(0) < attn_metadata.context_lens.unsqueeze(1)
+        # Paged Decode 只包含活跃请求（无 padding 行）：query_valid [batch_size, 1] 全 True
+        query_valid = torch.ones((input_ids.shape[0], 1), dtype=torch.bool, device=device)
+        mask = CausalPaddingMask(
+            key_valid=key_valid,
+            query_valid=query_valid,
+            causal_offset=max_history_len - 1,
         )
-        # attn_bias: [batch_size, 1, 1, max_history_len], model_dtype, contiguous
-        # （对齐 _attend 中 attention_scores [batch_size, num_heads, 1, max_history_len] 的广播维度）
-        attn_bias = torch.zeros(allowed_mask.shape, dtype=dtype, device=input_ids.device)
-        attn_bias.masked_fill_(~allowed_mask, torch.finfo(dtype).min)
-        return position_ids, attn_bias
+        return position_ids, mask
 
     def forward(
         self,
@@ -586,6 +548,7 @@ class Qwen3Model(nn.Module):
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
         attn_metadata: DenseAttentionMetadata | PagedAttentionMetadata | None = None,
+        attn_backend: AttentionBackend = EAGER_ATTENTION_BACKEND,
     ) -> tuple[torch.Tensor, list[PastKeyValue]]:
         """执行主干网络前向，返回最终归一化隐藏状态与逐层键值状态。
 
@@ -593,6 +556,7 @@ class Qwen3Model(nn.Module):
         attention_mask: [batch_size, past_len + query_len], bool / int, contiguous（Paged 下忽略）
         position_ids:   [batch_size, query_len],            long, contiguous / 切片视图
         attn_metadata:  None（Prefill / No-Cache）| DenseAttentionMetadata | PagedAttentionMetadata
+        attn_backend:   attention 核心计算后端（默认 eager baseline）
 
         Returns:
             hidden_states:      [batch_size, query_len, hidden_size], model_dtype, contiguous
@@ -600,24 +564,15 @@ class Qwen3Model(nn.Module):
         """
         hidden_states = self.embed_tokens(input_ids)
         if isinstance(attn_metadata, PagedAttentionMetadata):
-            if position_ids is None:
-                raise ValueError("Paged Decode 必须提供 position_ids")
-            position_ids, attn_bias = self._build_paged_inputs(
-                input_ids, position_ids, attn_metadata, hidden_states.dtype
+            position_ids, mask = self._prepare_paged_attn_inputs(
+                input_ids, position_ids, attn_metadata
             )
         else:
-            past_key_values = (
-                None if attn_metadata is None else attn_metadata.past_key_values
+            position_ids, mask = self._prepare_dense_attn_inputs(
+                input_ids, position_ids, attention_mask, attn_metadata
             )
-            position_ids, allowed_mask = self._prepare_position_ids_and_allowed_mask(
-                input_ids, attention_mask, position_ids, past_key_values
-            )
-            attn_bias = torch.zeros(
-                allowed_mask.shape,
-                dtype=hidden_states.dtype,
-                device=hidden_states.device,
-            )
-            attn_bias.masked_fill_(~allowed_mask, torch.finfo(hidden_states.dtype).min)
+        # 每次前向只预计算一次 backend 专属输入（eager 物化加性 attn_bias，flash 封装 CausalPaddingMask），全部层共享。
+        attn_inputs = attn_backend.prepare_inputs(mask, hidden_states.dtype)
 
         cosine, sine = self.rotary_emb(position_ids, hidden_states.dtype)
 
@@ -634,7 +589,8 @@ class Qwen3Model(nn.Module):
                 hidden_states,
                 cosine,
                 sine,
-                attn_bias,
+                attn_inputs,
+                attn_backend,
                 past_key_value=layer_past,
                 kv_pool=layer_kv_pool,
                 attn_metadata=attn_metadata if is_paged else None,
@@ -663,6 +619,7 @@ class Qwen3ForCausalLM(nn.Module):
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
         attn_metadata: DenseAttentionMetadata | PagedAttentionMetadata | None = None,
+        attn_backend: AttentionBackend = EAGER_ATTENTION_BACKEND,
     ) -> tuple[torch.Tensor, list[PastKeyValue]]:
         """执行因果语言模型前向，返回词表 Logits 与逐层 present_key_values。
 
@@ -670,6 +627,7 @@ class Qwen3ForCausalLM(nn.Module):
         attention_mask: [batch_size, past_len + query_len], bool / int, contiguous（Paged 下忽略）
         position_ids:   [batch_size, query_len],            long, contiguous / 切片视图
         attn_metadata:  None（Prefill / No-Cache）| DenseAttentionMetadata | PagedAttentionMetadata
+        attn_backend:   attention 核心计算后端（默认 eager baseline）
 
         Returns:
             logits:             [batch_size, query_len, vocab_size], model_dtype, contiguous
@@ -680,6 +638,7 @@ class Qwen3ForCausalLM(nn.Module):
             attention_mask=attention_mask,
             position_ids=position_ids,
             attn_metadata=attn_metadata,
+            attn_backend=attn_backend,
         )
         return self.lm_head(hidden_states), present_key_values
 

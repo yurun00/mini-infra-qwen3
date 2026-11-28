@@ -34,9 +34,11 @@ from mini_infra.engine import (
 )
 from mini_infra.entrypoints import GenerationOptions, generate
 from mini_infra.model import (
+    ATTENTION_BACKEND_KINDS,
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     load_model,
+    parse_attention_backend_kind,
     resolve_model_directory,
 )
 from mini_infra.profiling import TensorBoardOptions
@@ -93,6 +95,12 @@ _ENGINE_CONFIG_ARGS: dict[str, dict[str, Any]] = {
         "type": int,
         "default": None,
         "help": "token-budget / chunked-prefill 策略下单次 Prefill 的 padded token 上限，须不小于并发上限",
+    },
+    "--attention-backend": {
+        "default": "eager",
+        "choices": list(ATTENTION_BACKEND_KINDS),
+        "help": "Attention 核心计算后端：eager 显式物化 Score / Probability（baseline），"
+        "flash 为 Triton 手写 FlashAttention 前向 Kernel（需 CUDA；默认: %(default)s）",
     },
     "--feature-flags": {
         "type": _parse_feature_flags,
@@ -181,6 +189,7 @@ def build_engine_config(args: argparse.Namespace) -> EngineConfig:
             max_running_requests=args.max_running_requests,
             token_budget=args.token_budget,
         ),
+        attention_backend=parse_attention_backend_kind(args.attention_backend),
     )
 
 

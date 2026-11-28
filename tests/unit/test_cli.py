@@ -53,6 +53,7 @@ def test_cli_subcommand_helps():
         ["verify", "prefix-caching", "--help"],
         ["verify", "paged-cache-logits", "--help"],
         ["verify", "paged-cache-scheduler", "--help"],
+        ["verify", "flash-attention", "--help"],
         ["bench", "lockstep", "case", "--help"],
         ["bench", "scheduler", "case", "--help"],
         ["bench", "sweep", "--help"],

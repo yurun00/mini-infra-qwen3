@@ -160,7 +160,7 @@ def run_lockstep(
         )
     use_cache = isinstance(kv_cache_config, DenseCacheConfig)
 
-    runner = LockstepRunner(model, pad_token_id)
+    runner = LockstepRunner(model, pad_token_id, config.attention_backend)
     device = runner.device
     is_cuda = device.type == "cuda"
     synchronize(device)

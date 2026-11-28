@@ -18,6 +18,7 @@
 - **Token-Budget 迭代级组批调度**：在 `IterationScheduler` 中支持 `token-budget` 单步组批策略（batching policy），按 padded prompt tokens 预算控制单次 Prefill 规模并启用 decode protection，抑制突发到达请求对在途 Decode 尾延迟（ITL）的阻塞。
 - **Chunked Prefill 迭代级组批调度**：`chunked-prefill` 组批策略把长 Prompt 按 token budget 硬预算切成 chunk 跨步推进（仅 `paged-kv-cache` + `continuous-batching`），历史 K/V 经 block table 从 physical block pool 读回，新增 `num_prefill_chunks` / `max_prefill_step_tokens` / `max_prefill_step_ms` 指标，消除 oversize prefill 对在途 Decode 的整段阻塞。
 - **Prefix Caching（自动前缀缓存）**：`--prefix-caching enabled`（仅 `paged-kv-cache`）把写满的 physical block 按链式 block hash 登记为 cached block，新请求复用最长公共前缀的 K/V 并跳过其 Prefill；引用计数共享、惰性 LRU 淘汰（不额外占用显存），Decode 写满的块同样可被多轮对话命中。
+- **FlashAttention（Triton 手写前向 Kernel）**：`--attention-backend flash` 以可替换的 attention backend（对标 vLLM `AttentionBackend`）接入，分块读取 K/V、Online Softmax 累加，不物化完整 Score / Probability；原生 GQA、任意 stride K/V（Paged gather 视图零拷贝）、因果 Tile 跳过，覆盖 Prefill / Chunked Prefill / Decode 与 Dense / Paged 全部路径，`eager` baseline 数值路径保持不变，详见 [FlashAttention](docs/architecture/flash-attention.md)。
 
 ### 规划中特性 (Roadmap)
 - [x] **Continuous Batching 调度**：支持多请求动态并发与动态组批（DenseSlotCache + `mini-infra bench scheduler`）
@@ -25,7 +26,7 @@
 - [x] **Token-Budget 迭代级组批调度**：按 token budget 限制单次 Prefill 规模并启用 decode protection，平抑 Decode 尾延迟
 - [x] **Chunked Prefill 迭代级组批调度**：按 token budget 硬预算将长 Prompt 切块跨步推进，消除 oversize prefill 对在途 Decode 的整段阻塞
 - [x] **Prefix Caching**：block hash 链匹配公共前缀，cached block 引用计数共享与惰性 LRU 淘汰
-- [ ] **FlashAttention / SDPA 算子融合**：优化 Attention 显存与计算访存瓶颈
+- [x] **FlashAttention 算子融合**：Triton 手写 FlashAttention 前向 Kernel，消除 Score / Probability 物化的显存与访存瓶颈
 - [ ] **FlashAttention-Varlen**：针对可变长度输入的 FlashAttention  
 - [ ] **Tensor Parallelism (TP)**：张量并行分布式推理
 
@@ -41,6 +42,9 @@ mini-infra-qwen3/
 │       ├── device.py                  # 通用硬件设备同步与显存统计工具
 │       ├── utils.py                   # 通用基础数学与统计工具（percentile 分位数计算等）
 │       ├── model/                     # 统一模型算子面（Pure Tensor-In, Tensor-Out）
+│       │   ├── attention/             # attention backend（AttentionBackend / CausalPaddingMask / get_attn_backend）
+│       │   │   ├── eager.py           # EagerAttentionBackend：显式物化 Score / Probability 的 baseline
+│       │   │   └── flash_attention.py # Triton 手写 FlashAttention 前向 Kernel 与 FlashAttentionBackend
 │       │   ├── config.py              # Qwen3Config 模型配置
 │       │   ├── loader.py              # 模型目录解析与 safetensors 权重加载（resolve_model_directory, load_model）
 │       │   └── qwen3.py               # RMSNorm, RotaryEmbedding, Attention, MLP, Qwen3ForCausalLM
@@ -82,7 +86,7 @@ mini-infra-qwen3/
 │       │   ├── main.py                # 根命令 mini-infra 注册与分发
 │       │   └── commands/              # run / bench / verify 分级子命令实现
 │       │       ├── run.py             # mini-infra run：单请求/批处理推理与对照
-│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget / chunked-prefill / prefix-caching / paged-cache-logits / paged-cache-scheduler)
+│       │       ├── verify/            # mini-infra verify (smoke / transformers / cache / batch-lockstep / batch-scheduler / schedulers-token-budget / chunked-prefill / prefix-caching / paged-cache-logits / paged-cache-scheduler / flash-attention)
 │       │       └── bench/             # mini-infra bench (lockstep / scheduler / suites / sweep / plot / check-regression / release)
 │       ├── verification/              # 正确性验证与数值等价性核心库
 │       │   ├── smoke.py               # 快速自检算法实现（CPU）
@@ -96,7 +100,8 @@ mini-infra-qwen3/
 │       │       ├── compare_batch_scheduler.py # Scheduler 批处理（Fixed/Continuous）动态请求归属与输出一致性对齐
 │       │       ├── compare_schedulers_token_budget.py # prefill-first 与 token-budget 迭代级调度策略输出与轨迹对齐
 │       │       ├── compare_chunked_prefill.py         # token-budget 与 chunked-prefill 输出、首 Token Logits 与轨迹对齐
-│       │       └── compare_prefix_caching.py          # prefix caching 关闭与开启的输出、首 Token Logits 与块引用不变量对齐
+│       │       ├── compare_prefix_caching.py          # prefix caching 关闭与开启的输出、首 Token Logits 与块引用不变量对齐
+│       │       └── compare_flash_attention.py         # eager 与 flash attention backend 的 Kernel 级误差与模型级输出对齐
 │       └── bench/                     # 性能基准测试与分析核心库
 │           ├── paths.py               # 基准测试与报告标准目录常量
 │           ├── env.py                 # 硬件 GPU、宿主机与 Git 环境元数据采集
@@ -281,6 +286,14 @@ mini-infra run \
             "共同背景：KV Cache 缓存历史 Token 的 K/V，Decode 时无需重算。请用一句话解释 Decode。" \
   --max-new-tokens 16 \
   --max-running-requests 1
+
+# 8. 对比 eager 与 Triton FlashAttention backend（其余 EngineConfig 参数不变）
+mini-infra run \
+  --caching-method paged-kv-cache \
+  --batching-method continuous-batching \
+  --batching-policy chunked-prefill --token-budget 64 \
+  --compare-feature attention-backend eager flash \
+  --max-new-tokens 16
 ```
 
 `--compare-feature ARG VALUE1 VALUE2` 中 ARG 为任一 EngineConfig 参数名（去掉 `--`），两个取值分别与其余参数合成两个 EngineConfig 后对照；若两个取值在当前参数下合成相同配置（如 dense-kv-cache 下对比 `kv-block-size`）会直接报错。`--max-new-tokens` 可传 1 个值（所有请求共用）或与 prompts 数量一致的逐请求预算。只要 `--batching-method` 或 `--compare-feature` 中出现 continuous-batching，所有 fixed/continuous 结果统一由 `run_scheduler` 产出（受 `--max-running-requests` 约束），并额外输出 Makespan、排队/TTFT/ITL 分位数与 Cache 管理耗时占比；该路径暂不支持 `--profile`。`--batching-policy token-budget --token-budget N` 以 padded prompt token 数限制单次 Prefill 规模并启用 decode protection（仅支持 continuous-batching，且 `N` 不小于并发上限），`--batching-policy chunked-prefill --token-budget N` 在此基础上把长 Prompt 切成 chunk（硬预算、无 oversize prefill，另需 paged-kv-cache），详见 [迭代级组批与调度策略](docs/architecture/iteration-scheduling.md)。
